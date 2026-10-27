@@ -4,12 +4,23 @@ packages = ["openrct2"]
 # in no metapackage (an upgrade installs nothing new): Walnut Games installs it
 suite = "none"
 needs_data = true
-# RollerCoaster Tycoon 2's data, from the player's own CD (make licensed-data PKG=rct2-data INPUT=<image>)
-data = ["rct2-data"]
+# RollerCoaster Tycoon 2's data: game-data-packager's package (in /usr/share/games/roller-coaster-tycoon2),
+# then the licensed suite's older rct2-data (/usr/share/games/rct2)
+data = ["roller-coaster-tycoon2-data", "rct2-data"]
 
 [[licensed]]
+# game-data-packager's package from the owner's CD image or folder (make licensed-data
+# PKG=roller-coaster-tycoon2-data INPUT=<image or folder>); the same name and files the console's import makes
+name = "roller-coaster-tycoon2-data"
+builder = "game-data-packager:roller-coaster-tycoon2"
+input = true
+
+[[licensed]]
+# our own script's package from the CD (/usr/share/games/rct2, 1.0-2 the last), built no more: its
+# published files stay, and the console counts it as the game's data (present_any)
 name = "rct2-data"
-builder = "script"
+builder = "retired"
+edition = "full"
 
 [data_setup]
 gdp = "roller-coaster-tycoon2"

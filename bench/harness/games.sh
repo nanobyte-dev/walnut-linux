@@ -81,3 +81,21 @@ bench_playdef() {	# bench_playdef ID: TEST_* from the game's test.toml (playdef.
 	out=$(python3 -I "$BENCH/harness/playdef.py" "$f") || return 2
 	eval "$out"
 }
+
+bench_data_versions() {	# bench_data_versions ID: its installed data packages for the versions file, a line each:
+	# "data:<pkg>\t<version>[ edition=<e>][ release=<r>]" (tools/gamedb/import-run.py: result.toml [data]).
+	# The packages come from <id>/data.txt (make bench-push: tools/gamedb/build-info.py bench-data: package,
+	# edition, release); the package's X-Walnut-Edition/X-Walnut-Release win over that file's (a build made
+	# before the fields has none). No data.txt (the repository's tree, a game without data): nothing.
+	local f p e r st v fe fr
+	f=$(bench_root)/$1/data.txt
+	[ -r "$f" ] || return 0
+	while read -r p e r; do
+		case $p in ''|'#'*) continue ;; esac
+		IFS='|' read -r st v fe fr < <(dpkg-query -W -f '${db:Status-Abbrev}|${Version}|${X-Walnut-Edition}|${X-Walnut-Release}\n' "$p" 2> /dev/null) || continue
+		[ "${st:0:2}" = ii ] && [ -n "$v" ] || continue
+		e=${fe:-$e}; [ "$e" = - ] && e=
+		r=${fr:-$r}
+		printf 'data:%s\t%s%s%s\n' "$p" "$v" "${e:+ edition=$e}" "${r:+ release=$r}"
+	done < "$f"
+}

@@ -12,3 +12,6 @@ recipes = ["sauerbraten:base"]
 [[licensed]]
 name = "sauerbraten-data"
 builder = "source"
+# X-Walnut-Edition and X-Walnut-Release (its debian/control says the same)
+edition = "full"
+release = "2020_12_29"

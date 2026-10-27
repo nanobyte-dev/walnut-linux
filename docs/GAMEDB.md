@@ -340,6 +340,14 @@ game has it.
 - **Sessions merge on the same driver stack.** Only sessions with the newest one's Mesa and kernel versions
   are merged into a rating (a crash a newer Mesa fixed doesn't count against the next run); the history
   keeps them all.
+- **Sessions merge on the same data edition.** The harness records the game's installed data packages
+  with their edition and release (result.toml `[data]`, from each package's `X-Walnut-Edition` and
+  `X-Walnut-Release`, else gamedb's editions: gamedb/README.md); a rating merges only sessions whose set
+  of editions is the newest one's, so Quake on the shareware isn't averaged with Quake on the full game.
+  The package names don't count (the licensed suite's `rct2-data` and the imported
+  `roller-coaster-tycoon2-data` are both `full`), nor the release (a CD and a GOG copy of one edition
+  play the same). A session that recorded no data, from before the harness did (2026-10-27) or of a game
+  without data packages, merges as before (catalog.py `same_editions`).
 - **No medal without frame rate and smoothness.** They are the core of a rating; a session where
   the frame timer saw nothing (a software renderer doesn't go through OpenGL, which the timer hooks)
   gets its numbers but no medal ("played, but not rated: frame rate and smoothness not measured"),

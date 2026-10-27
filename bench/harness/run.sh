@@ -163,6 +163,8 @@ versions() {	# versions GAME VARIANT: the game's package and the graphics stack 
 	uname -r
 	# the Walnut release (os-release's VERSION_ID): the version a test is filed under in the games database
 	printf 'walnut\t%s\n' "$(. /etc/os-release 2>/dev/null; echo "${VERSION_ID:-}")"
+	# the game's data packages, their edition and release (games.sh): sessions on other editions aren't merged
+	bench_data_versions "$1"
 }
 game() { bench_id "$1" || { echo "!! no recipe $1 (run.sh list)" >&2; return 1; }; }	# a name -> its id
 variants() { grep -o '^variant_[a-z0-9_]*' "$(bench_recipe "$1")" | sed 's/^variant_//' | tr '\n' ' '; }

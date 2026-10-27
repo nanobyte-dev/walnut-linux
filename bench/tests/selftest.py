@@ -62,7 +62,9 @@
  16. the games' data: playdef.py's schema and shell lines (values back exactly through bash), client.sh in a
      played session taking the test's process, play mark, command, env and HUD; gamedata.py
      over a made-up gamedb (BENCH_GAMES: an engine's log rules before the game's, [reload], a run's id from
-     bench.txt or its label, the played test, the title) and logscan.py applying a game's rules to its runs only
+     bench.txt or its label, the played test, the title) and logscan.py applying a game's rules to its runs only;
+     games.sh's bench_data_versions over a made-up data.txt and a fake dpkg-query (the package's X-Walnut
+     fields over the file's, packages not installed left out) and shots.py's versions line with them
 Exit status 0 when every check passes; scratch files in a temporary directory, removed at the end."""
 import os
 import re
@@ -2033,6 +2035,36 @@ def gamedata_synthetic(tmp):
             f.cache_clear()
 
 
+def data_versions(tmp):
+    """games.sh bench_data_versions: the game's installed data packages from games/<id>/data.txt (make
+    bench-push), the package's own X-Walnut-Edition/X-Walnut-Release over the file's"""
+    print("\nthe game's data packages in the versions file (games.sh bench_data_versions)")
+    root, fake = tmp / "dv-games", tmp / "dv-bin"
+    write(root / "q" / "data.txt", "# package edition release\nq-shareware shareware\nq-full full\nq-old -\n"
+                                   "q-music music 1.0\nq-gone full\n")
+    # dpkg-query -W -f FORMAT PKG: what an installed package's fields give (stamped, older, removed, absent)
+    write(fake / "dpkg-query", "#!/bin/sh\ncase $4 in\n"
+          "q-shareware) printf 'ii |89|shareware|106\\n' ;;\nq-full) printf 'ii |89|||\\n' ;;\n"
+          "q-old) printf 'ii |1.0-2|||\\n' ;;\nq-music) printf 'rc |89|music||\\n' ;;\n"
+          "*) echo \"dpkg-query: no packages found matching $4\" >&2; exit 1 ;;\nesac\n")
+    (fake / "dpkg-query").chmod(0o755)
+    env = dict(os.environ, PATH="%s:%s" % (fake, os.environ["PATH"]), BENCH_GAMES=str(root))
+    run = lambda g: subprocess.run(["bash", "-c", '. "$1/harness/games.sh"; bench_data_versions "$2"', "_", str(BENCH), g],
+                                   env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    r = run("q")
+    want = ["data:q-shareware\t89 edition=shareware release=106", "data:q-full\t89 edition=full", "data:q-old\t1.0-2"]
+    check("bench_data_versions: installed ones only, the package's fields first, else data.txt's",
+          r.returncode == 0 and r.stdout.splitlines() == want, (r.returncode, r.stdout, r.stderr))
+    r = run("none")
+    check("bench_data_versions: no data.txt, nothing", r.returncode == 0 and r.stdout == "", (r.returncode, r.stdout))
+    import shots
+    d = tmp / "dv-run"
+    write(d / "versions", "openal\t1.0\n6.12.0+ps3.1\n" + "\n".join(want) + "\n")
+    v = shots.versions(d)
+    check("shots.py: the data packages listed, the kernel kept", v == "openal 1.0, q-shareware 89 edition=shareware "
+          "release=106, q-full 89 edition=full, q-old 1.0-2, kernel 6.12.0+ps3.1", v)
+
+
 # --- 15. sound dropouts: ps3-xrunlog.so, xruns.py and client.sh's XRUNLOG ----------------------------
 def xruns_synthetic(tmp):
     """xruns.py's rule and summary on made-up log lines"""
@@ -2165,6 +2197,7 @@ if __name__ == "__main__":
         xruns_synthetic(tmp)
         xrunlog_e2e(tmp)
         gamedata_synthetic(tmp)
+        data_versions(tmp)
         import intfcheck
         print("\ninterference detector (intfcheck.py)")
         intfcheck.run(tmp, check)

@@ -7,8 +7,8 @@ tools/gamedb/blocks.py's GENERATORS. Each is a function (repo, args) -> markdown
       column per metric (gamedb/benchmarks/metrics.toml, with its unit), and a line naming the batch.
       The evidence tables of HOTPATHS.md, MEMORY.md and the like, where their numbers are records.
   licensed-table [root=PATH]
-      every [[licensed]] entry of a game's build.toml: the package, its game, how it is built, whether
-      ps3-games-licensed pulls it in (pack-integration.py's rule). docs/PACKAGING.md "Game data".
+      every [[licensed]] entry of a game's build.toml: the package, its game, how it is built, its edition
+      (and release), whether ps3-games-licensed pulls it in (pack-integration.py's rule). docs/PACKAGING.md "Game data".
   gamedb-packages [root=PATH]
       every source package and licensed builder in gamedb/ (games/<id>/packages/, games/<id>/licensed/,
       engines/<e>/packages/): its path, its game or engine, where its source comes from (package.conf),
@@ -123,26 +123,35 @@ def gen_batch_table(repo, args):
 
 
 def gen_licensed_table(repo, args):
-    """every licensed data package that a game's build.toml declares"""
+    """every licensed data package that a game's build.toml declares, with its edition (X-Walnut-Edition)"""
     _, o = _opts(args, {"root"})
     root = o.get("root", "../gamedb").rstrip("/")
     repo = Path(repo)
-    out = ["| Package | Game | Built by | In ps3-games-licensed |", "|---|---|---|---|"]
+    out = ["| Package | Game | Built by | Edition | In ps3-games-licensed |", "|---|---|---|---|---|"]
     for f in sorted((repo / "gamedb" / "games").glob("*/build.toml")):
         b = tomllib.loads(f.read_text())
         gid = f.parent.name
+        editions = (b.get("data_setup") or {}).get("editions") or {}
         for e in b.get("licensed", []):
             title, path = _owner(repo, "games", gid)
             d = f.parent / "licensed" / e["name"]
             builder = e.get("builder", "")
-            if builder.startswith("game-data-packager:"):
+            if builder.startswith("game-data-packager:") and e.get("input"):
+                how = "game-data-packager, from the owner's copy (`make licensed-data`)"
+            elif builder.startswith("game-data-packager:"):
                 how = "game-data-packager (`make game-data`)"
+            elif builder == "retired":
+                how = "retired: its published versions stay, built no more"
             elif d.is_dir():
                 how = "`%s/licensed/%s/`" % (path.rstrip("/"), e["name"])
             else:
                 how = builder
+            ed = editions.get(e["name"]) or e.get("edition") or "?"
+            if e.get("release"):
+                ed += " (%s)" % e["release"]
             meta = e.get("meta", b.get("suite") == "licensed")
-            out.append("| `%s` | [%s](%s/%s) | %s | %s |" % (e["name"], title, root, path, how, "yes" if meta else "no"))
+            out.append("| `%s` | [%s](%s/%s) | %s | %s | %s |" % (e["name"], title, root, path, how, ed,
+                                                               "yes" if meta else "no"))
     return "\n".join(out) + "\n"
 
 

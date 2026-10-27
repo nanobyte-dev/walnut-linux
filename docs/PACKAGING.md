@@ -233,26 +233,45 @@ Each is declared by a `[[licensed]]` entry in its game's `build.toml` (gamedb/RE
 where its files come from and their licences are on the game's technical page.
 
 <!-- gamedb:licensed-table -->
-| Package | Game | Built by | In ps3-games-licensed |
-|---|---|---|---|
-| `sauerbraten-nonfree-data` | [BananaBread](../gamedb/games/bananabread/) | `games/bananabread/licensed/sauerbraten-nonfree-data/` | yes |
-| `classicube-data` | [ClassiCube](../gamedb/games/classicube/) | `games/classicube/licensed/classicube-data/` | yes |
-| `rct2-data` | [OpenRCT2](../gamedb/games/openrct2/) | `games/openrct2/licensed/rct2-data/` | no |
-| `tyrian-data` | [OpenTyrian](../gamedb/games/opentyrian/) | `games/opentyrian/licensed/tyrian-data/` | no |
-| `quake-shareware` | [QuakeSpasm](../gamedb/games/quakespasm/) | game-data-packager (`make game-data`) | yes |
-| `sauerbraten-data` | [Sauerbraten](../gamedb/games/sauerbraten/) | `games/sauerbraten/licensed/sauerbraten-data/` | no |
-| `quake2-demo-data` | [Yamagi Quake II](../gamedb/games/yquake2/) | game-data-packager (`make game-data`) | yes |
+| Package | Game | Built by | Edition | In ps3-games-licensed |
+|---|---|---|---|---|
+| `sauerbraten-nonfree-data` | [BananaBread](../gamedb/games/bananabread/) | `games/bananabread/licensed/sauerbraten-nonfree-data/` | full (2020_12_29) | yes |
+| `classicube-data` | [ClassiCube](../gamedb/games/classicube/) | `games/classicube/licensed/classicube-data/` | full | yes |
+| `roller-coaster-tycoon2-data` | [OpenRCT2](../gamedb/games/openrct2/) | game-data-packager, from the owner's copy (`make licensed-data`) | full | no |
+| `rct2-data` | [OpenRCT2](../gamedb/games/openrct2/) | retired: its published versions stay, built no more | full | no |
+| `tyrian-data` | [OpenTyrian](../gamedb/games/opentyrian/) | `games/opentyrian/licensed/tyrian-data/` | full (2.1) | no |
+| `quake-shareware` | [QuakeSpasm](../gamedb/games/quakespasm/) | game-data-packager (`make game-data`) | shareware | yes |
+| `sauerbraten-data` | [Sauerbraten](../gamedb/games/sauerbraten/) | `games/sauerbraten/licensed/sauerbraten-data/` | full (2020_12_29) | no |
+| `quake2-demo-data` | [Yamagi Quake II](../gamedb/games/yquake2/) | game-data-packager (`make game-data`) | demo | yes |
 <!-- /gamedb:licensed-table -->
 
 A licensed package is built on our own PC, never by CI, and goes to the licensed suite only
 (`make publish`), kept forever. Free packages only `Suggests` it (the rule above), and a package that
 replaces data a free package used to bundle carries the `Breaks`/`Replaces` for that upgrade.
 
+**What it holds.** Every new build carries the control fields the console's import writes ("Data built on
+the console" below): `X-Walnut-Edition` (the Edition column: `[data_setup] editions`, else the
+`[[licensed]]` entry's `edition`) and, when known, `X-Walnut-Release` (the entry's `release` for our own
+source and script builds; for game-data-packager's, the release the import's manifest names for the files
+it packed: `106` for Quake's shareware pak0, `demo`, `cd`). Source packages say them in `debian/control`'s
+binary stanza as `XB-X-Walnut-Edition`/`XB-X-Walnut-Release` (dpkg-gencontrol strips the `XB-` and the
+binary gets `X-Walnut-*`; checked with dpkg 1.23), `tyrian-data.sh` writes what `tools/gamedb/build-info.py
+fields` prints, and `tools/game-data.sh` stamps gdp's deb afterwards (`tools/gamedb/stamp-data-deb.py`: only
+the control member rewritten, the data member's bytes kept, the same input giving the same file). Versions
+published before 2026-10-27 have no fields and are never rebuilt; the session harness then takes gamedb's
+edition (docs/GAMEDB.md).
+
+**Names.** Where game-data-packager makes a package, our licensed build uses its name and files:
+`roller-coaster-tycoon2-data` (gdp from the owner's CD) replaces our own `rct2-data` from 2026-10-27.
+`rct2-data`'s published versions stay (`builder = "retired"`), so licensed.py, the leak checks and
+`check --since` still know the name, and the console counts either as the game's data (`present_any`);
+`tools/play-pc.sh` mounts whichever deb it finds (build.toml `data` lists both).
+
 ### Built by game-data-packager
 
 **Our game-data-packager.** `packages/patched/tools/game-data-packager/` is Debian's `game-data-packager` 89 from contrib (`89+ps3.N`; `NATIVE_PROFILES=pkg.game-data-packager.nowrappers` builds only `game-data-packager` and `game-data-packager-runtime`, not the quake/quake2/quake3 wrappers). Walnut Games imports the player's game data with it (PLAN 5.10): `--progress-fd FD` writes `step`, `file`, `generated` and one `error <kind>` line (`not-found`, `unknown-version`, `needs-download`, `no-space`, `failed`) to FD, `--no-launchers` keeps the Doom family's `.desktop` files and icons out (our launchers do that), the unpackers (innoextract, unshield, cabextract, 7zip, lhasa, unzip) are Recommends, and two early releases gdp marks unsuitable are accepted as the last alternative of the same file (0006): Doom II 1.666 (`doom2.wad?1.666`) and Heretic 1.0 (`heretic.wad?1.0`, episodes 1-3), since players with the original boxes have them and dsda-doom plays both (tested on the PS3, 2026-10-27). Hexen 1.0 stays refused: dsda-hexen says "The Hexen v1.0 IWAD is not supported", and gdp has no patching path to 1.1. `make gdp-index` and `make gdp-manifest` read our gdp, not Debian's: the deb `make game-data-packager-deb` built, installed over Debian's in a throwaway games builder container. `make game-data` (the licensed suite's data) stays on Debian's own copy in `Dockerfile.games`, so its published files keep their versions.
 
-`make game-data` (`tools/game-data.sh`, in the games builder with game-data-packager 89 from contrib and lhasa) makes every `build.toml` `[[licensed]]` with `builder = "game-data-packager:<game>"` (`tools/gamedb/build-info.py game-data`) into `build/debs/game-data` (`build/debs/quake-data` before 2026-10-26, as `make quake-data`); the archives it downloads are kept in `build/downloads/game-data`. Deploys, images and `make publish` take the debs like any build.
+`make game-data` (`tools/game-data.sh`, in the games builder with game-data-packager 89 from contrib, lhasa, unshield and innoextract) makes every `build.toml` `[[licensed]]` with `builder = "game-data-packager:<game>"` (`tools/gamedb/build-info.py game-data`) into `build/debs/game-data` (`build/debs/quake-data` before 2026-10-26, as `make quake-data`); the archives it downloads are kept in `build/downloads/game-data`. One with `input = true` is made from the owner's copy only: `make licensed-data PKG=roller-coaster-tycoon2-data INPUT=<the CD image, a folder or an installer>` mounts INPUT into the builder (an `.iso` unpacked with 7z into `build/tmp/licensed-input` first, removed afterwards) and writes `build/debs/<pkg>`; `make game-data` only takes its published file. Each file made is stamped with its `X-Walnut-*` fields. Deploys, images and `make publish` take the debs like any build.
 
 game-data-packager's output isn't reproducible (the files' dates are the build time), and the kept suites never take a different file under a published version. So once a version is published, `make game-data` downloads that file from the licensed suite instead of making it again (with the suite's login from `apt-repo/licensed-auth.sh`, checked against the suite's SHA256). `REGEN=1` makes it anyway and refuses when the version it gets is already published. A new file only goes out under a new version (a newer game-data-packager).
 
@@ -271,6 +290,7 @@ helper builds the package again from scratch: the files that match the packaged 
 - **Fields.** `X-Walnut-Edition` (`[data_setup] editions`: shareware, demo, full, expansion, music) and,
   when gdp names the versions of the files it accepts, `X-Walnut-Release` (the names of the versions the
   required files matched, `+`-joined: `1.9ud`, `cd`). Conflicts/Replaces only the manifest's same-game ones.
+  Our licensed builds write the same two fields ("What it holds" above).
 - **Lifetime.** Installed with `apt-get install ./X.deb`, so manually installed: autoremove leaves it. A
   newer gdp never rebuilds it; importing again (`--reinstall`) does. `walnut-data remove <game>` removes it.
 
@@ -285,7 +305,7 @@ sudo 1.9.17, with and without a terminal), so the sudoers rule stays one line.
 
 ### Built from a source package or a script
 
-A licensed source package lives in its game's bundle, `gamedb/games/<id>/licensed/<pkg>/` (licensed by its place: text only, never public). Its tarball is made by its `orig.mk` or the builder script there (the upstream archive downloaded once and checked, the listed files with a fixed owner and mtime, `gzip -n`), so the same files give the same deb for a given commit; `make <pkg>-src` and `make <pkg>-deb` (indep builder) build it. A builder script without a `package.conf` (`builder = "script"`) makes the deb itself from the owner's own copy. As with game-data-packager's output, once a version is published, never build it again under that version: take the published file.
+A licensed source package lives in its game's bundle, `gamedb/games/<id>/licensed/<pkg>/` (licensed by its place: text only, never public); its `debian/control` gives the binary its `XB-X-Walnut-Edition` and `XB-X-Walnut-Release`, the same as build.toml (`check.py`). Its tarball is made by its `orig.mk` or the builder script there (the upstream archive downloaded once and checked, the listed files with a fixed owner and mtime, `gzip -n`), so the same files give the same deb for a given commit; `make <pkg>-src` and `make <pkg>-deb` (indep builder) build it. A builder script without a `package.conf` (`builder = "script"`) makes the deb itself from the owner's own copy. As with game-data-packager's output, once a version is published, never build it again under that version: take the published file.
 
 ## Migration from the old image scripts
 

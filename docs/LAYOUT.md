@@ -123,7 +123,6 @@ gamedb/README.md.
 | `games/yquake2/packages/yquake2/` | [Yamagi Quake II](../gamedb/games/yquake2/) | Debian's `yquake2` 8.70+dfsg-1 | 2 |
 | `games/bananabread/licensed/sauerbraten-nonfree-data/` | [BananaBread, licensed data](../gamedb/games/bananabread/) | upstream tarball (`upstream.mk`) | none (+ `debian/`) |
 | `games/classicube/licensed/classicube-data/` | [ClassiCube, licensed data](../gamedb/games/classicube/) | upstream tarball (`upstream.mk`) | none (+ `debian/`) |
-| `games/openrct2/licensed/rct2-data/` | [OpenRCT2, licensed data](../gamedb/games/openrct2/) | script `rct2-data.sh` | none |
 | `games/opentyrian/licensed/tyrian-data/` | [OpenTyrian, licensed data](../gamedb/games/opentyrian/) | script `tyrian-data.sh` | none |
 | `games/sauerbraten/licensed/sauerbraten-data/` | [Sauerbraten, licensed data](../gamedb/games/sauerbraten/) | upstream tarball (`upstream.mk`) | none (+ `debian/`) |
 <!-- /gamedb:gamedb-packages -->

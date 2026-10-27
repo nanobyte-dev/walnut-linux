@@ -4,6 +4,7 @@ python3 -I tools/gamedb/test_gamedb.py. The calibration test scores the summary 
 (gamedb's benchmark records) and compares the medals and docs/GAMEDB.md's generated table, so a change to the
 scoring that moves a medal, or a stale table, fails here."""
 import contextlib
+import hashlib
 import importlib.util
 import io
 import json
@@ -601,7 +602,7 @@ class Check(unittest.TestCase):
         self.assertIn("unexpected file desktop/notes.txt", text)
 
     def test_build_toml_licensed(self):
-        lic = '[[licensed]]\nname = "ex-data"\nbuilder = "source"\n'
+        lic = '[[licensed]]\nname = "ex-data"\nbuilder = "source"\nedition = "full"\n'
         write_game(self.content, build=lic + 'meta = "yes"\n')
         self.assertIn("meta is true or false", " ".join(self.problems()["ex"]))
         write_game(self.content, build=lic)
@@ -609,6 +610,9 @@ class Check(unittest.TestCase):
         g = self.content / "ex" / "licensed" / "ex-data"
         g.mkdir(parents=True)
         (g / "package.conf").write_text("")
+        (g / "debian").mkdir()
+        (g / "debian" / "control").write_text("Source: ex-data\n\nPackage: ex-data\nXB-X-Walnut-Edition: full\n"
+                                              "Description: x\n y\n")
         other = self.content / "ex" / "licensed" / "ex-music"
         other.mkdir()
         text = " ".join(self.problems()["ex"])
@@ -620,15 +624,57 @@ class Check(unittest.TestCase):
         write_game(self.content, build=lic.replace('"source"', '"script"'))
         self.assertIn("needs licensed/ex-data/ex-data.sh", " ".join(self.problems()["ex"]))
         (g / "ex-data.sh").write_text("")
+        self.assertIn("writes no X-Walnut fields", " ".join(self.problems()["ex"]))
+        (g / "ex-data.sh").write_text("F=$(python3 -I tools/gamedb/build-info.py fields ex-data)\n")
         self.assertEqual(self.problems(), {})
         write_game(self.content, build=lic.replace('"source"', '"cd"') + 'size = 1\n')
         text = " ".join(self.problems()["ex"])
         self.assertIn("builder 'cd'", text)
         self.assertIn("unknown key 'size'", text)   # inside [[licensed]]
         write_game(self.content, build=lic.replace('"source"', '"game-data-packager:ex"'))
-        self.assertIn("game-data-packager makes it", " ".join(self.problems()["ex"]))
+        self.assertIn("builder game-data-packager:ex has no directory", " ".join(self.problems()["ex"]))
         write_game(self.content, build=lic.replace('"source"', '"script"') + 'leak_files = ["/abs"]\n')
         self.assertIn("leak_files", " ".join(self.problems()["ex"]))
+
+    def test_licensed_editions(self):
+        """every [[licensed]] says what it holds: [data_setup] editions or its own edition, never both; release
+        only for our own builders; input only for game-data-packager; a source package's control agrees"""
+        lic = '[[licensed]]\nname = "ex-data"\nbuilder = "%s"\n'
+        write_game(self.content, build=lic % "source")
+        self.assertIn("ex-data: no edition", " ".join(self.problems()["ex"]))
+        write_game(self.content, build=lic % "source" + 'edition = "gold"\n')
+        self.assertIn("edition 'gold', not one of", " ".join(self.problems()["ex"]))
+        write_game(self.content, build=lic % "source" + 'edition = "full"\nrelease = "2020_12_29"\n')
+        self.assertEqual(self.problems(), {})
+        write_game(self.content, build=lic % "source" + 'edition = "full"\nrelease = "bad release"\n')
+        self.assertIn("is not a release name", " ".join(self.problems()["ex"]))
+        write_game(self.content, build=lic % "game-data-packager:ex" + 'edition = "full"\nrelease = "cd"\n')
+        self.assertIn("release: game-data-packager's comes from the files", " ".join(self.problems()["ex"]))
+        write_game(self.content, build=lic % "script" + 'edition = "full"\ninput = true\n')
+        self.assertIn("input = true only for a game-data-packager builder", " ".join(self.problems()["ex"]))
+        write_game(self.content, build=lic % "game-data-packager:ex" + 'edition = "full"\ninput = true\n')
+        self.assertEqual(self.problems(), {})
+        write_game(self.content, build=lic % "retired" + 'edition = "full"\n')
+        self.assertEqual(self.problems(), {})
+        (self.content / "ex" / "licensed" / "ex-data").mkdir(parents=True)
+        self.assertIn("builder retired has no directory", " ".join(self.problems()["ex"]))
+        (self.content / "ex" / "licensed" / "ex-data").rmdir()
+        # the edition from [data_setup] (gdp-packages.json and the manifest aren't this test's: only the clash)
+        write_game(self.content, build=lic % "retired" + 'edition = "full"\n'
+                   '[data_setup]\ngdp = "ex"\nrequired = ["ex-data"]\neditions = { "ex-data" = "full" }\n')
+        self.assertIn("edition: [data_setup] editions has it already", " ".join(self.problems()["ex"]))
+        # a source package's control: the same edition and release
+        write_game(self.content, build=lic % "source" + 'edition = "full"\nrelease = "1.0"\n')
+        g = self.content / "ex" / "licensed" / "ex-data"
+        (g / "debian").mkdir(parents=True)
+        (g / "package.conf").write_text("")
+        ctl = "Source: ex-data\n\nPackage: ex-data\n%sDescription: x\n y\n"
+        (g / "debian" / "control").write_text(ctl % "XB-X-Walnut-Edition: demo\n")
+        msg = " ".join(self.problems()["ex"])
+        self.assertIn("XB-X-Walnut-Edition is 'demo', build.toml says 'full'", msg)
+        self.assertIn("XB-X-Walnut-Release is None, build.toml says '1.0'", msg)
+        (g / "debian" / "control").write_text(ctl % "XB-X-Walnut-Edition: full\nXB-X-Walnut-Release: 1.0\n")
+        self.assertEqual(self.problems(), {})
 
     def test_build_toml_engine_and_packages(self):
         e = self.content.parent / "engines" / "eng"
@@ -769,6 +815,138 @@ class BuildInfo(unittest.TestCase):
             self.assertEqual(self.run_info(root, "own-packages", "none")[0], 2)
             (root / "games" / "f" / "build.toml").write_text("packages = [\n")
             self.assertEqual(self.run_info(root, "game-data")[0], 2)            # fails closed
+
+    def test_editions_and_bench_data(self):
+        """fields: the X-Walnut fields of a licensed package ([data_setup] editions first, else the entry's);
+        a game-data-packager entry with input = true is marked :input and built by make licensed-data;
+        bench-data writes each game's data packages with their editions"""
+        with tempfile.TemporaryDirectory() as t:
+            root = Path(t) / "gamedb"
+            for gid, text in (("q", 'data = ["q-shareware"]\n[[licensed]]\nname = "q-shareware"\n'
+                                    'builder = "game-data-packager:q"\n[data_setup]\ngdp = "q"\n'
+                                    'required = ["q-shareware", "q-full"]\noptional = ["q-music"]\n'
+                                    'editions = { "q-shareware" = "shareware", "q-full" = "full", "q-music" = "music" }\n'),
+                              ("r", 'data = ["r-new", "r-old"]\n[[licensed]]\nname = "r-new"\n'
+                                    'builder = "game-data-packager:r"\ninput = true\n[[licensed]]\nname = "r-old"\n'
+                                    'builder = "retired"\nedition = "full"\n[data_setup]\ngdp = "r"\nrequired = ["r-new"]\n'
+                                    'editions = { "r-new" = "full" }\n'),
+                              ("s", '[[licensed]]\nname = "s-data"\nbuilder = "script"\nedition = "full"\nrelease = "2.1"\n'),
+                              ("f", 'packages = ["free"]\nsuite = "free"\n')):
+                (root / "games" / gid).mkdir(parents=True)
+                (root / "games" / gid / "build.toml").write_text(text)
+            self.assertEqual(self.run_info(root, "game-data"), (0, ["q:q-shareware", "r:r-new:input"]))
+            self.assertEqual(self.run_info(root, "scripts"), (0, ["r-new", "s-data"]))
+            self.assertEqual(self.run_info(root, "builder", "r-old"), (0, ["retired"]))
+            self.assertEqual(self.run_info(root, "builder", "nothing")[0], 2)
+            self.assertEqual(self.run_info(root, "fields", "q-shareware"), (0, ["X-Walnut-Edition:", "shareware"]))
+            self.assertEqual(self.run_info(root, "fields", "s-data"),
+                             (0, ["X-Walnut-Edition:", "full", "X-Walnut-Release:", "2.1"]))
+            self.assertEqual(self.run_info(root, "fields", "free")[0], 2)      # no edition anywhere: refused
+            out = Path(t) / "bench"
+            self.assertEqual(self.run_info(root, "bench-data", str(out))[0], 0)
+            self.assertEqual(sorted(p.name for p in out.iterdir()), ["q", "r", "s"])
+            rows = lambda g: [x for x in (out / g / "data.txt").read_text().splitlines() if not x.startswith("#")]
+            self.assertEqual(rows("q"), ["q-shareware shareware", "q-full full", "q-music music"])
+            self.assertEqual(rows("r"), ["r-new full", "r-old full"])
+            self.assertEqual(rows("s"), ["s-data full 2.1"])
+
+
+def fake_deb(path, control, files, comp="xz"):
+    """a .deb as dpkg-deb writes one: ar of debian-binary, control.tar.<comp>, data.tar.<comp>"""
+    def tar(entries):
+        b = io.BytesIO()
+        with tarfile.open(fileobj=b, mode="w:", format=tarfile.GNU_FORMAT) as tf:
+            for name, data in entries:
+                ti = tarfile.TarInfo(name)
+                ti.size, ti.mtime, ti.mode = len(data), 1700000000, 0o644
+                tf.addfile(ti, io.BytesIO(data))
+        raw = b.getvalue()
+        import gzip as gz
+        import lzma
+        return raw if comp == "" else lzma.compress(raw) if comp == "xz" else gz.compress(raw, mtime=0)
+    ext = "" if comp == "" else "." + comp
+    out = bytearray(b"!<arch>\n")
+    for name, data in (("debian-binary", b"2.0\n"), ("control.tar" + ext, tar([("./control", control.encode())])),
+                       ("data.tar" + ext, tar(files))):
+        out += ("%-16s%-12d%-6d%-6d%-8s%-10d`\n" % (name, 1700000000, 0, 0, "100644", len(data))).encode()
+        out += data + (b"\n" if len(data) & 1 else b"")
+    Path(path).write_bytes(bytes(out))
+
+
+class StampDataDeb(unittest.TestCase):
+    """tools/gamedb/stamp-data-deb.py: the X-Walnut fields added to a licensed data deb, the release the
+    import's manifest names for its files (walnut-games-helper's release_label), nothing else changed"""
+    PAK = b"pak0 of quake 1.06" * 100
+
+    def setUp(self):
+        self.sd = load_tool("stamp-data-deb")
+        self.helper = self.sd.load("walnut_games_helper_t", self.sd.HELPER)
+        self.tmp = tempfile.TemporaryDirectory()
+        self.deb = Path(self.tmp.name) / "q-shareware_89_all.deb"
+        self.control = "Package: q-shareware\nVersion: 89\nSection: non-free/games\nDescription: game data\n x\n"
+        self.files = [("./usr/share/doc/q-shareware/licinfo.txt", b"x"), ("./usr/share/games/q/id1/pak0.pak", self.PAK)]
+        sha = hashlib.sha256(self.PAK).hexdigest()
+        self.manifest = {"packages": {"q-shareware": {"required": ["usr/share/games/q/id1/pak0.pak"], "files": {
+            "usr/share/games/q/id1/pak0.pak": [{"size": 1, "sha256": "0" * 64, "release": "101"},
+                                               {"size": len(self.PAK), "sha256": sha, "release": "106"}]}}}}
+        self.warned = []
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def stamp(self, fields=None, deb=None):
+        f = fields or {"X-Walnut-Edition": "shareware", "X-Walnut-Release": None}
+        return self.sd.stamp(deb or self.deb, lambda p: f, self.manifest, self.helper, self.warned.append)
+
+    def members(self, deb=None):
+        return {n: payload for _, n, payload in self.sd.ar_members(Path(deb or self.deb).read_bytes())}
+
+    def test_stamped(self):
+        for comp in ("xz", "gz", ""):
+            fake_deb(self.deb, self.control, self.files, comp)
+            before = self.members()
+            self.assertEqual(self.stamp(), {"X-Walnut-Edition": "shareware", "X-Walnut-Release": "106"})
+            after = self.members()
+            data = [n for n in before if n.startswith("data.tar")][0]
+            self.assertEqual(after[data], before[data])                 # the data member's bytes as they were
+            ctl = [n for n in after if n.startswith("control.tar")][0]
+            text = self.sd.control_of(self.sd.decompress(ctl, after[ctl])[0])
+            self.assertEqual(text, "Package: q-shareware\nVersion: 89\nSection: non-free/games\n"
+                                   "X-Walnut-Edition: shareware\nX-Walnut-Release: 106\nDescription: game data\n x\n")
+            with self.assertRaisesRegex(self.sd.Error, "has X-Walnut-Edition, X-Walnut-Release already"):
+                self.stamp()
+
+    def test_same_input_same_output(self):
+        other = Path(self.tmp.name) / "copy.deb"
+        fake_deb(self.deb, self.control, self.files)
+        shutil.copyfile(self.deb, other)
+        self.stamp()
+        self.stamp(deb=other)
+        self.assertEqual(self.deb.read_bytes(), other.read_bytes())
+
+    def test_release(self):
+        fake_deb(self.deb, self.control, self.files)                 # gamedb's fixed release wins
+        self.assertEqual(self.stamp({"X-Walnut-Edition": "full", "X-Walnut-Release": "2.1"})["X-Walnut-Release"], "2.1")
+        fake_deb(self.deb, self.control, [(self.files[1][0], self.PAK[:-1] + b"!")])   # a copy gdp's checksums don't know
+        self.assertNotIn("X-Walnut-Release", self.stamp())
+        self.assertIn("matches no alternative", " ".join(self.warned))
+        fake_deb(self.deb, self.control, self.files[:1])                # the required file missing
+        self.assertNotIn("X-Walnut-Release", self.stamp())
+        self.manifest = {"packages": {}}                                # not in the manifest: edition only
+        fake_deb(self.deb, self.control, self.files)
+        self.assertEqual(self.stamp(), {"X-Walnut-Edition": "shareware"})
+        with self.assertRaisesRegex(self.sd.Error, "no edition"):
+            fake_deb(self.deb, self.control, self.files)
+            self.stamp({"X-Walnut-Edition": None})
+
+    def test_dpkg_reads_it(self):
+        """dpkg-deb takes the stamped file (needs dpkg-deb: the deb builder image has it, the PC may not)"""
+        if not shutil.which("dpkg-deb"):
+            self.skipTest("no dpkg-deb")
+        fake_deb(self.deb, self.control, self.files)
+        self.stamp()
+        out = subprocess.run(["dpkg-deb", "-f", str(self.deb), "X-Walnut-Release"], stdout=subprocess.PIPE, text=True)
+        self.assertEqual(out.stdout.strip(), "106")
 
 
 class PackIntegration(unittest.TestCase):
@@ -952,6 +1130,22 @@ class Importer(unittest.TestCase):
         self.assertLess(loads[1][0], 60.0)
         keep, _ = self.ir.frames(self.run_dir, b)
         self.assertLess(max(keep), 1000)
+
+    def test_data_packages(self):
+        """the versions file's data: lines (games.sh bench_data_versions) become [data]; [versions] and the
+        kernel's line are as before; a run without them has no [data]"""
+        self.assertNotIn("data", self.do()[0])
+        shutil.rmtree(self.content / "ex" / check.SESSIONS)
+        (self.run_dir / "versions").write_text(
+            "openal\t1.0\nmesa-libgallium:ppc64\t26.2\n6.12.0+ps3.1\nwalnut\t0.2\n"
+            "data:quake-shareware\t89 edition=shareware release=106\ndata:rct2-data\t1.0-2 edition=full\n"
+            "data:odd-data\t1.0\n")
+        r = self.do()[0]
+        self.assertEqual(r["versions"], {"openal": "1.0", "mesa-libgallium": "26.2", "kernel": "6.12.0+ps3.1",
+                                         "walnut": "0.2"})
+        self.assertEqual(r["data"], {"quake-shareware": {"version": "89", "edition": "shareware", "release": "106"},
+                                     "rct2-data": {"version": "1.0-2", "edition": "full"},
+                                     "odd-data": {"version": "1.0"}})
 
     def test_numbers(self):
         r, _ = self.do()
@@ -1175,6 +1369,26 @@ class Catalog(unittest.TestCase):
         self.assertEqual([t["id"] for t in catalog.rated_tests(ts)], ["c", "d", "p"])
         self.assertEqual([t["id"] for t in catalog.rated_tests(ts[:3])], ["c"])
         self.assertEqual(catalog.rated_tests([]), [])
+
+    def test_sessions_merged_only_on_the_same_editions(self):
+        """like the driver stack: a session on the shareware isn't merged with one on the full game; the package
+        names don't count (rct2-data and roller-coaster-tycoon2-data, both full); a session that recorded no
+        data (an older harness) merges as before"""
+        sw = {"quake-shareware": {"version": "89", "edition": "shareware"}}
+        full = {"quake-registered": {"version": "89", "edition": "full", "release": "106"}}
+        ts = [{"id": "old", "date": "2026-10-20", "kind": "session"},
+              {"id": "sw", "date": "2026-10-21", "kind": "session", "data": sw},
+              {"id": "f1", "date": "2026-10-22", "kind": "session", "data": full},
+              {"id": "f2", "date": "2026-10-23", "kind": "session", "data": {"quake-registered": {"version": "89",
+                                                                                               "edition": "full"}}},
+              {"id": "p", "date": "2026-10-19", "kind": "capture", "data": sw}]
+        self.assertEqual([t["id"] for t in catalog.rated_tests(ts)], ["old", "f1", "f2", "p"])
+        self.assertEqual([t["id"] for t in catalog.rated_tests(ts[:2])], ["old", "sw"])
+        rct = [{"id": "a", "date": "2026-10-20", "kind": "session", "data": {"rct2-data": {"version": "1.0-2", "edition": "full"}}},
+               {"id": "b", "date": "2026-10-21", "kind": "session",
+                "data": {"roller-coaster-tycoon2-data": {"version": "89", "edition": "full", "release": "cd"}}}]
+        self.assertEqual([t["id"] for t in catalog.rated_tests(rct)], ["a", "b"])
+        self.assertIsNone(catalog.editions({"id": "x"}))
 
     def test_no_medal_without_frame_rate_and_smoothness(self):
         sess = {"kind": "session", "play_seconds": 600, "date": "2026-10-25", "id": "s",

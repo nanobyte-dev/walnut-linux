@@ -7,8 +7,9 @@ played yet. Under qemu-ppc64 the build matches amd64 bit for bit on every check 
 10000 ticks, 210 screenshots, 169 track designs: [the port](investigations/2026-10-19-big-endian-port.md)).
 Software renderer only (the GL engine needs GL 3.3 core). It needs RollerCoaster Tycoon 2's data from the
 player's own copy: game-data-packager's `roller-coaster-tycoon2-data` (build.toml `[data_setup]`, in
-`/usr/share/games/roller-coaster-tycoon2`, a path upstream searches; not yet tried on the PS3) or our licensed
-`rct2-data` (from the CD, `/usr/share/games/rct2`, the path our patch 0005 adds). On the PS3 it runs at 21-24 fps in Electric Fields (10 fps in Six Flags Magic
+`/usr/share/games/roller-coaster-tycoon2`, a path upstream searches: a fresh home finds it there, gdp-step1 on
+the PS3), which the licensed suite now builds too, or our older licensed `rct2-data` (from the CD,
+`/usr/share/games/rct2`, the path our patch 0005 adds). On the PS3 it runs at 21-24 fps in Electric Fields (10 fps in Six Flags Magic
 Mountain) with the console's RAM nearly gone.
 
 - **Package** (`0.5.6+ds-1+ps3.N`, [packages/openrct2](packages/openrct2/), `TYPE=upstream`): debs `openrct2`
@@ -24,10 +25,14 @@ Mountain) with the console's RAM nearly gone.
 - The headless CLI needs `game_path` in its config (upstream searches for RCT2 only when not headless):
   `openrct2-cli set-rct2 /usr/share/games/rct2` once; the GUI finds it by itself. The RCT2 data lacks
   `ObjData/BATTRRAM.POB` (a medieval music file of the CD install): a harmless warning.
-- **Data**: `rct2-data.sh <RCT2.iso>` (`make licensed-data PKG=rct2-data INPUT=<image>`) builds the licensed
-  `rct2-data` deb (arch all, `/usr/share/games/rct2`, about 115 MB without the ride music; `RCT2_MUSIC=1` adds
-  it) from the player's own RollerCoaster Tycoon 2 CD. It unpacks the InstallShield cabinets with `unshield`
-  and runs nothing from the disc; the package goes to the licensed suite only, and the data is never committed.
+- **Data**: the licensed suite's `roller-coaster-tycoon2-data` is game-data-packager's own package, made
+  from the owner's RollerCoaster Tycoon 2 CD image (`make licensed-data PKG=roller-coaster-tycoon2-data
+  INPUT=<image>`: the ISO unpacked with 7z, gdp 89 with `unshield` in the games builder, about a minute; a
+  443 MB deb, 550 MB installed with the ride music; `X-Walnut-Edition: full`, `X-Walnut-Release: cd`), the
+  same name and files the console's import makes. Until 2026-10-27 it was our own `rct2-data`
+  (`rct2-data.sh`, now retired: `/usr/share/games/rct2`, about 115 MB without the ride music): its published
+  1.0-2 stays, the benchmark recipe still points at its path, and the console counts either as the game's
+  data. Nothing from the disc is run; the packages go to the licensed suite only, the data is never committed.
 
 ## On the PS3 (batch ssdroot8)
 

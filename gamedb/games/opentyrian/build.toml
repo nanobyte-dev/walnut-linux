@@ -5,3 +5,6 @@ data = ["tyrian-data"]
 [[licensed]]
 name = "tyrian-data"
 builder = "script"
+# X-Walnut-Edition and X-Walnut-Release (tyrian-data.sh writes them; the freeware release is the full game)
+edition = "full"
+release = "2.1"

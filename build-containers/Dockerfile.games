@@ -1,10 +1,11 @@
 # Game asset tools on top of the builder (its own image, so the kernel/rootfs tags don't change):
 # oggdec for ClassiCube's sounds; game-data-packager (contrib, the same snapshot) with lhasa for
-# the Quake and Quake II data debs (make game-data).
+# the Quake and Quake II data debs (make game-data), unshield and innoextract for the owner's CDs and
+# installers (make licensed-data: RCT2's InstallShield cabinets, GOG's installers).
 ARG BUILDER
 FROM ${BUILDER}
 
 RUN sed -i 's/ unstable main$/ unstable main contrib/' /etc/apt/sources.list && \
     apt-get update && \
-    apt-get install -y --no-install-recommends vorbis-tools curl game-data-packager lhasa && \
+    apt-get install -y --no-install-recommends vorbis-tools curl game-data-packager lhasa unshield innoextract && \
     rm -rf /var/lib/apt/lists/*

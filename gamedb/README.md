@@ -124,10 +124,18 @@ and `needs_data`; a draft has a build.toml only when something about its build i
 | `image_base` | bool | its packages are in the image's package layer (`tools/gamedb/build-info.py image-base`, the Makefile's `ROOTFS_GAMES`; system/image/packages.txt names only generic packages) |
 | `recipes` | list | the bench runs that stand for the game, `"<id>:<variant>"` of its own `benchmark/recipe.sh` (the catalog's `recipes`) |
 | `[data_setup]` | table | the player's own data, made into packages by game-data-packager (below) |
-| `[[licensed]]` | tables | the game's licensed data: `name` (the package), `builder` (`source`: a source package of ours in `licensed/<name>/`; `script`: `licensed/<name>/<name>.sh` run on the owner's own copy, `make licensed-data PKG=<name> INPUT=<file>`; `game-data-packager:<game>`: `make game-data`), `leak_files` (paths of its content in upstream tarballs, leak globs), `meta` (bool: `ps3-games-licensed` depends on it; by default true for a game with suite `licensed`; BananaBread's `sauerbraten-nonfree-data` sets it) |
+| `[[licensed]]` | tables | the game's licensed data: `name` (the package), `builder` (`source`: a source package of ours in `licensed/<name>/`; `script`: `licensed/<name>/<name>.sh` run on the owner's own copy, `make licensed-data PKG=<name> INPUT=<file>`; `game-data-packager:<game>`: `make game-data`; `retired`: published once, built no more, no directory), `leak_files` (paths of its content in upstream tarballs, leak globs), `meta` (bool: `ps3-games-licensed` depends on it; by default true for a game with suite `licensed`; BananaBread's `sauerbraten-nonfree-data` sets it), `edition` (what it holds, one of `[data_setup]`'s editions, for a package `[data_setup] editions` doesn't name; every entry has one or the other), `release` (the release of the source a `source` or `script` build is made from: `2020_12_29`, `2.1`), `input` (true: game-data-packager makes it from the owner's copy, `make licensed-data PKG=<name> INPUT=<image, folder or installer>`; `make game-data` only takes its published file). The edition and release are the deb's `X-Walnut-Edition` and `X-Walnut-Release` (below) |
 
 Every `licensed/<pkg>/` directory of a bundle has its `[[licensed]]` entry, and every `source` or `script`
 entry its directory (a checkout without licensed directories, the public copy, skips that direction).
+Our licensed builds stamp the same control fields the console's import writes (docs/PACKAGING.md "Data
+built on the console"): `X-Walnut-Edition` from `[data_setup] editions` or the entry's `edition`, and
+`X-Walnut-Release` from its `release` or, for game-data-packager's packages, the release the import's
+manifest names for the files gdp packed (`tools/gamedb/stamp-data-deb.py`, the helper's own rule: `106`,
+`cd`). A source package says them in its `debian/control` binary stanza as `XB-X-Walnut-Edition` and
+`XB-X-Walnut-Release` (dpkg drops the `XB-` and keeps `X-`), a script writes what
+`tools/gamedb/build-info.py fields <pkg>` prints; `check.py` holds both to build.toml. Only new versions
+carry them: a published file is never made again.
 The catalog's `patched_by` is no key: it is the source packages of ours in the bundle's `packages/` and its
 engine's (`check.patched_by`). An engine's build.toml takes `packages` (the engine's packages its games run)
 and `[[licensed]]` only.
@@ -135,7 +143,8 @@ and `[[licensed]]` only.
 Read by: `tools/gamedb/check.py` (validates), `catalog.py` (packages, needs_data, desktop, recipes, data_setup),
 `tools/licensed.py` (`[[licensed]]` names and leak_files, `[data_setup]` names), `tools/gamedb/build-info.py` (for the Makefile's
 `make game-data` and `make licensed-data`, `tools/image-packages.sh`'s licensed-suite games, `tools/play-pc.sh`'s
-packages and data, `image-base`, `own-packages` for `make game-debs`), `tools/gamedb/pack-integration.py`
+packages and data, `image-base`, `own-packages` for `make game-debs`, `fields` for the licensed builders and
+`tools/gamedb/stamp-data-deb.py`, `bench-data` for `make bench-push`), `tools/gamedb/pack-integration.py`
 (suite, packages, meta, divert, `[[licensed]]` meta: the metapackages' Depends and the integration package).
 
 Versions: `walnut-games`, `ps3-games` and `ps3-games-licensed` carry `VERSION_PATHS` over
@@ -205,7 +214,8 @@ headers.
 
 A licensed data package or its builder (step 1b: `classicube-data` in classicube, `sauerbraten-data` in
 sauerbraten, `sauerbraten-nonfree-data` in bananabread, since it fills in the `cube2-data` BananaBread
-plays, `rct2-data.sh` in openrct2, `tyrian-data.sh` in opentyrian): text only, built on our own PC, never by CI, published to
+plays, `tyrian-data.sh` in opentyrian; openrct2's `rct2-data.sh` is retired, game-data-packager makes
+`roller-coaster-tycoon2-data` from the CD instead): text only, built on our own PC, never by CI, published to
 the password-protected licensed suite only. A directory here is licensed by its location:
 `tools/licensed.py` *reads it now* (with `packages/licensed/` and the `[[licensed]]` entries of build.toml),
 the public copy drops `gamedb/*/*/licensed/*` from every commit (`tools/public-export.sh`), CI never
@@ -249,7 +259,7 @@ Ratings come only from played sessions; benchmarks never rate (docs/GAMEDB.md).
 
   | File | What |
   |---|---|
-  | `result.toml` | the record: the numbers, the versions, the picture verdict, the form's and the review's answers (data version 2), and `[shots] ps3`, the gallery: the pictures the site and the app show, as paths in the folder (`shots/ps3-60s.jpg`). Derived from the evidence below alone, so `tools/gamedb/reimport.py` derives it again without the run |
+  | `result.toml` | the record: the numbers, the versions, the game's data packages (`[data]`: `<pkg> = { version, edition, release }`, from the harness's `data:` lines; editions and releases as their `X-Walnut-*` fields say, else as gamedb's `games/<id>/data.txt` does, which `make bench-push` writes from build.toml: `tools/gamedb/build-info.py bench-data`; older runs have none), the picture verdict, the form's and the review's answers (data version 2), and `[shots] ps3`, the gallery: the pictures the site and the app show, as paths in the folder (`shots/ps3-60s.jpg`). Derived from the evidence below alone, so `tools/gamedb/reimport.py` derives it again without the run |
   | `form.toml` | the player's answers as saved (the run's `session.toml`) |
   | `review.md` | the reviewer's questionnaire as answered (the run's `REVIEW.md`, `tools/gamedb/review.py`) |
   | `shots/` | every screenshot of the session as JPEG, 800x450: `ps3-<s>s.jpg` the timed ones, `ps3-mark-<t>s.jpg` the player's own (Alt+F12, Select+Start); `pc/pc-<s>s.jpg` the PC reference the review sheet had (build/bench-ref) |

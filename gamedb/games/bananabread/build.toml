@@ -10,5 +10,8 @@ recipes = ["bananabread:base"]
 [[licensed]]
 name = "sauerbraten-nonfree-data"
 builder = "source"
+# X-Walnut-Edition and X-Walnut-Release (its debian/control says the same)
+edition = "full"
+release = "2020_12_29"
 # in ps3-games-licensed, though BananaBread is in no suite
 meta = true

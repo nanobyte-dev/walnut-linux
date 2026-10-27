@@ -366,7 +366,7 @@ def context(d):
     if v.exists():
         for line in v.read_text(errors="replace").splitlines():
             name = line.split("\t")[0].split(":")[0]
-            if name and "\t" in line and name not in STACK_PKGS:
+            if name and "\t" in line and name not in STACK_PKGS and not line.startswith("data:"):
                 gpkgs.add(name)
     return tg, exe, dirs, tuple(sorted(gpkgs)), pkgs
 

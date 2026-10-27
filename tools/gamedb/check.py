@@ -16,10 +16,15 @@ Design
       --apt-index (a Packages file or URL: the Debian snapshot's), in that index; engine names an
       engines/<e>/ whose engine.md lists the game (and every game engine.md lists says so); suite one
       of SUITES (licensed: a licensed data package); meta only names packages of its own; [[licensed]]
-      entries (name, builder, leak_files, meta)
+      entries (LICENSED_KEYS: name, builder, leak_files, meta, edition, release, input)
       match the bundle's licensed/<pkg>/ directories (builder source: a package.conf, script: <pkg>.sh;
-      game-data-packager:<game> has none), every licensed/ directory declared; a checkout without any
-      licensed directory (the public copy) skips that direction. [data_setup] (DATA_SETUP_KEYS, closed):
+      game-data-packager:<game> and retired have none), every licensed/ directory declared; a checkout
+      without any licensed directory (the public copy) skips that direction. Each entry has an edition
+      (EDITIONS: [data_setup] editions, else its own edition key, never both); release only for source and
+      script builders (game-data-packager's comes from the files it matched), input only for
+      game-data-packager ones; a source package's debian/control gives its binary the same edition and
+      release (XB-X-Walnut-Edition, XB-X-Walnut-Release), a script names tools/gamedb/build-info.py fields.
+      [data_setup] (DATA_SETUP_KEYS, closed):
       its gdp game and every required/optional package exist in game-data-packager's data, read from the
       committed tools/gamedb/gdp-packages.json (gdp-index.py, make gdp-index: no docker at check time);
       required set exactly when needs_data, downloads among them, an edition (EDITIONS) for every
@@ -102,9 +107,14 @@ GDP_MANIFEST = Path(__file__).resolve().parent / "gdp-manifest.json"
 GDP_INDEX = Path(__file__).resolve().parent / "gdp-packages.json"
 # an engine's build.toml: the packages the games run it from, its licensed data
 ENGINE_KEYS = {"packages": (list, False), "licensed": (list, False)}
-LICENSED_KEYS = {"name", "builder", "leak_files", "meta"}
+# [[licensed]] (gamedb/README.md): edition (EDITIONS, for a package [data_setup] editions doesn't name) and
+# release (a source or script build's fixed release, RELEASE_RE as walnut-games-helper's) are its
+# X-Walnut-Edition and X-Walnut-Release; input: game-data-packager makes it from the owner's copy
+# (make licensed-data), never from a download; builder retired: published once, built no more
+LICENSED_KEYS = {"name", "builder", "leak_files", "meta", "edition", "release", "input"}
+RELEASE_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._+-]{0,79}\Z")
 SUITES = ["free", "licensed", "none"]
-BUILDER_RE = re.compile(r"(source|script|game-data-packager:[a-z0-9][a-z0-9-]*)\Z")
+BUILDER_RE = re.compile(r"(source|script|retired|game-data-packager:[a-z0-9][a-z0-9-]*)\Z")
 # a draft (draft = true: a candidate or a game we tried, not published: catalog.py, pack-catalog.py and
 # Hugo leave it out) needs only these; whatever else it has is checked as usual, nothing is filled in
 DRAFT_REQUIRED = {"id", "title", "status"}
@@ -540,9 +550,20 @@ def gdp_manifest(path=None):
         return None
 
 
-def licensed_errors(d, entries, ctx):
-    """[[licensed]] of a bundle or engine folder d against its licensed/<pkg>/ directories"""
+def control_stanza(control, pkg):
+    """{field: value} of debian/control's binary stanza for pkg (continuation lines dropped), or None"""
+    for para in re.split(r"\n\s*\n", control):
+        f = dict(m.groups() for m in re.finditer(r"(?m)^([A-Za-z0-9-]+):[ \t]*(.*)$", para))
+        if f.get("Package") == pkg:
+            return f
+    return None
+
+
+def licensed_errors(d, entries, ctx, editions=None):
+    """[[licensed]] of a bundle or engine folder d against its licensed/<pkg>/ directories; editions: the
+    bundle's [data_setup] editions"""
     errs = []
+    editions = editions if isinstance(editions, dict) else {}
     if not isinstance(entries, list) or not all(isinstance(e, dict) for e in entries):
         return ["licensed must be an array of tables ([[licensed]])"]
     declared = {}
@@ -557,21 +578,48 @@ def licensed_errors(d, entries, ctx):
             errs.append("[[licensed]] %s is declared twice" % n)
         declared[n] = b
         if not isinstance(b, str) or not BUILDER_RE.match(b):
-            errs.append("[[licensed]] %s: builder %r: source, script or game-data-packager:<game>" % (n, b))
+            errs.append("[[licensed]] %s: builder %r: source, script, retired or game-data-packager:<game>" % (n, b))
             continue
+        ed, rel = e.get("edition"), e.get("release")
+        if ed is not None and n in editions:
+            errs.append("[[licensed]] %s: edition: [data_setup] editions has it already" % n)
+        elif ed is not None and ed not in EDITIONS:
+            errs.append("[[licensed]] %s: edition %r, not one of %s" % (n, ed, ", ".join(EDITIONS)))
+        elif ed is None and n not in editions:
+            errs.append("[[licensed]] %s: no edition (its edition key, one of %s)" % (n, ", ".join(EDITIONS)))
+        ed = editions.get(n, ed)
+        if rel is not None and (not isinstance(rel, str) or not RELEASE_RE.match(rel)):
+            errs.append("[[licensed]] %s: release %r is not a release name (%s)" % (n, rel, RELEASE_RE.pattern))
+        elif rel is not None and b not in ("source", "script", "retired"):
+            errs.append("[[licensed]] %s: release: game-data-packager's comes from the files it matched" % n)
+        if "input" in e and (e["input"] is not True or not b.startswith("game-data-packager:")):
+            errs.append("[[licensed]] %s: input = true only for a game-data-packager builder" % n)
         if not isinstance(e.get("meta", False), bool):
             errs.append("[[licensed]] %s: meta is true or false (in ps3-games-licensed or not)" % n)
         lf = e.get("leak_files", [])
         if not isinstance(lf, list) or not all(isinstance(x, str) and x and not x.startswith("/") and " " not in x for x in lf):
             errs.append("[[licensed]] %s: leak_files is a list of relative path patterns" % n)
         ldir = Path(d) / "licensed" / n
-        if b.startswith("game-data-packager:"):
+        if b.startswith("game-data-packager:") or b == "retired":
             if ldir.exists():
-                errs.append("[[licensed]] %s: game-data-packager makes it, but licensed/%s/ exists" % (n, n))
+                errs.append("[[licensed]] %s: builder %s has no directory, but licensed/%s/ exists" % (n, b, n))
         elif ctx["has_licensed"]:
             want = ldir / ("package.conf" if b == "source" else n + ".sh")
             if not want.is_file():
                 errs.append("[[licensed]] %s: builder %s needs licensed/%s/%s" % (n, b, n, want.name))
+            elif b == "script" and "build-info.py fields" not in want.read_text(errors="replace"):
+                errs.append("[[licensed]] %s: %s writes no X-Walnut fields (tools/gamedb/build-info.py fields)"
+                            % (n, want.name))
+            elif b == "source":
+                ctl = ldir / "debian" / "control"
+                st = control_stanza(ctl.read_text(errors="replace"), n) if ctl.is_file() else None
+                if st is None:
+                    errs.append("[[licensed]] %s: licensed/%s/debian/control has no Package: %s" % (n, n, n))
+                else:
+                    for fld, want_v in (("XB-X-Walnut-Edition", ed), ("XB-X-Walnut-Release", rel)):
+                        if st.get(fld) != want_v:
+                            errs.append("[[licensed]] %s: debian/control %s is %r, build.toml says %r"
+                                        % (n, fld, st.get(fld), want_v))
     lic = Path(d) / "licensed"
     for x in sorted(lic.iterdir()) if lic.is_dir() else []:
         if x.name not in declared:
@@ -631,7 +679,9 @@ def build_errors(gdir, build, bad, ctx, draft):
     for d in build.get("divert", []):
         if not isinstance(d, str) or not re.fullmatch(r"(/[A-Za-z0-9._+-]+)+", d):
             errs.append("build.toml: divert %r is not an absolute path" % (d,))
-    errs += ["build.toml: " + x for x in licensed_errors(gdir, build.get("licensed", []), ctx)]
+    ds = build.get("data_setup")
+    errs += ["build.toml: " + x for x in licensed_errors(gdir, build.get("licensed", []), ctx,
+                                                          ds.get("editions") if isinstance(ds, dict) else None)]
     if "data_setup" in build:
         errs += ["build.toml: " + x for x in data_setup_errors(build["data_setup"], build, bad, ctx)]
     return errs

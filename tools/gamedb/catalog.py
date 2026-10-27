@@ -181,13 +181,33 @@ def stack(t):
     return tuple(v.get(k) for k in STACK_PKGS)
 
 
+def editions(t):
+    """the editions of the game data a test ran with (result.toml [data]: each installed data package's
+    edition, e.g. {"shareware"} or {"full"}; the package names don't count, so the licensed suite's rct2-data
+    and the imported roller-coaster-tycoon2-data, both full, are one), or None when the test recorded no
+    data (an older harness, a game without data packages)"""
+    d = t.get("data")
+    if not isinstance(d, dict) or not d:
+        return None
+    return frozenset(str(x.get("edition", "?")) for x in d.values() if isinstance(x, dict))
+
+
+def same_editions(a, b):
+    """whether tests a and b may be merged by their data: both recorded the same editions, or either recorded
+    none (sessions from before the harness recorded data merge as they always did)"""
+    ea, eb = editions(a), editions(b)
+    return ea is None or eb is None or ea == eb
+
+
 def rated_tests(ts):
     """what a rating is made from (ts: one version's tests): the graded tests (sessions, benchmark runs)
-    measured the way the newest one was and on its driver stack (Mesa, kernel), merged (medians); sessions
-    measured differently or on another stack aren't (the user, 2026-10-25: "same parameters, same
-    versions"); capture runs add their picture"""
+    measured the way the newest one was, on its driver stack (Mesa, kernel) and with its data editions
+    (shareware, full: editions()), merged (medians); sessions measured differently, on another stack or
+    another edition aren't (the user, 2026-10-25: "same parameters, same versions"; 2026-10-27, editions);
+    capture runs add their picture"""
     graded = sorted((t for t in ts if t.get("kind") in GRADED), key=lambda t: (t["date"], t["id"]))
-    same = [t for t in graded if method(t) == method(graded[-1]) and stack(t) == stack(graded[-1])] if graded else []
+    same = [t for t in graded if method(t) == method(graded[-1]) and stack(t) == stack(graded[-1])
+            and same_editions(t, graded[-1])] if graded else []
     return same + [t for t in ts if t.get("kind") not in GRADED]
 
 
@@ -343,6 +363,7 @@ def build_game(gdir, repo, debs):
             "verdict": t.get("picture", {}).get("verdict"), "note": t.get("picture", {}).get("note"),
             "rules": "%d.%d" % (score.data_version(t), score.FORMULA[score.data_version(t)]),
             "numbers": t.get("numbers", {}), "versions": t.get("versions", {}),
+            **({"data": t["data"]} if t.get("data") else {}),     # the data packages (older tests: none)
             "ps3": ["%s/%s/%s" % (check.SESSIONS, t["id"], f) for f in t.get("shots", {}).get("ps3", [])]})
     g = {k: fm[k] for k in ("id", "title", "summary", "categories", "tags", "license", "homepage", "packages",
                             "desktop", "needs_data", "controller") if k in fm}

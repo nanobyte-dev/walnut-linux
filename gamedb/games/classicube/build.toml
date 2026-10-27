@@ -7,3 +7,5 @@ data = ["classicube-data"]
 [[licensed]]
 name = "classicube-data"
 builder = "source"
+# X-Walnut-Edition (its debian/control says the same; no release: the texture pack and sounds are unversioned)
+edition = "full"

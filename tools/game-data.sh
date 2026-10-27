@@ -1,6 +1,6 @@
 #!/bin/bash
-# game-data.sh <out dir> <game>:<package>...: game data debs made by game-data-packager (in the games
-# builder, build-containers/Dockerfile.games), e.g. quake:quake-shareware. Their data is non-free: the
+# game-data.sh <out dir> <game>:<package>[:input]...: game data debs made by game-data-packager (in the
+# games builder, build-containers/Dockerfile.games), e.g. quake:quake-shareware. Their data is non-free: the
 # password-protected licensed suite on walnut.nanobyte.dev only (gamedb build.toml [[licensed]]; make game-data), never
 # anywhere public.
 # game-data-packager's output isn't reproducible (file dates are the build time), and the licensed
@@ -9,8 +9,14 @@
 # REGEN=1 makes it anyway, which is only publishable when the version is new (a newer
 # game-data-packager): a regenerated file under a published version is refused here.
 # Downloads (the shareware archives) are kept in build/downloads/game-data.
+# A package marked :input (build.toml [[licensed]] input = true) is made from the owner's copy only: from
+# INPUT (a folder, an installer or archive gdp reads; make licensed-data mounts it), never downloaded;
+# without INPUT it is skipped unless published.
+# A file made here gets X-Walnut-Edition and X-Walnut-Release (tools/gamedb/stamp-data-deb.py: the edition
+# from gamedb, the release the import's manifest names for the files gdp packed), as the console's import
+# writes them; a published file is taken as it is.
 # Env: LICENSED_URL (https://walnut.nanobyte.dev/licensed), LICENSED_NETRC (a curl netrc with the
-# suite's login, apt-repo/licensed-auth.sh FILE netrc), REGEN
+# suite's login, apt-repo/licensed-auth.sh FILE netrc), REGEN, INPUT
 set -euo pipefail
 # One block, parsed whole before it runs: editing this file during a run can't make bash
 # execute a shifted fragment.
@@ -47,7 +53,8 @@ published() {
 		done; echo "$best"; }
 }
 for spec in "$@"; do
-	game=${spec%%:*} pkg=${spec#*:}
+	game=${spec%%:*} pkg=${spec#*:} input=
+	case $pkg in *:input) pkg=${pkg%:input} input=1 ;; esac
 	pub=$(published "$pkg")
 	if [ -n "$pub" ] && [ "${REGEN:-0}" != 1 ]; then
 		read -r v f s <<<"$pub"
@@ -57,8 +64,17 @@ for spec in "$@"; do
 		mv "$OUT/$(basename "$f").tmp" "$OUT/$(basename "$f")"
 		continue
 	fi
-	echo ">> $pkg: game-data-packager $game"
-	/usr/games/game-data-packager -d "$OUT" -n --no-search --save-downloads "$DL" "$game" --package "$pkg"
+	if [ -n "$input" ]; then
+		if [ -z "${INPUT:-}" ]; then
+			echo ">> $pkg: made from the owner's copy only (make licensed-data PKG=$pkg INPUT=<copy>): skipped"
+			continue
+		fi
+		echo ">> $pkg: game-data-packager $game, from $INPUT"
+		/usr/games/game-data-packager -d "$OUT" -n --no-search --no-download "$game" --package "$pkg" "$INPUT"
+	else
+		echo ">> $pkg: game-data-packager $game"
+		/usr/games/game-data-packager -d "$OUT" -n --no-search --save-downloads "$DL" "$game" --package "$pkg"
+	fi
 	deb=$(ls "$OUT/${pkg}_"*.deb)
 	v=$(dpkg-deb -f "$deb" Version)
 	if [ -n "$pub" ] && [ "$v" = "${pub%% *}" ]; then
@@ -67,6 +83,7 @@ for spec in "$@"; do
 		echo "   reproducible): leave out REGEN=1 to take the published file"
 		exit 1
 	fi
+	python3 -I tools/gamedb/stamp-data-deb.py "$deb"
 done
 ls -l "$OUT"
 exit

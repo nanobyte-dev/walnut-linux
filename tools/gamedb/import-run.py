@@ -29,6 +29,11 @@ Design
   keeps shots/ and raw/ in Git LFS (.gitattributes). index.md is never touched. The game must exist.
   --keep-record: the folder's result.toml stays as it is (a record an older importer derived, before rules
   versions), only its gallery moves into shots/; raw/import.toml frozen = true, reimport.py leaves it.
+- [versions] holds the packages the run recorded (the game's, the driver stack, walnut's release); [data] the
+  game's installed data packages from its versions file's data: lines (bench/harness/games.sh), each
+  `{ version, edition, release }` (edition and release when known: X-Walnut-Edition/X-Walnut-Release, else
+  gamedb's); a run without such lines (older harness, a game without data) has no [data]. catalog.py merges
+  only sessions on the same editions.
 - kind: "session" (bench.txt kind=session, the recorder of phase P3), "demo" (a harness run with a
   measured window: stands in for a session until the game has one), "capture" (shots only: grades
   the picture, nothing else).
@@ -653,11 +658,18 @@ def ended(d, b):
     return ("crash" if crashed else end), crashed
 
 
+DATA_LINE = re.compile(r"data:([a-z0-9][a-z0-9+.-]*[a-z0-9])\t(\S+)((?: [a-z]+=\S+)*)\Z")
+
+
 def versions(d):
+    """[versions] from the run's versions file: "<pkg>[:arch]\t<version>" lines, the kernel's line (no tab)
+    and walnut's; the data: lines are data_packages()'s"""
     out = {}
     f = d / "versions"
     if f.exists():
         for line in f.read_text(errors="replace").splitlines():
+            if line.startswith("data:"):
+                continue
             p, _, v = line.partition("\t")
             if not v:
                 if line.strip():
@@ -665,6 +677,20 @@ def versions(d):
             elif p.split(":")[0] not in SKIP_PKGS and v.strip():
                 out[p.split(":")[0]] = v.strip()
     return out
+
+
+def data_packages(d):
+    """[data] from the run's versions file: the game's installed data packages, {pkg: {version, edition,
+    release}} from its "data:<pkg>\t<version> edition=<e> release=<r>" lines (bench/harness/games.sh
+    bench_data_versions; edition and release only when known); None when it has none (older runs)"""
+    out = {}
+    f = d / "versions"
+    for line in f.read_text(errors="replace").splitlines() if f.exists() else []:
+        m = DATA_LINE.match(line.strip())
+        if m:
+            kv = dict(x.split("=", 1) for x in m.group(3).split())
+            out[m.group(1)] = {"version": m.group(2), **{k: kv[k] for k in ("edition", "release") if k in kv}}
+    return out or None
 
 
 def jpeg(src, dst):
@@ -738,7 +764,13 @@ def toml_value(v):
         return json.dumps(v, ensure_ascii=False)
     if isinstance(v, list):
         return "[" + ", ".join(toml_value(x) for x in v) + "]"
+    if isinstance(v, dict):
+        return "{ " + ", ".join("%s = %s" % (toml_key(k), toml_value(x)) for k, x in v.items()) + " }"
     raise TypeError(type(v))
+
+
+def toml_key(k):
+    return k if re.fullmatch(r"[A-Za-z0-9_-]+", k) else json.dumps(k)
 
 
 def toml_dump(top, tables):
@@ -749,8 +781,7 @@ def toml_dump(top, tables):
         t = {k: v for k, v in t.items() if v is not None}
         if t:
             lines += ["", "[%s]" % name]
-            lines += ["%s = %s" % (json.dumps(k) if not re.fullmatch(r"[A-Za-z0-9_-]+", k) else k, toml_value(v))
-                      for k, v in t.items()]
+            lines += ["%s = %s" % (toml_key(k), toml_value(v)) for k, v in t.items()]
     return "\n".join(lines) + "\n"
 
 
@@ -826,6 +857,7 @@ def derive(d, game, content, launcher=None, keep=None, rules=None):
         note = re.sub(r"^verdict:\s*", "", " ".join(first.split()))
     tables = {"numbers": n, "scores": {k: round(v, 1) for k, v in scores.items() if v is not None},
               "versions": versions(d),
+              "data": data_packages(d) or {},
               "picture": {"verdict": verdict, "note": note or None},
               "shots": {"ps3": ["shots/" + shot_name(p) for p, _ in ps3]}}
     if data >= 2:   # raw numbers and answers only: the catalog scores them with the current formula

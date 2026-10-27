@@ -3,9 +3,19 @@
 "build.toml"), for the Makefile and the tools that used to keep game lists of their own.
 
   build-info.py game-data          "<game>:<package>" for every [[licensed]] with builder
-                                   game-data-packager:<game> (make game-data, tools/game-data.sh)
-  build-info.py scripts            the [[licensed]] names with builder = "script" (make licensed-data)
+                                   game-data-packager:<game> (make game-data, tools/game-data.sh),
+                                   "<game>:<package>:input" for one made from the owner's copy (input = true)
+  build-info.py scripts            the [[licensed]] names make licensed-data builds: builder = "script",
+                                   and game-data-packager ones with input = true
   build-info.py script PKG         the builder script of one: gamedb/<games|engines>/<id>/licensed/PKG/PKG.sh
+  build-info.py builder PKG        the builder of a [[licensed]] package (source, script, retired,
+                                   game-data-packager:<game>)
+  build-info.py fields PKG         the control fields our builders give a licensed data package:
+                                   "X-Walnut-Edition: <e>" ([data_setup] editions, else the [[licensed]]
+                                   edition) and "X-Walnut-Release: <r>" (the [[licensed]] release, if any)
+  build-info.py bench-data DIR     DIR/<id>/data.txt for every game with data packages: "<pkg> <edition>
+                                   [<release>]" a line ([data_setup] required and optional, data, [[licensed]]
+                                   names), for the session harness's versions file (make bench-push)
   build-info.py needs-licensed     the packages of every game with suite = "licensed" (in ps3-games, but
                                    not in the public ps3-games-free or the public image: tools/image-packages.sh)
   build-info.py image-base         the packages of every game with image_base = true (the image's package
@@ -49,6 +59,37 @@ def licensed(root=GAMEDB):
     return [(d, e) for d, b in builds(root) for e in b.get("licensed", [])]
 
 
+def data_fields(root, pkg):
+    """{"X-Walnut-Edition": e, "X-Walnut-Release": r or None} of a licensed data package: the edition from
+    its game's [data_setup] editions, else from its [[licensed]] entry; the release from that entry (a
+    source or script build's fixed release; game-data-packager's comes from the files it matched)"""
+    ed = rel = None
+    for _, b in builds(root):
+        ds = b.get("data_setup") or {}
+        ed = ed or (ds.get("editions") or {}).get(pkg)
+        for e in b.get("licensed", []):
+            if e.get("name") == pkg:
+                ed = ed or e.get("edition")
+                rel = rel or e.get("release")
+    if not ed:
+        raise Error("%s: no edition in gamedb ([data_setup] editions or its [[licensed]] edition)" % pkg)
+    return {"X-Walnut-Edition": ed, "X-Walnut-Release": rel}
+
+
+def game_data(b):
+    """[(package, edition, release)] of a game's data packages, as bench-data writes them: [data_setup]
+    required and optional, then data and the [[licensed]] names (the licensed suite's builds of the same
+    data); an edition from [data_setup] editions or the [[licensed]] entry, else "-"; the release from it"""
+    ds = b.get("data_setup") or {}
+    lic = {e.get("name"): e for e in b.get("licensed", []) if isinstance(e, dict)}
+    names = list(ds.get("required", [])) + list(ds.get("optional", [])) + list(b.get("data", [])) + list(lic)
+    out = []
+    for p in dict.fromkeys(n for n in names if isinstance(n, str)):
+        e = lic.get(p, {})
+        out.append((p, (ds.get("editions") or {}).get(p) or e.get("edition") or "-", e.get("release")))
+    return out
+
+
 def game(root, gid):
     f = Path(root) / "games" / gid / "build.toml"
     if not f.is_file():
@@ -66,6 +107,9 @@ def main(argv=None):
     sub.add_parser("game-data")
     sub.add_parser("scripts")
     sub.add_parser("script").add_argument("pkg")
+    sub.add_parser("builder").add_argument("pkg")
+    sub.add_parser("fields").add_argument("pkg")
+    sub.add_parser("bench-data").add_argument("dir")
     sub.add_parser("needs-licensed")
     sub.add_parser("image-base")
     sub.add_parser("own-packages").add_argument("id")
@@ -78,11 +122,29 @@ def main(argv=None):
             for _, e in licensed(root):
                 b = str(e.get("builder", ""))
                 if b.startswith("game-data-packager:"):
-                    print("%s:%s" % (b.split(":", 1)[1], e["name"]))
+                    print("%s:%s%s" % (b.split(":", 1)[1], e["name"], ":input" if e.get("input") is True else ""))
         elif a.cmd == "scripts":
             for _, e in licensed(root):
-                if e.get("builder") == "script":
+                if e.get("builder") == "script" or (str(e.get("builder", "")).startswith("game-data-packager:")
+                                                    and e.get("input") is True):
                     print(e["name"])
+        elif a.cmd == "builder":
+            hits = [e.get("builder") for _, e in licensed(root) if e.get("name") == a.pkg]
+            if not hits:
+                raise Error("%s: no build.toml [[licensed]] names it" % a.pkg)
+            print(hits[0])
+        elif a.cmd == "fields":
+            for k, v in data_fields(root, a.pkg).items():
+                if v:
+                    print("%s: %s" % (k, v))
+        elif a.cmd == "bench-data":
+            for d, b in builds(root):
+                rows = game_data(b) if d.parent.name == "games" else []
+                if rows:
+                    (Path(a.dir) / d.name).mkdir(parents=True, exist_ok=True)
+                    (Path(a.dir) / d.name / "data.txt").write_text(
+                        "# the game's data packages: package, edition, release (tools/gamedb/build-info.py bench-data)\n"
+                        + "".join(" ".join(x for x in r if x) + "\n" for r in rows))
         elif a.cmd == "script":
             hits = [d for d, e in licensed(root) if e.get("name") == a.pkg and e.get("builder") == "script"]
             if not hits:

@@ -59,8 +59,9 @@ help:
 	@echo "                    -> $(BUILD)/debs/game-data"
 	@echo "  make gdp-index    tools/gamedb/gdp-packages.json: the games and packages game-data-packager knows (check.py)"
 	@echo "  make gdp-manifest tools/gamedb/gdp-manifest.json: the files of every [data_setup] package (walnut-games-helper import-data)"
-	@echo "  make licensed-data PKG=<pkg> INPUT=<file>  a licensed data deb from your own copy (rct2-data:"
-	@echo "                    the RCT2 CD image, tyrian-data: tyrian21.zip) -> $(BUILD)/debs/<pkg>"
+	@echo "  make licensed-data PKG=<pkg> INPUT=<file>  a licensed data deb from your own copy"
+	@echo "                    (roller-coaster-tycoon2-data: the RCT2 CD image or a folder, by game-data-packager;"
+	@echo "                    tyrian-data: tyrian21.zip) -> $(BUILD)/debs/<pkg>"
 	@echo "  make publish      licensed packages built here -> walnut.nanobyte.dev's licensed suite (DEBS=...;"
 	@echo "                    free packages are published by CI only)"
 	@echo "Image:"
@@ -200,23 +201,42 @@ gdp-manifest: | $(GAMES_BUILDER_STAMP)
 
 # The licensed game data made by game-data-packager (tools/game-data.sh): every gamedb build.toml
 # [[licensed]] with builder = "game-data-packager:<game>" (tools/gamedb/build-info.py game-data; today
-# Quake's shareware and Quake II's demo data) -> build/debs/game-data. Non-free, the licensed suite only. A
-# version already published there is downloaded, never made again (its output isn't reproducible);
-# REGEN=1 makes it anyway. The suite's login reaches the container as a netrc file under build/tmp,
-# deleted afterwards.
-game-data: | $(GAMES_BUILDER_STAMP)
-	@set -e; pairs=$$(python3 -I tools/gamedb/build-info.py game-data); [ -n "$$pairs" ]; \
-	mkdir -p $(BUILD)/tmp; n=$(BUILD)/tmp/licensed.netrc; rm -f $$n; \
+# Quake's shareware and Quake II's demo data; one made from the owner's copy, input = true, only when
+# published) -> build/debs/game-data. Non-free, the licensed suite only. A version already published
+# there is downloaded, never made again (its output isn't reproducible); REGEN=1 makes it anyway. A file
+# made gets X-Walnut-Edition/X-Walnut-Release (tools/gamedb/stamp-data-deb.py). The suite's login reaches
+# the container as a netrc file under build/tmp, deleted afterwards.
+# $(call game-data-run,OUT DIR,SPECS,MORE DOCKER ARGS)
+game-data-run = mkdir -p $(BUILD)/tmp; n=$(BUILD)/tmp/licensed.netrc; rm -f $$n; \
 	apt-repo/licensed-auth.sh $$n netrc || [ "$(REGEN)" = 1 ] || exit 1; \
 	auth=; [ ! -e $$n ] || auth="-e LICENSED_NETRC=/work/$$n"; set +e; \
-	$(DOCKER_RUN) --user $(UID_GID) -e HOME=/tmp $$auth -e REGEN=$(REGEN) $(GAMES_BUILDER_TAG) \
-		tools/game-data.sh $(BUILD)/debs/game-data $$pairs; rc=$$?; rm -f $$n; exit $$rc
-# The licensed game data made by a script from the owner's own copy (a build.toml [[licensed]] with
-# builder = "script": gamedb/games/<id>/licensed/<pkg>/<pkg>.sh, on this PC): make licensed-data
-# PKG=rct2-data INPUT=<RCT2 CD image>, PKG=tyrian-data INPUT=<tyrian21.zip> -> build/debs/<pkg>
-licensed-data:
+	$(DOCKER_RUN) --user $(UID_GID) -e HOME=/tmp $$auth -e REGEN=$(REGEN) $(3) $(GAMES_BUILDER_TAG) \
+		tools/game-data.sh $(1) $(2); rc=$$?; rm -f $$n
+game-data: | $(GAMES_BUILDER_STAMP)
+	@set -e; pairs=$$(python3 -I tools/gamedb/build-info.py game-data); [ -n "$$pairs" ]; \
+	$(call game-data-run,$(BUILD)/debs/game-data,$$pairs,); exit $$rc
+# The licensed game data made from the owner's own copy (build.toml [[licensed]]): builder = "script"
+# runs gamedb/games/<id>/licensed/<pkg>/<pkg>.sh on this PC (PKG=tyrian-data INPUT=<tyrian21.zip>); a
+# game-data-packager one with input = true runs tools/game-data.sh on INPUT in the games builder
+# (PKG=roller-coaster-tycoon2-data INPUT=<the RCT2 CD image, a folder or an installer>; an .iso is
+# unpacked with 7z into build/tmp/licensed-input first, deleted afterwards) -> build/debs/<pkg>
+licensed-data: | $(GAMES_BUILDER_STAMP)
 	@[ -n "$(PKG)" ] && [ -n "$(INPUT)" ] || { echo "make licensed-data PKG=<pkg> INPUT=<file>: $$(python3 -I tools/gamedb/build-info.py scripts | paste -sd' ')"; exit 2; }
-	s=$$(python3 -I tools/gamedb/build-info.py script $(PKG)) && $$s "$(INPUT)"
+	@set -e; b=$$(python3 -I tools/gamedb/build-info.py builder $(PKG)); \
+	case $$b in \
+	script) s=$$(python3 -I tools/gamedb/build-info.py script $(PKG)); $$s "$(INPUT)" ;; \
+	game-data-packager:*) \
+		spec=$$(python3 -I tools/gamedb/build-info.py game-data | grep -x "[a-z0-9-]*:$(PKG):input") \
+			|| { echo "$(PKG): no input = true in its [[licensed]]: make game-data makes it"; exit 2; }; \
+		in=$$(realpath -e "$(INPUT)"); x=$(BUILD)/tmp/licensed-input; rm -rf $$x; \
+		case $$in in \
+		*.iso|*.ISO) mkdir -p $$x; 7z x -y -o$$x "$$in" > /dev/null; mnt="-v $(CURDIR)/$$x:/input:ro"; arg=/input ;; \
+		*) if [ -d "$$in" ]; then mnt="-v $$in:/input:ro"; arg=/input; \
+		   else mnt="-v $$in:/input/$${in##*/}:ro"; arg=/input/$${in##*/}; fi ;; \
+		esac; \
+		$(call game-data-run,$(BUILD)/debs/$(PKG),$$spec,$$mnt -e INPUT=$$arg); rm -rf $$x; exit $$rc ;; \
+	*) echo "$(PKG): builder $$b, not one make licensed-data runs"; exit 2 ;; \
+	esac
 
 # The benchmarks' built assets (gamedb/README.md "benchmark/assets-src/"): each assets.mk has its
 # rules and adds its targets to BENCH_ASSETS (ClassiCube's plugin: make classicube-bench)
@@ -396,10 +416,15 @@ ps3-reboot:
 # games/<id>/rating/test.toml (playdef.py, play-test.sh stop).
 BENCH_GAME_FILES = $(wildcard $(foreach f,recipe.sh analysis.toml lib assets,gamedb/games/*/benchmark/$(f)) \
 	gamedb/games/*/rating/test.toml)
+# Each game's data packages with their edition and release, games/<id>/data.txt (tools/gamedb/build-info.py
+# bench-data, made under $(BUILD)/tmp/bench-data): the harness records the installed ones in versions.
+BENCH_DATA = $(BUILD)/tmp/bench-data
 BENCH_TAR = tar -c --exclude=__pycache__ --transform='s,^gamedb/games/\([^/]*\)/benchmark,bench/games/\1,' \
-	--transform='s,^gamedb/games/\([^/]*\)/rating/,bench/games/\1/rating/,' bench $(sort $(BENCH_GAME_FILES))
+	--transform='s,^gamedb/games/\([^/]*\)/rating/,bench/games/\1/rating/,' bench $(sort $(BENCH_GAME_FILES)) \
+	-C $(BENCH_DATA) bench
 bench-push:
 	$(call need,PS3_IP PS3_USER)
+	rm -rf $(BENCH_DATA); python3 -I tools/gamedb/build-info.py bench-data $(BENCH_DATA)/bench/games
 	$(BENCH_TAR) | $(PS3_SSH) 'set -e; rm -rf /var/tmp/bench.new /var/tmp/bench.old; \
 		mkdir /var/tmp/bench.new; tar -C /var/tmp/bench.new --strip-components=1 -x; \
 		[ ! -e /var/tmp/bench ] || mv /var/tmp/bench /var/tmp/bench.old; mv /var/tmp/bench.new /var/tmp/bench'

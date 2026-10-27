@@ -276,7 +276,9 @@ def versions(d):
     out, kern = [], None
     for line in f.read_text(errors="replace").splitlines():
         p, _, v = line.partition("\t")
-        if not v:
+        if p.startswith("data:"):      # the game's data packages (games.sh bench_data_versions)
+            out.append("%s %s" % (p[5:], v.strip()))
+        elif not v:
             kern = line.strip() or kern
         elif p.split(":")[0] not in SKIP_PKGS and v.strip():
             out.append("%s %s" % (p.split(":")[0], v.strip()))
