@@ -17,7 +17,11 @@ Mountain) with the console's RAM nearly gone.
   [0001](packages/openrct2/patches/0001-big-endian-core-of-PR-27114-AmigaOS-port.patch)-[0004](packages/openrct2/patches/0004-big-endian-S6-S4-swaps-as-functions-open-park-hook.patch)
   and [0006](packages/openrct2/patches/0006-big-endian-network-serialiser-object-checksum-coords.patch) are the big-endian port,
   [0005](packages/openrct2/patches/0005-linux-rct2-search-path-werror-option.patch) the RCT2 search path (the game finds RCT2 in
-  `/usr/share/games/rct2`, no config needed) and a `-Werror` option. Build rules: Release, scripting,
+  `/usr/share/games/rct2`, no config needed) and a `-Werror` option,
+  [0007](packages/openrct2/patches/0007-console-defaults-fullscreen-desktop-no-changelog.patch) the console defaults: a fresh
+  config starts fullscreen at the desktop's resolution (`fullscreen_mode` 2), with window scale desktop height / 540 from
+  1080 lines up (2 at 1080p: a 960x540 canvas scaled up), and without the changelog (only after an upgrade); existing
+  configs keep their settings. Build rules: Release, scripting,
   OpenGL, Discord, HTTP and the version checker off, `OPENRCT2_WERROR=OFF`, `DOWNLOAD_*=OFF` with the asset
   zips unpacked into data/ first; g2.dat and friends are built by the ppc64 `openrct2-cli` itself during the
   build (identical to little-endian); tests not run in the build (they need RCT2 data). About 45 min a build
@@ -33,6 +37,10 @@ Mountain) with the console's RAM nearly gone.
   (`rct2-data.sh`, now retired: `/usr/share/games/rct2`, about 115 MB without the ride music): its published
   1.0-2 stays, the benchmark recipe still points at its path, and the console counts either as the game's
   data. Nothing from the disc is run; the packages go to the licensed suite only, the data is never committed.
+- **Screenshots of a windowed OpenRCT2 come out blue and purple**: the game draws right (webcam), but SDL's GL
+  window has a GLX visual with byte-swapped masks (red 0xff00, green 0xff0000, blue 0xff000000) and xwd
+  decodes the window through them. Fullscreen captures are right. Not the data, not the build:
+  [2026-10-27](investigations/2026-10-27-colours-and-console-defaults.md).
 
 ## On the PS3 (batch ssdroot8)
 
@@ -65,6 +73,8 @@ ps3.574, the recipe ([benchmark/recipe.sh](benchmark/recipe.sh): Electric Fields
 
 ## Investigations
 
+- [2026-10-27 the blue screenshots and the console defaults](investigations/2026-10-27-colours-and-console-defaults.md):
+  the colours are an xwd artefact of a windowed GL window (byte-swapped GLX visual masks), patch 0007.
 - [2026-10-19 the big-endian port](investigations/2026-10-19-big-endian-port.md): what was ported, the bugs
   beyond PR #27114, the checks, the RAM on the PC.
 - [2026-10-19 the big-endian port estimate](investigations/2026-10-19-big-endian-port-estimate.md) (written

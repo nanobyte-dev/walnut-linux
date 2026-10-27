@@ -1,0 +1,91 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Tue, 27 Oct 2026 19:10:00 +0200
+Subject: [PATCH] Console defaults: a fresh configuration starts fullscreen at
+ the desktop's resolution, without the changelog
+
+On a console the game is started from a menu on a TV, with nobody at a
+desktop to resize a window. Upstream's defaults made a fresh
+configuration start in a 1280x720 window with the changelog window open
+over the title screen (lastRunVersion is empty, so it counts as an
+upgrade). For a configuration that has none of these settings yet:
+
+- fullscreen_mode defaults to 2, "Fullscreen (desktop)": SDL's
+  fullscreen at the desktop's resolution, read at run time (a 720p TV
+  gets 720p, a 1080p one 1080p);
+- the changelog opens only when an older version ran before
+  (lastRunVersion set and different), not on the first start; the
+  version is still recorded;
+- the first start's display check (InferDisplayDPI, which runs once and
+  saves) also picks the window scale for a TV: on a desktop of 1080
+  lines or more the canvas is drawn about 540 lines high (scale
+  desktop height / 540, 2 at 1080p) and SDL scales it up. The software
+  renderer paints the whole canvas on the CPU each frame; at 1080p
+  scale 2 is a quarter of the pixels, and the interface stays readable
+  from the sofa. Below 1080 lines the scale stays 1.
+
+A configuration that already has the settings keeps them: the player's
+own choices in the Options window are never overridden.
+---
+ src/openrct2-ui/UiContext.cpp  | 9 +++++++++
+ src/openrct2/Context.cpp       | 4 +++-
+ src/openrct2/config/Config.cpp | 4 +++-
+ 3 files changed, 15 insertions(+), 2 deletions(-)
+
+diff --git a/src/openrct2-ui/UiContext.cpp b/src/openrct2-ui/UiContext.cpp
+index 18d6d2c..bed3892 100644
+--- a/src/openrct2-ui/UiContext.cpp
++++ b/src/openrct2-ui/UiContext.cpp
+@@ -22,6 +22,7 @@
+ #include "title/TitleSequencePlayer.h"
+ 
+ #include <SDL.h>
++#include <algorithm>
+ #include <cmath>
+ #include <cstdlib>
+ #include <memory>
+@@ -784,6 +785,14 @@ private:
+         if (SDL_GetRendererOutputSize(renderer, &rWidth, &rHeight) == 0)
+             config.windowScale = rWidth / wWidth;
+ 
++        // A TV: the game draws its whole canvas on the CPU every frame, so on a 1080p (or larger) desktop a
++        // fresh configuration draws a canvas about 540 lines high and SDL scales it up (window scale 2 at
++        // 1080p: a quarter of the pixels to paint, and the interface readable from the sofa); below 1080
++        // lines it stays 1. Only here, the first start: a scale the player chose is kept.
++        SDL_DisplayMode desktop;
++        if (SDL_GetDesktopDisplayMode(SDL_GetWindowDisplayIndex(_window), &desktop) == 0 && desktop.h >= 1080)
++            config.windowScale = std::max(config.windowScale, static_cast<float>(desktop.h / 540));
++
+         config.inferDisplayDPI = false;
+         Config::Save();
+     }
+diff --git a/src/openrct2/Context.cpp b/src/openrct2/Context.cpp
+index 448b4c9..17bd4f9 100644
+--- a/src/openrct2/Context.cpp
++++ b/src/openrct2/Context.cpp
+@@ -360,7 +360,9 @@ namespace OpenRCT2
+             }
+             else
+             {
+-                gOpenRCT2ShowChangelog = true;
++                // The changelog is news for a player who ran an older version: a fresh configuration (no
++                // version run yet) starts at the title screen without it
++                gOpenRCT2ShowChangelog = !Config::Get().general.lastRunVersion.empty();
+                 Config::Get().general.lastRunVersion = kOpenRCT2Version;
+                 Config::Save();
+             }
+diff --git a/src/openrct2/config/Config.cpp b/src/openrct2/config/Config.cpp
+index 8590b14..140d515 100644
+--- a/src/openrct2/config/Config.cpp
++++ b/src/openrct2/config/Config.cpp
+@@ -193,7 +193,9 @@ namespace OpenRCT2::Config
+             model->customCurrencySymbol = reader->GetString("custom_currency_symbol", "Ctm");
+             model->edgeScrolling = reader->GetBoolean("edge_scrolling", true);
+             model->edgeScrollingSpeed = reader->GetInt32("edge_scrolling_speed", 12);
+-            model->fullscreenMode = reader->GetInt32("fullscreen_mode", 0);
++            // A console's TV: a fresh configuration starts fullscreen at the desktop's resolution (2, "Fullscreen
++            // (desktop)"), not in a 1280x720 window
++            model->fullscreenMode = reader->GetInt32("fullscreen_mode", 2);
+             model->fullscreenHeight = reader->GetInt32("fullscreen_height", -1);
+             model->fullscreenWidth = reader->GetInt32("fullscreen_width", -1);
+             model->rct1Path = reader->GetString("rct1_path", "");
