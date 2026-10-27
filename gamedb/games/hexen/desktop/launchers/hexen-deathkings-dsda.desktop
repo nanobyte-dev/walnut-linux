@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Hexen: Deathkings of the Dark Citadel (DSDA-Doom)
+Comment=Hexen's Deathkings of the Dark Citadel from your own HEXEN.WAD and HEXDD.WAD, DSDA-Doom's OpenGL renderer at 1920x1080
+Exec=ps3-game dsda-hexen -iwad /usr/share/games/doom/hexen.wad -file /usr/share/games/doom/hexdd.wad -vidmode gl -width 1920 -height 1080 -fullscreen
+Icon=dsda-doom
+Terminal=false
+Categories=Game;ActionGame;
+Keywords=first;person;shooter;hexen;deathkings;
+NoDisplay=true
+X-Walnut-Requires=/usr/share/games/doom/hexdd.wad

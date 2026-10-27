@@ -17,6 +17,8 @@ deb make game-data-packager-deb built into the deb builder image and runs this t
   baseset/fm, the set file's bytes the ones generated_files() gives (what gdp-manifest.py records).
 - 0009 roller-coaster-tycoon2: the 2012 build of GOG's setup_rollercoaster_tycoon2_2.0.0.6.exe
   with its sizes and checksums, unpacked and providing what the known build does (loader only).
+- 0010 hexen: GOG's setup_hexen_beyond_heretic_1.1_(42801).exe with its sizes and checksums,
+  unpacked with innoextract for hexen.wad 1.1 (loader only).
 
 game-data-packager checks every file against its checksums, so the builds use a game of our own,
 "walnuttest" (plugin doom_common, so DoomTask writes its launchers), whose checksums are those of
@@ -496,6 +498,25 @@ class RCT2GOG2012(unittest.TestCase):
         self.assertEqual(f.provides, known.provides)	# base and expansions, as the known build
         self.assertIn('assets expansion packs', f.provides)
         self.assertIn(self.NAME, f.look_for)
+
+
+class HexenGOG(unittest.TestCase):
+    """0010: GOG's Hexen installer, unpacked for hexen.wad 1.1"""
+    NAME = 'setup_hexen_beyond_heretic_1.1_(42801).exe'
+    # size, md5, sha1, sha256 of the user's installer (the values in the patch)
+    SUMS = (148062304, '14fc90ad147cdd834f59da9e4f1fe605', '2a28810ee9333c59ba207e4e55dcdedea0ac8b69',
+            '212b8a854ba1dc1cfbeb27c736f62af199057d16dd6625d3f1b54acad4acab42')
+
+    def test_accepted(self):
+        from game_data_packager.game import load_games
+        g = load_games()['hexen']
+        g.load_file_data()
+        f = g.files[self.NAME]
+        self.assertEqual((f.size, f.md5, f.sha1, f.sha256), self.SUMS)
+        self.assertEqual(f.unpack['format'], 'innoextract')
+        self.assertEqual(set(f.provides), {'hexen.wad?1.1'})
+        self.assertIn('hexen.wad?1.1', g.files['hexen.wad'].alternatives)
+        self.assertIsNone(g.files['hexen.wad?1.1'].unsuitable)
 
 
 if __name__ == '__main__':

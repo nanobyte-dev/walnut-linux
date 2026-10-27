@@ -8,6 +8,8 @@ needs_data = true
 gdp = "hexen"
 original = "Hexen"
 required = ["hexen-wad"]
-hint = "HEXEN.WAD from Hexen: Beyond Heretic 1.1 (1.0 does not run): a CD, an installed copy or Steam's common/Hexen folder."
+# Deathkings of the Dark Citadel (HEXDD.WAD), sold apart: its own launcher, Hexen plays without it
+optional = ["hexen-deathkings-wad"]
+hint = "HEXEN.WAD from Hexen: Beyond Heretic 1.1 (1.0 does not run): a CD, an installed copy, Steam's common/Hexen folder or GOG's installer; HEXDD.WAD from Deathkings of the Dark Citadel if you have it."
 # what each package holds (X-Walnut-Edition of the package import-data builds)
-editions = { "hexen-wad" = "full" }
+editions = { "hexen-wad" = "full", "hexen-deathkings-wad" = "expansion" }

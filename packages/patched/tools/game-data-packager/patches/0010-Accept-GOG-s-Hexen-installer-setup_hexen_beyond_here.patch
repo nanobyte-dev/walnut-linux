@@ -1,0 +1,50 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Tue, 27 Oct 2026 22:01:10 +0200
+Subject: Accept GOG's Hexen installer,
+ setup_hexen_beyond_heretic_1.1_(42801).exe
+
+GOG's Hexen installer (148062304 bytes, the same 42801 build number as
+the Heretic installer gdp already knows) holds HEXEN.WAD 1.1 (20083672
+bytes, md5 abb033caf81e26f12a2103e1fa25453f), the CD's data track as
+game.gog and the CD music as Ogg Vorbis. It has no Deathkings. gdp did
+not know it, so it gave nothing from it; it now unpacks it with
+innoextract for hexen.wad, as for setup_heretic_shadow_of_the_serpent_riders.
+
+Forwarded: not yet (candidate for Debian)
+
+diff --git a/data/hexen.yaml b/data/hexen.yaml
+--- a/data/hexen.yaml
++++ b/data/hexen.yaml
+@@ -67,6 +67,13 @@ files:
+     alternatives:
+     - hexen.wad?1.1
+ 
++  # GOG.com installer (HEXEN.WAD 1.1, the CD's data track as game.gog, the
++  # CD music as Ogg Vorbis; no Deathkings)
++  setup_hexen_beyond_heretic_1.1_(42801).exe:
++    unpack:
++      format: innoextract
++    provides: ['hexen.wad?1.1']
++
+   hexdd.wad:
+     alternatives:
+     - hexdd.wad?1.1
+@@ -106,12 +113,17 @@ groups:
+     20083672  abb033caf81e26f12a2103e1fa25453f hexen.wad?1.1
+     4429700   1077432e2690d390c256ac908b5f4efa hexdd.wad?1.0
+     4440584   78d5898e99e220e4de64edaa0e479593 hexdd.wad?1.1
++    148062304 14fc90ad147cdd834f59da9e4f1fe605 setup_hexen_beyond_heretic_1.1_(42801).exe
+ 
+ sha1sums: |
+   fa89a2475855e43c7f7e3198d6e4c4bee23bfab9  hexendemo.wad
+   4b53832f0733c1e29e5f1de2428e5475e891af29  hexen.wad?1.1
+   c3065527d62b05a930fe75fe8181a64fb1982976  hexdd.wad?1.0
+   081f6a2024643b54ef4a436a85508539b6d20a1e  hexdd.wad?1.1
++  2a28810ee9333c59ba207e4e55dcdedea0ac8b69  setup_hexen_beyond_heretic_1.1_(42801).exe
++
++sha256sums: |
++  212b8a854ba1dc1cfbeb27c736f62af199057d16dd6625d3f1b54acad4acab42  setup_hexen_beyond_heretic_1.1_(42801).exe
+ 
+ ...
+ # vim:set sw=2 sts=2 et:
