@@ -1,0 +1,41 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Wed, 28 Oct 2026 21:56:15 +0200
+Subject: ppc64: string.lower, upper and reverse reset the buffer with 64-bit
+ stores
+
+The interpreter's fast functions for string.lower, string.upper and
+string.reverse reset the global temporary buffer before writing into it:
+w = b. They did it with lwz and stw, 32-bit accesses, but the buffer's
+w, e and b are char pointers, 64 bits wide on ppc64. On big-endian ppc64
+the 32-bit load reads the pointer's high word (0) and the store writes 0
+into w's high word, so w kept its old value and every result started with
+whatever the buffer held last: ("Hello World"):lower() after print(2)
+gave "2hello world", and ("A".."B"):lower() gave "ABab". (On little-endian
+ppc64 the low words happened to be the ones touched, which works while the
+buffer sits below 4 GB.) The pointer-sized lp/stp macros are ld/std on P64
+and lwz/stw otherwise, as for the other pointers the VM loads.
+
+Found through Luanti's settings menu, which built its page ids with
+(section .. "_" .. name):lower() and failed on every open with "attempt
+to index field 'controls_touchscreen' (a nil value)" (gamedb:luanti).
+
+Forwarded: no
+
+diff --git a/src/vm_ppc.dasc b/src/vm_ppc.dasc
+--- a/src/vm_ppc.dasc
++++ b/src/vm_ppc.dasc
+@@ -2681,11 +2681,11 @@ static void build_subroutines(BuildCtx *ctx)
+   |  checkstr CARG3
+   |   la SBUF:CARG1, DISPATCH_GL(tmpbuf)(DISPATCH)
+   |  bne ->fff_fallback
+-  |   lwz TMP0, SBUF:CARG1->b
++  |   lp TMP0, SBUF:CARG1->b
+   |  stw L, SBUF:CARG1->L
+   |  stp BASE, L->base
+   |  stw PC, SAVE_PC
+-  |   stw TMP0, SBUF:CARG1->w
++  |   stp TMP0, SBUF:CARG1->w
+   |  bl extern lj_buf_putstr_ .. name
+   |  bl extern lj_buf_tostr
+   |  b ->fff_resstr
