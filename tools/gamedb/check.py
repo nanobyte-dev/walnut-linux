@@ -46,7 +46,8 @@ Design
       command an absolute program, env NAME=value); benchmark/analysis.toml and engines/<e>/analysis.toml
       follow bench/harness/gamedata.py's (closed keys: [legacy], [reload], [[log_ignore]], [[log_strip]],
       [interference]; an engine's only the log rules; every regex compiles); benchmark/results/<batch>.toml and
-      gamedb/benchmarks/{batches,metrics}.toml: records_errors() (bench/analysis/benchrecords.py; gamedb/benchmarks/README.md)
+      gamedb/benchmarks/{batches,metrics}.toml: records_errors() (bench/analysis/benchrecords.py; gamedb/benchmarks/README.md);
+      gamedb/benchmarks/caveats.toml: caveats_errors()
     * todo.toml (a game's or an engine's backlog: [[item]] tables): todo_errors() (closed keys TODO_KEYS, kind
       one of TODO_KINDS, added a date, order an int of 1 or more, order/launcher/pc on session items only)
     * drafts (draft = true: a candidate, or a game tried and not published) need only id, title and
@@ -842,6 +843,51 @@ def records_errors(root, games=None):
     return bench_module("benchrecords").check_records(root, games)
 
 
+CAVEAT_KEYS = {"batch": str, "game": str, "variant": str, "kind": str, "why": str}
+CAVEAT_KINDS = ("invalid", "not-comparable")
+
+
+def caveats_errors(root):
+    """gamedb/benchmarks/caveats.toml (gamedb/benchmarks/README.md "Caveats"): [[caveat]] tables of closed keys
+    CAVEAT_KEYS, batch, kind and why required, kind one of CAVEAT_KINDS, the batch in batches.toml, a game
+    (when named) with results in that batch, a variant (only with a game) in them"""
+    f = Path(root) / "benchmarks" / "caveats.toml"
+    if not f.is_file():
+        return []
+    try:
+        cav = tomllib.loads(f.read_text())
+    except tomllib.TOMLDecodeError as e:
+        return ["caveats.toml: %s" % e]
+    errs = ["caveats.toml: unknown key %r" % k for k in cav if k != "caveat"]
+    try:
+        batches = {b.get("name") for b in tomllib.loads((Path(root) / "benchmarks" / "batches.toml").read_text()).get("batch", [])}
+    except (OSError, tomllib.TOMLDecodeError):
+        batches = set()
+    for i, c in enumerate(cav.get("caveat", [])):
+        where = "caveats.toml caveat %d" % (i + 1)
+        for k, v in c.items():
+            if k not in CAVEAT_KEYS:
+                errs.append("%s: unknown key %r" % (where, k))
+            elif not isinstance(v, CAVEAT_KEYS[k]):
+                errs.append("%s: %s must be a %s" % (where, k, CAVEAT_KEYS[k].__name__))
+        for k in ("batch", "kind", "why"):
+            if k not in c:
+                errs.append("%s: %s missing" % (where, k))
+        if c.get("kind") is not None and c.get("kind") not in CAVEAT_KINDS:
+            errs.append("%s: kind %r is not one of %s" % (where, c["kind"], ", ".join(CAVEAT_KINDS)))
+        if c.get("batch") is not None and c["batch"] not in batches:
+            errs.append("%s: batch %r is not in batches.toml" % (where, c["batch"]))
+        if "variant" in c and "game" not in c:
+            errs.append("%s: a variant needs its game" % where)
+        if "game" in c and isinstance(c.get("batch"), str):
+            res = Path(root) / "games" / str(c["game"]) / "benchmark" / "results" / ("%s.toml" % c["batch"])
+            if not res.is_file():
+                errs.append("%s: %s has no results in %s" % (where, c["game"], c["batch"]))
+            elif "variant" in c and c["variant"] not in tomllib.loads(res.read_text()).get("variant", {}):
+                errs.append("%s: %s has no variant %r in %s" % (where, c["game"], c["variant"], c["batch"]))
+    return errs
+
+
 def check(content, repo=REPO, apt=None):
     """{game folder: [problems]} for the whole catalog (empty lists left out), the engines as
     "engines/<e>"; apt: the package names of an apt index (None: not checked)"""
@@ -854,6 +900,7 @@ def check(content, repo=REPO, apt=None):
             if errs:
                 out["engines/" + e.name] = errs
     errs = records_errors(Path(content).parent, {d.name for d in Path(content).iterdir() if d.is_dir()})
+    errs += caveats_errors(Path(content).parent)
     if errs:
         out["benchmarks"] = errs
     for gdir in sorted(Path(content).iterdir()):

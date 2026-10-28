@@ -11,6 +11,7 @@ test are kept, with the failure in the observations and odd or no numbers. Bench
 |---|---|
 | `batches.toml` | every batch once, in the order they were run |
 | `metrics.toml` | every metric once: name, unit, which way is better, whether it has a CSV matrix, the tool that computes it |
+| `caveats.toml` | batches (or one game's rows in them) whose numbers aren't what the column says or aren't comparable with plain runs ("Caveats" below); the Test runs tab marks those rows |
 | `interfered.txt` | runs found disturbed after the fact (`bench/analysis/interference-scan.py --write`, docs/STALLS.md "Interference"): the run directory, then the evidence; `bench/analysis/report.py` and `bench/analysis/matrix.py` leave them out. A list of runs, not of batches: a batch keeps its clean runs |
 | `gamedb/games/<id>/benchmark/results/<batch>.toml` | one game's numbers in one batch |
 
@@ -119,6 +120,16 @@ printing its average over the whole replay), compare `fps` across that date with
   gamedb:batch/2026-10-18-batch17) had 106-111 in them until the 2026-10-19 results commit.
 - Single runs vary: OpenArena (23 to 54 fps) and QuakeSpasm (66 to 84 fps) both did on Mesa
   ps3.262. A difference of a few fps between batches with one run each is noise.
+
+## Caveats
+
+`caveats.toml` holds `[[caveat]]` tables: `batch` (required, a name in batches.toml), `game` and `variant`
+(optional: only that game's rows, only that variant), `kind` (`invalid`: the frame rate is not a frame rate of
+the picture shown, e.g. nothing reached the screen, or the HUD's number stands in for a missing fps line;
+`not-comparable`: measured right but slowed by a profiler or another recording) and `why` (one sentence,
+from the batch's observations). `tools/gamedb/check.py` validates it (caveats_errors); the game's Test runs
+tab shows the caveat above the batch's table and flags its rows. A batch keeps its numbers: the caveat only
+says how to read them.
 
 ## Adding a batch after a session
 

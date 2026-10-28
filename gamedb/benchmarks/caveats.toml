@@ -1,0 +1,82 @@
+# gamedb/benchmarks/caveats.toml: benchmark numbers that are not what their column says, or not comparable with
+# plain runs (gamedb/benchmarks/README.md "Caveats"). Each [[caveat]] names a batch, optionally one game of it
+# (and one variant of that game); the Test runs tab marks those rows. kind: "invalid" (the frame rate is not a
+# frame rate of the picture shown) or "not-comparable" (measured right, but slowed by a profiler or another
+# recording). why: the reason in one sentence, from the batch's observations.
+# Validated by tools/gamedb/check.py (caveats_errors).
+
+[[caveat]]
+batch = "2026-10-16-step0-vswap-off"
+kind = "invalid"
+why = "nothing reached the screen (no window manager, and ps3rsx left the video muted), so the frame rates are not of a shown picture"
+
+[[caveat]]
+batch = "2026-10-16-step0-vswap-on"
+kind = "invalid"
+why = "nothing reached the screen, so the frame rates are not of a shown picture"
+
+[[caveat]]
+batch = "2026-10-16-step0-sound"
+kind = "invalid"
+why = "nothing reached the screen, so the frame rates are not of a shown picture"
+
+[[caveat]]
+batch = "2026-10-16-step0-perf"
+kind = "invalid"
+why = "nothing reached the screen, and the runs recorded perf profiles"
+
+[[caveat]]
+batch = "2026-10-16-speq-ppe-dxt1"
+kind = "invalid"
+why = "nothing reached the screen, so the frame rates are not of a shown picture (load times and VRAM are valid)"
+
+[[caveat]]
+batch = "2026-10-16-speq-spu-dxt1"
+kind = "invalid"
+why = "nothing reached the screen, so the frame rates are not of a shown picture"
+
+[[caveat]]
+batch = "2026-10-16-stage0-first"
+kind = "invalid"
+why = "a black screen (ps3rsx before a1f1b91), so the frame rates are not of a shown picture"
+
+[[caveat]]
+batch = "2026-10-16-black-screen"
+kind = "invalid"
+why = "black-screen tests (ps3rsx before a1f1b91), so the frame rates are not of a shown picture"
+
+[[caveat]]
+batch = "2026-10-16-stage0-8baa747"
+kind = "invalid"
+why = "the second X was still black, so the frame rates are not of a shown picture"
+
+[[caveat]]
+batch = "2026-10-16-xmoto-smoke"
+game = "xmoto"
+kind = "invalid"
+why = "the run printed no frame-rate line; the 320 is the Gallium HUD's median over the whole run, not the replay's frame rate"
+
+[[caveat]]
+batch = "2026-10-16-mesa-223"
+kind = "not-comparable"
+why = "every game was profiled with perf during the run, which slows it"
+
+[[caveat]]
+batch = "2026-10-17-mesa-262-allog"
+kind = "not-comparable"
+why = "OpenAL logging runs with perf recording, slower than plain runs"
+
+[[caveat]]
+batch = "2026-10-17-mesa-262-perf"
+kind = "not-comparable"
+why = "runs with perf recording (audio profiling), slower than plain runs"
+
+[[caveat]]
+batch = "2026-10-19-ssdroot2-startup-profiles"
+kind = "not-comparable"
+why = "start-up profiles (PERF_LOAD=1 STALLS=1), slower than plain runs"
+
+[[caveat]]
+batch = "2026-10-19-ssdroot2-gameplay-profiles"
+kind = "not-comparable"
+why = "gameplay profiles (PERF=1 MEM=1), slower than plain runs"
