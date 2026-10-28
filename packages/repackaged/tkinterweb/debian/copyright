@@ -1,0 +1,36 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: TkinterWeb
+Source: https://pypi.org/project/tkinterweb/ (https://github.com/Andereoo/TkinterWeb)
+
+Files: *
+Copyright: 2021-2026 Andrew Clarke
+License: Expat
+
+Files: debian/tkinterweb_tkhtml/*
+Copyright: 2026 Andrew Clarke (TkinterWeb-Tkhtml's loader, adapted to the system's Tkhtml)
+License: Expat
+
+Files: tkinterweb/resources/combobox-2.3.tm
+Copyright: 1998-2003 Bryan Oakley
+License: permissive
+ this code is freely distributable without restriction, but is provided as-is with no warranty
+ expressed or implied.
+
+License: Expat
+ Permission is hereby granted, free of charge, to any person obtaining a copy
+ of this software and associated documentation files (the "Software"), to deal
+ in the Software without restriction, including without limitation the rights
+ to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ copies of the Software, and to permit persons to whom the Software is
+ furnished to do so, subject to the following conditions:
+ .
+ The above copyright notice and this permission notice shall be included in all
+ copies or substantial portions of the Software.
+ .
+ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ SOFTWARE.

@@ -549,6 +549,20 @@ buttons Install, Remove, Play and "Open on the web". The window follows the Waln
   apt-get writes to the status descriptor), Exec parsing, filters, and a window smoke test on a private
   Xvfb/Xvnc (skipped when neither exists).
 
+**The HTML view** (Details, PLAN 5.11) is Tkhtml 3.0 through TkinterWeb: packages `tk-html3` and
+`python3-tkinterweb` (packages/repackaged/; neither is in Debian, and PyPI's wheels carry Tkhtml for x86
+and arm only). `tkinterweb.HtmlFrame(on_link_click=f)` hands every clicked link to `f` instead of
+navigating, so the app runs `walnut://install/<id>` itself and loads the rest with `load_url`. PNG and
+GIF go through Tk, JPEG through Pillow (python3-pil.imagetk, already a walnut-games dependency); no
+libtk-img. Measured on the PS3 (2026-10-28: the `--app` build's SuperTuxKart pages in a 1280x720 window,
+the desktop running): importing tkinterweb and making the frame adds 16 MB to a Tk process; a text page
+(Technical, Test runs) 8-9 MB more and 1.2-1.3 s until drawn; the Overview with its 11 screenshots
+(800x450 JPEGs, shown at about 290x160) 40 MB and 2.1-2.5 s. A decoded picture costs about 3.5 MB, so
+the app's copy should carry the screenshots at the size shown. Scrolling takes 6-9 ms a step (44 ms at
+worst). The PS3's pages look the same as the PC's (an amd64 build under Xvfb): no byte-order problem
+(Tkhtml has no byte-order code; colours and images are right). Tkhtml knows CSS 2.1 selectors only
+(`a[href^="walnut:"]` is an error: match `a[href]` and test the value).
+
 ## Adding a game
 
 A game is one folder, `gamedb/games/<id>/` (gamedb/README.md has the schema): `index.md` with the catalog entry in its

@@ -1,0 +1,19 @@
+Source: tk-html3
+Section: interpreters
+Priority: optional
+Maintainer: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Build-Depends: debhelper-compat (= 13), tcl-dev, tk-dev, tcl, libx11-dev
+Standards-Version: 4.7.2
+Rules-Requires-Root: no
+Homepage: https://github.com/Andereoo/TkinterWeb-Tkhtml
+
+Package: tk-html3
+Architecture: any
+Multi-Arch: same
+Depends: ${shlibs:Depends}, ${misc:Depends}, libtk8.6
+Description: HTML and CSS rendering widget for Tk (Tkhtml 3.0, TkinterWeb's fork)
+ Tkhtml 3.0 is a Tk widget that displays HTML 4 and CSS 2.1 pages: block and inline layout,
+ floats, tables, borders, backgrounds and images handed to it by the application, without
+ scripts. This is TkinterWeb's maintained fork of Dan Kennedy's widget, the one its Python
+ interface (python3-tkinterweb) is written for. It installs the Tcl package Tkhtml 3.0
+ (package require Tkhtml) for Tcl/Tk 8.6.

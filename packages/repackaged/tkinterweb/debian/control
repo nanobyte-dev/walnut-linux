@@ -1,0 +1,20 @@
+Source: tkinterweb
+Section: python
+Priority: optional
+Maintainer: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Build-Depends: debhelper-compat (= 13), dh-python, python3-all, python3-setuptools, python3-tk <!nocheck>
+Standards-Version: 4.7.2
+Rules-Requires-Root: no
+Homepage: https://github.com/Andereoo/TkinterWeb
+
+Package: python3-tkinterweb
+Architecture: all
+Depends: ${python3:Depends}, ${misc:Depends}, python3-tk, tk-html3 (>= 3.0+git20260919)
+Recommends: python3-pil.imagetk
+Description: HTML and CSS widgets for Tkinter (TkinterWeb)
+ TkinterWeb puts the Tkhtml widget into Tkinter: HtmlFrame (a scrolling page with links, forms,
+ images and a DOM for Python), HtmlLabel and HtmlText. Pages are HTML 4 and CSS 2.1, without
+ JavaScript; the application can catch link clicks (on_link_click) and handle its own URL schemes.
+ .
+ It loads the system's Tkhtml 3.0 (tk-html3) instead of the binaries the PyPI release bundles.
+ PNG and GIF images need nothing more; JPEG and the rest go through Pillow (python3-pil.imagetk).

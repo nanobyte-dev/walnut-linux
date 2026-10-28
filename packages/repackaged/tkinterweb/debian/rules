@@ -1,0 +1,15 @@
+#!/usr/bin/make -f
+export PYBUILD_NAME = tkinterweb
+P := debian/python3-tkinterweb
+
+%:
+	dh $@ --with python3 --buildsystem=pybuild
+
+# upstream ships no tests: an import check (no display needed)
+override_dh_auto_test:
+	PYTHONPATH=.:debian python3 -c 'import tkinterweb, tkinterweb_tkhtml; print(tkinterweb.__name__, tkinterweb_tkhtml.TKHTML_ROOT_DIR)'
+
+# the loader that finds tk-html3's Tkhtml, as a module of its own (upstream's name)
+override_dh_auto_install:
+	dh_auto_install
+	install -D -m 644 debian/tkinterweb_tkhtml/__init__.py $(P)/usr/lib/python3/dist-packages/tkinterweb_tkhtml/__init__.py

@@ -54,6 +54,8 @@ on:
       - "pkg: sdl2-compat"
       - "pkg: supertuxkart"
       - "pkg: teeworlds"
+      - "pkg: tk-html3"
+      - "pkg: tkinterweb"
       - "pkg: uqm"
       - "pkg: walnut-games"
       - "pkg: warzone2100"

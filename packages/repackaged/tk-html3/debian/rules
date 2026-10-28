@@ -1,0 +1,44 @@
+#!/usr/bin/make -f
+# Tkhtml 3.0's own TEA configure and Makefile, only the widget (make binaries; Hv3, the browser in
+# hv/, is not built or installed)
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+DEB_HOST_MULTIARCH ?= $(shell dpkg-architecture -qDEB_HOST_MULTIARCH)
+DEB_HOST_ARCH_CPU ?= $(shell dpkg-architecture -qDEB_HOST_ARCH_CPU)
+CFLAGS := $(shell dpkg-buildflags --get CFLAGS) $(shell dpkg-buildflags --get CPPFLAGS)
+LDFLAGS := $(shell dpkg-buildflags --get LDFLAGS)
+ifeq ($(DEB_HOST_ARCH_CPU),ppc64)
+CFLAGS += -mcpu=cell -mtune=cell
+endif
+# 2008 C: old-style declarations (void f();) need C17, where GCC 16's default is C23; the
+# pointer-type mix-ups between its node structs (HtmlNode/HtmlElementNode, same layout) are
+# warnings, as they were before GCC 14
+CFLAGS += -std=gnu17 -fpermissive -Wno-implicit-int -fPIC
+TCLDIR := /usr/lib/tcltk/$(DEB_HOST_MULTIARCH)/tkhtml3.0
+P := debian/tk-html3
+
+%:
+	dh $@
+
+# configure isn't executable in upstream's tree
+override_dh_auto_configure:
+	sh ./configure --with-tcl=/usr/lib/$(DEB_HOST_MULTIARCH)/tcl8.6 --with-tk=/usr/lib/$(DEB_HOST_MULTIARCH)/tk8.6 \
+		--with-tclinclude=/usr/include/tcl8.6 --with-tkinclude=/usr/include/tcl8.6 --prefix=/usr
+
+override_dh_auto_build:
+	$(MAKE) binaries CFLAGS="$(CFLAGS)" SHLIB_LD="$(CC) -shared $(LDFLAGS)"
+
+# no tests upstream (tests/ isn't in the tree), and loading it needs Tk on a display: the
+# library exports its entry point and needs only Tcl's and Tk's stubs
+override_dh_auto_test:
+	nm -D --defined-only libTkhtml3.0.so | grep -qw Tkhtml_Init
+	! objdump -p libTkhtml3.0.so | grep NEEDED | grep -E 'libtcl|libtk'
+
+override_dh_auto_install:
+	install -D -m 644 libTkhtml3.0.so $(P)$(TCLDIR)/libTkhtml3.0.so
+	echo 'package ifneeded Tkhtml 3.0 [list load [file join $$dir libTkhtml3.0.so]]' > $(P)$(TCLDIR)/pkgIndex.tcl
+	install -D -m 644 doc/tkhtml.n $(P)/usr/share/man/man3/tkhtml.3tk
+	sed -i 's/^\.TH .*/.TH tkhtml 3tk 3.0 Tkhtml "Tkhtml"/' $(P)/usr/share/man/man3/tkhtml.3tk
+
+override_dh_auto_clean:
+	[ ! -f Makefile ] || $(MAKE) clean
+	rm -f Makefile config.log config.status pkgIndex.tcl htmldefaultstyle.c htmltokens.c htmltokens.h cssprop.c cssprop.h *.o *.so

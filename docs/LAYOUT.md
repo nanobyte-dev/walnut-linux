@@ -82,6 +82,8 @@ are in its bundle's `build.toml` (gamedb/README.md).
 | Path | What |
 |---|---|
 | `repackaged/zlib-ng/` | zlib-ng 2.3.3 (upstream tarball, `packages/repackaged/zlib-ng/upstream.mk`; Debian has none) in zlib-compat mode: package `libz-ng-compat`, a second `libz.so.1` in `/usr/lib/powerpc64-linux-gnu/zlib-ng` that every game started through `ps3-game` loads (`LD_LIBRARY_PATH`; `PS3_ZLIB=stock` or the bench token `ZLIB=stock` off); zlib1g stays the system zlib (docs/PROFILING.md "Load-time decoders and linking") |
+| `repackaged/tk-html3/` | Tkhtml 3.0, TkinterWeb's fork (the 3.0 branch's commit of 2026-09-19, `upstream.mk`; Debian dropped its tk-html3): package `tk-html3`, the Tcl package `Tkhtml` in `/usr/lib/tcltk/<triplet>/tkhtml3.0`, the HTML/CSS 2.1 widget of Walnut Games' Details view (docs/GAMEDB.md "The desktop app") |
+| `repackaged/tkinterweb/` | TkinterWeb 4.25.5 (PyPI's sdist, `upstream.mk`): package `python3-tkinterweb`, Tkhtml for Tkinter (`HtmlFrame`); `debian/tkinterweb_tkhtml/` replaces upstream's loader package, which bundles Tkhtml binaries for x86 and arm only, with one that loads tk-html3's |
 
 ### gamedb/: the games' packages
 
@@ -198,6 +200,7 @@ on the game's technical page):
 | `libvorbis0a`, `libvorbisfile3`, `libvorbisenc2`, `libvorbis-dev` | libvorbis (`1.3.7-3+ps3.N`), replacing Debian's: `ov_read`'s 16-bit packing in AltiVec (bit-identical output) |
 | `libpng16-16t64`, `libpng-dev`, `libpng-tools` | libpng (`1.6.59-1+ps3.N`), replacing Debian's: PNG row unfiltering in AltiVec (bit-identical output) |
 | `libz-ng-compat` | zlib-ng's zlib-compat `libz.so.1` in `/usr/lib/powerpc64-linux-gnu/zlib-ng`, used only by programs started with that directory in `LD_LIBRARY_PATH` |
+| `tk-html3`, `python3-tkinterweb` | Tkhtml 3.0 (`3.0+git20260919.d6a6df3-1+ps3.N`) and TkinterWeb (`4.25.5-1+ps3.N`): HTML and CSS 2.1 pages in a Tk window, without JavaScript; Walnut Games' Details view |
 | `libboost-context1.92.0`, `libboost-coroutine1.92.0`, `libboost-fiber1.92.0`, their -dev | Boost 1.92's context libraries (`1.92.0-3+ps3.N`), replacing Debian's: the fcontext assembler on ppc64 (Debian's build lacks make/jump_fcontext, and its libboost_coroutine can't link) with the FPRs and AltiVec registers kept across a switch |
 | `libsdl3-0`, ... | SDL3 (`3.4.18+ds-1+ps3.N`), replacing Debian's: window framebuffer colours and native uploads on big-endian |
 | `libsdl2-2.0-0`, ... | SDL2 as sdl2-compat (`2.32.74+ds-1+ps3.N`), replacing Debian's: no deadlock when an app (or an SDL 1.2 game through sdl12-compat) closes the audio device with its lock held |

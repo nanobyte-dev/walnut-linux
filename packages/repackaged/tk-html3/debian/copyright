@@ -1,0 +1,62 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: Tkhtml (TkinterWeb's fork)
+Source: https://github.com/Andereoo/TkinterWeb-Tkhtml
+Comment: The source files carry Dan Kennedy's and Eolas Technologies' BSD licence (COPYRIGHT);
+ the repository also ships the LGPL 2.1 as COPYING, the licence GitHub shows for it.
+
+Files: *
+Copyright: 2005-2008 Dan Kennedy, Eolas Technologies Inc.
+           2021-2026 Andrew Clarke (TkinterWeb's changes)
+License: BSD-3-clause and LGPL-2.1
+
+Files: src/htmlPs.c src/htmlPsImg.c src/main.c
+Copyright: 1991-1994 The Regents of the University of California
+           1994-1997 Sun Microsystems, Inc.
+           2005 Eolas Technologies Inc.
+License: BSD-3-clause
+Comment: not built (PostScript output and the test shell)
+
+Files: src/htmlexts.c
+Copyright: 1997-2000 Peter MacDonald and BrowseX Systems Inc.
+License: LGPL-2+
+Comment: not built (Tkhtml 2's extra routines)
+
+License: BSD-3-clause
+ Redistribution and use in source and binary forms, with or without
+ modification, are permitted provided that the following conditions are met:
+ .
+     * Redistributions of source code must retain the above copyright
+       notice, this list of conditions and the following disclaimer.
+     * Redistributions in binary form must reproduce the above copyright
+       notice, this list of conditions and the following disclaimer in the
+       documentation and/or other materials provided with the distribution.
+     * Neither the name of Eolas Technologies Inc. nor the names of its
+       contributors may be used to endorse or promote products derived from
+       this software without specific prior written permission.
+ .
+ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
+ LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ POSSIBILITY OF SUCH DAMAGE.
+
+License: LGPL-2.1
+ This library is free software; you can redistribute it and/or modify it under the terms of
+ the GNU Lesser General Public License as published by the Free Software Foundation; version 2.1.
+ .
+ On Debian systems, the full text of the GNU Lesser General Public License version 2.1 can be
+ found in /usr/share/common-licenses/LGPL-2.1.
+
+License: LGPL-2+
+ This library is free software; you can redistribute it and/or modify it under the terms of
+ the GNU Library General Public License as published by the Free Software Foundation; either
+ version 2 of the License, or (at your option) any later version.
+ .
+ On Debian systems, the full text of the GNU Library General Public License version 2 can be
+ found in /usr/share/common-licenses/LGPL-2.
