@@ -657,7 +657,14 @@ class DataSetup(unittest.TestCase):
     def test_buttons_for_each_state(self):
         A = app.data_actions
         self.assertEqual(A(QS, set(), set()), ["setup"])                              # missing
-        self.assertEqual(A(QS, {"quake-shareware"}, set()), [])                        # present
+        self.assertEqual(A(QS, {"quake-registered"}, set()), [])                       # present
+        # only the shareware: Play, and the same button for the full game, which replaces it
+        self.assertEqual(A(QS, {"quake-shareware"}, set()), ["full"])
+        self.assertEqual(A(QS, {"quake-shareware", "quake-registered"}, set()), [])
+        demo_only = dict(QS, data_setup=dict(QS["data_setup"], required=["quake-shareware"]))
+        self.assertEqual(A(demo_only, {"quake-shareware"}, set()), [])                 # no full edition to add
+        self.assertEqual(app.data_note(QS, True, True)[0], "OPTIONAL:")
+        self.assertIn("full game from the original Quake release", app.data_note(QS, True, True)[1])
         self.assertEqual(A(QS, {"quake-licensed-data"}, set()), [])                    # the licensed build counts
         self.assertEqual(A(QS, set(), {"quake-licensed-data"}), ["repo", "setup"])     # the repository has it
         self.assertEqual(A(QS, set(), set(), importing="quakespasm"), ["importing"])

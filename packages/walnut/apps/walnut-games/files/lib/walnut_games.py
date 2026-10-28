@@ -38,7 +38,9 @@ Design
   Walnut licensed" when the apt sources have one of its present_any names (apt-cache policy, once in a
   thread at start and on Refresh: the licensed suite; checked over every present_any name, since its
   newer builds carry game-data-packager's names), then "Add game files..." (required data missing, or optional data only like OpenTTD) with a label under
-  it that starts REQUIRED: or OPTIONAL: and names the original game ([data_setup] original). Play stays
+  it that starts REQUIRED: or OPTIONAL: and names the original game ([data_setup] original); with only a
+  free shareware or demo edition installed it stays, OPTIONAL, for the full game (whose import replaces
+  the free one), and the chooser no longer offers that free download. Play stays
   off while required data is missing. The chooser is a window of big buttons (the
   pad is the pointer; arrows, Enter, Escape) listing find_sources: the disc in the drive (lsblk; not
   mounted: /dev/sr0, which walnut-data mounts), /media/$USER/* and /run/media/$USER/*, ~/GOG Games/*,
@@ -536,9 +538,15 @@ DATA_LABEL = "Add game files\u2026"
 REPO_LABEL = "Install from Walnut licensed"
 
 
-def data_note(game, required):
-    """(tag, text) of the label by the import button: REQUIRED (the game needs the files) or OPTIONAL"""
+FREE_EDITIONS = ("shareware", "demo")
+
+
+def data_note(game, required, full=False):
+    """(tag, text) of the label by the import button: REQUIRED (the game needs the files) or OPTIONAL (optional
+    data; full: the full game in place of the free shareware or demo installed)"""
     name = data_title(game)
+    if full:
+        return "OPTIONAL:", "the full game from the original %s release, in place of the free edition" % name
     if required:
         return "REQUIRED:", "the game files from the original %s release (your CD, ISO, installer or folder)" % name
     return "OPTIONAL:", "the original %s graphics and sound" % name
@@ -552,7 +560,9 @@ def optional_data_present(game, have):
 def data_actions(game, have, repo, importing=None):
     """the data buttons a game page shows, in order: "importing" (an import of this game runs: no button),
     "repo" (Install from Walnut licensed: the apt sources have one of its present_any names), "setup"
-    (Add game files...: required data missing) or "add" (the same button, optional data only, none installed); [] when its data is there or it takes none"""
+    (Add game files...: required data missing), "add" (the same button, optional data only, none installed)
+    or "full" (the same button: only a free shareware or demo edition is installed and the game has a full
+    one, whose import takes its place); [] when its data is there or it takes none"""
     ds = data_setup(game)
     if not ds:
         return []
@@ -560,7 +570,10 @@ def data_actions(game, have, repo, importing=None):
         return ["importing"]
     if ds.get("required"):
         if data_present(game, have):
-            return []
+            eds = ds.get("editions") or {}
+            mine = [p for p in ds.get("present_any") or ds["required"] if p in have]
+            full = [p for p in ds["required"] if eds.get(p) and eds[p] not in FREE_EDITIONS]
+            return ["full"] if full and all(eds.get(p) in FREE_EDITIONS for p in mine) else []
         any_of = [p for p in ds.get("present_any") or ds["required"] if isinstance(p, str)]
         return (["repo"] if any(p in repo for p in any_of) else []) + ["setup"]
     return [] if optional_data_present(game, have) else ["add"]
@@ -1760,20 +1773,22 @@ class App:
             if part[0] and self.imp_source.get(g["id"]):
                 self.b_retry.pack(side="left", padx=(0, 8), pady=(0, 6))
                 self.b_retry.configure(state="normal" if idle else "disabled")
-        if "setup" in acts or "add" in acts:
-            tag, text = data_note(g, "setup" in acts)
+        if "setup" in acts or "add" in acts or "full" in acts:
+            tag, text = data_note(g, "setup" in acts, "full" in acts)
             self.note_tag.configure(text=tag)
             self.note_text.configure(text=text)
             self.b_note.pack(side="bottom", anchor="w", pady=(0, 6))     # first: under the buttons
-        if g and g["id"] in self.retry and ("setup" in acts or "add" in acts) and data_setup(g).get("downloads"):
+        if g and g["id"] in self.retry and ("setup" in acts or "add" in acts or "full" in acts) and \
+                data_setup(g).get("downloads"):
             self.b_retry.pack(side="left", padx=(0, 8), pady=(0, 6))
             self.b_retry.configure(state="normal" if idle else "disabled")
         if "repo" in acts:
             self.b_repo.pack(side="left", padx=(0, 8), pady=(0, 6))
             self.b_repo.configure(state="normal" if idle else "disabled")
-        if "setup" in acts or "add" in acts:
+        if "setup" in acts or "add" in acts or "full" in acts:
             self.b_data.configure(text=DATA_LABEL,
-                                  style="TButton" if "repo" in acts or g["id"] in self.retry else "Accent.TButton",
+                                  style="TButton" if "repo" in acts or "full" in acts or g["id"] in self.retry
+                                  else "Accent.TButton",
                                   state="normal" if idle else "disabled")
             self.b_data.pack(side="left", padx=(0, 8), pady=(0, 6))
 
@@ -1927,7 +1942,7 @@ class App:
             self.chooser = None
             self.start_import(g, path)
 
-        for pkg in ds.get("fetch") or []:
+        for pkg in [p for p in ds.get("fetch") or [] if p not in self.have]:     # not the one installed
             ed = (ds.get("editions") or {}).get(pkg, "free version")
             b = ttk.Button(inner, text="Download the free %s (needs the network)" % ed, style="Source.TButton",
                            command=lambda p=pkg: (top.destroy(), setattr(self, "chooser", None),
