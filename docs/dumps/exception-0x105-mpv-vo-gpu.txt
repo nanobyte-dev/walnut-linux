@@ -740,4 +740,5 @@ what mpv said over IPC 45 s later: vo-configured=True, current-vo=gpu, time-pos=
 FIFO cache, read as (subchannel << 13 | method): subchannel 7 (3D) texture unit 0 setup at 0x1a08-0x1a14 and
   0x0388; subchannel 6 object bind (0xc000 = 0x31337303); subchannel 5 at 0x0400-0x040c = 0x00400040,
   0x00010080, 0x0064d000, 0 (a scaled-image blit's source: 64x64, format/pitch word 0x10080, offset 0x64d000);
-  subchannel 2 at 0x0310-0x031c. Cause not analysed yet (task #65).
+  subchannel 2 at 0x0310-0x031c. Analysis (2026-10-29): exception-0x105-mpv-vo-gpu.md (subchannel 6 is
+  ps3rsx's VRAM-swap copy; the fault is mpv's first draw, its X16 dither texture the suspect).
