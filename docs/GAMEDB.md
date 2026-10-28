@@ -6,8 +6,8 @@ scripted runs (the harness for measuring game and GPU-driver optimizations) and 
 rating: no crash-free hours, no checklist answers, no frame-rate numbers. It is two things over one catalog:
 
 - **the website**, https://walnut.nanobyte.dev/gamedb/: a card for every game with its medal,
-  filters (category, medal, tags) and search; each game has four tabs, Overview (the verdict, the
-  screenshots, the `sudo apt install` line), Test runs, Technical and Guides ([The website](#the-website));
+  filters (category, medal, tags) and search; each game has four tabs, Overview (the rating, the
+  screenshots, the installation), Test runs, Technical and Guides ([The website](#the-website));
 - **the desktop app** on Walnut (`walnut-games`): the same cards, with Install, Remove and Play.
 
 Status (2026-10-26): the catalog, the scoring, the site, the session recorder and the app (P4) exist,
@@ -423,16 +423,38 @@ Built by `tools/gamedb/build.sh` (Hugo, website/gamedb/) from the catalog and te
 publishes it on every push that changes it (.github/workflows/walnut-site.yml). One design serves the
 browser, NetSurf and the app's HTML view (the user, 2026-10-28):
 
-- **A game's tabs are pages**: `games/<id>/` Overview (the verdict: medal, score and the aspects behind it;
-  the screenshots; what you need and how to get it, with the game data's steps; how to play it; known
-  issues and the notes of index.md), `games/<id>/test-runs/` (the played sessions, which make the rating,
-  and the rating on each version; then the scripted benchmarks in a section of their own, "Not rated:
-  tests of driver and game changes"), `games/<id>/technical/` (technical.md, the build, the played test's
-  setup, the investigations) and `games/<id>/guides/` (the bundle's `guides/*.md`: how-tos, tips,
-  recommended settings; a game without any still has the tab, with a line saying so). The tab bar is a
-  list of links with the current one marked; no JavaScript is needed anywhere (the filters and the Copy
-  buttons are extras that show only where they work). An engine's page (`engines/<e>/`) has no tabs: it
-  has no rating, sessions or guides, only technical content, so it stays one page in the same style.
+- **A game's tabs are pages**: `games/<id>/` Overview (the rating: medal, score and the aspects behind it, an
+  aspect without a score saying "not tested" in its row, then one line, "Rated from N sessions, M minutes of
+  play on <game version>", linking Test runs; the screenshots; the installation, only the easy way: Walnut
+  Games' Install and Add game files..., with the copies that work, the apt line, and "More ways" on the Guides;
+  the known issues), `games/<id>/test-runs/` (the played sessions, which make the rating, each with a page of
+  its own, `test-runs/<session>/`: the session rated on its own, every aspect's score and measurement, the
+  sound dropouts, the builds, the form's answers and notes, the picture review, the screenshots; all of them
+  as a CSV download, a `data:` link, since the site server takes no .csv; the rating on each version; then
+  the scripted benchmarks in a section of their own, "Not rated: tests of driver and game changes", a table
+  per batch with what was tested: the variant, the conditions it adds (its ENV, the stall recorder or a
+  profiler alongside), the Mesa and kernel build, the recipe's resolution, the run length, fps, steady fps,
+  1% low, stalls, the other metrics, then the batch's purpose and observations, always shown; rows that
+  gamedb/benchmarks/caveats.toml names are marked invalid or not comparable), `games/<id>/technical/` (the
+  index.md text, technical.md, the build, the played test's setup, the investigations) and
+  `games/<id>/guides/` (the bundle's `guides/*.md`: how-tos, tips, recommended settings; a game without any
+  still has the tab, with a line saying so). The tab bar is a list of links with the current one marked; no
+  JavaScript is needed anywhere (the filters and the Copy buttons are extras that show only where they
+  work). An engine's page (`engines/<e>/`) has no tabs: it has no rating, sessions or guides, only technical
+  content, so it stays one page in the same style.
+- **Builds of a session**: the game's package as installed, then a fixed list of the platform Walnut patches
+  for every game (kernel, Mesa, ps3rsx, libspeq, OpenAL Soft, FluidSynth, SDL3; `tools/gamedb/sessions.py`
+  STACK), read from the session's `raw/versions.xz`. Not each game's dependency closure: that needs Debian's
+  ppc64 package index, which the site build doesn't have. The desktop and the release metapackage stay out.
+- **How a game is tested**: the Test runs tab says testing is done with the rating tool (`walnut-rate`,
+  planned) and links `ratingDocs` (hugo.toml params; for now the about page's "How a game is tested"),
+  the one place to point at the tool's own documentation when it exists.
+- **"Open in Walnut Games"**: the Overview's head has a `walnut://game/<id>` link for a visitor on a
+  Walnut console, with no script: the site's CSS hides `.walnut-os-only`, and ps3-desktop installs NetSurf's
+  user stylesheet, `/usr/share/netsurf/user.css` (NetSurf 3.11 reads `resource:user.css` from its resource
+  path: `~/.config/netsurf/` first, then `/usr/share/netsurf/`), which shows it. NetSurf hands a scheme it
+  can't fetch to the desktop's default handler for `x-scheme-handler/walnut` (tested in a container with a
+  dummy handler set by `xdg-mime`); the app registers it. The app's own copy (`--app`) leaves the link out.
 - **Styles**: `assets/gamedb.scss`, compiled by Hugo's libsass (css.Sass) to CSS 2.1: the palette is SCSS
   variables (no `var()` in the output), sizes are px, and flex or grid only ever comes after a float or
   inline-block fallback (the `row` and `card-grid` mixins), so NetSurf and Tkhtml lay the pages out
@@ -628,17 +650,18 @@ reads a `demo` test (a harness run with a measured window) if one is ever import
 Quake II, [Sauerbraten](../gamedb/games/sauerbraten/)) are listed and shown, with a guide to setting up the data; the data itself is never
 offered (their screenshots, thumbnail included, are published like any game's).
 
-The guide is two parts. `needs_data = true` requires `data_steps` in the front matter: a list of short steps,
-each a sentence with commands and paths in backticks (the backticks must pair up; `check.py` refuses a
-`needs_data` game without steps, and steps on a game without `needs_data`). The game page's Install section
-shows them as a numbered list; a code span with a space in it is a command and gets a Copy button, one
-without (a path) stays inline. The app's details pane shows the same steps as text with the code in a
-monospace font, selectable. `data_guide` stays as the "More" link. The longer guide is the bundle's
-`guides/game-data.md` (its first line `# Setting up the game data`), on the game's Guides tab, which the
-Overview's data box links to: which editions work, where their files are, what the result looks like, and
-common problems. Every command in it is run in a Debian
-container before it is written. The steps of a game with a `[data_setup]` (Doom, Quake, OpenRCT2 and the
-others in "Game data" above) say how to use Walnut Games' button, the `walnut-data import <id> <path>`
-line, which release the game needs (from the hint) and the licensed suite's "Install from Walnut licensed";
-they carry no manual game-data-packager steps. Sauerbraten's steps unpack the official release's `data` and
-`packages` folders into `/usr/share/games/sauerbraten`.
+All game-data instructions are on the game's Guides tab; the Overview's Installation gives only the easy
+way (Walnut Games' Install, then Add game files... with the copies that work) and links "More ways: Guides"
+(`layouts/partials/data-easy.html`). A game with a `[data_setup]` always has the guide "Setting up the game
+data" (`#game-data`), generated so it can't drift from the data (`tools/gamedb/dataguide.py`, from the
+`[data_setup]`, `tools/gamedb/gdp-manifest.json` and our game-data-packager patches;
+`layouts/partials/data-guide.html`): what works (the hint), then three ways, each a section: 1. Walnut Games
+(the button, or `walnut-data import <id> <source>`, the add-ons with `-p`, the CD music), 2. game-data-packager,
+our patched Debian tool (the command per package, then `sudo apt install ./<deb>`; what our patches accept that
+Debian's gdp may refuse), 3. by hand (every file with its exact name, size, place and checksum, in plain
+tables). The bundle's `guides/game-data.md`, when there is one, adds the hand-written notes: which CD or
+edition, quirks, what the result looks like. A game that needs data without a `[data_setup]` (Sauerbraten)
+keeps `data_steps` in its front matter (a list of short steps, commands and paths in backticks; `check.py`
+refuses a `needs_data` game without steps, and steps on a game without `needs_data`), shown as a numbered
+list above its hand-written guide; the app's details pane shows the same steps as text. Every command in a
+guide is run in a Debian container before it is written.
