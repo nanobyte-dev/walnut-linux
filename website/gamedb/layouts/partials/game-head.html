@@ -1,0 +1,24 @@
+{{/* the head of a game's four pages (docs/GAMEDB.md "The website"): the thumbnail, the title, the medal, the
+     summary and the badges, then the tab bar, a plain list of links with the current tab marked.
+     (dict "g" <the game's catalog entry> "tab" "overview" | "test-runs" | "technical" | "guides") */}}
+{{ $g := .g }}{{ $r := $g.rating }}
+{{ $game := site.GetPage (printf "/games/%s" $g.id) }}
+<p class="crumbs"><a href="{{ site.Home.RelPermalink }}">All games</a></p>
+<header class="game-head">
+  {{ with $game.Resources.Get "thumb.png" }}<img class="thumb" src="{{ .RelPermalink }}" width="256" height="144" alt="">{{ end }}
+  <div class="game-title">
+    <h1>{{ $g.title }}</h1>
+    <p class="meta">{{ partial "medal.html" $r }}
+      {{ if eq $r.medal "Untested" }}<span class="muted">{{ with $r.reason }}played, but not rated: {{ . }}{{ else }}nobody has played it on Walnut yet{{ end }}</span>
+      {{ else }}{{ if and $r.launcher (gt (len $g.launchers) 1) }}<span>with {{ $r.launcher }}</span>{{ end }}
+      <span class="muted">{{ printf "%.1f" $r.hours }} h played, {{ $r.crashes }} crash{{ if ne (int $r.crashes) 1 }}es{{ end }}</span>{{ end }}
+    </p>
+    <p>{{ $g.summary }}</p>
+    <p class="badges">{{ range $g.badges }}<span class="badge badge-{{ . }}">{{ partial "badge-name.html" . }}</span> {{ end }}<span class="badge">{{ delimit $g.categories ", " }}</span> {{ range $g.tags }}<span class="badge badge-tag" data-tag="{{ . }}">{{ . }}</span> {{ end }}</p>
+  </div>
+</header>
+<ul class="tabs">
+{{- range slice (slice "overview" "Overview" "") (slice "test-runs" "Test runs" "test-runs/") (slice "technical" "Technical" "technical/") (slice "guides" "Guides" "guides/") }}
+  <li><a href="{{ $game.RelPermalink }}{{ index . 2 }}"{{ if eq (index . 0) $.tab }} class="current" aria-current="page"{{ end }}>{{ index . 1 }}</a></li>
+{{- end }}
+</ul>

@@ -748,6 +748,21 @@ class Check(unittest.TestCase):
         self.assertIn("unexpected file tests", errs)
         self.assertIn("unexpected file rating/notes.txt", errs)
 
+    def test_guides(self):
+        g = write_game(self.content)
+        (g / "guides").mkdir()
+        (g / "guides" / "game-data.md").write_text("# Setting up the game data\n\nOpen the app.\n")
+        self.assertNotIn("ex", self.problems())
+        (g / "guides" / "Tips.md").write_text("# Tips\n\nx\n")
+        (g / "guides" / "fm.md").write_text("+++\ntitle = 'x'\n+++\nx\n")
+        (g / "guides" / "untitled.md").write_text("Some text.\n")
+        (g / "guides" / "empty.md").write_text("# Empty\n")
+        errs = " ".join(self.problems()["ex"])
+        for name, what in (("Tips.md", "a file <slug>.md"), ("fm.md", "no front matter"),
+                           ("untitled.md", "first line"), ("empty.md", "nothing else")):
+            self.assertIn("guides/%s: " % name, errs)
+            self.assertIn(what, errs)
+
     def test_draft_needs_only_id_title_status(self):
         g = Path(self.content) / "cand"
         g.mkdir(parents=True)

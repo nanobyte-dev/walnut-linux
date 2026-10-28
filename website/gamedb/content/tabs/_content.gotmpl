@@ -1,0 +1,14 @@
+{{/* Two of a published game's tabs (docs/GAMEDB.md "The website"), at games/<id>/test-runs/ and
+     games/<id>/guides/: the url, not the section, places them, beside the game's own page (games/<id>/,
+     the Overview) and its technical page (content/technical/). Test runs read catalog.json and
+     technical.json's benchmark; Guides are the game's guides/*.md (technical.json guides[], each one's
+     first heading its title), one page with a section per guide */}}
+{{ range hugo.Data.technical.games }}
+  {{ $.AddPage (dict "path" (printf "test-runs-%s" .id) "title" (printf "%s: test runs" .title) "url" (printf "/games/%s/test-runs/" .id)
+      "layout" "test-runs" "params" (dict "gid" .id "summary" (printf "Every played session of %s on Walnut, the rating history and the scripted benchmarks." .title))) }}
+  {{ $md := "" }}
+  {{ range .guides }}{{ $md = printf "%s\n\n## %s {#%s}\n\n%s" $md .title .slug .body }}{{ end }}
+  {{ $.AddPage (dict "path" (printf "guides-%s" .id) "title" (printf "%s: guides" .title) "url" (printf "/games/%s/guides/" .id)
+      "layout" "guides" "params" (dict "gid" .id "summary" (printf "How-tos, tips and recommended settings for %s on Walnut." .title))
+      "content" (dict "mediaType" "text/markdown" "value" $md)) }}
+{{ end }}

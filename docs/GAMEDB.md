@@ -6,8 +6,8 @@ scripted runs (the harness for measuring game and GPU-driver optimizations) and 
 rating: no crash-free hours, no checklist answers, no frame-rate numbers. It is two things over one catalog:
 
 - **the website**, https://walnut.nanobyte.dev/gamedb/: a card for every game with its medal,
-  filters (category, medal, tags) and search; each game's page has the
-  screenshots (PS3 next to PC), the test results, and the `sudo apt install` line;
+  filters (category, medal, tags) and search; each game has four tabs, Overview (the verdict, the
+  screenshots, the `sudo apt install` line), Test runs, Technical and Guides ([The website](#the-website));
 - **the desktop app** on Walnut (`walnut-games`): the same cards, with Install, Remove and Play.
 
 Status (2026-10-26): the catalog, the scoring, the site, the session recorder and the app (P4) exist,
@@ -417,6 +417,34 @@ can't be played is Scrap. Sound is half presence, half cleanliness, so bad sound
 but no longer sinks a game on its own. Open: whether strategy and turn-based games need their own
 frame-rate scale (OpenTTD plays fine at 38 fps and scores 31 on frame rate); one scale for now, revisited after the first strategy sessions.
 
+## The website
+
+Built by `tools/gamedb/build.sh` (Hugo, website/gamedb/) from the catalog and technical.json; CI
+publishes it on every push that changes it (.github/workflows/walnut-site.yml). One design serves the
+browser, NetSurf and the app's HTML view (the user, 2026-10-28):
+
+- **A game's tabs are pages**: `games/<id>/` Overview (the verdict: medal, score and the aspects behind it;
+  the screenshots; what you need and how to get it, with the game data's steps; how to play it; known
+  issues and the notes of index.md), `games/<id>/test-runs/` (the played sessions, which make the rating,
+  and the rating on each version; then the scripted benchmarks in a section of their own, "Not rated:
+  tests of driver and game changes"), `games/<id>/technical/` (technical.md, the build, the played test's
+  setup, the investigations) and `games/<id>/guides/` (the bundle's `guides/*.md`: how-tos, tips,
+  recommended settings; a game without any still has the tab, with a line saying so). The tab bar is a
+  list of links with the current one marked; no JavaScript is needed anywhere (the filters and the Copy
+  buttons are extras that show only where they work). An engine's page (`engines/<e>/`) has no tabs: it
+  has no rating, sessions or guides, only technical content, so it stays one page in the same style.
+- **Styles**: `assets/gamedb.scss`, compiled by Hugo's libsass (css.Sass) to CSS 2.1: the palette is SCSS
+  variables (no `var()` in the output), sizes are px, and flex or grid only ever comes after a float or
+  inline-block fallback (the `row` and `card-grid` mixins), so NetSurf and Tkhtml lay the pages out
+  without it and modern browsers keep the look. Old engines drop rounded corners, gradients and the
+  grid's even rows; NetSurf runs no script here, so it shows the plain list without filters.
+- **Links are relative** (build.sh rewrites every site link against the page after Hugo; Hugo's own
+  relativeURLs breaks under the /gamedb/ base path), so a copy of the output works offline.
+- **The app's copy**, `build.sh --app OUT` (designed, not used yet): the same pages without the site's
+  header, footer and script, every folder link naming its `index.html` (a file:// view adds none), and
+  the game's actions as `walnut://install/<id>`, `walnut://add-data/<id>` and `walnut://play/<id>` links
+  in place of the apt line (`layouts/partials/get-game.html`), for the Details view to catch.
+
 ## The desktop app
 
 `walnut-games` (package `walnut-games`, Tk, mouse and keyboard) shows the catalog as cards: a
@@ -537,7 +565,7 @@ hand instead. `tools/gamedb/import-run.py RUN... --game ID` writes a test folder
 directories and never touches `index.md`; the record is derived from the evidence it keeps, so
 `tools/gamedb/reimport.py` derives every record again without build/bench when the derivation changes
 (`--check` in `make test`: nothing changes); `tools/gamedb/check.py` validates the catalog;
-`tools/gamedb/build.sh OUT` builds the site (website/gamedb/hugo.toml mounts `gamedb/games/` as its
+`tools/gamedb/build.sh OUT` builds the site ([The website](#the-website); website/gamedb/hugo.toml mounts `gamedb/games/` as its
 `content/games/`, only `index.md`, `thumb.png` and the sessions' `shots/*.jpg`; CI fetches only the
 gallery from Git LFS: `tools/gamedb/gallery.py`). A test is a `session` (a played session) or a `capture` (the
 picture only). Ratings come from played sessions alone: the benchmark runs of the suite (the
@@ -551,9 +579,10 @@ each a sentence with commands and paths in backticks (the backticks must pair up
 `needs_data` game without steps, and steps on a game without `needs_data`). The game page's Install section
 shows them as a numbered list; a code span with a space in it is a command and gets a Copy button, one
 without (a path) stays inline. The app's details pane shows the same steps as text with the code in a
-monospace font, selectable. `data_guide` stays as the "More" link. The longer guide is the body of
-`index.md`, under a heading "Setting up the game data" (the page links to it): which editions work, where
-their files are, what the result looks like, and common problems. Every command in it is run in a Debian
+monospace font, selectable. `data_guide` stays as the "More" link. The longer guide is the bundle's
+`guides/game-data.md` (its first line `# Setting up the game data`), on the game's Guides tab, which the
+Overview's data box links to: which editions work, where their files are, what the result looks like, and
+common problems. Every command in it is run in a Debian
 container before it is written. The steps of a game with a `[data_setup]` (Doom, Quake, OpenRCT2 and the
 others in "Game data" above) say how to use Walnut Games' button, the `walnut-data import <id> <path>`
 line, which release the game needs (from the hint) and the licensed suite's "Install from Walnut licensed";

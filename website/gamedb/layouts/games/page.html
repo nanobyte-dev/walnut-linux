@@ -1,31 +1,19 @@
 {{ define "main" }}
+{{/* a game's Overview tab, games/<id>/: the verdict (medal, score and the aspects behind it), the screenshots,
+     what you need and how to get it, how to play it, the known issues and the notes (index.md). Its other
+     tabs: test-runs/ and guides/ (content/tabs/), technical/ (content/technical/) */}}
 {{ $page := . }}
 {{ $g := index (where hugo.Data.catalog.games "id" .Params.id) 0 }}
+{{ $t := index (where hugo.Data.technical.games "id" .Params.id) 0 }}
 {{ $r := $g.rating }}
-<p class="crumbs"><a href="{{ site.Home.RelPermalink }}">All games</a></p>
+{{ partial "game-head.html" (dict "g" $g "tab" "overview") }}
 <article class="game">
-  <header class="game-head">
-    {{ with .Resources.Get "thumb.png" }}<img class="thumb" src="{{ .RelPermalink }}" width="256" height="144" alt="">{{ end }}
-    <div>
-      <h1>{{ $g.title }}</h1>
-      <p class="meta">{{ partial "medal.html" $r }}
-        {{ if eq $r.medal "Untested" }}<span class="muted">{{ with $r.reason }}played, but not rated: {{ . }}{{ else }}nobody has played it on Walnut yet{{ end }}</span>
-        {{ else }}{{ if and $r.launcher (gt (len $g.launchers) 1) }}<span>with {{ $r.launcher }}</span>{{ end }}
-        <span class="muted">{{ printf "%.1f" $r.hours }} h played, {{ $r.crashes }} crash{{ if ne (int $r.crashes) 1 }}es{{ end }}</span>{{ end }}
-      </p>
-      <p>{{ $g.summary }}</p>
-      {{ with site.GetPage (printf "/technical/%s" $g.id) }}<p class="tech-link"><a href="{{ .RelPermalink }}">Technical notes</a>: how it's built, patched, tested and measured</p>{{ end }}
-      <p class="badges">
-        {{ range $g.badges }}<span class="badge badge-{{ . }}">{{ partial "badge-name.html" . }}</span>{{ end }}
-        <span class="badge">{{ delimit $g.categories ", " }}</span>
-        {{ range $g.tags }}<span class="badge badge-tag" data-tag="{{ . }}">{{ . }}</span>{{ end }}
-      </p>
-    </div>
-  </header>
-
-  {{ if ne $r.medal "Untested" }}
   <section>
-    <h2>Rating</h2>
+    <h2>Verdict</h2>
+    {{ if eq $r.medal "Untested" }}
+    <p>{{ with $r.reason }}It was played, but it has no medal: {{ . }}.{{ else }}Nobody has played it on Walnut yet, so it has no medal.{{ end }}
+    {{ with $t.benchmark.tables }}Scripted benchmarks have run it (<a href="test-runs/#benchmark">Test runs</a>), but they never rate a game.{{ end }}</p>
+    {{ else }}
     {{ with $g.medal_note }}<p class="note">{{ . }}</p>{{ end }}
     {{ if gt (len $g.launchers) 1 }}
     <p>The game has {{ len $g.launchers }} launchers in the menu, each rated on its own; its medal is the best one's.</p>
@@ -34,7 +22,7 @@
       <tbody>{{ range $g.launchers }}
         <tr><td>{{ with .name }}{{ . }}{{ else }}the default launcher{{ end }}</td>
         <td>{{ if and .rating.graded_by (ne .rating.graded_by "capture") }}{{ partial "medal.html" .rating }}{{ else }}<span class="muted">not played yet</span>{{ end }}</td>
-        <td>{{ with .rating.tested }}{{ $t := . }}{{ partial "walnut.html" .walnut }}{{ with .version }}, {{ $t.package }} {{ . }}{{ end }}{{ else }}-{{ end }}</td></tr>
+        <td>{{ with .rating.tested }}{{ $v := . }}{{ partial "walnut.html" .walnut }}{{ with .version }}, {{ $v.package }} {{ . }}{{ end }}{{ else }}-{{ end }}</td></tr>
       {{ end }}</tbody>
     </table>
     {{ range $i, $l := $g.launchers }}
@@ -50,49 +38,9 @@
     {{ else }}
     {{ partial "rating.html" $r }}
     {{ end }}
-  </section>
-  {{ end }}
-
-  <section>
-    <h2>Install</h2>
-    <div class="install">
-      <code id="install-cmd">sudo apt install {{ delimit $g.packages " " }}</code>
-      <button type="button" class="copy" data-copy-from="install-cmd">Copy</button>
-    </div>
-    {{ if $g.needs_data }}
-    <div class="note data-setup">
-      <h3>Setting up the game data</h3>
-      <p>The game data is not part of the package, and Walnut does not offer it. {{ if $g.data_steps }}You make or fetch it once:{{ end }}</p>
-      {{ with $g.data_steps }}
-      <ol class="steps">
-        {{ range $n, $step := . }}
-        <li>{{ range $i, $part := split $step "\x60" }}{{ if mod $i 2 }}{{ if strings.Contains $part " " }}<span class="cmd"><code id="{{ printf "data-cmd-%d-%d" $n $i }}">{{ $part }}</code><button type="button" class="copy" data-copy-from="{{ printf "data-cmd-%d-%d" $n $i }}">Copy</button></span>{{ else }}<code>{{ $part }}</code>{{ end }}{{ else }}{{ $part }}{{ end }}{{ end }}</li>
-        {{ end }}
-      </ol>
-      {{ end }}
-      <p>{{ if in $.Content "id=\"setting-up-the-game-data\"" }}Which editions work, where their files are and what goes wrong: <a href="#setting-up-the-game-data">the full guide</a>. {{ end }}{{ with $g.data_guide }}More: <a href="{{ . }}">{{ . }}</a>.{{ end }}</p>
-    </div>
-    {{ end }}
-    <p class="muted">Walnut Games, the desktop app, installs it with one button.</p>
-  </section>
-
-  {{ if $g.patched }}
-  <section>
-    <h2>Walnut's changes</h2>
-    <p>These changes are on top of the upstream or Debian source; the work of porting to the PS3 (big endian, the RSX's GPU driver, 256 MB of memory).</p>
-    <details><summary>{{ len $g.patches }} patches</summary>
-      {{ $srcs := slice }}{{ range $g.patches }}{{ $srcs = $srcs | append .source }}{{ end }}{{ $srcs = uniq $srcs }}
-      {{ range $srcs }}
-      {{ if gt (len $srcs) 1 }}<p class="muted patches-pkg">In the {{ . }} package:</p>{{ end }}
-      <ol class="patches">{{ range where $g.patches "source" . }}<li><a href="{{ .url }}">{{ .subject }}</a></li>{{ end }}</ol>
-      {{ end }}
-    </details>
-    {{ with $g.debs }}
-    <p>Download for a manual install (ppc64, stable):</p>
-    <ul>{{ range . }}<li><a href="{{ .url }}">{{ .package }}</a></li>{{ end }}</ul>
+    <p class="muted">Every session behind it, and how the rating changed from version to version: <a href="test-runs/">Test runs</a>.</p>
     {{ end }}
   </section>
-  {{ end }}
 
   {{ $shot_tests := where $g.tests "ps3" "!=" nil }}
   {{ if $shot_tests }}
@@ -106,6 +54,18 @@
   </section>
   {{ end }}
 
+  <section>
+    <h2>What you need</h2>
+    {{ partial "get-game.html" (dict "g" $g "guides" $t.guides) }}
+  </section>
+
+  <section>
+    <h2>Play</h2>
+    {{ $named := slice }}{{ range $g.launchers }}{{ with .name }}{{ $named = $named | append . }}{{ end }}{{ end }}
+    <p>Walnut Games starts it with Play{{ if gt (len $named) 1 }}, which asks which launcher{{ end }}; it is in the desktop's Games menu too{{ with $named }}, as {{ range $i, $n := . }}{{ if $i }}{{ if eq $i (sub (len $named) 1) }} and {{ else }}, {{ end }}{{ end }}<strong>{{ $n }}</strong>{{ end }}{{ end }}.</p>
+    {{ with $t.guides }}<p>Tips, settings and how-tos: <a href="guides/">Guides</a>.</p>{{ end }}
+  </section>
+
   {{ with $g.known_issues }}
   <section>
     <h2>Known issues</h2>
@@ -113,33 +73,8 @@
   </section>
   {{ end }}
 
-  {{ with .Content }}<section class="notes"><h2>Notes</h2>{{ . }}</section>{{ end }}
+  {{ with .Content }}<section class="notes prose"><h2>Notes</h2>{{ . }}</section>{{ end }}
 
-  <section>
-    <h2>History</h2>
-    <p class="muted">The rating on each version it was tested on, newest first: each row is rated from that version's tests alone, under the newest <a href="{{ site.Home.RelPermalink }}about/#rules">rules</a> those tests have the data for.</p>
-    {{ $many := gt (len $g.launchers) 1 }}
-    {{ range $g.launchers }}
-      {{ if $many }}<h3>{{ with .name }}{{ . }}{{ else }}The default launcher{{ end }}</h3>{{ end }}
-      {{ partial "history.html" (dict "rows" .history "aspects" $r.aspects) }}
-    {{ end }}
-  </section>
-
-  <section>
-    <h2>Test runs</h2>
-    <div class="table-wrap">
-    <table class="tests">
-      <thead><tr><th>Date</th><th>Version</th><th>Launcher</th><th>Kind</th><th>Rules</th><th>Play</th><th>Ended</th><th>Picture</th><th>Builds</th></tr></thead>
-      <tbody>{{ range $g.tests }}{{ $t := . }}
-        <tr><td class="nowrap">{{ .date }}</td><td>{{ partial "walnut.html" .walnut }}{{ with .version }}<br><span class="muted">{{ $t.package }} {{ . }}</span>{{ end }}</td>
-        <td>{{ with .launcher }}{{ . }}{{ else }}<span class="muted">-</span>{{ end }}</td>
-        <td>{{ .kind }}</td><td>{{ .rules | default "1.0" }}</td><td class="nowrap">{{ div .play_seconds 60 | printf "%.0f" }} min</td><td>{{ .end }}</td>
-        <td>{{ with .verdict }}{{ . }}{{ else }}-{{ end }}</td>
-        <td class="muted small">{{ range $k, $v := .versions }}{{ if and (ne $k "walnut") (ne $k $t.package) }}{{ $k }} {{ $v }}; {{ end }}{{ end }}</td></tr>
-      {{ end }}</tbody>
-    </table>
-    </div>
-    <p class="muted">The game's home page: <a href="{{ $g.homepage }}">{{ $g.homepage }}</a>. License: {{ $g.license }}.</p>
-  </section>
+  <p class="muted">The game's home page: <a href="{{ $g.homepage }}">{{ $g.homepage }}</a>. License: {{ $g.license }}.</p>
 </article>
 {{ end }}

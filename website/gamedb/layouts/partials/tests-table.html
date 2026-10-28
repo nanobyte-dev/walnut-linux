@@ -1,0 +1,13 @@
+{{/* a table of a game's recorded runs (catalog.json tests[], newest first) */}}
+<div class="table-wrap">
+<table class="tests">
+  <thead><tr><th>Date</th><th>Version</th><th>Launcher</th><th>Kind</th><th>Rules</th><th>Play</th><th>Ended</th><th>Picture</th><th>Builds</th></tr></thead>
+  <tbody>{{ range . }}{{ $t := . }}
+    <tr><td class="nowrap">{{ .date }}</td><td>{{ partial "walnut.html" .walnut }}{{ with .version }}<br><span class="muted">{{ $t.package }} {{ . }}</span>{{ end }}</td>
+    <td>{{ with .launcher }}{{ . }}{{ else }}<span class="muted">-</span>{{ end }}</td>
+    <td>{{ .kind }}</td><td>{{ .rules | default "1.0" }}</td><td class="nowrap">{{ div .play_seconds 60 | printf "%.0f" }} min</td><td>{{ .end }}</td>
+    <td>{{ with .verdict }}{{ . }}{{ else }}-{{ end }}</td>
+    <td class="muted small">{{ range $k, $v := .versions }}{{ if and (ne $k "walnut") (ne $k $t.package) }}{{ $k }} {{ $v }}; {{ end }}{{ end }}</td></tr>
+  {{ end }}</tbody>
+</table>
+</div>

@@ -1,0 +1,15 @@
+{{ define "main" }}
+{{/* a game's Guides tab: its guides/*.md (how-tos, tips, recommended settings), a section each, in file name
+     order; a game without guides still has the tab, with a line saying so */}}
+{{ $g := index (where hugo.Data.catalog.games "id" .Params.gid) 0 }}
+{{ $t := index (where hugo.Data.technical.games "id" .Params.gid) 0 }}
+{{ partial "game-head.html" (dict "g" $g "tab" "guides") }}
+<article class="game prose">
+  {{ with $t.guides }}
+  {{ if gt (len .) 1 }}<ul class="toc">{{ range . }}<li><a href="#{{ .slug }}">{{ .title }}</a></li>{{ end }}</ul>{{ end }}
+  {{ $.Content }}
+  {{ else }}
+  <p class="muted">No guides for this game yet. Installing it is on the <a href="../">Overview</a>; how it was tested is under <a href="../test-runs/">Test runs</a>.</p>
+  {{ end }}
+</article>
+{{ end }}

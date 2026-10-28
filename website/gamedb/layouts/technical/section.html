@@ -11,7 +11,7 @@
       <tr><td><a href="{{ .url | relURL }}">{{ .title }}</a></td>
       <td>{{ range $i, $p := .our_packages }}{{ if $i }}, {{ end }}<a href="{{ $p.url }}"><code>{{ $p.name }}</code></a>{{ else }}<span class="muted">Debian's</span>{{ end }}</td>
       <td class="num">{{ .patch_count }}</td>
-      <td>{{ with .benchmark.tables }}yes, {{ len . }} batch{{ if ne (len .) 1 }}es{{ end }}{{ else }}<span class="muted">no</span>{{ end }}</td>
+      <td>{{ $id := .id }}{{ with .benchmark.tables }}<a href="{{ printf "games/%s/test-runs/#benchmark" $id | relURL }}">yes, {{ len . }} batch{{ if ne (len .) 1 }}es{{ end }}</a>{{ else }}<span class="muted">no</span>{{ end }}</td>
       <td>{{ partial "medal.html" .medal }}</td>
       <td class="num">{{ len .investigations }}</td></tr>
     {{ end }}</tbody>

@@ -1,5 +1,5 @@
 #!/bin/bash
-# build.sh [--preview] OUT: build the Walnut Games site into the directory OUT (docs/GAMEDB.md).
+# build.sh [--preview] [--app] OUT: build the Walnut Games site into the directory OUT (docs/GAMEDB.md).
 #
 # Steps, each of which stops the build on failure:
 #   1. check.py: the catalog (gamedb/games, mounted into the site as content/games by hugo.toml) is
@@ -9,16 +9,30 @@
 #      games (without it, or offline, no links)
 #   3. Hugo: the pinned release of tools/gamedb/hugo.version, downloaded to build/tools/hugo-<version>/
 #      on first use and verified with its sha256 (the pinned one and the release's checksums file)
-#   4. the output against walnut-watch's site rules (servers/walnut.nanobyte.dev/walnut-watch: SITE_EXT,
+#   4. every link in the pages made relative to its page (and with --app, a folder's index.html named)
+#   5. the output against walnut-watch's site rules (servers/walnut.nanobyte.dev/walnut-watch: SITE_EXT,
 #      NAME_RE, no symlinks, an index.html): anything the server would refuse fails here, before an upload
 # --preview builds for http://localhost:8000/ (serve it with: python3 -m http.server -d OUT 8000);
-# without it the links are for https://walnut.nanobyte.dev/gamedb/.
+# without it the links are for https://walnut.nanobyte.dev/gamedb/. Every link in the pages is made
+# relative (step 4), so a copy of OUT works offline too.
+# --app builds the copy the desktop app shows offline (its Details view, docs/GAMEDB.md "The desktop app"):
+# site.Params.app is set (HUGO_PARAMS_APP), so the pages leave out the site's header, footer and script and
+# show the game's actions as walnut:// links; and every link to a folder names its index.html, which a
+# file:// view (Tkhtml) doesn't add by itself.
 set -euo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd)
 repo=$(cd "$here/../.." && pwd)
 base=""
-if [ "${1:-}" = "--preview" ]; then base="http://localhost:8000/"; shift; fi
+app=0
+while [ $# -gt 1 ]; do
+	case "$1" in
+	--preview) base="http://localhost:8000/" ;;
+	--app) app=1 ;;
+	*) break ;;
+	esac
+	shift
+done
 [ $# -eq 1 ] || { echo "usage: $0 [--preview] OUT" >&2; exit 2; }
 out=$(realpath -m "$1")
 
@@ -50,8 +64,31 @@ python3 -I "$here/catalog.py" "${deb[@]}"
 mkdir -p "$out"
 args=(--source "$repo/website/gamedb" --destination "$out" --cleanDestinationDir --cacheDir "$repo/build/tools/hugo-cache")
 [ -z "$base" ] || args+=(--baseURL "$base")
-"$hugo" "${args[@]}"
+if [ "$app" = 1 ]; then HUGO_PARAMS_APP=true "$hugo" "${args[@]}"; else "$hugo" "${args[@]}"; fi
 cp "$repo/website/gamedb/data/catalog.json" "$out/catalog.json"
+
+# every link in the pages relative to the page (Hugo's relativeURLs gets it wrong under a base path like
+# /gamedb/), so a copy of OUT works anywhere, offline too; the feeds and the sitemap keep absolute URLs. With
+# --app a link to a folder ("../technical/", "./#a") also names its index.html
+python3 -I - "$out" "${base:-$(sed -n 's/^baseURL = "\(.*\)"$/\1/p' "$repo/website/gamedb/hugo.toml")}" "$app" <<'PY'
+import pathlib, posixpath, re, sys, urllib.parse
+out, base, app = pathlib.Path(sys.argv[1]), urllib.parse.urlparse(sys.argv[2]).path, sys.argv[3] == "1"
+link = re.compile(r'((?:href|src)=")([^"#?]*)([#?][^"]*)?"')
+def fix(m, page_dir):
+    path, rest = m[2], m[3] or ""
+    if path.startswith(base):
+        target = path[len(base):]
+        rel = posixpath.relpath(target or ".", page_dir or ".")
+        path = rel + "/" if (target.endswith("/") or not target) and rel != "." else ("./" if rel == "." else rel)
+    elif not path or re.match(r"[a-zA-Z][a-zA-Z0-9+.-]*:|/", path):
+        return m[0]                           # an anchor, another site, walnut://
+    if app and path.endswith("/"):
+        path += "index.html"
+    return '%s%s%s"' % (m[1], path, rest)
+for f in out.rglob("*.html"):
+    page_dir = posixpath.dirname(f.relative_to(out).as_posix())
+    f.write_text(link.sub(lambda m: fix(m, page_dir), f.read_text()))
+PY
 
 # the server's rules, read from walnut-watch itself so the two cannot drift apart
 python3 -I - "$repo/servers/walnut.nanobyte.dev/walnut-watch" "$out" <<'PY'

@@ -5,20 +5,26 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{ if .IsHome }}{{ site.Title }}{{ else }}{{ .Title }} | {{ site.Title }}{{ end }}</title>
 <meta name="description" content="{{ with .Params.summary }}{{ . }}{{ else }}{{ site.Params.description }}{{ end }}">
-{{ $css := resources.Get "gamedb.css" | minify | fingerprint }}
+{{/* the styles: SCSS compiled to CSS 2.1 (assets/gamedb.scss says how) */}}
+{{ $css := resources.Get "gamedb.scss" | css.Sass (dict "transpiler" "libsass" "outputStyle" "compressed" "targetPath" "gamedb.css") | fingerprint }}
 <link rel="stylesheet" href="{{ $css.RelPermalink }}">
-{{ range .AlternativeOutputFormats }}<link rel="{{ .Rel }}" type="{{ .MediaType.Type }}" href="{{ .Permalink }}" title="{{ site.Title }}">{{ end }}
+{{ if not site.Params.app }}{{ range .AlternativeOutputFormats }}<link rel="{{ .Rel }}" type="{{ .MediaType.Type }}" href="{{ .Permalink }}" title="{{ site.Title }}">{{ end }}{{ end }}
 </head>
 <body>
+{{/* the app's copy (build.sh --app, site.Params.app): no site header, footer or script; the app has its own
+     window around it and handles the walnut:// links (docs/GAMEDB.md "The desktop app") */}}
+{{ if not site.Params.app }}
 <header class="site-header">
   <div class="wrap">
     <a class="brand" href="{{ site.Home.RelPermalink }}">Walnut Games</a>
     <nav><a href="{{ "your-games/" | relURL }}">Your games</a> <a href="{{ "about/" | relURL }}">About the ratings</a> <a href="{{ "technical/" | relURL }}">Technical</a> <a href="https://walnut.nanobyte.dev/">Walnut</a></nav>
   </div>
 </header>
+{{ end }}
 <main class="wrap">
 {{ block "main" . }}{{ end }}
 </main>
+{{ if not site.Params.app }}
 <footer class="wrap site-footer">
   <p>Every game is played and measured on a PS3 running Walnut; the ratings are described in
   <a href="{{ "about/" | relURL }}">About the ratings</a>.
@@ -26,5 +32,6 @@
 </footer>
 {{ $js := resources.Get "gamedb.js" | minify | fingerprint }}
 <script src="{{ $js.RelPermalink }}" defer></script>
+{{ end }}
 </body>
 </html>

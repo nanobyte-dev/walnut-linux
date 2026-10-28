@@ -170,15 +170,30 @@ class Pages(Fixture):
     def test_references(self):
         t = self.build()
         n = t["games"][0]["notes"]
-        self.assertIn("Refs: [batch b2](#batch-b2), (batch b9), [Slow load](../investigations/slow-load/), "
+        self.assertIn("Refs: [batch b2](../test-runs/#batch-b2), (batch b9), [Slow load](../investigations/slow-load/), "
                       "[Eng](../../../engines/eng/), cand,\nx, gamedb:nosuch, `gamedb:batch/b1` and "
                       "[gamedb:batch/b1](#top).", n)                 # drafts and unknown ids: text; code: as is
         inv = t["investigations"][0]["body"]
         self.assertIn("gamedb:batch/b1", INV_MD)
-        self.assertIn("[batch b1](../../technical/#batch-b1), [Example](../../technical/).", inv)
+        self.assertIn("[batch b1](../../test-runs/#batch-b1), [Example](../../technical/).", inv)
         (self.root / "engines" / "eng" / "technical.md").write_text("# Eng\n\nOn the engine: gamedb:batch/b2.\n")
         e = self.build()["engines"][0]
-        self.assertIn("[batch b2](../../games/ex/technical/#batch-b2)", e["notes"])
+        self.assertIn("[batch b2](../../games/ex/test-runs/#batch-b2)", e["notes"])
+
+    def test_guides(self):
+        self.assertEqual(self.build()["games"][0]["guides"], [])
+        gd = self.content / "ex" / "guides"
+        gd.mkdir()
+        (gd / "game-data.md").write_text("# Setting up the game data\n\nSee [the notes](../technical.md) and gamedb:batch/b2.\n\n"
+                                         "## Which editions\n\n```\n## not a heading\n```\n")
+        (gd / "a-tip.md").write_text("# A tip\n\nBack to [the data](game-data.md).\n")
+        g = self.build()["games"][0]["guides"]
+        self.assertEqual([(x["slug"], x["title"]) for x in g], [("a-tip", "A tip"), ("game-data", "Setting up the game data")])
+        self.assertIn("Back to [the data](./)", g[0]["body"])       # a guide links to the Guides tab
+        body = g[1]["body"]
+        self.assertIn("[the notes](../technical/) and [batch b2](../test-runs/#batch-b2)", body)
+        self.assertIn("### Which editions", body)                     # one level down, under the guide's title
+        self.assertIn("```\n## not a heading\n```", body)             # code is left as it is
 
     def test_benchmark(self):
         b = self.build()["games"][0]["benchmark"]

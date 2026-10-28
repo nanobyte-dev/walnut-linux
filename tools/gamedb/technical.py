@@ -14,18 +14,22 @@ Design
   (games/<id>/investigations/<inv-id>/, front matter and body); per engine engines/<e>/ (engine.md,
   technical.md, its packages, the published games on it, its investigations at
   engines/<e>/investigations/<inv-id>/); per survey research/<slug>/ (gamedb/research/<slug>.md).
+  The benchmark tables show on the game's Test runs tab (games/<id>/test-runs/, content/tabs/), from the
+  same entry. A game's guides (guides/*.md: how-tos, tips, recommended settings) are its entry's guides[],
+  {slug, title, body} in file name order, for its Guides tab (games/<id>/guides/): each one's first "# "
+  heading is its title and its other headings move one level down, under that title on the page.
 - A game without a technical.md still gets its page: the data sections alone, and a line saying there
   are no notes yet. Nothing is made up to fill it.
 - Markdown is passed on for Hugo to render; its first "# " heading becomes the page title. Relative
   links are rewritten for the site, relative to the page: a survey, a published game's page, technical
-  page or investigation, an engine go to their pages; any other file of the repository to the public
+  page, guide or investigation, an engine go to their pages; any other file of the repository to the public
   repository on GitHub; a link into a draft's bundle, a licensed directory, a session's raw/ or a path
   that does not exist keeps its text and loses the link.
 - References (gamedb/README.md: `gamedb:<id>`, `gamedb:<id>/<investigation-id>`, `gamedb:batch/<name>`)
   outside code become links: a published game to its technical page, an engine to its page, an
-  investigation to its page (its title the text); a batch to its table (`#batch-<name>`) on the page's own
-  game's technical page when that game has results in it, else on the first published game that has (the
-  engine's games first), else plain text. A draft's game or investigation is its id as plain text.
+  investigation to its page (its title the text); a batch to its table (`#batch-<name>`) on the Test runs
+  tab of the page's own game when that game has results in it, else of the first published game that has
+  (the engine's games first), else plain text. A draft's game or investigation is its id as plain text.
 - Public-safe: every string of the file is scanned before it is written (tools/gamedb/evidence.py
   leftovers: /home/, private IPv4 and MAC addresses, this checkout's private user and host names;
   and the patterns of tools/public-replace.local.txt, which the public copy of the repository hides);
@@ -120,6 +124,8 @@ class Site:
                 return base
             if kind == "games" and rest == ["technical.md"]:
                 return base + "technical/"
+            if kind == "games" and len(rest) == 2 and rest[0] == "guides" and rest[1].endswith(".md"):
+                return base + "guides/" if (self.root / kind / name / "guides" / rest[1]).is_file() else None
             if len(rest) == 2 and rest[0] == "investigations" and rest[1].endswith(".md"):
                 f = self.root / kind / name / "investigations" / rest[1]
                 return "%sinvestigations/%s/" % (base, self.inv_id(f)) if f.is_file() else None
@@ -160,7 +166,7 @@ class Site:
                 prefer = self.engine_games.get(parts[1], [])
             gid = next((g for g in prefer if g in have), None) or next(iter(sorted(have)), None)
             text = "batch %s" % name
-            return "[%s](%s)" % (text, self.rel("games/%s/technical/#batch-%s" % (gid, name), page)) if gid else text
+            return "[%s](%s)" % (text, self.rel("games/%s/test-runs/#batch-%s" % (gid, name), page)) if gid else text
         owner, _, iid = what.partition("/")
         if not iid:
             if owner in self.published:
@@ -227,6 +233,32 @@ def markdown_page(site, path, page, fallback_title):
     title, body = title_body(body)
     rel = str(path.resolve().relative_to(site.repo.resolve()))
     return title or fallback_title, fm, site.links(body, rel, page).strip() + "\n"
+
+
+def demote(md):
+    """md with each ATX heading one level down (## -> ###), outside fenced code"""
+    out, fence = [], None
+    for line in md.split("\n"):
+        m = re.match(r"\s*(```+|~~~+)", line)
+        if fence:
+            fence = None if m and m[1][0] == fence[0] and len(m[1]) >= len(fence) else fence
+        elif m:
+            fence = m[1]
+        elif re.match(r"#{1,5} ", line):
+            line = "#" + line
+        out.append(line)
+    return "\n".join(out)
+
+
+def guides(site, gdir):
+    """a game's guides (guides/*.md), in file name order: [{slug, title, body}], the body's headings one level
+    down (the page puts each guide under its title)"""
+    url = "games/%s/guides/" % gdir.name
+    out = []
+    for f in sorted((gdir / "guides").glob("*.md")) if (gdir / "guides").is_dir() else []:
+        title, _, body = markdown_page(site, f, url, f.stem)
+        out.append({"slug": f.stem, "title": title, "body": demote(body)})
+    return out
 
 
 def investigations(site, d, owner_url, owner):
@@ -360,6 +392,7 @@ def game_page(site, gdir, g, results, batches, metrics, patch_subjects, package_
         "benchmark": {"header": header, "variants": variants, "recipes": recipes,
                       "tables": bench_tables(gid, results, batches, metrics)},
         "investigations": [{k: i[k] for k in ("id", "title", "url", "date")} for i in invs],
+        "guides": guides(site, gdir),
     }, invs
 
 

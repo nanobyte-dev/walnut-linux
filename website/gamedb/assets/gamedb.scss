@@ -1,0 +1,269 @@
+// Walnut Games: the site's styles (the Walnut palette of website/site/style.css).
+//
+// Compiled by Hugo's css.Sass (libsass, baseof.html) to plain CSS 2.1 that NetSurf and Tkhtml (the
+// desktop app's HTML view) render: the palette is SCSS variables, so no var() reaches the output, and
+// sizes are px (rem() below), which Tkhtml has no unit for. Modern layout (flex, grid, gap) is only
+// ever a later declaration or an @supports block that an old engine drops, after a CSS 2.1 fallback
+// (floats, inline-block): the mixins below keep that order. Old engines also ignore border-radius,
+// gradients and transitions; the page must read the same without them.
+
+// the palette
+$bg: #14304d;
+$panel: #0e2238;
+$border: #1d3e61;
+$text: #ececec;
+$muted: #c9a87c;
+$accent: #d49a5c;
+$accent-deep: #b5763a;
+$accent-light: #e3ae73;
+$code: #091726;
+$warn: #f0b9a0;
+$medals: (
+  platinum: #cfe4f7,
+  gold: #e8bd4f,
+  silver: #c3c8cf,
+  bronze: #c9803f,
+  tin: #8fa0ad,
+  rust: #a8553a,
+  scrap: #7c6a6a,
+  untested: #5b7794,
+);
+$medal-ink: #14202e;
+
+// a size in rem, written out in px (the root is 16px)
+@function rem($n) {
+  @return round($n * 16px * 10) / 10;
+}
+
+// a row of blocks side by side: inline-block for old engines, then flex. $gap is a margin on the
+// children (flex gap would add to it, and NetSurf has no gap)
+@mixin row($gap: rem(0.6), $align: center) {
+  display: block;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: $align;
+  > * {
+    display: inline-block;
+    vertical-align: middle;
+    margin-right: $gap;
+  }
+}
+
+// a grid of equal cards: inline-block cards of a fixed width for old engines, a CSS grid when the
+// engine has one (the @supports block resets the fallback's width and margins)
+@mixin card-grid($min, $gap) {
+  > * {
+    display: inline-block;
+    vertical-align: top;
+    width: $min;
+    margin: 0 $gap $gap 0;
+  }
+  @supports (display: grid) {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax($min, 1fr));
+    gap: $gap;
+    > * {
+      width: auto;
+      margin: 0;
+    }
+  }
+}
+
+// a solid colour, then a gradient for the engines that have one
+@mixin gradient($from, $to) {
+  background: $to;
+  background: linear-gradient(90deg, $from, $to);
+}
+
+// the HTML5 elements an old engine doesn't know are inline; [hidden] isn't in every default sheet
+article, aside, details, figcaption, figure, footer, header, main, nav, section, summary { display: block; }
+[hidden] { display: none !important; }  // over the class rules that set a display
+
+*, *:before, *:after { box-sizing: border-box; }
+html { font-size: 16px; -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: $bg;
+  color: $text;
+  line-height: 1.55;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "DejaVu Sans", sans-serif;
+}
+a { color: $accent-light; }
+a:hover { color: $accent; }
+h1, h2, h3 { line-height: 1.25; }
+h1 { color: $accent-light; font-size: rem(2); margin: 0.2em 0 0.3em; }
+h2 { color: $accent; font-size: rem(1.3); margin: 1.6em 0 0.5em; }
+h3 { color: $muted; font-size: rem(1); margin: 0 0 0.5em; }
+code { background: $code; border-radius: 4px; padding: 0.1em 0.35em; font-size: 0.95em; }
+pre { background: $code; padding: rem(0.7) rem(0.9); border-radius: 6px; overflow: auto; }
+pre code { background: transparent; padding: 0; }
+img { border: 0; }
+.muted { color: $muted; }
+.wrap { max-width: 1100px; margin: 0 auto; padding: 0 16px; }
+main.wrap { padding-bottom: rem(3); }
+
+// the site's header and footer
+.site-header { background: $panel; border-bottom: 1px solid $border; }
+.site-header .wrap { padding-top: rem(0.8); padding-bottom: rem(0.8); @include row(rem(1.2)); justify-content: space-between; }
+.brand { color: $accent-light; font-weight: 700; font-size: rem(1.25); text-decoration: none; letter-spacing: 0.3px; }
+.site-header nav a { margin-left: rem(1.2); }
+.site-footer { color: $muted; font-size: rem(0.9); padding-bottom: rem(2); border-top: 1px solid $border; margin-top: rem(2); padding-top: rem(1); }
+.crumbs { margin: rem(1.2) 0 0; }
+
+// medals
+.medal {
+  display: inline-block;
+  padding: 0.15em 0.7em;
+  border-radius: 999px;
+  font-weight: 700;
+  font-size: rem(0.95);
+  color: $medal-ink;
+  background: map-get($medals, untested);
+}
+@each $name, $colour in $medals {
+  .medal-#{$name} { background: $colour; }
+}
+.medal-rust, .medal-scrap { color: #fff; }
+.medal-untested { background: transparent; color: $muted; border: 1px dashed map-get($medals, untested); }
+.medal-score { font-weight: 500; }
+.medal, .medal-score { white-space: nowrap; }
+
+// the card grid
+.filters {
+  margin: rem(1.2) 0;
+  padding: rem(0.8);
+  background: $panel;
+  border: 1px solid $border;
+  border-radius: 10px;
+  @include row(rem(0.6));
+}
+.filters input, .filters select {
+  background: $code;
+  color: $text;
+  border: 1px solid $border;
+  border-radius: 6px;
+  padding: rem(0.45) rem(0.6);
+  font: inherit;
+}
+.filters input { flex: 1 1 rem(14); }
+.cards { list-style: none; margin: 0; padding: 0; @include card-grid(240px, rem(1.1)); }
+.card { background: $panel; border: 1px solid $border; border-radius: 12px; overflow: hidden; transition: transform 0.12s, border-color 0.12s; }
+.card:hover { transform: translateY(-2px); border-color: $accent-deep; }
+.card a { display: block; color: $text; text-decoration: none; height: 100%; }
+.card img { display: block; width: 100%; height: auto; background: $code; aspect-ratio: 16 / 9; object-fit: cover; }
+.card-body { padding: rem(0.8) rem(1) rem(1); }
+.card h2 { margin: 0 0 rem(0.4); font-size: rem(1.1); color: $accent-light; }
+.card .meta, .card .cat { margin: rem(0.2) 0; }
+.card .cat { color: $muted; font-size: rem(0.85); }
+.card .summary { margin: rem(0.5) 0 0; font-size: rem(0.9); }
+
+// a game's head and its tabs
+.game-head { margin-top: rem(0.8); @include row(rem(1.5), flex-start); }
+.game-head { overflow: hidden; }  // holds the floated thumbnail in an old engine
+.game-head > .thumb { float: left; margin: 0 rem(1.5) rem(0.6) 0; }
+.game-head > .game-title { display: block; overflow: hidden; margin-right: 0; flex: 1 1 rem(20); }
+.thumb { border-radius: 10px; border: 1px solid $border; max-width: 100%; height: auto; }
+.meta > *, .badges > * { margin-right: rem(0.6); }
+.meta { margin: rem(0.4) 0; }
+.badges { margin: rem(0.4) 0; line-height: 2; }
+.badge { display: inline-block; line-height: 1.5; background: $panel; border: 1px solid $border; border-radius: 6px; padding: 0.05em 0.55em; font-size: rem(0.8); color: $muted; white-space: nowrap; }
+.badge-no-sound, .badge-low-memory, .badge-needs-data { color: $warn; }
+.tabs {
+  list-style: none;
+  margin: rem(1.2) 0 rem(0.4);
+  padding: 0;
+  border-bottom: 2px solid $border;
+}
+.tabs li { display: inline; margin: 0; padding: 0; }
+.tabs a {
+  display: inline-block;
+  padding: rem(0.5) rem(1);
+  margin: 0 rem(0.2) 0 0;
+  color: $muted;
+  text-decoration: none;
+  border: 1px solid $bg;
+  border-bottom: 0;
+  border-radius: 8px 8px 0 0;
+}
+.tabs a:hover { color: $accent-light; background: $panel; }
+.tabs a.current { color: $text; background: $panel; border-color: $border; font-weight: 700; }
+.problems { margin: rem(0.6) 0; padding-left: rem(1.2); }
+.origin { font-size: rem(0.8); color: $muted; border: 1px solid $border; border-radius: 6px; padding: 0 0.4em; }
+.note { background: $panel; border-left: 3px solid $accent-deep; padding: rem(0.5) rem(0.9); border-radius: 0 6px 6px 0; }
+.note p:first-child, .note h3:first-child { margin-top: 0; }
+.unrated { border-left-color: map-get($medals, untested); }
+
+// tables
+table { border-collapse: collapse; width: 100%; }
+th, td { text-align: left; padding: rem(0.4) rem(0.6); border-bottom: 1px solid $border; vertical-align: top; }
+th { color: $muted; font-weight: 600; font-size: rem(0.85); }
+td.num { text-align: right; font-variant-numeric: tabular-nums; width: rem(5.5); white-space: nowrap; }
+td.bar { width: 140px; }  // px: an old engine gives an empty cell no width from a percentage
+td.bar span { display: block; height: rem(0.6); border-radius: 3px; @include gradient($accent-deep, $accent-light); }
+.table-wrap { overflow: auto; }
+table.history, table.tests { font-size: rem(0.9); }
+table.history th.num, table.bench th.num, table.tech-index th.num { text-align: right; }
+table.history th.num, table.history td.num, table.bench th.num, table.bench td.num { width: auto; padding-left: rem(0.4); padding-right: rem(0.4); }
+table.launchers { margin-bottom: rem(1); }
+table.facts { margin: rem(0.4) 0 rem(1); }
+table.facts th { width: rem(11); font-size: rem(0.9); }
+table.bench { font-size: rem(0.85); }
+table.tech-index td.num { width: auto; }
+
+// what you need: the install line, the data steps
+.install { @include row(rem(0.6), stretch); }
+.install code { flex: 1 1 rem(18); padding: rem(0.7) rem(0.9); overflow: auto; white-space: nowrap; border: 1px solid $border; }
+button.copy { background: $accent-deep; color: #fff; border: 0; border-radius: 6px; padding: 0 rem(1.1); font: inherit; cursor: pointer; }
+button.copy:hover { background: $accent; }
+.data-setup h3 { margin: 0 0 rem(0.3); font-size: rem(1.05); }
+.steps { padding-left: rem(1.4); }
+.steps li { margin: rem(0.5) 0; }
+.steps .cmd { margin: rem(0.3) 0; @include row(rem(0.5), stretch); }
+.steps .cmd code { flex: 1 1 auto; padding: rem(0.4) rem(0.7); overflow: auto; white-space: nowrap; border: 1px solid $border; }
+.steps .cmd button.copy { padding: 0 rem(0.8); }
+// the app's buttons (walnut:// links, build.sh --app)
+.actions a { display: inline-block; margin: 0 rem(0.6) rem(0.6) 0; padding: rem(0.5) rem(1.2); background: $accent-deep; color: #fff; text-decoration: none; border-radius: 6px; font-weight: 700; }
+
+// screenshots
+.shots { @include card-grid(rem(18), rem(1)); }
+.shots img { width: 100%; height: auto; border-radius: 6px; border: 1px solid $border; display: block; background: $code; }
+figcaption { color: $muted; font-size: rem(0.85); margin-top: rem(0.2); }
+
+// lists, notes, details
+.patches { padding-left: rem(1.4); }
+.patches-pkg { margin: rem(0.8) 0 rem(0.2); }
+details summary { cursor: pointer; color: $accent-light; }
+details.launcher { margin: rem(0.8) 0; }
+details.launcher > summary { font-weight: 600; margin-bottom: rem(0.4); }
+details.obs, details.older { margin: rem(0.4) 0; }
+details.older > summary { margin: rem(0.8) 0; }
+.table-wrap + h3 { margin-top: rem(1.4); }
+.nowrap { white-space: nowrap; }
+.small { font-size: rem(0.8); }
+.tested { margin: rem(0.6) 0 rem(0.2); }
+.prose p, .prose li { line-height: 1.6; }
+.prose table { margin: rem(0.8) 0 rem(1.2); }
+.prose td .medal { white-space: nowrap; }
+.toc { padding-left: rem(1.2); }
+
+// the technical pages
+.tech-link { margin: rem(0.3) 0 rem(0.6); }
+.tech-notes table { display: block; overflow: auto; font-size: rem(0.9); }
+.tech-pkgs { padding-left: rem(1.2); }
+.tech-pkgs li { margin: rem(0.4) 0; }
+.batch { margin: rem(1.4) 0; }
+.batch h3 { margin-bottom: rem(0.2); color: $accent-light; }
+.batch p { margin: rem(0.2) 0 rem(0.5); }
+.unit { font-weight: 400; font-size: rem(0.75); }
+
+// a phone: one column, the thumbnail above the title
+@media (max-width: 640px) {
+  h1 { font-size: rem(1.6); }
+  .game-head > .thumb { float: none; display: block; margin-right: 0; }
+  .cards > * { width: 100%; margin-right: 0; }
+  .shots > * { width: 100%; margin-right: 0; }
+  .site-header nav a { margin-left: 0; margin-right: rem(0.9); }
+  .tabs a { padding: rem(0.4) rem(0.45); font-size: rem(0.95); margin-right: 0; }
+  table.tests, table.history { font-size: rem(0.85); }
+  td.bar, th.bar { display: none; }
+}

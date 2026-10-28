@@ -156,7 +156,7 @@ one record with the same value, and the matrices made from the records byte for 
 
 ## The technical pages
 
-A game's technical page on the site (`games/<id>/technical/`, from `technical.json`: `tools/gamedb/technical.py`,
+A game's Test runs tab on the site (`games/<id>/test-runs/`, under "Scripted benchmarks", from `technical.json`: `tools/gamedb/technical.py`,
 run by `tools/gamedb/catalog.py`) shows its results as tables made from these records: the summary batch
 first, then the run batches newest first, each with its date, title, run count, stack and observations,
 a row per variant and a column per metric the game has in that batch, with the metric's unit from

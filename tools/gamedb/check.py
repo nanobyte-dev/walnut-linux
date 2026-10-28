@@ -38,7 +38,7 @@ Design
       exist (shots/ps3-<point>.jpg), and no stray file sits in a session folder (result.toml, form.toml,
       review.md, shots/, raw/; tools/gamedb/evidence.py, which also scans the record, form.toml, review.md
       and raw/ for what must not be public) or the game's folder (GAME_FILES: index.md, thumb.png,
-      build.toml, rating/, packages/, licensed/, upstream.md, upstream/, benchmark/: BENCH_FILES,
+      build.toml, rating/, packages/, licensed/, upstream.md, upstream/, guides/: guide_errors(), benchmark/: BENCH_FILES,
       desktop/: DESKTOP_FILES, its launchers and migrate-home.txt as tools/gamedb/pack-integration.py reads them); its rules, when given, are "<data>.<formula>" of a
       data version score.py knows, and a data-version-2 test's defects name known categories
     * rating/ holds sessions/ and the played test, rating/test.toml: bench/harness/playdef.py's schema (closed keys,
@@ -121,7 +121,7 @@ DRAFT_REQUIRED = {"id", "title", "status"}
 STATUSES = ["candidate", "tried", "blocked", "dropped", "impossible", "tested"]
 # what a game's folder may hold so far (gamedb/README.md; the later migration steps add theirs): the page,
 # the thumbnail, the sessions, our source packages, the licensed data packages and builders, upstream offers
-GAME_DIRS = ("rating", "packages", "licensed", "upstream", "benchmark", "desktop", "investigations")
+GAME_DIRS = ("rating", "packages", "licensed", "upstream", "benchmark", "desktop", "investigations", "guides")
 # what desktop/ may hold: our launchers, the config files we install (by absolute path), the migrate-home lines
 DESKTOP_FILES = ("launchers", "files", "migrate-home.txt")
 # what benchmark/ may hold so far: the recipe (code), its analysis data, its helpers and files, the sources of
@@ -291,6 +291,28 @@ def todo_errors(data):
 # rating/sessions/ in one of those games, batches gamedb/benchmarks/batches.toml names
 INV_KEYS = ("id", "games", "driver_patches", "game_patches", "sessions", "batches")
 INV_FILE_RE = re.compile(r"\d{4}-\d{2}-\d{2}-[a-z0-9][a-z0-9-]*\.md\Z")
+# a guide (guides/<slug>.md, the game's Guides tab): markdown without front matter that starts with its "# " title;
+# game-data.md is the one the Overview's game data box links to
+GUIDE_FILE_RE = re.compile(r"[a-z0-9][a-z0-9-]*\.md\Z")
+
+
+def guide_errors(gdir):
+    """the problems of a game's guides/: only <slug>.md files, each starting with a "# " heading, no front matter"""
+    errs = []
+    d = Path(gdir) / "guides"
+    for f in sorted(d.iterdir()) if d.is_dir() else []:
+        where = "guides/%s" % f.name
+        if not f.is_file() or not GUIDE_FILE_RE.match(f.name):
+            errs.append("%s: a guide is a file <slug>.md (lower case letters, digits, dashes)" % where)
+            continue
+        text = f.read_text()
+        if text.startswith("+++") or text.startswith("---"):
+            errs.append("%s: no front matter; the first line is the guide's \"# \" title" % where)
+        elif not re.match(r"# +\S", text):
+            errs.append("%s: the first line is the guide's \"# \" title" % where)
+        elif not text[text.find("\n") + 1:].strip() if "\n" in text else True:
+            errs.append("%s: a title and nothing else" % where)
+    return errs
 
 
 def investigation_errors(d, games_root):
@@ -444,6 +466,7 @@ def check_game(gdir, bad, repo, ctx=None):
     if (gdir / "todo.toml").is_file():
         errs += toml_errors(gdir / "todo.toml", "todo.toml", todo_errors)
     errs += investigation_errors(gdir, gdir.parent)
+    errs += guide_errors(gdir)
     return errs
 
 

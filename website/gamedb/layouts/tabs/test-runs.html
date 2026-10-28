@@ -1,0 +1,66 @@
+{{ define "main" }}
+{{/* a game's Test runs tab: the played sessions, which make the rating, and the rating on each version; then the
+     scripted benchmarks in a section of their own, which never rate a game */}}
+{{ $g := index (where hugo.Data.catalog.games "id" .Params.gid) 0 }}
+{{ $t := index (where hugo.Data.technical.games "id" .Params.gid) 0 }}
+{{ partial "game-head.html" (dict "g" $g "tab" "test-runs") }}
+<article class="game">
+  {{ $played := where $g.tests "kind" "session" }}
+  {{ $other := where $g.tests "kind" "!=" "session" }}
+  <section>
+    <h2 id="sessions">Played sessions</h2>
+    {{ with $played }}
+    <p class="muted">The rating comes from these: someone played the game on a PS3 for about ten minutes, on the game's shipped settings, while a recorder measured it (<a href="{{ "about/" | relURL }}">how</a>).</p>
+    {{ partial "tests-table.html" . }}
+    {{ else }}
+    <p>Nobody has played it on Walnut yet: no session, no medal.</p>
+    {{ end }}
+    {{ with $other }}
+    <h3>Other recorded runs</h3>
+    <p class="muted">Runs that aren't played sessions: picture checks (capture) and scripted runs (demo, script).</p>
+    {{ partial "tests-table.html" . }}
+    {{ end }}
+  </section>
+
+  {{ if $g.tests }}
+  <section>
+    <h2 id="history">Rating history</h2>
+    <p class="muted">The rating on each version it was tested on, newest first: each row is rated from that version's sessions alone, under the newest <a href="{{ "about/#rules" | relURL }}">rules</a> those sessions have the data for.</p>
+    {{ $many := gt (len $g.launchers) 1 }}
+    {{ range $g.launchers }}
+      {{ if $many }}<h3>{{ with .name }}{{ . }}{{ else }}The default launcher{{ end }}</h3>{{ end }}
+      {{ partial "history.html" (dict "rows" .history) }}
+    {{ end }}
+  </section>
+  {{ end }}
+
+  <section>
+    <h2 id="benchmark">Scripted benchmarks</h2>
+    <p class="note unrated"><strong>Not rated: tests of driver and game changes.</strong> A script plays the same scene on the PS3 again and again
+    (the desktop stopped, vsync off) to compare two builds of the game or of the graphics driver. The numbers say which build is faster;
+    they never feed the medal.</p>
+    {{ $bm := $t.benchmark }}
+    {{ with $bm.header }}<details class="obs"><summary>How the script plays it</summary><p class="small">{{ . }}</p></details>{{ end }}
+    {{ if gt (len $bm.variants) 1 }}
+    <details><summary>{{ len $bm.variants }} variants of the recipe</summary>
+      <table class="facts">
+        <tbody>{{ range $bm.variants }}<tr><th><code>{{ .name }}</code>{{ if .catalog }} <span class="badge">stands for the game</span>{{ end }}</th><td class="small">{{ with .note }}{{ . }}{{ else }}<span class="muted">-</span>{{ end }}</td></tr>{{ end }}</tbody>
+      </table>
+    </details>
+    {{ end }}
+    {{ with $bm.tables }}
+      {{ $n := len . }}
+      {{ range $i, $b := . }}
+        {{ if lt $i 4 }}{{ partial "bench-table.html" $b }}{{ end }}
+      {{ end }}
+      {{ if gt $n 4 }}
+      <details class="older"><summary>{{ sub $n 4 }} older batch{{ if ne (sub $n 4) 1 }}es{{ end }}</summary>
+        {{ range $i, $b := . }}{{ if ge $i 4 }}{{ partial "bench-table.html" $b }}{{ end }}{{ end }}
+      </details>
+      {{ end }}
+    {{ else }}
+    <p class="muted">No benchmark results recorded for it yet.</p>
+    {{ end }}
+  </section>
+</article>
+{{ end }}

@@ -1,17 +1,14 @@
 {{ define "main" }}
-{{/* a published game's technical page (technical.json games[]): the notes (technical.md), then what the
-     database knows: the build, the played test, the benchmark tables, the investigations */}}
+{{/* a published game's Technical tab (technical.json games[]): the notes (technical.md), then what the
+     database knows: the build, the played test, the investigations (the benchmark tables are on Test runs) */}}
 {{ $t := index (where hugo.Data.technical.games "id" .Params.gid) 0 }}
-{{ $game := site.GetPage (printf "/games/%s" $t.id) }}
-<p class="crumbs"><a href="{{ site.Home.RelPermalink }}">All games</a> · <a href="{{ $game.RelPermalink }}">{{ $t.title }}</a> · <a href="{{ "technical/" | relURL }}">Technical notes</a></p>
+{{ $g := index (where hugo.Data.catalog.games "id" .Params.gid) 0 }}
+{{ partial "game-head.html" (dict "g" $g "tab" "technical") }}
 <article class="tech">
-  <h1>{{ $t.title }}: technical notes</h1>
-  <p class="meta">{{ partial "medal.html" $t.medal }}
-    <span class="muted">{{ if eq $t.sessions 0 }}no played session yet{{ else }}from {{ $t.sessions }} played session{{ if ne (int $t.sessions) 1 }}s{{ end }}{{ end }}; the rating is on <a href="{{ $game.RelPermalink }}">the game's page</a></span>
-    {{ with $t.engine }}<span>Engine: <a href="{{ .url | relURL }}">{{ .title }}</a></span>{{ end }}</p>
+  <p class="muted">How it's built, patched and set up for its played test{{ with $t.engine }}; it runs on the <a href="{{ .url | relURL }}">{{ .title }}</a> engine{{ end }}. The numbers are under <a href="../test-runs/">Test runs</a>.</p>
 
   <section class="tech-notes prose">
-  {{ with .Content }}{{ . }}{{ else }}<p class="muted">No technical notes for this game yet. Everything below is read from the games database (its build.toml, its played test, the benchmark records).</p>{{ end }}
+  {{ with .Content }}{{ . }}{{ else }}<p class="muted">No technical notes for this game yet. Everything below is read from the games database (its build.toml and its played test).</p>{{ end }}
   </section>
 
   <section>
@@ -50,33 +47,6 @@
     </table>
   </section>
   {{ end }}
-
-  <section>
-    <h2 id="benchmark">Benchmark</h2>
-    {{ $bm := $t.benchmark }}
-    <p class="muted">A/B runs of game and driver changes on the PS3 (the desktop stopped, vsync off). Benchmarks never rate a game.</p>
-    {{ with $bm.header }}<p class="small">{{ . }}</p>{{ end }}
-    {{ if gt (len $bm.variants) 1 }}
-    <details><summary>{{ len $bm.variants }} variants of the recipe</summary>
-      <table class="facts">
-        <tbody>{{ range $bm.variants }}<tr><th><code>{{ .name }}</code>{{ if .catalog }} <span class="badge">stands for the game</span>{{ end }}</th><td class="small">{{ with .note }}{{ . }}{{ else }}<span class="muted">-</span>{{ end }}</td></tr>{{ end }}</tbody>
-      </table>
-    </details>
-    {{ end }}
-    {{ with $bm.tables }}
-      {{ $n := len . }}
-      {{ range $i, $b := . }}
-        {{ if lt $i 4 }}{{ partial "bench-table.html" $b }}{{ end }}
-      {{ end }}
-      {{ if gt $n 4 }}
-      <details class="older"><summary>{{ sub $n 4 }} older batch{{ if ne (sub $n 4) 1 }}es{{ end }}</summary>
-        {{ range $i, $b := . }}{{ if ge $i 4 }}{{ partial "bench-table.html" $b }}{{ end }}{{ end }}
-      </details>
-      {{ end }}
-    {{ else }}
-    <p class="muted">No benchmark results recorded for it yet.</p>
-    {{ end }}
-  </section>
 
   {{ with $t.investigations }}
   <section>

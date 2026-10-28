@@ -1,4 +1,5 @@
-// Walnut Games: filters and search over the card grid, the copy button, and links into collapsed batch tables. Without JavaScript the
+// Walnut Games: filters and search over the card grid, the copy button, and links into collapsed batch tables (on a game's
+// Test runs tab). Optional: the pages read the same without it (NetSurf, the app's HTML view). Without JavaScript the
 // page is the full list (the filter bar stays hidden); with it, a card is hidden by toggling `hidden`.
 (function () {
   "use strict";
@@ -8,7 +9,9 @@
 
   function control(id) { return document.getElementById(id); }
 
-  if (bar && cards.length) {
+  // only where the filters can work: a browser without URLSearchParams or history.replaceState (NetSurf)
+  // keeps the plain list, the bar hidden
+  if (bar && cards.length && window.URLSearchParams && window.history && history.replaceState) {
     bar.hidden = false;
     var search = control("f-search"), category = control("f-category"), medal = control("f-medal"),
         tag = control("f-tag"), count = control("f-count"),
@@ -58,8 +61,11 @@
     apply();
   }
 
-  // the install box: copy the command
-  document.querySelectorAll("button.copy").forEach(function (b) {
+  // the install box: copy the command (the buttons stay hidden without JavaScript or a clipboard to copy to)
+  var canCopy = !!(navigator.clipboard || document.execCommand);
+  Array.prototype.forEach.call(document.querySelectorAll("button.copy"), function (b) {
+    if (!canCopy) return;
+    b.hidden = false;
     b.addEventListener("click", function () {
       var text = document.getElementById(b.dataset.copyFrom).textContent;
       var done = function () { b.textContent = "Copied"; setTimeout(function () { b.textContent = "Copy"; }, 1500); };

@@ -55,6 +55,7 @@ gamedb/
     upstream.md, upstream/*.patch   offers of our game patches to upstream (optional)
     thumb.png                       optional (the catalog's thumb is then null)
     investigations/<date>-<slug>.md one investigation; <date>-<slug>/ holds its attachments
+    guides/<slug>.md                how-tos, tips, recommended settings: the game's Guides tab (optional)
     packages/<pkg>/                 our source packages for this game
     licensed/<pkg>/                 licensed data packages and their builders (never public)
     desktop/                        menu entries, installed config files, the migrate-home list
@@ -72,7 +73,9 @@ gamedb/
 
 TOML front matter between `+++` lines, then the notes as markdown. Keys (today's set, from
 `tools/gamedb/check.py`, which also allows only `index.md`, `thumb.png`, `build.toml`, `rating/sessions/`, `rating/test.toml`, `packages/`,
-`licensed/`, `upstream.md`, `upstream/` and `benchmark/` in a game's folder until the later steps add their files):
+`licensed/`, `upstream.md`, `upstream/`, `guides/` and `benchmark/` in a game's folder until the later steps add their files).
+The body is the notes on the game's Overview tab; a how-to (setting up the data, settings advice) goes in
+`guides/` instead:
 
 | Key | Type | Meaning |
 |---|---|---|
@@ -429,10 +432,11 @@ On the site (*now*, step 7a): `tools/gamedb/technical.py`, run by catalog.py, wr
 `website/gamedb/data/technical.json`, and Hugo's content adapters (`website/gamedb/content/technical/`,
 `engines/`, `research/`: `_content.gotmpl`) make the pages from it, for published games only (a draft has
 no page, its name is in no list, a link into its bundle keeps its text and loses the link):
-`games/<id>/technical/` (technical.md, then the build facts of build.toml with our packages and their
-patches, licensed data by name only, the played test of rating/test.toml with the medal, the recipe's
-header and variants, the benchmark tables of `benchmark/results/`: the summary, then each batch newest
-first, a column per metric with its unit), `games/<id>/investigations/<inv-id>/` (front matter as facts,
+`games/<id>/technical/` (the game's Technical tab: technical.md, then the build facts of build.toml with
+our packages and their patches, licensed data by name only, the played test of rating/test.toml, the
+investigations), `games/<id>/test-runs/` (the Test runs tab, content/tabs/: the sessions of catalog.json,
+then the recipe's header and variants and the benchmark tables of `benchmark/results/`: the summary, then
+each batch newest first, a column per metric with its unit), `games/<id>/investigations/<inv-id>/` (front matter as facts,
 then the body), and the index `technical/`, a row per published game. A published game without a
 technical.md gets its page from the data alone, which says it has no notes yet. A file's first `# `
 heading is its page's title. Relative links are rewritten: to a survey, a published game, its technical
@@ -440,11 +444,23 @@ page or investigation, an engine: that page; any other file of the repository: t
 on GitHub; a draft's bundle, a licensed directory, raw/, a path that doesn't exist: the text only.
 References become links too: `gamedb:<id>` to the game's technical page (an engine's page),
 `gamedb:<id>/<inv-id>` to the investigation's page with its title as the text, `gamedb:batch/<name>` to
-that batch's table (`#batch-<name>`) on the page's own game's technical page, or on the first published
+that batch's table (`#batch-<name>`) on the Test runs tab of the page's own game, or of the first published
 game with results in it (the engine's games first); a draft's id stays plain text. Every
 string of technical.json passes the public-safe scan first (tools/gamedb/evidence.py `leftovers`, and the
 patterns of tools/public-replace.local.txt), or the build stops. The app's catalog never holds it
 (pack-catalog.py packs catalog.build() only).
+
+### games/<id>/guides/
+
+*Now* (2026-10-28): optional. One markdown file per guide, `guides/<slug>.md` (lower case letters, digits,
+dashes), no front matter, its first line the `# ` title: how-tos, tips and recommended settings a player
+can follow, not the technical state (technical.md) or the game's description (index.md). The game's
+Guides tab (`games/<id>/guides/`) shows them in file name order, a section each (the slug is its anchor,
+the guide's own headings one level below its title); a game with none still has the tab, with a line
+saying so. `guides/game-data.md` is the data guide, `# Setting up the game data`: which editions work,
+where their files go, common problems; the Overview's game data box links to it. Links and `gamedb:`
+references are rewritten like technical.md's (tools/gamedb/technical.py, technical.json `guides[]`);
+`tools/gamedb/check.py` (`guide_errors()`) checks the names, the title line and that a guide has a body.
 
 ### games/<id>/todo.toml, upstream.md
 
