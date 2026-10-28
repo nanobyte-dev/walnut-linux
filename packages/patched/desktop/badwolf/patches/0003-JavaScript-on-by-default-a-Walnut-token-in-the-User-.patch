@@ -1,0 +1,66 @@
+Subject: JavaScript on by default, a Walnut token in the User-Agent, no
+ autoplay
+
+Walnut's browser is the console's modern browser, so pages' scripts run from the start (upstream
+starts with them off; the JS button still turns them off per tab). WebKit's own User-Agent gets
+"Walnut" at the end (webkit_settings_set_user_agent_with_application_details), so the GameDB site
+can tell a Walnut console and show its "Open in Walnut Games" link. Media never autoplay, with or
+without sound (website policies): video costs the PPE most of its time and starts only on a click.
+
+diff --git a/badwolf.c b/badwolf.c
+--- a/badwolf.c
++++ b/badwolf.c
+@@ -819,6 +819,8 @@ new_browser(const gchar *target_url, struct Client *old_browser)
+ 	if(g_strcmp0(accel, "always") == 0)
+ 		webkit_settings_set_hardware_acceleration_policy(settings,
+ 		                                                 WEBKIT_HARDWARE_ACCELERATION_POLICY_ALWAYS);
++	webkit_settings_set_user_agent_with_application_details(
++	    settings, BADWOLF_USER_AGENT_APPLICATION, NULL);
+ 	/* flawfinder: ignore. Only compared */
+ 	if(g_strcmp0(getenv("WALNUT_BROWSER_DEVTOOLS"), "1") == 0)
+ 		webkit_settings_set_enable_developer_extras(settings, TRUE);
+@@ -830,6 +832,10 @@ new_browser(const gchar *target_url, struct Client *old_browser)
+ 	gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(browser->auto_load_images),
+ 	                             webkit_settings_get_auto_load_images(settings));
+ 
++	/* no autoplay, with or without sound: a page's video starts when it's clicked */
++	WebKitWebsitePolicies *website_policies =
++	    webkit_website_policies_new_with_policies("autoplay", WEBKIT_AUTOPLAY_DENY, NULL);
++
+ 	browser->webView = WEBKIT_WEB_VIEW(g_object_new(WEBKIT_TYPE_WEB_VIEW,
+ 	                                                "web-context",
+ 	                                                web_context,
+@@ -839,7 +845,10 @@ new_browser(const gchar *target_url, struct Client *old_browser)
+ 	                                                settings,
+ 	                                                "user-content-manager",
+ 	                                                window->content_manager,
++	                                                "website-policies",
++	                                                website_policies,
+ 	                                                NULL));
++	g_object_unref(website_policies);
+ 
+ 	gtk_widget_set_name(GTK_WIDGET(browser->webView), "browser__webView");
+ 	g_object_set_data(G_OBJECT(browser->box), "badwolf-client", browser);
+diff --git a/config.h b/config.h
+--- a/config.h
++++ b/config.h
+@@ -74,7 +74,7 @@
+ 	"enable-dns-prefetching", FALSE, \
+ 	"enable-hyperlink-auditing", FALSE, \
+ 	"enable-java", FALSE, \
+-	"enable-javascript-markup", FALSE, \
++	"enable-javascript-markup", TRUE, \
+ 	"enable-javascript", TRUE, \
+ 	"enable-plugins", FALSE, \
+ 	"javascript-can-access-clipboard", FALSE, \
+@@ -105,6 +105,10 @@
+  */
+ #define BADWOLF_CACHE_MODEL WEBKIT_CACHE_MODEL_WEB_BROWSER
+ 
++/* BADWOLF_USER_AGENT_APPLICATION: added to WebKit's own User-Agent (as "<name>/<version>", or just
++ * the name), so that pages can tell a Walnut console: the GameDB site shows "Open in Walnut Games" */
++#define BADWOLF_USER_AGENT_APPLICATION "Walnut"
++
+ /* BADWOLF_STATUSLABEL_ELLIPSIZE: pango ellipsize mode of the status bar label text, can be one of:
+  * - PANGO_ELLIPSIZE_NONE
+  * - PANGO_ELLIPSIZE_START

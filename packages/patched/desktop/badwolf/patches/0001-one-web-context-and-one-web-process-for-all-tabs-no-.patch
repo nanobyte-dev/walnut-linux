@@ -1,0 +1,189 @@
+Subject: one web context and one web process for all tabs, no sandbox
+
+Upstream gives every new unrelated tab its own ephemeral web context: a network process and a web
+process per tab, and nothing kept between runs. On the PS3 (256 MB of XDR) each extra web process
+costs tens of MB, so every tab now shares one persistent context (cookies, local storage and the
+disk cache under the XDG data and cache directories; cookies in SQLite, third-party ones refused)
+and is created related to an open tab's view. WebKitGTK's GTK 3 API leaves process swapping on
+cross-site navigation off unless asked, and a related view takes its relative's process, so all
+tabs live in one WebKitWebProcess. The cost: one tab's crash (or Ctrl-Escape) takes the others'
+pages with it, and they reload.
+
+The bubblewrap sandbox is not turned on: it needs user, PID and network namespaces, which the
+PS3's kernel lacks, and WebKit has no fallback (the web process doesn't start). The tab's
+context label is hidden, since there is one session.
+
+diff --git a/badwolf.c b/badwolf.c
+--- a/badwolf.c
++++ b/badwolf.c
+@@ -26,7 +26,7 @@ const gchar *version  = VERSION;
+ struct Window *window = NULL;
+ 
+ static gchar *web_extensions_directory;
+-static uint64_t context_id_counter = 0;
++static WebKitWebContext *shared_web_context = NULL;
+ GtkTreeModel *bookmarks_completion_model;
+ 
+ bool opt_S = false, opt_i = false;
+@@ -197,6 +197,7 @@ badwolf_new_tab_box(const gchar *title, struct Client *browser)
+ 	gtk_widget_set_tooltip_text(tab_box, title);
+ 
+ 	gtk_widget_show_all(tab_box);
++	gtk_widget_set_visible(context_label_event_box, FALSE); /* one session for all tabs */
+ 	gtk_widget_set_visible(playing, webkit_web_view_is_playing_audio(browser->webView));
+ 	gtk_widget_set_events(label, GDK_BUTTON_RELEASE_MASK);
+ 	g_signal_connect(
+@@ -660,20 +661,87 @@ widgetCb_drop_button3_event(GtkWidget *UNUSED(widget), GdkEvent *event, gpointer
+ 	return ((GdkEventButton *)event)->button == 3;
+ }
+ 
++/* badwolf_web_context: the one web context all tabs use, made on first use: website data (cookies,
++ * local storage, the disk cache) kept under the XDG data and cache directories, no bubblewrap sandbox
++ * (it needs user namespaces, which the PS3's kernel doesn't have, and WebKit has no fallback) */
++static WebKitWebContext *
++badwolf_web_context(void)
++{
++	if(shared_web_context != NULL) return shared_web_context;
++
++	gchar *data_dir  = g_build_filename(g_get_user_data_dir(), "badwolf", "website-data", NULL);
++	gchar *cache_dir = g_build_filename(g_get_user_cache_dir(), "badwolf", NULL);
++	WebKitWebsiteDataManager *website_data_manager = webkit_website_data_manager_new(
++	    "base-data-directory", data_dir, "base-cache-directory", cache_dir, NULL);
++
++	shared_web_context = webkit_web_context_new_with_website_data_manager(website_data_manager);
++	g_object_unref(website_data_manager);
++
++	gchar *cookies = g_build_filename(data_dir, "cookies.sqlite", NULL);
++	WebKitCookieManager *cookie_manager = webkit_web_context_get_cookie_manager(shared_web_context);
++	webkit_cookie_manager_set_persistent_storage(
++	    cookie_manager, cookies, WEBKIT_COOKIE_PERSISTENT_STORAGE_SQLITE);
++	webkit_cookie_manager_set_accept_policy(cookie_manager, WEBKIT_COOKIE_POLICY_ACCEPT_NO_THIRD_PARTY);
++	g_free(cookies);
++	g_free(data_dir);
++	g_free(cache_dir);
++
++	webkit_web_context_set_web_extensions_directory(shared_web_context, web_extensions_directory);
++
++	g_signal_connect(G_OBJECT(shared_web_context),
++	                 "download-started",
++	                 G_CALLBACK(web_contextCb_download_started),
++	                 NULL);
++
++	/* flawfinder: ignore. Consider that g_strsplit is safe enough */
++	char *badwolf_l10n = getenv("BADWOLF_L10N");
++
++	if(badwolf_l10n != NULL)
++	{
++		gchar **languages = g_strsplit(badwolf_l10n, ":", -1);
++		webkit_web_context_set_spell_checking_languages(shared_web_context,
++		                                                (const gchar *const *)languages);
++		g_strfreev(languages);
++
++		webkit_web_context_set_spell_checking_enabled(shared_web_context, TRUE);
++	}
++
++	webkit_web_context_register_uri_scheme(
++	    shared_web_context, "man", man_uri_scheme_request_cb, NULL, NULL);
++
++	return shared_web_context;
++}
++
++/* badwolf_any_web_view: the web view of an open tab, if there is one */
++static WebKitWebView *
++badwolf_any_web_view(void)
++{
++	GtkNotebook *notebook = GTK_NOTEBOOK(window->notebook);
++
++	for(gint i = 0; i < gtk_notebook_get_n_pages(notebook); i++)
++	{
++		struct Client *client =
++		    g_object_get_data(G_OBJECT(gtk_notebook_get_nth_page(notebook, i)), "badwolf-client");
++		if(client != NULL && client->webView != NULL) return client->webView;
++	}
++
++	return NULL;
++}
++
+ struct Client *
+ new_browser(const gchar *target_url, struct Client *old_browser)
+ {
+ 	struct Client *browser = malloc(sizeof(struct Client));
+ 	target_url             = badwolf_ensure_uri_scheme(target_url, (old_browser == NULL));
+-	char *badwolf_l10n     = NULL;
+ 
+ 	WebKitWebContext *web_context = NULL;
++	WebKitWebView *related_view   = old_browser == NULL ? NULL : old_browser->webView;
+ 
+ 	if(browser == NULL) return NULL;
+ 
+ 	assert(window != NULL);
+ 
+-	browser->context_id = old_browser == NULL ? context_id_counter++ : old_browser->context_id;
++	browser->context_id = 0; /* one session for all tabs */
+ 	browser->box        = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+ 	gtk_widget_set_name(browser->box, "browser__box");
+ 
+@@ -713,37 +781,11 @@ new_browser(const gchar *target_url, struct Client *old_browser)
+ 	browser->statuslabel = gtk_label_new(NULL);
+ 	gtk_widget_set_name(browser->statuslabel, "browser__statuslabel");
+ 
+-	if(old_browser == NULL)
+-	{
+-		WebKitWebsiteDataManager *website_data_manager = webkit_website_data_manager_new_ephemeral();
+-		webkit_website_data_manager_set_itp_enabled(website_data_manager, TRUE);
+-
+-		web_context = webkit_web_context_new_with_website_data_manager(website_data_manager);
+-		g_object_unref(website_data_manager);
+-		webkit_web_context_set_sandbox_enabled(web_context, TRUE);
+-		webkit_web_context_set_web_extensions_directory(web_context, web_extensions_directory);
+-
+-		g_signal_connect(G_OBJECT(web_context),
+-		                 "download-started",
+-		                 G_CALLBACK(web_contextCb_download_started),
+-		                 browser);
+-
+-		/* flawfinder: ignore. Consider that g_strsplit is safe enough */
+-		badwolf_l10n = getenv("BADWOLF_L10N");
+-
+-		if(badwolf_l10n != NULL)
+-		{
+-			gchar **languages = g_strsplit(badwolf_l10n, ":", -1);
+-			webkit_web_context_set_spell_checking_languages(web_context, (const gchar *const *)languages);
+-			g_strfreev(languages);
+-
+-			webkit_web_context_set_spell_checking_enabled(web_context, TRUE);
+-		}
+-
+-		webkit_web_context_register_uri_scheme(
+-		    web_context, "man", man_uri_scheme_request_cb, NULL, NULL);
+-	}
+-
++	/* One web context for every tab (one network process, one cookie jar), and every tab related to
++	 * an open one, so they all share one web process: WebKitGTK's GTK 3 API has process swapping on
++	 * cross-site navigation off by default, and a related view takes its relative's process. */
++	if(old_browser == NULL) related_view = badwolf_any_web_view();
++	if(old_browser == NULL && related_view == NULL) web_context = badwolf_web_context();
+ 	WebKitSettings *settings = webkit_settings_new_with_settings(BADWOLF_WEBKIT_SETTINGS);
+ 	if(opt_S) webkit_settings_set_enable_javascript_markup(settings, true);
+ 	if(opt_i) webkit_settings_set_auto_load_images(settings, false);
+@@ -757,7 +799,7 @@ new_browser(const gchar *target_url, struct Client *old_browser)
+ 	                                                "web-context",
+ 	                                                web_context,
+ 	                                                "related-view",
+-	                                                old_browser == NULL ? NULL : old_browser->webView,
++	                                                related_view,
+ 	                                                "settings",
+ 	                                                settings,
+ 	                                                "user-content-manager",
+@@ -765,10 +807,7 @@ new_browser(const gchar *target_url, struct Client *old_browser)
+ 	                                                NULL));
+ 
+ 	gtk_widget_set_name(GTK_WIDGET(browser->webView), "browser__webView");
+-	if(old_browser == NULL)
+-	{
+-		g_object_unref(web_context);
+-	}
++	g_object_set_data(G_OBJECT(browser->box), "badwolf-client", browser);
+ 	g_object_unref(settings);
+ 
+ 	gtk_box_pack_start(

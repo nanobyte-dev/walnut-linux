@@ -1,0 +1,213 @@
+Subject: search from the location bar, a start page, Reload and Home buttons,
+ maximized
+
+What a desktop browser is expected to have. Words typed in the location bar (anything with a space,
+or one word without a dot, slash or colon, localhost aside) become a search: BADWOLF_SEARCH_URI,
+DuckDuckGo's HTML results, which need no scripts. The start page is BADWOLF_HOME_PAGE
+(<datadir>/start.html, which the package ships; WALNUT_BROWSER_HOME=<URI> overrides it, about:blank
+when neither is there): opened at start without arguments, in a new tab and by the new Home button
+(Alt+Home after the next patch), with the location bar left empty for typing. A Reload button
+next to back and forward. The window starts maximized: on a TV the browser is the whole screen.
+uri_test covers the search cases.
+
+diff --git a/badwolf.c b/badwolf.c
+--- a/badwolf.c
++++ b/badwolf.c
+@@ -135,7 +135,8 @@ WebViewCb_notify__uri(WebKitWebView *UNUSED(webView), GParamSpec *UNUSED(pspec),
+ 		return TRUE;
+ 	}
+ 
+-	gtk_entry_set_text(GTK_ENTRY(browser->location), location_uri);
++	gtk_entry_set_text(GTK_ENTRY(browser->location),
++	                   g_strcmp0(location_uri, badwolf_home_uri()) == 0 ? "" : location_uri);
+ 
+ 	if(webkit_uri_for_display(location_uri) != location_uri)
+ 		gtk_widget_set_tooltip_text(browser->location, webkit_uri_for_display(location_uri));
+@@ -661,6 +662,42 @@ widgetCb_drop_button3_event(GtkWidget *UNUSED(widget), GdkEvent *event, gpointer
+ 	return ((GdkEventButton *)event)->button == 3;
+ }
+ 
++/* badwolf_home_uri: the start page's URI (WALNUT_BROWSER_HOME, else BADWOLF_HOME_PAGE if it's there) */
++const gchar *
++badwolf_home_uri(void)
++{
++	static gchar *home = NULL;
++
++	if(home != NULL) return home;
++
++	/* flawfinder: ignore. A URI, only copied */
++	const char *env = getenv("WALNUT_BROWSER_HOME");
++	if(env != NULL && env[0] != '\0')
++		home = g_strdup(env);
++	/* flawfinder: ignore, just a presence check */
++	else if(access(BADWOLF_HOME_PAGE, R_OK) == 0)
++		home = g_filename_to_uri(BADWOLF_HOME_PAGE, NULL, NULL);
++	if(home == NULL) home = g_strdup("about:blank");
++
++	return home;
++}
++
++static void
++reloadCb_clicked(GtkButton *UNUSED(reload), gpointer user_data)
++{
++	struct Client *browser = (struct Client *)user_data;
++
++	webkit_web_view_reload(browser->webView);
++}
++
++static void
++homeCb_clicked(GtkButton *UNUSED(home), gpointer user_data)
++{
++	struct Client *browser = (struct Client *)user_data;
++
++	webkit_web_view_load_uri(browser->webView, badwolf_home_uri());
++}
++
+ /* badwolf_web_context: the one web context all tabs use, made on first use: website data (cookies,
+  * local storage, the disk cache) kept under the XDG data and cache directories, no bubblewrap sandbox
+  * (it needs user namespaces, which the PS3's kernel doesn't have, and WebKit has no fallback) */
+@@ -756,7 +793,8 @@ struct Client *
+ new_browser(const gchar *target_url, struct Client *old_browser)
+ {
+ 	struct Client *browser = malloc(sizeof(struct Client));
+-	target_url             = badwolf_ensure_uri_scheme(target_url, (old_browser == NULL));
++	if(target_url == NULL && old_browser == NULL) target_url = badwolf_home_uri();
++	target_url = badwolf_ensure_uri_scheme(target_url, (old_browser == NULL));
+ 
+ 	WebKitWebContext *web_context = NULL;
+ 	WebKitWebView *related_view   = old_browser == NULL ? NULL : old_browser->webView;
+@@ -779,6 +817,14 @@ new_browser(const gchar *target_url, struct Client *old_browser)
+ 	browser->forward = gtk_button_new_from_icon_name("go-next-symbolic", GTK_ICON_SIZE_SMALL_TOOLBAR);
+ 	gtk_widget_set_name(browser->forward, "browser__forward");
+ 
++	GtkWidget *reload = gtk_button_new_from_icon_name("view-refresh-symbolic", GTK_ICON_SIZE_SMALL_TOOLBAR);
++	gtk_widget_set_name(reload, "browser__reload");
++	gtk_widget_set_tooltip_text(reload, _("Reload (F5)"));
++
++	GtkWidget *home = gtk_button_new_from_icon_name("go-home-symbolic", GTK_ICON_SIZE_SMALL_TOOLBAR);
++	gtk_widget_set_name(home, "browser__home");
++	gtk_widget_set_tooltip_text(home, _("Start page (Alt+Home)"));
++
+ 	GtkWidget *toolbar_separator = gtk_separator_new(GTK_ORIENTATION_VERTICAL);
+ 
+ 	browser->javascript = gtk_toggle_button_new_with_mnemonic(_("_JS"));
+@@ -861,6 +907,8 @@ new_browser(const gchar *target_url, struct Client *old_browser)
+ 	                   FALSE,
+ 	                   FALSE,
+ 	                   BADWOLF_TOOLBAR_PADDING);
++	gtk_box_pack_start(GTK_BOX(browser->toolbar), reload, FALSE, FALSE, BADWOLF_TOOLBAR_PADDING);
++	gtk_box_pack_start(GTK_BOX(browser->toolbar), home, FALSE, FALSE, BADWOLF_TOOLBAR_PADDING);
+ 	gtk_box_pack_start(GTK_BOX(browser->toolbar),
+ 	                   toolbar_separator,
+ 	                   FALSE,
+@@ -919,7 +967,10 @@ new_browser(const gchar *target_url, struct Client *old_browser)
+ 		gtk_entry_set_completion(GTK_ENTRY(browser->location), location_completion);
+ 	}
+ 
+-	gtk_entry_set_text(GTK_ENTRY(browser->location), target_url);
++	/* the start page's location is left empty, ready for typing */
++	gtk_entry_set_text(GTK_ENTRY(browser->location),
++	                   g_strcmp0(target_url, badwolf_home_uri()) == 0 ? "" : target_url);
++	gtk_entry_set_placeholder_text(GTK_ENTRY(browser->location), _("Search or enter an address"));
+ 	gtk_entry_set_input_purpose(GTK_ENTRY(browser->location), GTK_INPUT_PURPOSE_URL);
+ 
+ 	gtk_entry_set_placeholder_text(GTK_ENTRY(browser->search), _("search in current page"));
+@@ -937,6 +988,13 @@ new_browser(const gchar *target_url, struct Client *old_browser)
+ 	g_signal_connect(
+ 	    browser->forward, "button-release-event", G_CALLBACK(widgetCb_drop_button3_event), NULL);
+ 
++	g_signal_connect(reload, "clicked", G_CALLBACK(reloadCb_clicked), browser);
++	g_signal_connect(home, "clicked", G_CALLBACK(homeCb_clicked), browser);
++	g_signal_connect(reload, "button-press-event", G_CALLBACK(widgetCb_drop_button3_event), NULL);
++	g_signal_connect(reload, "button-release-event", G_CALLBACK(widgetCb_drop_button3_event), NULL);
++	g_signal_connect(home, "button-press-event", G_CALLBACK(widgetCb_drop_button3_event), NULL);
++	g_signal_connect(home, "button-release-event", G_CALLBACK(widgetCb_drop_button3_event), NULL);
++
+ 	/* signals for javascript toggle widget */
+ 	g_signal_connect(browser->javascript, "toggled", G_CALLBACK(javascriptCb_toggled), browser);
+ 	/* prevents GtkNotebook from spawning it's context-menu */
+@@ -1287,6 +1345,8 @@ main(int argc, char *argv[])
+ 	g_signal_connect(window->notebook, "switch-page", G_CALLBACK(notebookCb_switch__page), NULL);
+ 
+ 	gtk_widget_show(window->new_tab);
++	/* a console's browser: the whole screen, the unmaximized size stays BADWOLF_DEFAULT_* */
++	gtk_window_maximize(GTK_WINDOW(window->main_window));
+ 	gtk_widget_show_all(window->main_window);
+ 
+ 	if(argc == 0)
+diff --git a/badwolf.h b/badwolf.h
+--- a/badwolf.h
++++ b/badwolf.h
+@@ -55,6 +55,7 @@ struct Client
+ 
+ GtkWidget *badwolf_new_tab_box(const gchar *title, struct Client *browser);
+ void webView_tab_label_change(struct Client *browser, const gchar *title);
++const gchar *badwolf_home_uri(void);
+ struct Client *new_browser(const gchar *target_url, struct Client *old_browser);
+ int badwolf_new_tab(GtkNotebook *notebook, struct Client *browser, bool auto_switch);
+ gint badwolf_get_tab_position(GtkContainer *notebook, GtkWidget *child);
+diff --git a/config.h b/config.h
+--- a/config.h
++++ b/config.h
+@@ -138,4 +138,12 @@
+ // Default one made for mandoc
+ #define BADWOLF_MAN_HTML_CMD "man", "-Thtml", "-Oman=man:%N.%S", "-Otoc"
+ 
++/* BADWOLF_SEARCH_URI: where words typed in the location bar go (the query appended, escaped).
++ * DuckDuckGo's HTML version: results without scripts, light on a slow CPU */
++#define BADWOLF_SEARCH_URI "https://html.duckduckgo.com/html/?q="
++
++/* BADWOLF_HOME_PAGE: the start page, opened at start and in a new tab when the file exists
++ * (WALNUT_BROWSER_HOME=<URI> overrides it); about:blank otherwise */
++#define BADWOLF_HOME_PAGE DATADIR "/start.html"
++
+ #endif /* CONFIG_H_INCLUDED */
+diff --git a/uri.c b/uri.c
+--- a/uri.c
++++ b/uri.c
+@@ -4,8 +4,11 @@
+ 
+ #include "uri.h"
+ 
++#include "config.h"
++
+ #include <glib.h>   /* g_strcmp0(), g_uri_parse_scheme(), g_strdup_printf */
+ #include <stdlib.h> /* realpath(), free() */
++#include <string.h> /* strpbrk() */
+ #include <unistd.h> /* access() */
+ 
+ const gchar *
+@@ -34,5 +37,16 @@ badwolf_ensure_uri_scheme(const gchar *text, gboolean try_file)
+ 		}
+ 	}
+ 
++	/* words, or one word with no dot, slash or colon in it (but localhost): a web search */
++	if(strpbrk(text, " \t") != NULL || (strpbrk(text, "./:") == NULL && g_strcmp0(text, "localhost") != 0))
++	{
++		gchar *words = g_strstrip(g_strdup(text));
++		gchar *query = g_uri_escape_string(words, NULL, FALSE);
++		gchar *uri   = g_strconcat(BADWOLF_SEARCH_URI, query, NULL);
++		g_free(query);
++		g_free(words);
++		return uri;
++	}
++
+ 	return g_strdup_printf("http://%s", text);
+ }
+diff --git a/uri_test.c b/uri_test.c
+--- a/uri_test.c
++++ b/uri_test.c
+@@ -38,7 +38,12 @@ badwolf_ensure_uri_scheme_test(void)
+ 	    {"http://example.org", "example.org", TRUE},
+ 	    {"http://", "http://", FALSE},
+ 	    {"http://", "http://", TRUE},
+-	    {"http://badwolf.c", "badwolf.c", FALSE} //
++	    {"http://badwolf.c", "badwolf.c", FALSE},
++	    {"http://localhost", "localhost", FALSE},
++	    {"https://html.duckduckgo.com/html/?q=walnut", "walnut", FALSE},
++	    {"https://html.duckduckgo.com/html/?q=walnut%20ps3", "walnut ps3", FALSE},
++	    {"https://html.duckduckgo.com/html/?q=walnut%20ps3", " walnut ps3 ", TRUE},
++	    {"https://html.duckduckgo.com/html/?q=a%2Bb%3Fc", "a+b?c", FALSE} //
+ 	};
+ 
+ 	for(size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)

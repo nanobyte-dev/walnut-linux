@@ -1,0 +1,124 @@
+Subject: Walnut memory defaults: no hardware acceleration, no page cache,
+ WebGL or WebRTC
+
+For the PS3's 256 MB of RAM. Hardware acceleration policy NEVER keeps GL out of the web process: on
+a PC (WebKitGTK 2.54, the GameDB home page) it took the web process from 218 to 90 MB PSS, nearly
+all of a tuned shell's saving; Cairo on big-endian rasterises on the CPU anyway, and the policy
+makes sure no GL context is made. WEBKIT_DISABLE_DMABUF_RENDERER=1 (unless set already) keeps GBM
+and EGL out of the UI process (24 MB on the PC). No back/forward page cache (WebKit sizes it at 0
+on a machine this small anyway), no WebGL, WebRTC or media stream, no smooth scrolling (one repaint
+per scroll step on a slow CPU), no developer extras unless WALNUT_BROWSER_DEVTOOLS=1.
+
+Run-time overrides for measuring: WALNUT_BROWSER_ACCEL=never|ondemand|always,
+WALNUT_BROWSER_CACHE=browser|viewer (the cache model; BADWOLF_CACHE_MODEL in config.h is the
+default) and WALNUT_BROWSER_MEMORY_LIMIT=<MB> (WebKit's memory pressure limit, for the network
+and the web processes; WebKit's default is the RAM size).
+
+diff --git a/badwolf.c b/badwolf.c
+--- a/badwolf.c
++++ b/badwolf.c
+@@ -674,8 +674,32 @@ badwolf_web_context(void)
+ 	WebKitWebsiteDataManager *website_data_manager = webkit_website_data_manager_new(
+ 	    "base-data-directory", data_dir, "base-cache-directory", cache_dir, NULL);
+ 
+-	shared_web_context = webkit_web_context_new_with_website_data_manager(website_data_manager);
++	/* flawfinder: ignore. Only compared and parsed as a number */
++	const char *limit = getenv("WALNUT_BROWSER_MEMORY_LIMIT");
++	WebKitMemoryPressureSettings *memory_pressure = NULL;
++	if(limit != NULL && atoi(limit) > 0)
++	{
++		memory_pressure = webkit_memory_pressure_settings_new();
++		webkit_memory_pressure_settings_set_memory_limit(memory_pressure, (guint)atoi(limit));
++		/* the network process's, then the web processes' through the context */
++		webkit_website_data_manager_set_memory_pressure_settings(memory_pressure);
++	}
++
++	shared_web_context = WEBKIT_WEB_CONTEXT(g_object_new(WEBKIT_TYPE_WEB_CONTEXT,
++	                                                     "website-data-manager",
++	                                                     website_data_manager,
++	                                                     "memory-pressure-settings",
++	                                                     memory_pressure,
++	                                                     NULL));
+ 	g_object_unref(website_data_manager);
++	if(memory_pressure != NULL) webkit_memory_pressure_settings_free(memory_pressure);
++
++	/* flawfinder: ignore. Only compared */
++	const char *cache = getenv("WALNUT_BROWSER_CACHE");
++	WebKitCacheModel cache_model = BADWOLF_CACHE_MODEL;
++	if(g_strcmp0(cache, "browser") == 0) cache_model = WEBKIT_CACHE_MODEL_WEB_BROWSER;
++	if(g_strcmp0(cache, "viewer") == 0) cache_model = WEBKIT_CACHE_MODEL_DOCUMENT_VIEWER;
++	webkit_web_context_set_cache_model(shared_web_context, cache_model);
+ 
+ 	gchar *cookies = g_build_filename(data_dir, "cookies.sqlite", NULL);
+ 	WebKitCookieManager *cookie_manager = webkit_web_context_get_cookie_manager(shared_web_context);
+@@ -787,6 +811,17 @@ new_browser(const gchar *target_url, struct Client *old_browser)
+ 	if(old_browser == NULL) related_view = badwolf_any_web_view();
+ 	if(old_browser == NULL && related_view == NULL) web_context = badwolf_web_context();
+ 	WebKitSettings *settings = webkit_settings_new_with_settings(BADWOLF_WEBKIT_SETTINGS);
++	/* flawfinder: ignore. Only compared */
++	const char *accel = getenv("WALNUT_BROWSER_ACCEL");
++	if(g_strcmp0(accel, "ondemand") == 0)
++		webkit_settings_set_hardware_acceleration_policy(settings,
++		                                                 WEBKIT_HARDWARE_ACCELERATION_POLICY_ON_DEMAND);
++	if(g_strcmp0(accel, "always") == 0)
++		webkit_settings_set_hardware_acceleration_policy(settings,
++		                                                 WEBKIT_HARDWARE_ACCELERATION_POLICY_ALWAYS);
++	/* flawfinder: ignore. Only compared */
++	if(g_strcmp0(getenv("WALNUT_BROWSER_DEVTOOLS"), "1") == 0)
++		webkit_settings_set_enable_developer_extras(settings, TRUE);
+ 	if(opt_S) webkit_settings_set_enable_javascript_markup(settings, true);
+ 	if(opt_i) webkit_settings_set_auto_load_images(settings, false);
+ 
+@@ -1119,6 +1154,10 @@ main(int argc, char *argv[])
+ 	g_application_register(application, NULL, NULL);
+ 	//g_application_activate(application);
+ 
++	/* WebKit's DMA-BUF renderer is for accelerated compositing, which hardware acceleration NEVER
++	 * doesn't use; off, the UI process maps no GBM/EGL (24 MB less on a PC) */
++	g_setenv("WEBKIT_DISABLE_DMABUF_RENDERER", "1", FALSE);
++
+ 	gtk_init(&argc, &argv);
+ 
+ 	int c = EOF;
+diff --git a/config.h b/config.h
+--- a/config.h
++++ b/config.h
+@@ -70,7 +70,7 @@
+ #define BADWOLF_WEBKIT_SETTINGS \
+ 	"default-charset", "utf-8", \
+ 	"enable-caret-browsing", FALSE, \
+-	"enable-developer-extras", TRUE, \
++	"enable-developer-extras", FALSE, \
+ 	"enable-dns-prefetching", FALSE, \
+ 	"enable-hyperlink-auditing", FALSE, \
+ 	"enable-java", FALSE, \
+@@ -82,9 +82,29 @@
+ 	"media-playback-requires-user-gesture", TRUE, \
+ 	"minimum-font-size", 9, \
+ 	"allow-top-navigation-to-data-urls", FALSE, \
++	"hardware-acceleration-policy", WEBKIT_HARDWARE_ACCELERATION_POLICY_NEVER, \
++	"enable-page-cache", FALSE, \
++	"enable-webgl", FALSE, \
++	"enable-smooth-scrolling", FALSE, \
++	"enable-media-stream", FALSE, \
++	"enable-webrtc", FALSE, \
+ 	NULL
+ // clang-format on
+ 
++/* Walnut (256 MB of RAM, an in-order CPU, a GL 2.1 GPU): the settings above leave out what costs
++ * memory or CPU time on every page. Hardware acceleration NEVER keeps GL out of the web process (on
++ * a PC it cut that process from 218 to 90 MB); no back/forward page cache (going back reloads, from
++ * the disk cache); no WebGL, WebRTC or camera; no smooth scrolling (one repaint per step); the
++ * inspector only with WALNUT_BROWSER_DEVTOOLS=1.
++ *
++ * BADWOLF_CACHE_MODEL: WEBKIT_CACHE_MODEL_WEB_BROWSER (memory and disk caches) or
++ * WEBKIT_CACHE_MODEL_DOCUMENT_VIEWER (no disk cache, no cached processes).
++ * Run-time overrides, for measuring: WALNUT_BROWSER_ACCEL=never|ondemand|always,
++ * WALNUT_BROWSER_CACHE=browser|viewer, WALNUT_BROWSER_MEMORY_LIMIT=<MB> (WebKit's memory pressure
++ * limit; the default is the RAM size), WALNUT_BROWSER_DEVTOOLS=1.
++ */
++#define BADWOLF_CACHE_MODEL WEBKIT_CACHE_MODEL_WEB_BROWSER
++
+ /* BADWOLF_STATUSLABEL_ELLIPSIZE: pango ellipsize mode of the status bar label text, can be one of:
+  * - PANGO_ELLIPSIZE_NONE
+  * - PANGO_ELLIPSIZE_START

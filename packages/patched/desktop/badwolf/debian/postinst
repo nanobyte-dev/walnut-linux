@@ -1,0 +1,8 @@
+#!/bin/sh
+set -e
+# The desktop's x-www-browser (ps3-desktop's mimeapps.list makes it the default for web links too)
+if [ "$1" = configure ]; then
+	update-alternatives --install /usr/bin/x-www-browser x-www-browser /usr/bin/badwolf 60 \
+		--slave /usr/share/man/man1/x-www-browser.1.gz x-www-browser.1.gz /usr/share/man/man1/badwolf.1.gz
+fi
+#DEBHELPER#

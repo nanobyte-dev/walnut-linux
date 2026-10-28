@@ -1,0 +1,21 @@
+Source: badwolf
+Section: web
+Priority: optional
+Maintainer: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Build-Depends: debhelper-compat (= 13), pkgconf, ninja-build, libwebkit2gtk-4.1-dev, libgtk-3-dev,
+ libxml2-dev
+Standards-Version: 4.7.2
+Rules-Requires-Root: no
+Homepage: https://hacktivis.me/projects/badwolf
+
+Package: badwolf
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}, fonts-dejavu-core, fonts-liberation
+Description: Walnut's web browser: Badwolf on WebKitGTK, tuned for 256 MB
+ Badwolf 1.4, a small GTK 3 browser on WebKitGTK (Debian's, the 4.1 API): tabs, a location bar
+ that also searches (DuckDuckGo's HTML results), back, forward, reload, a start page, downloads,
+ find in page and the usual shortcuts. Patched for the PS3: every tab shares one web process and
+ one network process, hardware acceleration is off (GL stays out of the web process), no
+ back/forward page cache, WebGL or WebRTC, media never autoplay, JavaScript is on, and the
+ User-Agent says "Walnut" so the Walnut Games site offers "Open in Walnut Games". Links in other
+ schemes (walnut://, mailto:) go to the desktop's handler. Registered as x-www-browser.

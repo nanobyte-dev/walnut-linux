@@ -1,0 +1,35 @@
+#!/usr/bin/make -f
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+export DEB_CFLAGS_MAINT_APPEND = -mcpu=cell -mtune=cell
+P := debian/badwolf
+
+%:
+	dh $@
+
+# upstream's own configure (writes config.ninja and configure.h) and ninja; only the program and the
+# tests: no translations, icons are the released PNGs, the linters off
+override_dh_auto_configure:
+	PREFIX=/usr WITH_WEBKITGTK=4.1 WITH_URI_PARSER=guri CC="$(CC)" CFLAGS="$(CFLAGS) $(CPPFLAGS)" \
+		LDFLAGS="$(LDFLAGS)" ED=false MANDOC=true XGETTEXT=true MSGMERGE=true SHELLCHECK=true \
+		FLAWFINDER=true REUSE=true ./configure
+
+override_dh_auto_build:
+	ninja -v badwolf uri_test fmt_test bookmarks_test
+
+override_dh_auto_test:
+ifeq (,$(filter nocheck,$(DEB_BUILD_OPTIONS)))
+	./uri_test && ./fmt_test && ./bookmarks_test
+endif
+
+# the start page (BADWOLF_HOME_PAGE) and upstream's interface.css (bold label on the JS and IMG
+# toggles when on) in /usr/share/badwolf, upstream's DATADIR
+override_dh_auto_install:
+	install -D -m 755 badwolf $(P)/usr/bin/badwolf
+	install -D -m 644 badwolf.1 $(P)/usr/share/man/man1/badwolf.1
+	install -D -m 644 badwolf.desktop $(P)/usr/share/applications/badwolf.desktop
+	install -D -m 644 interface.css $(P)/usr/share/badwolf/interface.css
+	install -D -m 644 debian/start.html $(P)/usr/share/badwolf/start.html
+	for d in icons/hicolor/*/apps; do install -D -m 644 -t $(P)/usr/share/$$d $$d/badwolf.*; done
+
+override_dh_auto_clean:
+	rm -f badwolf *.o uri_test fmt_test bookmarks_test config.ninja configure.h install.sh .ninja_log .ninja_deps

@@ -13,6 +13,7 @@ on:
   workflow_run:
     workflows:
       - "pkg: armagetronad"
+      - "pkg: badwolf"
       - "pkg: bomberclone"
       - "pkg: boost-context"
       - "pkg: classicube"

@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<!-- Walnut's start page for Badwolf (BADWOLF_HOME_PAGE, /usr/share/badwolf/start.html): local, no
+     script, opened at start, in a new tab and by Home. The search goes where the location bar's does. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Start</title>
+<style>
+  body { margin: 0; background: #16324f; color: #e8eef4; font: 18px/1.5 "DejaVu Sans", sans-serif; }
+  main { max-width: 760px; margin: 60px auto; padding: 0 24px; }
+  h1 { font-size: 30px; font-weight: 600; margin: 0 0 24px; }
+  form { display: flex; margin: 0 0 36px; }
+  input[type=search] { flex: 1; font-size: 20px; padding: 10px 14px; border: 0; border-radius: 6px 0 0 6px; }
+  button { font-size: 20px; padding: 10px 18px; border: 0; border-radius: 0 6px 6px 0; background: #e0a84b; color: #16324f; font-weight: 700; }
+  ul { list-style: none; padding: 0; margin: 0 0 36px; display: flex; flex-wrap: wrap; gap: 12px; }
+  li a { display: block; padding: 14px 20px; background: #234a70; color: #fff; text-decoration: none; border-radius: 6px; }
+  li a:hover, li a:focus { background: #2f5f8f; }
+  .keys { font-size: 15px; color: #a9bccf; }
+  kbd { font: inherit; background: #234a70; padding: 1px 6px; border-radius: 4px; color: #e8eef4; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Walnut</h1>
+  <form action="https://html.duckduckgo.com/html/" method="get">
+    <input type="search" name="q" placeholder="Search the web" aria-label="Search the web" autofocus>
+    <button type="submit">Search</button>
+  </form>
+  <ul>
+    <li><a href="https://walnut.nanobyte.dev/gamedb/">Walnut Games catalog</a></li>
+    <li><a href="https://walnut.nanobyte.dev/">Walnut</a></li>
+    <li><a href="https://en.wikipedia.org/">Wikipedia</a></li>
+    <li><a href="https://html.duckduckgo.com/html/">DuckDuckGo</a></li>
+    <li><a href="https://www.openstreetmap.org/">OpenStreetMap</a></li>
+  </ul>
+  <p class="keys"><kbd>Ctrl+L</kbd> address bar &nbsp; <kbd>Ctrl+T</kbd> new tab &nbsp; <kbd>Ctrl+W</kbd> close tab
+    &nbsp; <kbd>Ctrl+Tab</kbd> next tab &nbsp; <kbd>Alt+Left</kbd> back &nbsp; <kbd>F5</kbd> reload
+    &nbsp; <kbd>Ctrl+F</kbd> find &nbsp; <kbd>Ctrl++</kbd> zoom. The browser pauses while a game runs.</p>
+</main>
+</body>
+</html>

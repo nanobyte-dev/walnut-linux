@@ -1,0 +1,133 @@
+Subject: the common browser shortcuts: Ctrl-w, Alt-Left/Right, Ctrl-Tab, zoom
+ keys, F6
+
+Someone at a Walnut console has used Firefox or Chrome, not upstream's own scheme: Ctrl-w closes the
+tab (with Ctrl-F4), Alt-Left and Alt-Right go back and forward (upstream: previous and next tab;
+Ctrl-[ and Ctrl-] still work), Ctrl-Tab and Ctrl-Shift-Tab change tabs (with Ctrl-PageUp/Down and
+Alt-n), Alt-d and F6 go to the location bar (upstream's Alt-d closed the tab, a surprise to anyone
+used to it focusing the address), Alt-Home opens the start page, Ctrl-+ and Ctrl-- zoom. The man
+page says so.
+
+diff --git a/badwolf.1 b/badwolf.1
+--- a/badwolf.1
++++ b/badwolf.1
+@@ -44,12 +44,16 @@ Resets webpage zoom to 100%.
+ Opens the selected link in a new tab. (Note: JS still overrides the event)
+ .It any Ctrl-t
+ Creates a new tab (in a new session, similar as pressing the button)
+-.It browser Ctrl-F4, browser Alt-d
++.It browser Ctrl-w, browser Ctrl-F4
+ Closes the current tab
+ .It browser Ctrl-f
+ Focuses on the search entry
+-.It browser Ctrl-l
++.It browser Ctrl-l, browser Alt-d, browser F6
+ Focuses on the location(URL) entry
++.It browser Alt-Home
++Opens the start page
++.It browser Ctrl-+ / Ctrl--
++Zooms the webpage in/out.
+ .It browser Ctrl-Shift-r / Ctrl-r, browser F5
+ Reloads the content in the current tab (with/without clearing cache)
+ .It browser Escape
+@@ -60,12 +64,12 @@ Terminates the web process
+ Toggles caret browsing.
+ .It browser F12
+ Opens the web inspector.
+-.It browser Ctrl-[ / Ctrl-]
++.It browser Ctrl-[ / Ctrl-], browser Alt-Left / Alt-Right
+ Go back/forward in current tab's history
+ .It browser Ctrl-p
+ Print the current page. (spawns a dialog)
+-.It any Alt-Left / Alt-Right
+-Go to the previous/next tab
++.It any Ctrl-Tab / Ctrl-Shift-Tab
++Go to the next/previous tab
+ .It any F1
+ Shows the about dialog
+ .It any Alt-n
+diff --git a/keybindings.c b/keybindings.c
+--- a/keybindings.c
++++ b/keybindings.c
+@@ -86,8 +86,20 @@ commonCb_key_press_event(GdkEvent *event, struct Client *browser)
+ 				webkit_web_view_terminate_web_process(browser->webView);
+ 				return TRUE;
+ 			case GDK_KEY_F4:
++			case GDK_KEY_w:
+ 				webkit_web_view_try_close(browser->webView);
+ 				return TRUE;
++			case GDK_KEY_plus:
++			case GDK_KEY_equal:
++			case GDK_KEY_KP_Add:
++				webkit_web_view_set_zoom_level(
++				    browser->webView, webkit_web_view_get_zoom_level(browser->webView) + 0.1);
++				return TRUE;
++			case GDK_KEY_minus:
++			case GDK_KEY_KP_Subtract:
++				webkit_web_view_set_zoom_level(
++				    browser->webView, webkit_web_view_get_zoom_level(browser->webView) - 0.1);
++				return TRUE;
+ 			case GDK_KEY_r:
+ 				if(((GdkEventKey *)event)->state & GDK_SHIFT_MASK)
+ 					webkit_web_view_reload_bypass_cache(browser->webView);
+@@ -121,9 +133,11 @@ commonCb_key_press_event(GdkEvent *event, struct Client *browser)
+ 			switch(((GdkEventKey *)event)->keyval)
+ 			{
+ 			case GDK_KEY_Page_Down:
++			case GDK_KEY_Tab:
+ 				gtk_notebook_next_page(notebook);
+ 				return TRUE;
+ 			case GDK_KEY_Page_Up:
++			case GDK_KEY_ISO_Left_Tab:
+ 				gtk_notebook_prev_page(notebook);
+ 				return TRUE;
+ 			case GDK_KEY_t:
+@@ -135,20 +149,25 @@ commonCb_key_press_event(GdkEvent *event, struct Client *browser)
+ 
+ 	if((((GdkEventKey *)event)->state & GDK_MOD1_MASK))
+ 	{
+-		if((browser != NULL) && (((GdkEventKey *)event)->keyval == GDK_KEY_d))
+-		{
+-			webkit_web_view_try_close(browser->webView);
+-			return TRUE;
+-		}
+-
+-		switch(((GdkEventKey *)event)->keyval)
++		/* as in other browsers: Alt-Left/Right go back and forward (tabs: Ctrl-Tab, Ctrl-PageUp/Down,
++		 * Alt-n), Alt-d goes to the location bar, Alt-Home to the start page */
++		if(browser != NULL)
+ 		{
+-		case GDK_KEY_Left:
+-			gtk_notebook_prev_page(notebook);
+-			return TRUE;
+-		case GDK_KEY_Right:
+-			gtk_notebook_next_page(notebook);
+-			return TRUE;
++			switch(((GdkEventKey *)event)->keyval)
++			{
++			case GDK_KEY_Left:
++				webkit_web_view_go_back(browser->webView);
++				return TRUE;
++			case GDK_KEY_Right:
++				webkit_web_view_go_forward(browser->webView);
++				return TRUE;
++			case GDK_KEY_d:
++				gtk_widget_grab_focus(browser->location);
++				return TRUE;
++			case GDK_KEY_Home:
++				webkit_web_view_load_uri(browser->webView, badwolf_home_uri());
++				return TRUE;
++			}
+ 		}
+ 		if((((GdkEventKey *)event)->keyval >= GDK_KEY_0) &&
+ 		   (((GdkEventKey *)event)->keyval <= GDK_KEY_9))
+@@ -162,6 +181,9 @@ commonCb_key_press_event(GdkEvent *event, struct Client *browser)
+ 		case GDK_KEY_F5:
+ 			webkit_web_view_reload(browser->webView);
+ 			return TRUE;
++		case GDK_KEY_F6:
++			gtk_widget_grab_focus(browser->location);
++			return TRUE;
+ 		case GDK_KEY_Escape:
+ 			webkit_web_view_stop_loading(browser->webView);
+ 			return TRUE;
