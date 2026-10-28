@@ -1,0 +1,11 @@
+# Colobot: the backlog (gamedb/README.md, "games/<id>/todo.toml"): [[item]] with kind, text, added, source;
+# a session item's order is its place in the played-session queue (docs/TESTS.md's generated block).
+
+[[item]]
+kind = "fix"
+added = 2026-10-29
+source = "games night 2026-10-28 (smoke)"
+text = """\
+Fullscreen and the config writer: the game ran windowed with `Fullscreen=1` in its colobot.ini and wrote \
+`Fullscreen=0` back; and the file it writes has a NUL in `ShadowMappingResolution` (big-endian, or a \
+string bug). A package of ours with fullscreen at the screen's size by default and the writer fixed."""

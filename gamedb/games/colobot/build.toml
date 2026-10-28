@@ -1,1 +1,2 @@
+# How Colobot is built, installed and integrated (gamedb/README.md "build.toml").
 packages = ["colobot"]

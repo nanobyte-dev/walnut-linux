@@ -15,7 +15,8 @@ setup() {
 	mkdir -p "$S3_DIR"
 	# the game's own "fastest" display preset (S3_DISPLAY) plus fullscreen 1920x1080; the first run
 	# (2026-10-28) on the defaults was OOM-killed 34 s in, the swap filling while the land was made
-	{ sed '/<\/options>/d' "/usr/share/games/scorched3d/data/${S3_DISPLAY}display.xml"
+	{ if [ "$S3_DISPLAY" = none ]; then echo "<options source='Scorched3D'>"
+	  else sed '/<\/options>/d' "/usr/share/games/scorched3d/data/${S3_DISPLAY}display.xml"; fi
 	  printf '%s\n' "<option><name>FullScreen</name><value>on</value></option>" \
 		"<option><name>ScreenWidth</name><value>1920</value></option>" \
 		"<option><name>ScreenHeight</name><value>1080</value></option>" "</options>"; } > "$S3_DIR/display.xml"
@@ -40,4 +41,5 @@ S3_GAME=ai	# ai: four computer tanks; human: player 1 is the player
 CMD=(/usr/games/scorched3dc -startcustom)
 variant_human() { S3_GAME=human; }
 variant_medium() { S3_DISPLAY=medium; }
+variant_default() { S3_DISPLAY=none; }	# the game's own display defaults, fullscreen 1920x1080 only
 during() { sleep 30; xwininfo -root -tree | grep -m3 -i 'scorch' | sed 's/^ */window: /'; }
