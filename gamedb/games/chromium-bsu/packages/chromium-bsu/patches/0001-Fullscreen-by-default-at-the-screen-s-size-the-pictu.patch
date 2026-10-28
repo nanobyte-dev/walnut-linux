@@ -1,0 +1,76 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Wed, 28 Oct 2026 22:21:13 +0200
+Subject: Fullscreen by default at the screen's size, the picture in its
+ proportions
+
+On a console on a TV the game belongs fullscreen; it started in an 800x600
+window. Fullscreen now takes the screen as it is (SDL_WINDOW_FULLSCREEN_DESKTOP:
+the PS3's fixed 1920x1080 mode can't change), and the viewport, the mouse
+and the projection follow the drawable's real size. Before, a fullscreen
+window kept the configured size for its viewport (the game drew into an
+800x600 corner of the 1920x1080 screen), and a screenWidth/screenHeight
+read from the configuration left the aspect at 4:3, so a 16:9 size
+stretched everything a third wider; the aspect now follows any size read.
+The saved configuration and the menu's fullscreen switch still change it.
+
+Forwarded: not-needed
+
+diff --git a/src/Config.cpp b/src/Config.cpp
+--- a/src/Config.cpp
++++ b/src/Config.cpp
+@@ -55,7 +55,7 @@ Config::Config()
+ 	m_screenFOV		=  30.0f;
+ 	m_screenNear	=  10.0;
+ 	m_screenFar		=  70.0;
+-	m_full_screen	=  false;
++	m_full_screen	=  true;	// Walnut: a console on a TV
+ 	m_screenBound[0] = 11.0;
+ 	m_screenBound[1] =  9.0;
+ 	m_zTrans		= -56.5;
+@@ -188,6 +188,7 @@ void Config::readValues(FILE* file)
+ 		if(strncmp(configStrings[i], "screenSi", 8) == 0) { int screenSize; sscanf(configStrings[i], "screenSize %d\n", &screenSize); setScreenSize(screenSize); }
+ 		if(strncmp(configStrings[i], "screenWi", 8) == 0) { sscanf(configStrings[i], "screenWidth %d\n",   &m_screenW); }
+ 		if(strncmp(configStrings[i], "screenHe", 8) == 0) { sscanf(configStrings[i], "screenHeight %d\n",  &m_screenH); }
++		if(m_screenW > 0 && m_screenH > 0) m_screenA = (float)m_screenW/(float)m_screenH;
+ 		if(strncmp(configStrings[i], "mouseSpe", 8) == 0) { sscanf(configStrings[i], "mouseSpeed %f\n",    &m_movementSpeed); }
+ 		if(strncmp(configStrings[i], "movement", 8) == 0) { sscanf(configStrings[i], "movementSpeed %f\n", &m_movementSpeed); }
+ 		if(strncmp(configStrings[i], "gameSkil", 8) == 0) { sscanf(configStrings[i], "gameSkillBase %f\n", &m_gameSkillBase); }
+diff --git a/src/Config.h b/src/Config.h
+--- a/src/Config.h
++++ b/src/Config.h
+@@ -61,6 +61,9 @@ public:
+ #endif // USE_SDL_CDROM
+ 	bool	debug()			{	return  m_debug;		}
+ 	void	setFullScreen(bool s)		{	m_full_screen = s;	}
++	// the drawable's real size (a fullscreen window takes the screen's): the viewport, the mouse
++	// and the projection's aspect follow it
++	void	setScreenWH(int w, int h)	{	if(w > 0 && h > 0) { m_screenW = w; m_screenH = h; m_screenA = (float)w/(float)h; }	}
+ 	void	setBlend(bool s)			{	m_blend_enabled = s;}
+ 	void	setTexBorder(bool s)		{	m_tex_border = s;	}
+ 	void	setAudio(bool s)			{	m_audio_enabled = s;}
+diff --git a/src/MainSDL.cpp b/src/MainSDL.cpp
+--- a/src/MainSDL.cpp
++++ b/src/MainSDL.cpp
+@@ -326,7 +326,8 @@ bool MainSDL::setVideoMode()
+ 	//-- Set the flags we want to use for setting the video mode
+ #if SDL_VERSION_ATLEAST(2,0,0)
+ #define SDL_OPENGL SDL_WINDOW_OPENGL
+-#define SDL_FULLSCREEN SDL_WINDOW_FULLSCREEN
++// the screen as it is (no mode change, which a TV and the PS3's fixed mode can't do)
++#define SDL_FULLSCREEN SDL_WINDOW_FULLSCREEN_DESKTOP
+ #endif
+ 	video_flags = SDL_OPENGL;
+ 	if(config->fullScreen())
+@@ -378,6 +379,11 @@ bool MainSDL::setVideoMode()
+ 		fprintf(stderr, _("Couldn't create context: %s\n"), SDL_GetError());
+ 		return false;
+ 	}
++	if(config->fullScreen())
++	{
++		SDL_GL_GetDrawableSize(window, &w, &h);
++		config->setScreenWH(w, h);
++	}
+ #else
+ 	if ( (glSurface = SDL_SetVideoMode( w, h, bpp, video_flags )) == NULL )
+ 	{

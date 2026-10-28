@@ -16,6 +16,7 @@ on:
       - "pkg: badwolf"
       - "pkg: bomberclone"
       - "pkg: boost-context"
+      - "pkg: chromium-bsu"
       - "pkg: classicube"
       - "pkg: cube2"
       - "pkg: darkplaces-gl2"

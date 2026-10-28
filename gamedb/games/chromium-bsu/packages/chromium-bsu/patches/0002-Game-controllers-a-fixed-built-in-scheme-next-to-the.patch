@@ -1,0 +1,181 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Wed, 28 Oct 2026 22:21:46 +0200
+Subject: Game controllers: a fixed built-in scheme next to the keyboard and
+ mouse
+
+The first game controller SDL knows plays, with no setup (a DualShock 3 is
+"PS3 Controller", whatever its raw button numbers); the old joystick code
+was never built (WITH_JOYSTICK is defined nowhere). Its buttons become the
+keys the game already reads, so the menus, the level end and the
+game-over screen work as with the keyboard:
+
+  left stick       move the ship (as the mouse, the old joystick smoothing)
+  D-pad            move (the arrow keys); in the menus up/down/left/right
+  Cross, R1        fire (Space); in the menus select
+  Square, L1       use the item (Return)
+  Triangle         next item (')
+  Start            the menu, and back to the game from it (Escape)
+  Circle           back to the game from the menu (Escape)
+
+A controller plugged in later is taken when none is open; an unplugged one
+releases the trigger and the next one present takes over.
+
+Forwarded: not-needed
+
+diff --git a/src/MainSDL.cpp b/src/MainSDL.cpp
+--- a/src/MainSDL.cpp
++++ b/src/MainSDL.cpp
+@@ -76,6 +76,11 @@ MainSDL::MainSDL(int argc, char **argv)
+ 		fprintf(stderr,_("Couldn't initialize SDL: %s\n"), SDL_GetError());
+ 		exit( 1 );
+ 	}
++#if SDL_VERSION_ATLEAST(2,0,0)
++	pad = 0;
++	if( SDL_InitSubSystem(SDL_INIT_GAMECONTROLLER) == 0 )
++		padOpen();
++#endif
+ 	if( config->debug() ) fprintf(stderr, _("SDL initialized.\n"));
+ 
+ #ifdef WITH_JOYSTICK
+diff --git a/src/MainSDL.h b/src/MainSDL.h
+--- a/src/MainSDL.h
++++ b/src/MainSDL.h
+@@ -44,6 +44,10 @@ private:
+ 	void joystickMotion(SDL_Event *event);
+ 	void joystickButtonDown(SDL_Event *event);
+ 	void joystickButtonUp(SDL_Event *event);
++#if SDL_VERSION_ATLEAST(2,0,0)
++	void padOpen();
++	void padButton(SDL_Event *event, bool down);
++#endif
+ 
+ 	void		saveEvent(SDL_Event *event);
+ 	SDL_Event	*getEvent(FILE *infile);
+@@ -54,6 +58,9 @@ private:
+ 	SDL_GLContext context;
+ #endif
+ 	SDL_Joystick	*joystick;
++#if SDL_VERSION_ATLEAST(2,0,0)
++	SDL_GameController	*pad;	// the first game controller: the built-in pad scheme
++#endif
+ 	int		fire;
+ 	bool	mouseToggle;
+ 	int		xLast, yLast;
+diff --git a/src/MainSDL_Event.cpp b/src/MainSDL_Event.cpp
+--- a/src/MainSDL_Event.cpp
++++ b/src/MainSDL_Event.cpp
+@@ -110,6 +110,27 @@ bool MainSDL::process(SDL_Event *event)
+ 		case SDL_JOYBUTTONUP:
+ 			joystickButtonUp(event);
+ 			break;
++#if SDL_VERSION_ATLEAST(2,0,0)
++		case SDL_CONTROLLERDEVICEADDED:
++			if(!pad)
++				padOpen();
++			break;
++		case SDL_CONTROLLERDEVICEREMOVED:
++			if(pad && event->cdevice.which == SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(pad)))
++			{
++				SDL_GameControllerClose(pad);
++				pad = 0;
++				game->hero->fireGun(false);
++				padOpen();
++			}
++			break;
++		case SDL_CONTROLLERBUTTONDOWN:
++			padButton(event, true);
++			break;
++		case SDL_CONTROLLERBUTTONUP:
++			padButton(event, false);
++			break;
++#endif
+ 		case SDL_QUIT:
+ 			return true;
+ 		default:
+@@ -706,6 +727,23 @@ void MainSDL::joystickButtonUp(SDL_Event *)
+ //----------------------------------------------------------
+ void MainSDL::joystickMove()
+ {
++#if SDL_VERSION_ATLEAST(2,0,0)
++	// the pad's left stick moves the ship as the mouse does (the old joystick code's smoothing)
++	if(pad)
++	{
++		Global	*game = Global::getInstance();
++		static const int dead = 8000, div = 32768/16;
++		int ax = SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_LEFTX);
++		int ay = SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_LEFTY);
++		xjoy = (ax > dead || ax < -dead) ? (float)ax/div : 0;
++		yjoy = (ay > dead || ay < -dead) ? (float)ay/div : 0;
++		xjNow = 0.8*xjNow + 0.2*xjoy;
++		yjNow = 0.8*yjNow + 0.2*yjoy;
++		if(game->gameMode == Global::Game && !game->game_pause && ((int)xjNow || (int)yjNow))
++			game->hero->moveEvent((int)xjNow, (int)yjNow);
++		return;
++	}
++#endif
+ #ifdef WITH_JOYSTICK
+ 	Global	*game = Global::getInstance();
+ 	static int div = 32768/16;
+@@ -721,3 +759,61 @@ void MainSDL::joystickMove()
+ }
+ 
+ #endif // USE_SDL
++
++#if SDL_VERSION_ATLEAST(2,0,0)
++//----------------------------------------------------------
++// Game controllers: a fixed built-in scheme next to the keyboard and mouse. The first
++// controller SDL knows (a DualShock 3 is "PS3 Controller") plays; its buttons become the
++// keys the game already reads, so the menus and every game state work as with the keyboard:
++//   left stick              move the ship (as the mouse)
++//   D-pad                   move (the arrow keys); in the menus up/down/left/right
++//   Cross, R1               fire (Space); in the menus select
++//   Square, L1              use the item (Return)
++//   Triangle                next item (')
++//   Start                   the menu, and back to the game from it (Escape)
++//   Circle                  back to the game from the menu (Escape)
++void MainSDL::padOpen()
++{
++	Config	*config = Config::instance();
++	for(int i = 0; i < SDL_NumJoysticks() && !pad; i++)
++		if(SDL_IsGameController(i))
++			pad = SDL_GameControllerOpen(i);
++	if( config->debug() ) fprintf(stderr, "game controller: %s\n", pad ? SDL_GameControllerName(pad) : "none");
++}
++
++void MainSDL::padButton(SDL_Event *event, bool down)
++{
++	Global	*game = Global::getInstance();
++	if(!pad || event->cbutton.which != SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(pad)))
++		return;
++	SDL_Keycode sym;
++	switch(event->cbutton.button)
++	{
++		case SDL_CONTROLLER_BUTTON_A:
++		case SDL_CONTROLLER_BUTTON_RIGHTSHOULDER:	sym = SDLK_SPACE;	break;
++		case SDL_CONTROLLER_BUTTON_X:
++		case SDL_CONTROLLER_BUTTON_LEFTSHOULDER:	sym = SDLK_RETURN;	break;
++		case SDL_CONTROLLER_BUTTON_Y:		sym = SDLK_QUOTE;	break;
++		case SDL_CONTROLLER_BUTTON_START:	sym = SDLK_ESCAPE;	break;
++		case SDL_CONTROLLER_BUTTON_B:
++			if(game->gameMode != Global::Menu)
++				return;
++			sym = SDLK_ESCAPE;	break;
++		case SDL_CONTROLLER_BUTTON_DPAD_UP:	sym = SDLK_UP;	break;
++		case SDL_CONTROLLER_BUTTON_DPAD_DOWN:	sym = SDLK_DOWN;	break;
++		case SDL_CONTROLLER_BUTTON_DPAD_LEFT:	sym = SDLK_LEFT;	break;
++		case SDL_CONTROLLER_BUTTON_DPAD_RIGHT:	sym = SDLK_RIGHT;	break;
++		default:
++			return;
++	}
++	SDL_Event key;
++	memset(&key, 0, sizeof(key));
++	key.type = down ? SDL_KEYDOWN : SDL_KEYUP;
++	key.key.state = down ? SDL_PRESSED : SDL_RELEASED;
++	key.key.keysym.sym = sym;
++	if(down)
++		keyDown(&key);
++	else
++		keyUp(&key);
++}
++#endif

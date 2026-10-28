@@ -12,8 +12,11 @@ COMM=chromium-bsu
 CB_CFG=$HOME/.chromium-bsu
 BACKUP=("$CB_CFG")
 CB_LEVEL=1
+CB_FRESH=0
 setup() {
-	printf '%s\n' "full_screen 1" "screenWidth 1920" "screenHigh 1080" "gfxLevel $CB_LEVEL" "show_fps 1" \
+	# fresh: no configuration at all, the package's defaults (ours: fullscreen at the screen's size)
+	[ "$CB_FRESH" = 1 ] && { rm -f "$CB_CFG"; return 0; }
+	printf '%s\n' "full_screen 1" "screenWidth 1920" "screenHeight 1080" "gfxLevel $CB_LEVEL" "show_fps 1" \
 		"true_color 1" "audioType 0" > "$CB_CFG"
 }
 CMD=(/usr/games/chromium-bsu --fullscreen)
@@ -21,3 +24,10 @@ variant_full() { CB_LEVEL=2; }
 variant_min() { CB_LEVEL=0; }
 variant_noblend() { CMD+=(--noblend); }
 variant_nosound() { CMD+=(--noaudio); }
+# Into play without the user: Return on "Start Game" through XTEST 8 s after the window, then a few
+# shots (Space) and moves; the screenshots count from there (SHOT_FROM=mark)
+CB_KEYS=1
+during() { [ "$CB_KEYS" = 1 ] || return 0; smoke_xkeys Chromium 8 Return +4 space space Left Left space Right Right space; shot_mark; }
+SHOT_FROM=mark
+variant_fresh() { CB_FRESH=1; CMD=(/usr/games/chromium-bsu); }
+variant_menu() { CB_KEYS=0; SHOT_STATIC=1; }
