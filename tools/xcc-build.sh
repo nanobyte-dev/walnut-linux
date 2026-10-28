@@ -9,7 +9,9 @@
 # config.local.mk may put it on another disk): the chroot (run-<pkg>), the build-dependency chroot
 # (<pkg>-deps-<hash>.tar) and ccache (ccache/, XCC_CCACHE_SIZE, 20G).
 # Output: build/debs/<pkg>/ (replaced) and its build.log.
+# The build runs under nice -n 15 and ionice -c3 (the dev PC stays usable).
 # Env: OWNER JOBS XCC_TREE (the exported toolchain, a path under /xcc) DEB_BUILD_EXTRA
+# package.conf XCC_ENV: more VAR=value for the build (webkit2gtk: WEBKIT_NINJA_LINK_MAX=2, two links at a time)
 set -euo pipefail
 # One block, parsed whole before it runs: editing this file during a run can't make bash
 # execute a shifted fragment.
@@ -85,11 +87,11 @@ in_chroot ccache --version | head -1
 
 T1=$(date +%s)
 in_chroot sh -c "cd /build/reproducible-path/$SOURCE-$UPVER && \
-	CC=powerpc64-linux-gnu-gcc-16 CXX=powerpc64-linux-gnu-g++-16 \
+	CC=powerpc64-linux-gnu-gcc-16 CXX=powerpc64-linux-gnu-g++-16 ${XCC_ENV:-} \
 	CCACHE_DIR=/build/ccache CCACHE_BASEDIR=/build/reproducible-path CCACHE_NOHASHDIR=1 \
 	CCACHE_MAXSIZE=${XCC_CCACHE_SIZE:-20G} CCACHE_COMPILERCHECK=content \
 	DEB_BUILD_OPTIONS='${NOCHECK:+$NOCHECK }parallel=${JOBS:-16} ${DEB_BUILD_EXTRA:-}' \
-	eatmydata dpkg-buildpackage -b -uc -us ${NATIVE_PROFILES:+-P$NATIVE_PROFILES}" > "$R/build/build.log" 2>&1 \
+	nice -n 15 ionice -c3 eatmydata dpkg-buildpackage -b -uc -us ${NATIVE_PROFILES:+-P$NATIVE_PROFILES}" > "$R/build/build.log" 2>&1 \
 	|| { tail -40 "$R/build/build.log"; cp "$R/build/build.log" "$OUT/build.log"; chown -R "$OWNER" "$OUT"; exit 1; }
 echo ">> built in $(( $(date +%s) - T1 )) s"
 in_chroot sh -c "CCACHE_DIR=/build/ccache ccache -s" | grep -E "Hits|Misses|Cache size" || true

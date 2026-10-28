@@ -580,8 +580,8 @@ ps3-games-src: gamedb-integration
 # inside; WebKitGTK): their chroot, deps cache and ccache live in XCC_ROOT (config.local.mk may move it
 # to a bigger disk), the exported toolchain (build-containers/Dockerfile.xcc) in XCC_ROOT/x86-<tag>
 XCC_ROOT ?= $(CURDIR)/$(BUILD)/xcc
-# GCC needs 2-3 GB per job on WebKit's unified sources: 14 jobs leave room on a 62 GB PC
-XCC_JOBS ?= 14
+# GCC needs 2-3 GB per job on WebKit's unified sources; the PC is shared (the user, 2026-10-28: at most 12)
+XCC_JOBS ?= 12
 XCC_TAG := ps3-xcc:$(shell (cat build-containers/Dockerfile.xcc; echo $(BUILDER_TAG)) | sha256sum | cut -c1-12)
 XCC_TREE := $(XCC_ROOT)/x86-$(lastword $(subst :, ,$(XCC_TAG)))
 xcc-toolchain: $(XCC_TREE)/.done
