@@ -1157,6 +1157,16 @@ observations = "same boot (2026-10-28 15:38-17:18Z), 25 runs in three rounds, ga
 source = "bench/analysis/matrix.py"
 
 [[batch]]
+name = "2026-10-28-luanti-view190"
+order = 108
+kind = "run"
+title = "Mesa ps3.924 + kernel .874, luajit ps3.931~dev (0002)"
+date = 2026-10-28
+runs = 2
+observations = "Luanti's own default viewing_range 190 against the recipe's 60 (base), one run each, same boot, STALLS=1, SHOTS=40: 190 gave 15 fps steady, 1% low 3.0, 56 s of frames over 100 ms in the 135 s window (318 stalls, the main thread on the CPU, swap through the VRAM), 129 MB RSS and 93 MB VRAM; 60 gave 46 fps, 1% low 18, 2.3 s, 118 MB and 62 MB. The played session of 2026-10-24 ran on 190. Basis for the package's default of 60 (gamedb:luanti)."
+source = "bench/analysis/matrix.py"
+
+[[batch]]
 name = "suite-summary-2026-10"
 kind = "summary"
 title = "The suite's numbers, 2026-10: the rules-1 calibration"

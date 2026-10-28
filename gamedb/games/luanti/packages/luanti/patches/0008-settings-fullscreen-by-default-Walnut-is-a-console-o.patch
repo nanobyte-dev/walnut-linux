@@ -1,0 +1,26 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Wed, 28 Oct 2026 22:00:09 +0200
+Subject: settings: fullscreen by default (Walnut is a console on a TV)
+
+A fresh configuration started Luanti in a 1024x600 window on the desktop,
+the first thing the played session of 2026-10-24 noted. Fullscreen takes
+the screen's mode (SDL_WINDOW_FULLSCREEN_DESKTOP), 1920x1080 on the TV. The
+setting and the Settings menu still change it; a minetest.conf that says
+fullscreen = false keeps its window.
+
+Forwarded: not-needed
+
+diff --git a/src/defaultsettings.cpp b/src/defaultsettings.cpp
+--- a/src/defaultsettings.cpp
++++ b/src/defaultsettings.cpp
+@@ -251,7 +251,8 @@ void set_default_settings()
+ 	settings->setDefault("screen_h", "600");
+ 	settings->setDefault("window_maximized", "false");
+ 	settings->setDefault("autosave_screensize", "true");
+-	settings->setDefault("fullscreen", bool_to_cstr(has_touch));
++	// Walnut (PS3): a console on a TV, so fullscreen at the screen's mode by default
++	settings->setDefault("fullscreen", "true");
+ 	settings->setDefault("vsync", "false");
+ 	settings->setDefault("fov", "72");
+ 	settings->setDefault("leaves_style", "fancy");

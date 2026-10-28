@@ -1,0 +1,42 @@
+# luanti's numbers in batch 2026-10-28-luanti-view190 (gamedb/benchmarks/README.md)
+batch = "2026-10-28-luanti-view190"
+
+[variant."base@rec10"]
+fps = 46
+cpu = 249.4
+underruns = 0
+ram_free = 21.2
+vram = 61.0
+fps_steady = 46
+low1 = 18.0
+stalls = 14
+longest_ms = 272.8
+stall_disk_s = 0.1
+stall_swap_s = 0.1
+stall_reclaim_s = 0.0
+stall_gpu_s = 0
+stall_cpu_s = 2.0
+stalls_play = 14
+stall_play_s = 2.3
+low1_play = 18.0
+longest_play_ms = 272.8
+
+[variant."view190@rec10"]
+fps = 18
+cpu = 311.9
+underruns = 0
+ram_free = 10.6
+vram = 90.5
+fps_steady = 15
+low1 = 3.0
+stalls = 318
+longest_ms = 641.8
+stall_disk_s = 0.5
+stall_swap_s = 13.2
+stall_reclaim_s = 0.2
+stall_gpu_s = 0
+stall_cpu_s = 41.0
+stalls_play = 318
+stall_play_s = 55.8
+low1_play = 3.0
+longest_play_ms = 641.8

@@ -4,3 +4,5 @@
 0005-SkinnedMesh-skin-again-only-when-the-pose-changed-LU.patch
 0006-Sky-quads-in-one-draw-LU_GL_SKY-equal-materials-set-.patch
 0007-porting-malloc_trim-threshold-from-LU_TRIM_MB-defaul.patch
+0008-settings-fullscreen-by-default-Walnut-is-a-console-o.patch
+0009-settings-viewing-range-60-by-default-on-the-PS3-not-.patch

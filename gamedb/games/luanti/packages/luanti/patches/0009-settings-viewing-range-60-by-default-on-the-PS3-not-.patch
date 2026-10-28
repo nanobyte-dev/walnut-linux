@@ -1,0 +1,31 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Wed, 28 Oct 2026 22:34:03 +0200
+Subject: settings: viewing range 60 by default on the PS3, not 190
+
+Luanti's default viewing range of 190 nodes is far beyond what 217 MB of
+RAM and the PPE can generate, mesh and draw: the benchmark flight over a
+fresh world (gamedb:luanti's recipe, variant view190) ran at 15 fps steady
+with 56 s of frames over 100 ms in its 135 s window and a 1% low of 3 fps,
+against 46 fps, 2.3 s and 18 fps at 60, in the same boot (2026-10-28,
+Mesa ps3.924, kernel .874). The played session of 2026-10-24, on the
+default, had 25 s of stutter a minute. 60 is what every benchmark of the
+game has measured; the fog comes nearer. The Settings menu and a
+minetest.conf that names viewing_range still change it.
+
+Forwarded: not-needed
+
+diff --git a/src/defaultsettings.cpp b/src/defaultsettings.cpp
+--- a/src/defaultsettings.cpp
++++ b/src/defaultsettings.cpp
+@@ -245,7 +245,9 @@ void set_default_settings()
+ 	settings->setDefault("tooltip_append_itemname", "false");
+ 	settings->setDefault("fps_max", "60");
+ 	settings->setDefault("fps_max_unfocused", "10");
+-	settings->setDefault("viewing_range", "190");
++	// Walnut (PS3): 60, not 190: at 190 the fresh world flight ran at 15 fps with 56 s of stalls in
++	// 135 s, at 60 at 46 fps with 2.3 s (same boot, 2026-10-28); 256 MB of RAM and the PPE set it
++	settings->setDefault("viewing_range", "60");
+ 	settings->setDefault("client_mesh_chunk", "1");
+ 	settings->setDefault("screen_w", "1024");
+ 	settings->setDefault("screen_h", "600");

@@ -16,7 +16,11 @@ meshed: that stutter is the real problem, more than the frame rate.
   Luanti is in no suite: it deploys by name.
 - `libluajit-5.1-2`, `luajit` (`2.1.0+openresty20251030-1+ps3.N`, packages/patched/libs/luajit/): 0001
   makes ppc64 big-endian allocate in the low 2 GB where LuaJIT checks the state
-  ([the investigation](investigations/2026-10-17-luajit-state-allocation.md)).
+  ([the investigation](investigations/2026-10-17-luajit-state-allocation.md)). 0002 (2026-10-28) makes the
+  interpreter's `string.lower`, `string.upper` and `string.reverse` reset their buffer with 64-bit
+  stores: the 32-bit ones left the old contents in front of every result on big-endian ppc64, so the
+  Settings menu built its page ids wrong and failed on every open
+  ([the investigation](investigations/2026-10-28-settings-menu-string-lower.md)).
 
 | Patch | What | Switch |
 |---|---|---|
@@ -26,6 +30,8 @@ meshed: that stutter is the real problem, more than the frame rate.
 | [0005](packages/luanti/patches/0005-SkinnedMesh-skin-again-only-when-the-pose-changed-LU.patch) | SkinnedMesh skinned again only when the pose changed | `LU_GL_SKIN`, `LU_GL_SKIN_EPS` |
 | [0006](packages/luanti/patches/0006-Sky-quads-in-one-draw-LU_GL_SKY-equal-materials-set-.patch) | the sky quads in one draw; equal materials set once | `LU_GL_SKY`, `LU_GL_MATREUSE` |
 | [0007](packages/luanti/patches/0007-porting-malloc_trim-threshold-from-LU_TRIM_MB-defaul.patch) | the `malloc_trim` threshold in MiB (Luanti trims only after 256 MiB of blocks and meshes were freed, which a 217 MB machine rarely reaches) | `LU_TRIM_MB` (256 when unset) |
+| [0008](packages/luanti/patches/0008-settings-fullscreen-by-default-Walnut-is-a-console-o.patch) | fullscreen by default, at the screen's mode (a fresh configuration started in a 1024x600 window) | the `fullscreen` setting |
+| [0009](packages/luanti/patches/0009-settings-viewing-range-60-by-default-on-the-PS3-not-.patch) | a viewing range of 60 by default, not 190: at 190 the bench flight ran at 15 fps with 56 s of stalls in its 135 s window, at 60 at 46 fps with 2.3 s (gamedb:batch/2026-10-28-luanti-view190) | the `viewing_range` setting |
 
 ## How it performs
 
@@ -36,6 +42,7 @@ meshed: that stutter is the real problem, more than the frame rate.
 | base, SSD root (x3) | 46 (44-46) | 3.5 s (2.4-5.8) / 19.1 / 724 ms | 19 / 63 MB | gamedb:batch/2026-10-19-ssdroot1-baseline |
 | base with force-DXT off, opaque, opaque+NEAREST (n=2 each) | 46.5 / 46.0 / 46.0 | 3.3 / 3.3 / 3.9 s | 61-62 MB | gamedb:batch/2026-10-20-ssdroot8-force-dxt |
 | `view40` (one run) | 59 | 0.9 s / 29.2 / 362 ms | 19 / 55 MB | gamedb:batch/2026-10-18-luanti-memory |
+| `view190`, Luanti's own default before 0009 (one run, against base 46 / 2.3 s the same boot) | 15 | 55.8 s / 3.0 / 642 ms | 11 / 93 MB | gamedb:batch/2026-10-28-luanti-view190 |
 
 - Picture right. Sound plays with no underruns; it was not judged by ear in a bench run, and the webcam
   mic hears only the room.
@@ -73,8 +80,10 @@ in `/var/tmp/ps3-bench/luanti` (the player's `~/.minetest` untouched); `viewing_
 
 ## Known problems
 
-- Starts in a window instead of fullscreen, and the options menu is broken (the played session); a
-  package fix is in the game's todo.
+- Starts in a window instead of fullscreen, and the options menu is broken (the played session). Both
+  fixed on 2026-10-28: the menu by luajit 0002 (checked on the PS3 with the dev build: the Settings
+  dialog opens from the main menu's gear), the window by luanti 0008; the luanti build with 0008 and
+  0009 still has to be seen on the PS3 before the known issues go.
 - The stutter in play: map generation and meshing on the PPE, with the RAM at its floor.
 - Log noise from minetest_game itself: `Maximum lag peaked`, `active block modifiers took Nms`, `Field
   "image" on TileDef is deprecated`.

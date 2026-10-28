@@ -130,6 +130,7 @@ variant_nominimap() { LU_SET+=("enable_minimap = false"); }
 # Fewer blocks everywhere (about the square of the range): 40 and 90 around the 60 of the base.
 variant_view40() { LU_VIEW=40; }
 variant_view90() { LU_VIEW=90; }
+variant_view190() { LU_VIEW=190; }	# Luanti's own default (defaultsettings.cpp), what a fresh player gets
 
 # Stalls while blocks arrive. renderMap merges every mesh buffer of under 300 vertices of the
 # visible blocks into new buffers (copy, new VBO with EHM_STREAM), cached by the exact set of
@@ -201,3 +202,15 @@ variant_alnull() { oal_variant alnull; }
 variant_f32() { oal_variant f32; }
 variant_lin() { oal_variant lin; }
 variant_nosound() { ENV+=(ALSOFT_DRIVERS=none); }
+# the main menu and its Settings dialog, for the picture (no world, no measurement): the settings
+# dialog failed to open on Walnut until luajit 0002 (gamedb:luanti, 2026-10-28: string.lower on
+# ppc64 kept the buffer's old contents, so the page ids were wrong); LU_CLICKS are xkeys.py steps
+LU_CLICKS=(@1431,286 +5)	# the gear (Settings) at 1920x1080
+variant_menu() {
+	CMD=(/usr/games/luanti --config "$LU_CONF"); LOAD_MARK=; END_RE=; DURATION=${SMOKE_SECS:-100}
+	SUITE=0; SHOT_FROM=mark; SHOT_STATIC=1
+	during() {
+		local i; for i in $(seq 600); do xwininfo -root -tree 2>/dev/null | grep -qi '"Luanti' && break; sleep 0.1; done
+		sleep 15; [ ${#LU_CLICKS[@]} = 0 ] || python3 "$BENCH_LIB/xkeys.py" Luanti "${LU_CLICKS[@]}"; shot_mark
+	}
+}
