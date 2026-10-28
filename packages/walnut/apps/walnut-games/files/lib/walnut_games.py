@@ -1,7 +1,7 @@
 """walnut_games.py (walnut-games package): the Walnut Games desktop app, run by /usr/bin/walnut-games.
 
 Design
-- A plain Tk window for mouse and keyboard: a top bar (search, category, medal, sort, "installed
+- A plain Tk window for the pad, mouse and keyboard: a top bar (search, Filters (the tags), medal, sort, "installed
   only"), the games as cards on a tk.Canvas, and a details pane on the right.
   Stdlib and tkinter; PIL only to show the JPEG screenshots (Tk itself reads PNG, the thumbnails).
 - The catalog is the one packaged in /usr/share/walnut-games/ (catalog.json, games/<id>/thumb.png
@@ -134,6 +134,14 @@ def validate_catalog(obj):
             raise ValueError(what)
 
     need(isinstance(obj, dict) and isinstance(obj.get("games"), list) and obj["games"], "no games list")
+    # the tag taxonomy (gamedb/tags.toml): optional (an older catalog has none), well formed when there
+    groups, tags = obj.get("tag_groups", []), obj.get("tags", {})
+    need(isinstance(groups, list) and all(isinstance(x, dict) and isinstance(x.get("id"), str) and
+                                          isinstance(x.get("tags", []), list) and
+                                          all(isinstance(t, str) for t in x.get("tags", [])) for x in groups),
+         "bad tag_groups")
+    need(isinstance(tags, dict) and all(isinstance(k, str) and isinstance(v, dict) for k, v in tags.items()),
+         "bad tags")
     seen = set()
     for g in obj["games"]:
         need(isinstance(g, dict), "a game is not an object")
@@ -150,7 +158,7 @@ def validate_catalog(obj):
              isinstance(g["rating"].get("order") or [], list), "%s: bad aspect order" % gid)
         for k in ("summary", "controller", "medal_note"):
             need(g.get(k) is None or isinstance(g[k], str), "%s: bad %s" % (gid, k))
-        for k in ("categories", "tags", "known_issues"):
+        for k in ("tags", "known_issues"):
             need(all(isinstance(x, str) for x in g.get(k) or []) and isinstance(g.get(k) or [], list),
                  "%s: bad %s" % (gid, k))
         for k in ("patches", "launchers", "tests"):
@@ -276,16 +284,56 @@ def data_present(game, have):
     return any(p in have for p in need) if need else None
 
 
-def filter_games(games, have, text="", category="All", medal="All", installed_only=False,
-                 sort="Best first"):
+def tag_label(taxonomy, tid):
+    """a tag id's label (catalog "tags"), the id itself when the catalog doesn't know it"""
+    t = (taxonomy or {}).get(tid)
+    return t.get("label") or tid if isinstance(t, dict) else tid
+
+
+def genre_text(game, taxonomy):
+    """the card's line: the game's genre tags' labels ("shooter / first-person"); an older catalog without
+    the taxonomy: its categories"""
+    if taxonomy:
+        return " / ".join(tag_label(taxonomy, t) for t in game.get("tags") or []
+                          if isinstance(taxonomy.get(t), dict) and taxonomy[t].get("group") == "genre")
+    return " / ".join(c for c in game.get("categories") or [] if isinstance(c, str))
+
+
+def tag_groups(cat):
+    """the tag filter's groups: [(group id, label, [(tag id, label, games)])], only tags some game has, in
+    the catalog's order"""
+    taxonomy = cat.get("tags") or {}
+    out = []
+    for grp in cat.get("tag_groups") or []:
+        tags = [(t, tag_label(taxonomy, t), taxonomy[t].get("games") or 0) for t in grp.get("tags") or []
+                if isinstance(taxonomy.get(t), dict) and (taxonomy[t].get("games") or 0) > 0]
+        if tags:
+            out.append((grp["id"], grp.get("label") or grp["id"], tags))
+    return out
+
+
+def tags_match(game, chosen, taxonomy):
+    """the tag filter as on the site: a game must have one of the chosen tags of each group (OR within a
+    group, AND across groups); nothing chosen: every game"""
+    by_group = {}
+    for t in chosen:
+        by_group.setdefault(((taxonomy or {}).get(t) or {}).get("group") or "", set()).add(t)
+    have = set(game.get("tags") or [])
+    return all(have & ts for ts in by_group.values())
+
+
+def filter_games(games, have, text="", tags=(), medal="All", installed_only=False, sort="Best first",
+                 taxonomy=None):
+    """the cards shown: the search's words all in the title, the summary or the tags' labels (and ids), the
+    tag filter (tags_match), the medal, installed only; best first or by name"""
     words = text.lower().split()
     out = []
     for g in games:
-        hay = " ".join([g["title"], g.get("summary", ""), " ".join(g.get("categories", [])),
-                        " ".join(g.get("tags", []))]).lower()
+        hay = " ".join([g["title"], g.get("summary") or ""] + list(g.get("tags") or []) +
+                       [tag_label(taxonomy, t) for t in g.get("tags") or []]).lower()
         if any(w not in hay for w in words):
             continue
-        if category != "All" and category not in g.get("categories", []):
+        if tags and not tags_match(g, tags, taxonomy):
             continue
         if medal != "All" and medal_of(g) != medal:
             continue
@@ -1113,7 +1161,8 @@ def tab_step(pages, current, d):
 
 def link_target(url, pages):
     """what a link clicked in Details does: ("walnut", (action, id, launcher)) for the app's own links;
-    ("close", None) for the copy's home page (All games: back to the app's list); ("page", url) for a page
+    ("close", None) for the copy's home page (All games: back to the app's list); ("tag", id) for a tag's
+    page (the list filtered by that tag); ("page", url) for a page
     or picture of the app's copy; ("web", url) for another site or a page of the website the copy doesn't
     carry (its address on the website); ("ignore", url) for the rest (an unknown walnut:// link)"""
     import urllib.parse
@@ -1132,6 +1181,9 @@ def link_target(url, pages):
     rel = os.path.relpath(path, root).replace(os.sep, "/")
     if rel == "index.html":
         return ("close", None)
+    m = re.match(r"^tags/([a-z0-9][a-z0-9-]{0,63})/(index\.html)?$", rel)
+    if m:
+        return ("tag", m.group(1))
     if os.path.exists(path):
         return ("page", url)
     web = rel[:-len("index.html")] if rel == "index.html" or rel.endswith("/index.html") else rel
@@ -1473,6 +1525,9 @@ class App:
                      focusthickness=2)
         st.map("TCheckbutton", background=[("focus", BORDER), ("active", BG)], indicatorbackground=[("selected", ENTRY)],
                foreground=[("active", ACCENT_LIGHT), ("focus", ACCENT_LIGHT)])
+        st.configure("Filter.TCheckbutton", background=PANEL, padding=round(4 * s))
+        st.map("Filter.TCheckbutton", background=[("focus", BORDER), ("active", PANEL)],
+               foreground=[("active", ACCENT_LIGHT), ("focus", ACCENT_LIGHT)])
         st.configure("TButton", background=BORDER, foreground=TEXT, bordercolor=BORDER, padding=(round(12 * s), pad),
                      relief="flat", focusthickness=2)
         st.map("TButton", background=[("disabled", PANEL), ("active", "#26507c"), ("focus", "#26507c")],
@@ -1522,21 +1577,22 @@ class App:
         bar = ttk.Frame(r, style="Panel.TFrame", padding=(12, 10))
         bar.pack(fill="x")
         self.bar = bar
-        self.v_text, self.v_cat, self.v_medal = tk.StringVar(), tk.StringVar(value="All"), tk.StringVar(value="All")
+        self.v_text, self.v_medal = tk.StringVar(), tk.StringVar(value="All")
+        self.tag_filter = set()                # the tags ticked in Filters (tags_match)
+        self.filters_win = None
         self.v_sort = tk.StringVar(value="Best first")
         self.v_inst = tk.BooleanVar()
         ttk.Label(bar, text="Walnut Games", font=self.f["big"], style="Panel.TLabel").pack(side="left", padx=(0, 16))
         self.search = ttk.Entry(bar, textvariable=self.v_text, width=22, font=self.f["base"])
         self.search.pack(side="left", padx=(0, 10))
-        cats = sorted({c for g in self.games for c in g.get("categories", [])})
-        for var, vals, wd, name in ((self.v_cat, ["All"] + cats, 12, "Category"),
-                                    (self.v_medal, ["All"] + medal_choices(self.games), 10, "Medal"),
+        # the tag filter: a panel of the catalog's tag groups (open_filters)
+        self.b_filters = ttk.Button(bar, text="Filters", command=self.open_filters)
+        self.b_filters.pack(side="left", padx=(0, 4))
+        for var, vals, wd, name in ((self.v_medal, ["All"] + medal_choices(self.games), 10, "Medal"),
                                     (self.v_sort, ["Best first", "Name"], 10, "Sort")):
             ttk.Label(bar, text=name, style="Muted.TLabel", background=PANEL).pack(side="left", padx=(8, 2))
             cb = ttk.Combobox(bar, textvariable=var, values=vals, state="readonly", width=wd, font=self.f["base"])
             cb.pack(side="left", padx=4)
-            if name == "Category":
-                self.cat_box = cb
             cb.bind("<<ComboboxSelected>>", lambda e: self.apply_filters())
             # up and down move between the controls (the pad's d-pad); Enter opens the list
             for key in ("Up", "Down"):
@@ -1687,8 +1743,11 @@ class App:
 
     # -- cards
     def apply_filters(self, *a):
-        self.shown = filter_games(self.games, self.have, self.v_text.get(), self.v_cat.get(), self.v_medal.get(),
-                                  self.v_inst.get(), self.v_sort.get())
+        self.shown = filter_games(self.games, self.have, self.v_text.get(), self.tag_filter, self.v_medal.get(),
+                                  self.v_inst.get(), self.v_sort.get(), taxonomy=self.cat.get("tags"))
+        self.b_filters.configure(text="Filters (%d)" % len(self.tag_filter) if self.tag_filter else "Filters")
+        if self.filters_win is not None:
+            self.filters_count.configure(text="%d of %d games" % (len(self.shown), len(self.games)))
         self.count.configure(text="%d of %d games" % (len(self.shown), len(self.games)))
         self.layout(reset=True)
 
@@ -1757,7 +1816,7 @@ class App:
                           font=self.f["small"], tags=(tag,))
         c.create_text(x + 10, y + self.card_title_y, text=self.elide(g["title"], self.f["card"], CARD_W - 20),
                       fill=TEXT, anchor="w", font=self.f["card"], tags=(tag,))
-        c.create_text(x + 10, y + self.card_cat_y, text=self.elide(" / ".join(g.get("categories", [])),
+        c.create_text(x + 10, y + self.card_cat_y, text=self.elide(genre_text(g, self.cat.get("tags")),
                                                                    self.f["small"], CARD_W - 20),
                       fill=MUTED, anchor="w", font=self.f["small"], tags=(tag,))
         self.cards[g["id"]] = (x, y)
@@ -2029,10 +2088,9 @@ class App:
         self.cat, self.games = cat, cat["games"]
         self.by_id = {g["id"]: g for g in self.games}
         self.thumbs.clear()
-        cats = ["All"] + sorted({c for g in self.games for c in g.get("categories", [])})
-        self.cat_box.configure(values=cats)
-        if self.v_cat.get() not in cats:
-            self.v_cat.set("All")
+        self.tag_filter &= set(self.cat.get("tags") or {})       # tags the new catalog no longer has drop out
+        if self.filters_win is not None:
+            self.close_filters()
         self.apply_filters_inplace()
         new = self.by_id.get(self.selected)
         if self.selected and new is None:
@@ -2254,6 +2312,9 @@ class App:
         ds = data_setup(g)
         if not ds or self.busy or (self.imp is not None and not self.imp.done):
             return
+        if self.filters_win is not None:
+            self.close_filters()
+            return "break"
         if self.chooser is not None:
             try:
                 self.chooser.destroy()
@@ -2809,6 +2870,9 @@ class App:
             webbrowser.open(val)
         elif kind == "close":
             self.close_details()
+        elif kind == "tag":         # a tag's page: the list, filtered by that tag
+            self.close_details()
+            self.filter_by_tag(val)
         else:
             print("walnut-games: link ignored: %s" % url, file=sys.stderr)
 
@@ -2865,6 +2929,9 @@ class App:
                 pass
             self.menu = None
             return "break"
+        if self.filters_win is not None:
+            self.close_filters()
+            return "break"
         if self.chooser is not None:
             try:
                 self.chooser.destroy()
@@ -2880,6 +2947,114 @@ class App:
                 self.close_details()
             return "break"
         return None
+
+    # -- the tag filter
+    def filter_by_tag(self, tid):
+        """only the games with tag tid (a tag link in Details), the search cleared"""
+        if tid not in (self.cat.get("tags") or {}):
+            return False
+        self.tag_filter = {tid}
+        self.v_text.set("")
+        self.apply_filters()
+        if self.shown:
+            self.select(self.shown[0]["id"])
+        self.canvas.focus_set()
+        return True
+
+    def open_filters(self):
+        """the tag filter: a window of the catalog's tag groups, a box for every tag some game has (the d-pad
+        moves between them, Cross ticks one; the list follows at once); a game shows when it has one of the
+        ticked tags of each group, as on the site. Done, Escape or Circle closes it; Clear unticks all."""
+        if self.filters_win is not None:
+            return
+        groups = tag_groups(self.cat)
+        top = tk.Toplevel(self.root, bg=PANEL)
+        self.filters_win = top
+        top.title("Filters")
+        top.transient(self.root)
+        s = self.scale
+        w, h = round(760 * s), min(round(640 * s), self.root.winfo_screenheight() - 80)
+        try:
+            x = self.root.winfo_rootx() + max(0, (self.root.winfo_width() - w) // 2)
+            y = self.root.winfo_rooty() + max(0, (self.root.winfo_height() - h) // 3)
+            top.geometry("%dx%d+%d+%d" % (w, h, x, y))
+        except tk.TclError:
+            top.geometry("%dx%d" % (w, h))
+        box = ttk.Frame(top, style="Panel.TFrame", padding=round(16 * s))
+        box.pack(fill="both", expand=True)
+        ttk.Label(box, text="Filters", font=self.f["big"], background=PANEL).pack(anchor="w")
+        ttk.Label(box, text="A game shows when it has one of the ticked tags in each group.", style="Muted.TLabel",
+                  background=PANEL).pack(anchor="w", pady=(2, 8))
+        bottom = ttk.Frame(box, style="Panel.TFrame")
+        bottom.pack(side="bottom", fill="x", pady=(10, 0))
+        area = ttk.Frame(box, style="Panel.TFrame")
+        area.pack(fill="both", expand=True)
+        canvas = tk.Canvas(area, bg=PANEL, highlightthickness=0)
+        sb = ttk.Scrollbar(area, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=sb.set)
+        sb.pack(side="right", fill="y")
+        canvas.pack(side="left", fill="both", expand=True)
+        inner = ttk.Frame(canvas, style="Panel.TFrame")
+        win = canvas.create_window(0, 0, window=inner, anchor="nw")
+        inner.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.bind("<Configure>", lambda e: canvas.itemconfigure(win, width=e.width))
+        for ev, d in (("<Button-4>", -1), ("<Button-5>", 1)):
+            top.bind(ev, lambda e, d=d: canvas.yview_scroll(d * 2, "units"))
+        self.filter_vars = {}
+
+        def see(wd):        # the focused box kept in view
+            total = max(1, inner.winfo_height())
+            y = wd.winfo_rooty() - inner.winfo_rooty()
+            top_y, bot_y = canvas.canvasy(0), canvas.canvasy(canvas.winfo_height())
+            if y < top_y or y + wd.winfo_height() > bot_y:
+                canvas.yview_moveto(max(0.0, (y - 30) / total))
+
+        def toggle(tid):
+            if self.filter_vars[tid].get():
+                self.tag_filter.add(tid)
+            else:
+                self.tag_filter.discard(tid)
+            self.apply_filters()
+        cols = 3
+        first = None
+        for gid, label, tags in groups:
+            ttk.Label(inner, text=label, font=self.f["bold"], foreground=ACCENT, background=PANEL).pack(
+                anchor="w", pady=(8, 2))
+            grid = ttk.Frame(inner, style="Panel.TFrame")
+            grid.pack(anchor="w", fill="x")
+            for n, (tid, tlabel, count) in enumerate(tags):
+                v = tk.BooleanVar(value=tid in self.tag_filter)
+                self.filter_vars[tid] = v
+                cb = ttk.Checkbutton(grid, text="%s (%d)" % (tlabel, count), variable=v, style="Filter.TCheckbutton",
+                                     command=lambda t=tid: toggle(t))
+                cb.grid(row=n // cols, column=n % cols, sticky="w", padx=(0, 16))
+                cb.bind("<FocusIn>", lambda e, wd=cb: see(wd))
+                first = first or cb
+            for c in range(cols):
+                grid.columnconfigure(c, weight=1, uniform="tags")
+
+        def clear():
+            self.tag_filter.clear()
+            for v in self.filter_vars.values():
+                v.set(False)
+            self.apply_filters()
+        done = ttk.Button(bottom, text="Done", style="Accent.TButton", command=self.close_filters)
+        done.pack(side="right")
+        ttk.Button(bottom, text="Clear", command=clear).pack(side="right", padx=(0, 8))
+        self.filters_count = ttk.Label(bottom, text="", style="Muted.TLabel", background=PANEL)
+        self.filters_count.pack(side="left")
+        top.protocol("WM_DELETE_WINDOW", self.close_filters)
+        top.after(50, lambda: ((first or done).focus_set(), self.pad_warp() if self.pad_recent() else None)
+                  if top.winfo_exists() else None)
+
+    def close_filters(self):
+        if self.filters_win is not None:
+            try:
+                self.filters_win.destroy()
+            except tk.TclError:
+                pass
+        self.filters_win = None
+        self.b_filters.focus_set()
 
     # -- moving the focus: the arrow keys and the pad's d-pad
     def _focus_path(self):

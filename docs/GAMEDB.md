@@ -487,8 +487,11 @@ browser, NetSurf and the app's HTML view (the user, 2026-10-28):
 ## The desktop app
 
 `walnut-games` (package `walnut-games`, Tk; the DualShock, mouse and keyboard) shows the catalog as cards: a
-thumbnail, the medal with its score, the name and categories, an "Installed" mark. The top bar
-has search, category, medal and sort, and "installed only". A card opens the game in the right-hand
+thumbnail, the medal with its score, the name and its genre tags, an "Installed" mark. The top bar
+has search (the title, the summary and the tags' labels), Filters, medal and sort, and "installed only".
+Filters opens a panel of the catalog's tag groups (`tag_groups`, gamedb/tags.toml), a box for every tag
+some game has: a game shows when it has one of the ticked tags in each group (OR within a group, AND
+across groups, as on the site); the list follows each tick, Done, Escape or Circle closes it. A card opens the game in the right-hand
 pane (PLAN 5.11): its name, medal and score with the hours played, then the actions, then a quick glance.
 The window follows the Walnut palette (`walnut_games.py` has the colours).
 
@@ -514,7 +517,8 @@ The window follows the Walnut palette (`walnut_games.py` has the colours).
   (play may name a launcher, `?launcher=NAME`) closes Details and runs the same code as the main button;
   a page or picture of the app's copy loads in place (Back returns to it); the website's pages the copy
   doesn't carry and other sites open in the system browser (`webbrowser`, xdg-open); anything else is
-  ignored. Without python3-tkinterweb (a Recommends), or for a game the copy doesn't have, Details opens
+  ignored. A tag's link (`tags/<id>/`) closes Details and filters the list by that tag (the app's own
+  filter, not the tag's page). Without python3-tkinterweb (a Recommends), or for a game the copy doesn't have, Details opens
   the website in the browser.
 - **The pad and the TV.** The text and the pane scale with the screen (1.5x at 1080 lines;
   `WALNUT_GAMES_SCALE` overrides) and the window fills it. The DualShock is the X pointer outside games

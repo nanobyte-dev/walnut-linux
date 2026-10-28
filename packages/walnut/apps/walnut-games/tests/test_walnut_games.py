@@ -655,21 +655,43 @@ class AppFunctions(unittest.TestCase):
         self.assertEqual(app.dpkg_installed(set()), set())
 
     def test_filters(self):
+        tax = {"racing": {"label": "racing", "group": "genre", "games": 1},
+               "shooter": {"label": "shooter", "group": "genre", "games": 2},
+               "fps": {"label": "first-person", "group": "genre", "parent": "shooter", "games": 1},
+               "kart": {"label": "kart", "group": "keywords", "games": 1},
+               "gamepad": {"label": "gamepad", "group": "input", "games": 2},
+               "unused": {"label": "unused", "group": "keywords", "games": 0}}
         games = [
-            {"title": "Zed", "summary": "racing fun", "categories": ["racing"], "tags": ["kart"], "packages": ["zed"],
+            {"title": "Zed", "summary": "racing fun", "tags": ["racing", "gamepad", "kart"], "packages": ["zed"],
              "patched": True, "rating": {"medal": "Gold", "score": 85}},
-            {"title": "Abe", "summary": "shooter", "categories": ["shooter"], "tags": [], "packages": ["abe"],
+            {"title": "Abe", "summary": "an old one", "tags": ["shooter"], "packages": ["abe"],
              "patched": False, "rating": {"medal": "Untested", "score": None}},
-            {"title": "Mid", "summary": "a shooter too", "categories": ["shooter"], "tags": ["fps"], "packages": ["mid"],
+            {"title": "Mid", "summary": "a shooter too", "tags": ["shooter", "fps", "gamepad"], "packages": ["mid"],
              "patched": False, "rating": {"medal": "Bronze", "score": 62}}]
-        names = lambda **kw: [g["title"] for g in app.filter_games(games, {"mid"}, **kw)]   # noqa: E731
+        names = lambda **kw: [g["title"] for g in app.filter_games(games, {"mid"}, taxonomy=tax, **kw)]   # noqa: E731
         self.assertEqual(names(), ["Zed", "Mid", "Abe"])
         self.assertEqual(names(sort="Name"), ["Abe", "Mid", "Zed"])
         self.assertEqual(names(text="SHOOTER"), ["Mid", "Abe"])
-        self.assertEqual(names(text="shooter fps"), ["Mid"])
-        self.assertEqual(names(category="racing"), ["Zed"])
+        self.assertEqual(names(text="first-person"), ["Mid"])                 # a tag's label
+        self.assertEqual(names(text="shooter fps"), ["Mid"])                  # and its id
+        self.assertEqual(names(tags={"racing"}), ["Zed"])
+        self.assertEqual(names(tags={"racing", "shooter"}), ["Zed", "Mid", "Abe"])   # one group: either
+        self.assertEqual(names(tags={"shooter", "gamepad"}), ["Mid"])                # two groups: both
+        self.assertEqual(names(tags={"racing", "fps", "gamepad"}), ["Zed", "Mid"])
+        self.assertEqual(names(tags={"kart", "fps"}), [])                            # keywords and genre
         self.assertEqual(names(medal="Untested"), ["Abe"])
         self.assertEqual(names(installed_only=True), ["Mid"])
+        self.assertEqual(app.genre_text(games[2], tax), "shooter / first-person")
+        self.assertEqual(app.genre_text({"categories": ["racing"]}, None), "racing")    # an older catalog
+        self.assertEqual(app.tag_label(tax, "fps"), "first-person")
+        self.assertEqual(app.tag_label(tax, "nope"), "nope")
+        cat = {"tags": tax, "tag_groups": [{"id": "genre", "label": "Genre", "tags": ["shooter", "fps", "racing"]},
+                                           {"id": "keywords", "label": "Keywords", "tags": ["kart", "unused"]},
+                                           {"id": "empty", "label": "Empty", "tags": ["unused"]}]}
+        self.assertEqual(app.tag_groups(cat), [("genre", "Genre", [("shooter", "shooter", 2), ("fps", "first-person", 1),
+                                                                   ("racing", "racing", 1)]),
+                                               ("keywords", "Keywords", [("kart", "kart", 1)])])
+        self.assertEqual(app.tag_groups({"games": []}), [])
 
     def test_helper_lines(self):
         self.assertEqual(app.parse_helper_line("progress 42 installing x\n"), ("progress", 42, "installing x"))
@@ -1065,6 +1087,8 @@ class Links(unittest.TestCase):
             self.assertEqual(T(f + "/rating/sessions/s/shots/ps3-60s.jpg")[0], "page")
             self.assertEqual(T(f + "/index.html#known"), ("page", f + "/index.html#known"))
             self.assertEqual(T("file://" + str(pages) + "/index.html"), ("close", None))
+            self.assertEqual(T("file://" + str(pages) + "/tags/fps/index.html"), ("tag", "fps"))
+            self.assertEqual(T("file://" + str(pages) + "/tags/index.html")[0], "web")      # all tags: the site
             self.assertEqual(T("file://" + str(pages) + "/about/index.html#rules-2"),
                              ("web", app.WEB + "about/#rules-2"))                 # not in the app's copy
             self.assertEqual(T(f + "/guides/index.html"), ("web", app.WEB + "games/openarena/guides/"))
@@ -1238,6 +1262,8 @@ class Freshness(unittest.TestCase):
         self.assertIs(app.validate_catalog(c), c)
         app.validate_catalog({"games": [good_game(launchers=[{"name": "x", "rating": {"medal": "Tin"}}],
                                                   patches=[{"subject": "s"}], known_issues=["k"])]})
+        app.validate_catalog({"games": [good_game(categories="whatever")], "tag_groups": [{"id": "genre", "tags": ["x"]}],
+                              "tags": {"x": {"label": "X"}}})      # categories: no longer read
         app.validate_catalog({"games": [good_game(thumb=None, data_setup={
             "gdp": "doom", "required": ["doom-wad"], "optional": [], "downloads": [], "hint": None,
             "present_any": ["doom-wad"]})]})
@@ -1249,7 +1275,10 @@ class Freshness(unittest.TestCase):
                {"games": [good_game(title="")]}, {"games": [good_game(packages=[])]},
                {"games": [good_game(packages="alpha")]}, {"games": [good_game(rating={})]},
                {"games": [good_game(rating={"medal": "Gold", "aspects": []})]},
-               {"games": [good_game(categories="racing")]}, {"games": [good_game(categories=[1])]},
+               {"games": [good_game(tags="kart")]}, {"games": [good_game(tags=[1])]},
+               {"games": [good_game()], "tag_groups": {}}, {"games": [good_game()], "tag_groups": [{"tags": []}]},
+               {"games": [good_game()], "tag_groups": [{"id": "g", "tags": [1]}]},
+               {"games": [good_game()], "tags": []}, {"games": [good_game()], "tags": {"x": "y"}},
                {"games": [good_game(patches=[{}])]}, {"games": [good_game(launchers=[{"name": "x"}])]},
                {"games": [good_game(tests=[{"ps3": ["../../etc/passwd"]}])]},
                {"games": [good_game(tests=[{"ps3": ["/etc/passwd"]}])]},
@@ -1397,8 +1426,8 @@ if int(sys.argv[4]):                                                     # a thu
 # Install from a page: the helper (a fake) runs
 app.have = set(); app.update_buttons()
 app.open_details(); root.update()
-fake.FRAMES[-1].click("walnut://install/alpha"); root.update()
-assert app.dv is None and app.busy == ("alpha", "install"), app.busy
+fake.FRAMES[-1].click("walnut://install/alpha")       # (no update first: the fake helper is quick)
+assert app.dv is None and app.busy == ("alpha", "install"), (app.busy, app.main_kind, str(app.b_main["state"]), app.d_status["text"], app.selected)
 t = time.time()
 while app.busy and time.time() - t < 20:
     root.update(); time.sleep(0.05)
@@ -1442,6 +1471,21 @@ assert str(app.b_main["state"]) == "disabled" and "next Walnut Games update" in 
 assert mapped(app.d_reason)
 app.v_text.set("beta"); root.update()
 assert [g["id"] for g in app.shown] == ["beta"]
+app.v_text.set(""); root.update()
+# the tag filter: a panel, live; a tag link in Details filters the list
+app.open_filters(); root.update()
+assert app.filters_win is not None and set(app.filter_vars) == {"racing", "puzzle"}, app.filter_vars
+app.filter_vars["puzzle"].set(True)
+app.tag_filter.add("puzzle"); app.apply_filters(); root.update()
+assert [g["id"] for g in app.shown] == ["beta", "gamma"] and app.b_filters["text"] == "Filters (1)", app.shown
+app.back(); root.update()
+assert app.filters_win is None
+app.tag_filter.clear(); app.apply_filters()
+app.select("alpha"); app.open_details(); root.update()
+fake.FRAMES[-1].click("file://" + os.path.join(sys.argv[2], "pages", "tags", "racing", "index.html")); root.update()
+assert app.dv is None and app.tag_filter == {"racing"} and [g["id"] for g in app.shown] == ["alpha"], app.tag_filter
+app.tag_filter.clear(); app.apply_filters()
+assert app.d_medal is not None
 app.v_text.set(""); app.v_medal.set("Gold"); app.apply_filters(); root.update()
 assert [g["id"] for g in app.shown] == ["alpha"]
 if len(sys.argv) > 5:      # pictures of the pane
@@ -1544,7 +1588,12 @@ class Window(unittest.TestCase):
                          dict(GAMES["beta"], summary="s", categories=["puzzle"], tags=[], patched=False, patches=[],
                               needs_data=False, controller="unknown", tests=[],
                               rating={"medal": "Untested", "score": None, "aspects": {}})]
-                Path(d, "catalog.json").write_text(json.dumps({"games": games}))
+                games[0]["tags"], games[1]["tags"] = ["racing"], ["puzzle"]
+                taxonomy = {"tags": {"racing": {"label": "racing", "group": "genre", "games": 1},
+                                     "puzzle": {"label": "puzzle", "group": "genre", "games": 1},
+                                     "unused": {"label": "unused", "group": "genre", "games": 0}},
+                            "tag_groups": [{"id": "genre", "label": "Genre", "tags": ["racing", "puzzle", "unused"]}]}
+                Path(d, "catalog.json").write_text(json.dumps(dict(taxonomy, games=games)))
                 pages = Path(d, "pages/games/alpha")
                 for t in ("index.html", "test-runs/index.html", "technical/index.html"):
                     (pages / t).parent.mkdir(parents=True, exist_ok=True)
