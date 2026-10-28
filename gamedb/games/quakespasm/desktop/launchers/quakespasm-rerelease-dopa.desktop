@@ -1,7 +1,7 @@
 [Desktop Entry]
 Type=Application
-Name=Quake (2021): Dimensions of the Past
-Comment=The 2021 re-release's fifth episode, Dimensions of the Past, from your own copy (GOG's Quake Enhanced), QuakeSpasm with GLSL at 1920x1080
+Name=Quake (2021): Dimension of the Past
+Comment=The 2021 re-release's fifth episode, Dimension of the Past, from your own copy (GOG's Quake Enhanced), QuakeSpasm with GLSL at 1920x1080
 Exec=ps3-game quakespasm -basedir /usr/share/games/quake-rerelease -game dopa -nopackedpixels -width 1920 -height 1080 -fullscreen
 Icon=quakespasm
 Terminal=false

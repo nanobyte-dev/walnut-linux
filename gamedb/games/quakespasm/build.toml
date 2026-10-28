@@ -22,7 +22,7 @@ required = ["quake-shareware", "quake-registered", "quake-rerelease"]
 # the CD's music as Ogg Vorbis (CD audio tracks 2-11): encoded from a BIN/CUE's audio tracks or ripped
 # from the disc in the drive (game-data-packager runs cdparanoia); no checksums, see PACKAGING.md
 # quake-rerelease-*: the re-release's own builds of Scourge of Armagon and Dissolution of Eternity (with
-# their music), Dimensions of the Past and Dimension of the Machine, from the same GOG installer, in
+# their music), Dimension of the Past and Dimension of the Machine, from the same GOG installer, in
 # quake-rerelease's folder (-game hipnotic, rogue, dopa, mg1; each its own launcher)
 optional = ["quake-music", "quake-rerelease-armagon", "quake-rerelease-dissolution", "quake-rerelease-dopa", "quake-rerelease-dimension-of-the-machine"]
 # a 1.01 CD's id1/pak0.pak needs 1.06's, which game-data-packager takes from the shareware download

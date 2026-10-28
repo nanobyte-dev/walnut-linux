@@ -28,7 +28,8 @@ Any of these, as long as it holds the game's files:
 1. Copy the disc image or installer onto the PS3 (or plug in the stick, or put the disc in).
 2. Open **Walnut Games**, find the game and open its page.
 3. Choose **Add game files...** and pick your source from the list, or browse for a file or folder.
-4. Wait. A first import takes from one to five minutes, and the app shows each step. When it ends
+4. Wait. An import takes from one to ten minutes (a BIN/CUE whose music is encoded, or a big
+   installer, takes longest), and the app shows each step. When it ends
    the game appears in the menu.
 
 In a terminal the same thing is:
@@ -58,7 +59,7 @@ editions, mostly); we haven't run them on the console.
 | [Heretic](https://walnut.nanobyte.dev/gamedb/games/heretic/) (`heretic`) | CD, GOG, Steam | Version 1.3 (Shadow of the Serpent Riders) and the early 1.0 release. Tried: 1.0. |
 | [Hexen](https://walnut.nanobyte.dev/gamedb/games/hexen/) (`hexen`) | Version 1.1: CD, Steam, GOG's installer; the Macintosh CD | The Mac CD's WAD plays, but its music goes through the fluidsynth player, not DSDA-Doom's OPL one. Deathkings of the Dark Citadel is optional and has its own menu entry; nobody has tried it yet. |
 | [Quake](https://walnut.nanobyte.dev/gamedb/games/quakespasm/) (`quakespasm`) | CD, a BIN/CUE of it (this keeps the CD music), Steam, GOG's The Offering; the free shareware | The shareware (first episode) is downloaded for you. |
-| Quake, 2021 re-release | GOG's Quake Enhanced installer, build 60828 | An edition of its own, with its own menu entry, Quake (2021 re-release). It does not stand in for the original game. |
+| Quake, 2021 re-release | GOG's Quake Enhanced installer, build 60828 | An edition of its own, with its own menu entry, Quake (2021 re-release). It does not stand in for the original game. Tried: the installer (the main game). |
 | [Quake II](https://walnut.nanobyte.dev/gamedb/games/yquake2/) (`yquake2`) | CD, a BIN/CUE of it (this keeps the CD music), Steam, GOG's Quad Damage; the free demo | The 3.20 patch is downloaded unless your copy has it. The demo is downloaded for you. |
 | [Quake III Arena](https://walnut.nanobyte.dev/gamedb/games/quake-3-arena/) (`quake-3-arena`) | CD or its ISO or MDF image; GOG's Quake III Gold (with Team Arena); Steam | A CD is older than 1.32, so the 1.32 update (30 MB) is downloaded. Tried: the CD ISO. GOG's installer and Team Arena are built the same way but have not been imported on the console yet. |
 | [OpenTTD](https://walnut.nanobyte.dev/gamedb/games/openttd/) (`openttd`) | Transport Tycoon Deluxe for Windows: the CD or an installed copy | Optional: OpenTTD plays without it using free graphics. With your copy you get the original graphics and sounds. Music comes from either the General MIDI (`gm`) or the FM (`fm`) files, whichever your copy has. |
@@ -66,7 +67,7 @@ editions, mostly); we haven't run them on the console.
 ## What doesn't work yet
 
 - **Hexen 1.0** (the floppies and the first CD) is refused: DSDA-Doom doesn't support it, and the official update to 1.1 isn't applied by Walnut yet. Hexen 1.1 is fine.
-- **The Quake 2021 re-release's add-ons** (Scourge of Armagon, Dissolution of Eternity, Dimension of the Past, Dimension of the Machine, the CTF pak) are in the same installer but aren't imported yet. The main game is.
+- **The Quake 2021 re-release's add-ons** (Scourge of Armagon, Dissolution of Eternity, Dimension of the Past, Dimension of the Machine) come from the same installer: after the main game, each shows up as an "Also add" button with its own menu entry. They haven't been imported on the console yet. The CTF pak (multiplayer only) isn't imported.
 - **Other builds of the re-release** (Steam's, older GOG updates) haven't been checked.
 - **Quake II's expansions** (The Reckoning, Ground Zero, Zaero) and Quake III's demo are known to the tool but haven't been tried on the console.
 - **Ripping music from an audio CD** in the PS3's drive is untested. BIN/CUE images work.
