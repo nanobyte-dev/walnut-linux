@@ -18,6 +18,18 @@ COMM=warmux
 # first run); the first run (2026-10-19) was a small window: switch full_screen on if the file is there
 WM_CFG=$HOME/.config/wormux/config.xml
 BACKUP=("$WM_CFG")
-setup() { [ -f "$WM_CFG" ] && sed -i 's|<full_screen>false<|<full_screen>true<|' "$WM_CFG"; return 0; }
+WM_FRESH=0
+setup() {
+	# fresh: no configuration, what a new player gets (our package: fullscreen at the screen's size)
+	[ "$WM_FRESH" = 1 ] && { rm -f "$WM_CFG"; return 0; }
+	[ -f "$WM_CFG" ] && sed -i 's|<full_screen>false<|<full_screen>true<|' "$WM_CFG"; return 0
+}
 CMD=(/usr/games/warmux)
 variant_debug() { CMD+=(-d); }
+variant_fresh() { WM_FRESH=1; }
+# Into a local match without the user (games night 2026-10-28): clicks through XTEST (xkeys.py @X,Y at
+# 1920x1080) 20 s after the window; WM_CLICKS are the steps
+WM_CLICKS=()
+during() { [ ${#WM_CLICKS[@]} = 0 ] && return 0; smoke_xkeys Warmux 20 "${WM_CLICKS[@]}"; shot_mark; }
+SHOT_FROM=mark
+variant_play() { WM_FRESH=1; WM_CLICKS=(@765,470 +1 @770,480 +6 @910,1050 +1 @916,1054 +15); }	# Play, then the green tick (two human teams, map Abyss)
