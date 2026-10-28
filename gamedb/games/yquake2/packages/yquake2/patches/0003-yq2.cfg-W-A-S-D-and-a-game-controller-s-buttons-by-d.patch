@@ -1,0 +1,78 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Thu, 29 Oct 2026 00:48:12 +0200
+Subject: yq2.cfg: W/A/S/D and a game controller's buttons by default
+
+Walnut is a console. Yamagi's defaults moved with E/S/D/F (A and G
+turning), and bound none of a game controller's buttons, so a pad
+could move and look (the sticks are the engine's own) but not fire.
+
+- W/A/S/D move and strafe; the power shield moves from W to E.
+- A game controller by place: R2 fires, L2 walks, Cross jumps, Circle
+  crouches, L1/R1 the previous/next weapon, Square uses the selected
+  item, Triangle the inventory, D-pad left/right selects an item, up the
+  help computer, down drops the item, Select the score. Start is the
+  menu already.
+
+yq2.cfg runs right after default.cfg and before the player's
+config.cfg, so these are defaults: a saved configuration keeps its own
+bindings, and the menu's "reset to defaults" gives these.
+
+Forwarded: not-needed
+
+diff --git a/stuff/yq2.cfg b/stuff/yq2.cfg
+--- a/stuff/yq2.cfg
++++ b/stuff/yq2.cfg
+@@ -29,12 +29,11 @@ bind	0		"use BFG10K"
+ 
+ bind	MOUSE1		+attack
+ 
+-bind	d		+back
+-bind	e		+forward
+-bind	s		+moveleft
+-bind	a		+left
+-bind	f		+moveright
+-bind	g		+right
++// Walnut: W/A/S/D as most players know them (Yamagi's E/S/D/F, with A and G turning, before)
++bind	w		+forward
++bind	s		+back
++bind	a		+moveleft
++bind	d		+moveright
+ 
+ bind	TAB		inven
+ bind	ENTER		invuse
+@@ -46,7 +45,7 @@ bind	MWHEELDOWN	weapprev
+ bind	MWHEELUP	weapnext
+ 
+ bind	q		"use quad damage"
+-bind	w		"use power shield"
++bind	e		"use power shield"
+ 
+ bind	SHIFT		+speed
+ 
+@@ -62,6 +61,25 @@ bind	F12		screenshot jpg 90
+ 
+ bind	t		messagemode
+ 
++// Walnut: a game controller (a DualShock) plays as it comes. The left stick moves, the right
++// stick looks (the engine's own), Start is the menu (built in); the buttons by their place:
++// R2 fires, L2 walks, Cross jumps, Circle crouches, L1/R1 the previous/next weapon, Square uses the
++// selected item, Triangle the inventory, the D-pad left/right selects an item, D-pad up the
++// help computer, D-pad down drops the item, Select the score.
++bind	TRIG_RIGHT	+attack
++bind	TRIG_LEFT	+speed
++bind	BTN_SOUTH	+moveup
++bind	BTN_EAST	+movedown
++bind	SHOULDR_LEFT	weapprev
++bind	SHOULDR_RIGHT	weapnext
++bind	BTN_WEST	invuse
++bind	BTN_NORTH	inven
++bind	DP_LEFT		invprev
++bind	DP_RIGHT	invnext
++bind	DP_UP		"cmd help"
++bind	DP_DOWN		invdrop
++bind	BTN_BACK	"cmd score"
++
+ //----------------------------------------------
+ 
+ //

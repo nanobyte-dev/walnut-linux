@@ -18,7 +18,7 @@ controller = "keyboard"
 designed_for = "keyboard-mouse"
 known_issues = [
   "Particles (blood, sparks, bullet trails) draw as big discs of one size at every distance (squares before Mesa 0050): fixed in the next Mesa and RSX driver builds.",
-  "Movement is bound to E/S/D/F out of the box, not W/A/S/D (Yamagi's defaults): rebind it in Options, Customize controls.",
+  "Movement is bound to E/S/D/F out of the box, not W/A/S/D (Yamagi's defaults): rebind it in Options, Customize controls. Fixed for new players in our next yquake2 (W/A/S/D and the pad's buttons by default), which awaits a check on the PS3.",
   "The menu and HUD text is small at 1080p.",
 ]
 +++

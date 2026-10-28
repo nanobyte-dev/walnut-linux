@@ -19,6 +19,15 @@ random-number table shrank from 32 MB to 64 KB, and its played session had a 60 
   instead of a static 16 MiB array in both `quake2` and `game.so`
   ([the investigation](investigations/2026-10-18-prng-table.md)). Its upstream offer is drafted in
   [upstream.md](upstream.md).
+- [0003](packages/yquake2/patches/0003-yq2.cfg-W-A-S-D-and-a-game-controller-s-buttons-by-d.patch)
+  the default bindings (`yq2.cfg`, run after id's `default.cfg` and before the player's `config.cfg`):
+  W/A/S/D instead of Yamagi's E/S/D/F (the power shield from W to E), and a game controller's buttons,
+  which Yamagi left unbound (the sticks moved and looked, nothing fired): R2 fires, L2 walks, Cross
+  jumps, Circle crouches, L1/R1 the previous/next weapon, Square uses the item, Triangle the inventory,
+  the D-pad left/right selects an item, up the help computer, down drops the item, Select the score;
+  Start is the menu already. A saved `config.cfg` keeps its own bindings (Yamagi writes them all), so a
+  home that has played keeps E/S/D/F until Options, Customize controls, "reset to defaults". State:
+  built for the PS3 test (pending).
 - Two menu entries of ours ([desktop/launchers](desktop/launchers/)), the gl1 renderer fullscreen at the
   desktop's resolution (`r_mode -2`): "Quake II (demo)", `-datadir /usr/share/games/quake2-demo`, and
   "Quake II", the full game, `-datadir /usr/share/games/quake2`. Both are packed hidden (`NoDisplay=true`)
@@ -58,8 +67,9 @@ starts the demo cold. Each pass also prints "ERROR: Disconnected from server". V
   RSX ignored the attenuated size Quake II asks for (`gl1_pointparameters 1`). Mesa 0051 with ps3rsx
   PS3_ABI 2 fixes it, checked with dev builds on 2026-10-27; the release check is docs/TESTS.md's
   batch mesa-0051.
-- Movement ships bound to E/S/D/F (Yamagi's defaults), not W/A/S/D; the player rebinds it in Options,
-  Customize controls. The menu and HUD text is small at 1080p.
+- Movement shipped bound to E/S/D/F (Yamagi's defaults) and the pad's buttons unbound: 0003 gives W/A/S/D
+  and a pad scheme to new homes (pending its PS3 test). The menu and HUD text is small at 1080p (the
+  automatic scale is 3 there: 1920/640).
 - `Sys_LoadLibrary failed: libcurl.so.4`: the optional download library, harmless.
 
 ## Investigations
