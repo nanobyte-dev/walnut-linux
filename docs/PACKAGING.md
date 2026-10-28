@@ -63,6 +63,7 @@ A native Debian source (format `3.0 (native)`, no orig tarball: `game-data-packa
 - `indep`: architecture-independent packages, in the amd64 deb builder.
 - `split`: `-A` in the deb builder (with `INDEP_PATH`, e.g. our spu-elf toolchain), `-B` in the chroot.
 - `cross`: cross-built in the deb builder (`ps3rsx` against our kernel tree).
+- `xcc`: a native build like `native`, except that the compilers are x86-64 programs (`tools/xcc-build.sh`). Debian's ppc64 cross compiler (`g++-16-powerpc64-linux-gnu` 16.2.0-3cross1, the same GCC as the chroot's own) and ccache come from `build-containers/Dockerfile.xcc`, whose filesystem `make xcc-toolchain` exports to `$(XCC_ROOT)/x86-<tag>`; the build mounts it read-only at `/x86` in the chroot and links its loader, libraries and `powerpc64-linux-gnu-*` into the chroot (`/lib64/ld-linux-x86-64.so.2`, `/usr/lib/x86_64-linux-gnu`, `/usr/local/bin` first on `PATH`), so the kernel runs them natively while dpkg-buildpackage, cmake, the code generators and the debhelper tools run under qemu as in any native build, and freshly built ppc64 helpers still run. `CC`/`CXX` name the cross compiler; nothing else in the package changes. One heavy C++ file compiles in 2 s this way against 22 s under qemu. The chroot, the build-dependency tarball and a separate ccache (20 GB, `XCC_CCACHE_SIZE`) live in `XCC_ROOT` (default `build/xcc`; `config.local.mk` here puts it on the overflow disk, `/mnt/data_linux/Temp/ps3/xcc`). For packages too big for a qemu build; today only `webkit2gtk` ([Built on the dev PC](#built-on-the-dev-pc)).
 
 **Commands.** `make <pkg>-src` fetches and prepares the source package in `build/src/<pkg>`. `make <pkg>-deb` builds into `build/debs/<pkg>`. `make packages` builds everything, the kernel first and `ps3rsx-modules` last. `build/debs/*/*.deb` is what deploys, images and `make checksums` take; `make publish` takes the licensed ones.
 
@@ -109,6 +110,15 @@ The old LAN repository on tibi-server (`http://10.0.0.10:8070`: suites `ps3`, `p
 - Each suite has its own pool (`pool/<suite>/main/...`): testing and stable are separate builds of one version.
 - Each upload names the InRelease it was built on; walnut-watch refuses a stale one and `github-ci/publish.sh` makes it again on the new state (after a random pause, up to 8 times; each verdict is awaited up to 30 minutes). With one testing publisher that is rare. It deletes pool files no index names any more, 14 days after they were first seen unnamed (never in `licensed`).
 - **When to publish to stable.** Only after the package is proven on the PS3, with the user's OK. Never a `~dev` version (CI builds from commits only).
+
+### Built on the dev PC
+
+A free package too big for GitHub's runners (4 cores, 14 GB of disk, 6 hours a job) is built on the dev PC and published by CI from there; today that is `webkit2gtk` (`BUILD=xcc`: about an hour on 24 cores, a 15 GB tree; under qemu on a runner it would take days). Its workflow `pkg-<name>.yml` does not build: it starts when `github-ci/prebuilt/<name>.sha256` changes, and `github-ci/build-package.sh` downloads the files that file pins from the GitHub release it names, checks each sha256 and that the version is the one the commit gives the package, runs the leak check, and hands them on as the usual artifact. From there it is like any other package: testing's publisher takes it, "Run workflow" with stable publishes the same files to stable with the owner's approval. So the signing keys stay in CI, and the debs in a suite are byte for byte what was tested here.
+
+1. Commit the package's changes, then `make <name>-deb` (a `~dev` build is refused below).
+2. Test it on the PS3 (`make deploy`).
+3. `tools/prebuilt-upload.sh <name>`: puts the debs, the `-dbgsym` debs and the source package in a release `prebuilt-<name>-<version>` of the public repository (`nanobyte-dev/walnut-linux`, with `gh`) and writes `github-ci/prebuilt/<name>.sha256`. It refuses a `~dev` build, debs of another version, licensed content and a release that exists already (published files never change).
+4. Commit that file, `git push origin main`, `make public-push`: the package's workflow runs and testing gets it minutes later.
 
 ### Licensed packages and the licensed suite
 

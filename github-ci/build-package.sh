@@ -24,6 +24,26 @@ case $rc in
 	*) echo "!! tools/licensed.py is-licensed $pkg failed (exit $rc): no build" >&2; exit 2 ;;
 esac
 conf() { sed -n "s/^$1=\"\{0,1\}\([^\"]*\)\"\{0,1\}$/\1/p" "$pd/package.conf"; }
+# BUILD=xcc (too big for a runner): the debs and source built on the dev PC (tools/prebuilt-upload.sh),
+# from the GitHub release github-ci/prebuilt/<pkg>.sha256 names, each file checked against its sha256 there;
+# the version must be the one this commit gives the package
+if [ "$(conf BUILD)" = xcc ]; then
+	sums=github-ci/prebuilt/$pkg.sha256
+	[ -s "$sums" ] || { echo "!! $pkg is built on the dev PC and $sums is missing (tools/prebuilt-upload.sh)" >&2; exit 2; }
+	url=$(sed -n 's/^# url //p' "$sums"); ver=$(sed -n 's/^# version //p' "$sums")
+	want="$(sed -n 's/^VERSION=//p' "$pd/package.conf")+ps3.$(tools/deb-version.sh "$pkg" | sed -n 1p)"
+	[ "$ver" = "$want" ] || { echo "!! $sums pins $ver, this commit is $want: upload a build of this commit" >&2; exit 2; }
+	rm -rf "$out"; mkdir -p "$out/src"
+	grep -v '^#' "$sums" | while read -r sum name; do
+		case $name in *.deb) d=$out ;; *) d=$out/src ;; esac
+		curl -fsSL --retry 5 -o "$d/$name" "$url/$name"
+		echo "$sum  $d/$name" | sha256sum -c --quiet || { echo "!! $name: sha256 mismatch" >&2; exit 1; }
+	done
+	tools/leak-check.py debs "$out"/*.deb
+	tools/leak-check.py sources "$out"/src/*.dsc
+	echo ">> $(ls "$out"/*.deb | wc -l) debs, $(ls "$out"/src/*.dsc | wc -l) source packages (prebuilt $ver)"
+	exit 0
+fi
 github-ci/runner-prep.sh
 
 fetch() {	# fetch DIR SOURCE: the target suite's newest build of SOURCE into build/debs/DIR
