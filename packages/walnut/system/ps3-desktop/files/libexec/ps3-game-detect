@@ -50,7 +50,7 @@ LEAVE_DELAY=5	# seconds without a fullscreen window before a game's game mode en
 AWAY_DELAY=3	# seconds without a ps3-game game in front before the desktop thaws (vid_restart: 1.5 s)
 RECHECK=2 RECHECKS=4	# a fullscreen window whose process has no GPU (yet): looked at again
 EXCLUDE="firefox firefox-esr firefox-bin navigator chromium chromium-browser chrome google-chrome
-	epiphany epiphany-browser falkon midori qutebrowser surf netsurf netsurf-gtk mpv vlc totem
+	epiphany epiphany-browser falkon midori qutebrowser surf netsurf netsurf-gtk badwolf mpv vlc totem
 	celluloid smplayer mplayer ffplay kodi kodi.bin parole xine haruna"
 log() { echo "ps3-game-detect: $*" >&2; }
 
