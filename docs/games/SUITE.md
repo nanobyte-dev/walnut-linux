@@ -137,6 +137,7 @@ calls `variant_<variant>` if it exists. The full list is in
 - How the result is read: `FPS_RE`, `MAXMS_RE`, `LOAD_RE` (the last matching line), `LOAD_MARK` (a
   line whose time is the load time), `STEADY_RE`, `RESULT_FILE`, `HUD=1` (the Gallium HUD's fps per
   second and every frame's time), `HUD_SKIP`.
+- `NEEDS=(cmd...)`: the commands `during()` calls (`evemu-device`, ...). client.sh checks them before it touches anything and stops the run (exit 2, no bench.txt, a `!!` line naming the tool) when one is missing, so a run never sits at a menu for lack of a tool. ps3-gpu-tools Depends on evemu-tools.
 - How it ends: `END_RE` (stop after this line), `DURATION` (a safety cap, default 270 s),
   `WINDOW_STOP=1` (stop 2 s after the window), `PASSES=1` (the game repeats its demo; see below).
 - `WM` (default `openbox`: SDL fullscreen windows never show without a window manager), `GAMEMODE=1`
