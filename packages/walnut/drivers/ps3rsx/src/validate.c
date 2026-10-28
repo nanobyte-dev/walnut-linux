@@ -9,7 +9,8 @@
  * methods Mesa's nv30 driver can emit (docs/MESA-METHODS.md section 4, indexed arrays
  * expanded to all units) plus what our raw tests use, all of which ran on the RSX.
  * Data checks: vertex format type 0 and UB256 with other than 4 components, 1-pixel-wide
- * swizzled render targets, texture offsets not 128-byte aligned, SIFM surfaces.
+ * swizzled render targets, texture offsets not 128-byte aligned, the X16 texture format,
+ * SIFM surfaces.
  * Not yet: bounds checks of offsets against BOs at trigger methods.
  */
 #include <linux/kernel.h>
@@ -92,13 +93,13 @@ static unsigned long allowed[VC_N][BITS_TO_LONGS(0x2000 / 4)];
 /*
  * The validator's fast path, fast[class][method / 4]: F_OK when check_method() accepts that
  * method on that class whatever the data, and changes nothing (allowed, not a bind or host
- * method, not data-checked: fast_kind()); F_VTXFMT and F_TEXOFS when its only check is the
- * vertex format (vtxfmt_ok()) or the texture offset alignment. Such words, nearly all of a push, cost a
- * table lookup; a non-incrementing burst to an F_OK method (inline vertex and index data) costs
- * one for all its words. Everything else goes through check_method(), so the fast path accepts
- * nothing it wouldn't.
+ * method, not data-checked: fast_kind()); F_VTXFMT, F_TEXOFS and F_TEXFMT when its only check is
+ * the vertex format (vtxfmt_ok()), the texture offset alignment or the texture format
+ * (texfmt_ok()). Such words, nearly all of a push, cost a table lookup; a non-incrementing burst
+ * to an F_OK method (inline vertex and index data) costs one for all its words. Everything else
+ * goes through check_method(), so the fast path accepts nothing it wouldn't.
  */
-enum { F_SLOW, F_OK, F_VTXFMT, F_TEXOFS };
+enum { F_SLOW, F_OK, F_VTXFMT, F_TEXOFS, F_TEXFMT };
 static u8 fast[VC_N][0x2000 / 4];
 
 /*
@@ -115,9 +116,24 @@ static __always_inline bool vtxfmt_ok(u32 data)
 	return type != 0 && (type != 7 || size == 0 || size == 4);
 }
 
+/*
+ * A texture format word (TEX_FORMAT, 0x1a04 + 0x20 * unit, and the vertex units' 0x904 + 0x20 *
+ * unit) the RSX samples without a graph exception: not format 0x14 (nouveau's A16, libgcm's
+ * X16), which nothing had sampled on the RSX before mpv's dither texture (GL_LUMINANCE16, Mesa's
+ * L16_UNORM): its first draw raised exception 0x105 and wedged the RSX (2026-10-28,
+ * docs/RSX.md). Mesa 0052 no longer offers the format on the PS3.
+ */
+#define TEXFMT_X16	0x14
+
+static __always_inline bool texfmt_ok(u32 data)
+{
+	return ((data >> 8) & 0x1f) != TEXFMT_X16;
+}
+
 static __always_inline bool fast_ok(u8 f, u32 data)
 {
-	return f == F_OK || (f == F_VTXFMT && vtxfmt_ok(data)) || (f == F_TEXOFS && !(data & 127));
+	return f == F_OK || (f == F_VTXFMT && vtxfmt_ok(data)) || (f == F_TEXOFS && !(data & 127)) ||
+	       (f == F_TEXFMT && texfmt_ok(data));
 }
 
 static void allow(int c, const struct mrange *r, int n)
@@ -193,6 +209,12 @@ static bool tex_offset(u32 m)
 	return (m & ~0x1e0) == 0x1a00 || (m & ~0x60) == 0x0900;
 }
 
+/* A 3D texture format word (fragment units 0-15, vertex units 0-3)? */
+static bool tex_format(u32 m)
+{
+	return (m & ~0x1e0) == 0x1a04 || (m & ~0x60) == 0x0904;
+}
+
 /*
  * How the fast path may take allowed method m of class c, from what check_method() does with
  * it (keep in step: a data check missing here would be skipped).
@@ -209,6 +231,8 @@ static u8 fast_kind(int c, u32 m)
 		return F_VTXFMT;		/* vertex format: vtxfmt_ok() */
 	if (tex_offset(m))
 		return F_TEXOFS;		/* texture offset alignment */
+	if (tex_format(m))
+		return F_TEXFMT;		/* texture format: texfmt_ok() */
 	return F_OK;
 }
 
@@ -262,6 +286,12 @@ static int check_method(struct ps3rsx_vstate *vs, u32 subch, u32 mthd, u32 data,
 		 * 0x105 (Neverball, +0xaa0); libgcm aligns texture offsets to 128 bytes, and Mesa
 		 * 0014 never sends anything else (docs/GAME-PLAN.md, driver bugs) */
 		*why = "texture offset not 128-byte aligned";
+		return -EINVAL;
+	}
+	if (vs->bound[subch] == 0x31337000 && tex_format(mthd) && !texfmt_ok(data)) {
+		/* the X16 (A16) format: mpv's first draw sampling one raised graph exception 0x105
+		 * (texfmt_ok()) */
+		*why = "texture format X16 (A16)";
 		return -EINVAL;
 	}
 	if (vs->bound[subch] == 0x3137af00 && mthd == 0x198) {

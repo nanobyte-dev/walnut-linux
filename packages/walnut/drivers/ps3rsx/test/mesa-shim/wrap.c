@@ -1,0 +1,198 @@
+/* LD_PRELOAD in front of Mesa's nouveau noop drm-shim: answer like ps3rsx (chipset 0x47,
+ * PCI vendor 0x104d, PS3_ABI 2, no VMA tilemode, a 64 KiB channel notifier, the fence label
+ * and query slice of channel 1), place BOs like ps3rsx (VRAM from 0x900000, GART from 2 MiB,
+ * page aligned, never moving), and write every push of every submit to $PUSHDUMP (default
+ * /tmp/push.bin: per push the big-endian words 'PUSH', submit, push index, word count, then the
+ * words; $PUSHDUMP.bos lists the BOs). DUMPBO_SUBMIT=N also writes the BOs submit N lists to
+ * /tmp/bo-N-<offset>.bin (programs, staging data). */
+#define _GNU_SOURCE
+#include <dlfcn.h>
+#include <errno.h>
+#include <stdarg.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/mman.h>
+#include <sys/ioctl.h>
+#include <drm.h>
+#include <nouveau_drm.h>
+
+#define MAXBO 65536
+struct bo { uint32_t handle, domain; uint64_t offset, size, map_handle; void *ptr; };
+static struct bo bos[MAXBO];
+static int nbo;
+static uint64_t vram_next = 0x900000, gart_next = 0x200000;
+static FILE *dump, *bolog;
+static unsigned submit_seq;
+
+static int (*real_ioctl)(int, unsigned long, ...);
+static void *(*real_mmap)(void *, size_t, int, int, int, off_t);
+
+static void init(void)
+{
+	if (real_ioctl)
+		return;
+	real_ioctl = dlsym(RTLD_NEXT, "ioctl");
+	real_mmap = dlsym(RTLD_NEXT, "mmap");
+	const char *p = getenv("PUSHDUMP");
+	dump = fopen(p ? p : "/tmp/push.bin", "wb");
+	char b[512];
+	snprintf(b, sizeof(b), "%s.bos", p ? p : "/tmp/push.bin");
+	bolog = fopen(b, "w");
+}
+
+static struct bo *bo_by_handle(uint32_t h)
+{
+	for (int i = nbo - 1; i >= 0; i--)
+		if (bos[i].handle == h)
+			return &bos[i];
+	return NULL;
+}
+
+static uint64_t place(uint32_t domain, uint64_t size, uint32_t align)
+{
+	uint64_t *next = (domain & NOUVEAU_GEM_DOMAIN_VRAM) || !domain ? &vram_next : &gart_next;
+	if (align < 4096)
+		align = 4096;
+	size = (size + 4095) & ~4095ull;
+	*next = (*next + align - 1) & ~(uint64_t)(align - 1);
+	uint64_t o = *next;
+	*next += size;
+	return o;
+}
+
+static void put32(uint32_t v) { fwrite(&v, 4, 1, dump); }
+
+int ioctl(int fd, unsigned long req, ...)
+{
+	va_list ap;
+	va_start(ap, req);
+	void *arg = va_arg(ap, void *);
+	va_end(ap);
+	init();
+
+	unsigned nr = _IOC_NR(req);
+	if (_IOC_TYPE(req) == 'd' && nr >= DRM_COMMAND_BASE) {
+		unsigned cmd = nr - DRM_COMMAND_BASE;
+		if (cmd == DRM_NOUVEAU_GETPARAM) {
+			struct drm_nouveau_getparam *gp = arg;
+			switch (gp->param) {
+			case 0x1000: gp->value = 2; return 0;
+			case NOUVEAU_GETPARAM_PCI_VENDOR: gp->value = 0x104d; return 0;
+			case NOUVEAU_GETPARAM_PCI_DEVICE: gp->value = 0; return 0;
+			case NOUVEAU_GETPARAM_CHIPSET_ID: gp->value = 0x47; return 0;
+			case NOUVEAU_GETPARAM_FB_SIZE: gp->value = 245ull << 20; return 0;
+			case NOUVEAU_GETPARAM_AGP_SIZE: gp->value = 63ull << 20; return 0;
+			case 20 /* HAS_VMA_TILEMODE */: errno = EINVAL; return -1;
+			}
+		}
+		if (cmd == DRM_NOUVEAU_NOTIFIEROBJ_ALLOC) {
+			/* as ps3rsx gives them to channel id 1 (submit.c) */
+			struct drm_nouveau_notifierobj_alloc *n = arg;
+			if (n->handle == 0x66606660)
+				n->offset = 0x20 + 32 * 1;
+			else if (n->handle == 0x66626660)
+				n->offset = 0x1400 + 0x1000 * 1;
+			else
+				n->offset = 0x1000;
+			return 0;
+		}
+		int r = real_ioctl(fd, req, arg);
+		if (r)
+			return r;
+		if (cmd == DRM_NOUVEAU_CHANNEL_ALLOC) {
+			/* ps3rsx's channel notifier maps the whole 64 KiB reports area */
+			struct drm_nouveau_channel_alloc *ca = arg;
+			struct drm_nouveau_gem_new g = { .info = { .size = 0x10000,
+				.domain = NOUVEAU_GEM_DOMAIN_GART }, .align = 0x1000 };
+			if (!real_ioctl(fd, DRM_IOWR(DRM_COMMAND_BASE + DRM_NOUVEAU_GEM_NEW,
+						      struct drm_nouveau_gem_new), &g))
+				ca->notifier_handle = g.info.handle;
+		}
+		if (cmd == DRM_NOUVEAU_GEM_NEW && nbo < MAXBO) {
+			struct drm_nouveau_gem_new *n = arg;
+			struct bo *b = &bos[nbo++];
+			b->handle = n->info.handle;
+			b->domain = n->info.domain;
+			b->size = n->info.size;
+			b->map_handle = n->info.map_handle;
+			b->offset = n->info.offset = place(n->info.domain, n->info.size, n->align);
+			if (!(n->info.domain & NOUVEAU_GEM_DOMAIN_VRAM) && n->info.domain)
+				n->info.domain = NOUVEAU_GEM_DOMAIN_GART;
+			else
+				n->info.domain = NOUVEAU_GEM_DOMAIN_VRAM;
+			b->domain = n->info.domain;
+			fprintf(bolog, "new %u dom %x off %#llx size %#llx align %#x (submit %u)\n", b->handle,
+				b->domain, (unsigned long long)b->offset, (unsigned long long)b->size,
+				n->align, submit_seq);
+			fflush(bolog);
+		} else if (cmd == DRM_NOUVEAU_GEM_INFO) {
+			struct drm_nouveau_gem_info *in = arg;
+			struct bo *b = bo_by_handle(in->handle);
+			if (b) {
+				in->offset = b->offset;
+				in->domain = b->domain;
+			}
+		} else if (cmd == DRM_NOUVEAU_GEM_PUSHBUF) {
+			struct drm_nouveau_gem_pushbuf *s = arg;
+			struct drm_nouveau_gem_pushbuf_bo *bl = (void *)(uintptr_t)s->buffers;
+			struct drm_nouveau_gem_pushbuf_push *pl = (void *)(uintptr_t)s->push;
+			for (unsigned i = 0; i < s->nr_buffers; i++) {
+				struct bo *b = bo_by_handle(bl[i].handle);
+				bl[i].presumed.valid = 1;
+				if (b) {
+					bl[i].presumed.offset = b->offset;
+					bl[i].presumed.domain = b->domain;
+				}
+			}
+			for (unsigned i = 0; i < s->nr_push; i++) {
+				struct bo *b = bo_by_handle(bl[pl[i].bo_index].handle);
+				uint32_t len = pl[i].length & 0x7fffff;
+				put32(0x50555348);
+				put32(submit_seq);
+				put32(i);
+				put32(len / 4);
+				if (b && b->ptr) {
+					fwrite((char *)b->ptr + pl[i].offset, 1, len, dump);
+				} else {
+					for (uint32_t k = 0; k < len / 4; k++)
+						put32(0xdeadbeef);
+				}
+			}
+			fflush(dump);
+			const char *ds = getenv("DUMPBO_SUBMIT");
+			if (ds && (unsigned)atoi(ds) == submit_seq)
+				for (unsigned i = 0; i < s->nr_buffers; i++) {
+					struct bo *b = bo_by_handle(bl[i].handle);
+					if (!b || !b->ptr || b->size > (4u << 20))
+						continue;
+					char fn[256];
+					snprintf(fn, sizeof(fn), "/tmp/bo-%u-%#llx.bin", submit_seq,
+						 (unsigned long long)b->offset);
+					FILE *f = fopen(fn, "wb");
+					if (f) { fwrite(b->ptr, 1, b->size, f); fclose(f); }
+				}
+			submit_seq++;
+			s->vram_available = 200ull << 20;
+			s->gart_available = 40ull << 20;
+		}
+		return 0;
+	}
+	return real_ioctl(fd, req, arg);
+}
+
+void *mmap(void *a, size_t len, int prot, int flags, int fd, off_t off)
+{
+	init();
+	void *p = real_mmap(a, len, prot, flags, fd, off);
+	if (p != MAP_FAILED)
+		for (int i = nbo - 1; i >= 0; i--)
+			if (bos[i].map_handle == (uint64_t)off && off) {
+				bos[i].ptr = p;
+				break;
+			}
+	return p;
+}
+void *mmap64(void *a, size_t len, int prot, int flags, int fd, off_t off)
+	__attribute__((alias("mmap")));

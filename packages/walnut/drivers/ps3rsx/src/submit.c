@@ -448,6 +448,16 @@ int ps3rsx_ioctl_gem_pushbuf(struct drm_device *dev, void *data, struct drm_file
 				     push[i].bo_index, push[i].offset, dst, len);
 			ret = ps3rsx_validate(&vs, dst, len / 4);
 			if (ret) {
+				/*
+				 * Mesa sends state once and counts on it: the channel's next pushes
+				 * would draw on the GPU's older state (another program's vertex
+				 * formats, textures and programs with this one's buffers), which can
+				 * fault as well. Refuse the channel from now on.
+				 */
+				if (!ch->broken)
+					pr_warn("ps3rsx: channel %u refused from now on (pid %d, %s)\n",
+						ch->id, task_pid_nr(current), current->comm);
+				ch->broken = true;
 				mutex_unlock(&rsx->exec_lock);
 				goto out;
 			}

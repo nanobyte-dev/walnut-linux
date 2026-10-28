@@ -269,7 +269,8 @@ struct ps3rsx_chan {
 	u32 id;
 	struct ps3rsx_vstate vstate;
 	struct ps3rsx_shadow *shadow;	/* the state this channel's pushes set (shadow.c) */
-	bool broken;			/* its open primitive was closed under it: refuse it */
+	bool broken;			/* refused: its open primitive was closed under it, or a
+				 * push of it was rejected (its later ones count on it) */
 };
 
 /* Per open file */
