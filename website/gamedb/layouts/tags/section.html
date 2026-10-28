@@ -1,0 +1,24 @@
+{{ define "main" }}
+{{/* the tags index, tags/: every tag a published game has, by group, a subgroup's tags under their parent, each
+     with its number of games and a link to its page */}}
+{{ $cat := hugo.Data.catalog }}
+<p class="crumbs"><a href="{{ site.Home.RelPermalink }}">All games</a></p>
+<h1>Tags</h1>
+<p>{{ .Params.description }}</p>
+<div class="tag-index">
+{{ range $cat.tag_groups }}
+  {{ $used := slice }}{{ range .tags }}{{ if gt (index $cat.tags .).games 0 }}{{ $used = $used | append . }}{{ end }}{{ end }}
+  {{ if $used }}
+  <section class="tag-index-group{{ if .collapsed }} tag-index-wide{{ end }}">
+    <h2>{{ .label }}</h2>
+    {{ with .description }}<p class="muted small">{{ . }}</p>{{ end }}
+    <ul class="tag-list">
+    {{ range $used }}{{ $t := index $cat.tags . }}
+      <li{{ if $t.parent }} class="tag-sub"{{ end }}>{{ partial "tag-link.html" (dict "id" .) }} <span class="n">{{ $t.games }}</span></li>
+    {{ end }}
+    </ul>
+  </section>
+  {{ end }}
+{{ end }}
+</div>
+{{ end }}

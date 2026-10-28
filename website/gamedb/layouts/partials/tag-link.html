@@ -1,0 +1,4 @@
+{{/* a tag as a link to its page, tags/<id>/: (dict "id" <tag id> "note" <a word after it, or nil>) */}}
+{{- $t := index hugo.Data.catalog.tags .id -}}
+<a class="tag tag-{{ $t.group }}" href="{{ printf "tags/%s/" .id | relURL }}"{{ with $t.description }} title="{{ . }}"{{ end }}>{{ $t.label }}</a>
+{{- with .note }} <span class="tag-note">({{ . }})</span>{{ end -}}

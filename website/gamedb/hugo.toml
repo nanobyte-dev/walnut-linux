@@ -4,10 +4,11 @@
 baseURL = "https://walnut.nanobyte.dev/gamedb/"
 title = "Walnut Games"
 locale = "en"
-# no tag or category pages: the filters on the home page do that job in the browser
+# no Hugo taxonomies: the tag pages (tags/<id>/) are content/tags/_content.gotmpl's, from catalog.json's tags
+# (gamedb/tags.toml with the automatic ones), so the derived tags have pages too
 disableKinds = ["taxonomy", "term"]
 enableRobotsTXT = true
-# the games' own `categories` and `tags` are plain catalog fields, not Hugo taxonomies
+# the games' `tags` are plain catalog fields, not Hugo taxonomies
 [taxonomies]
 
 [outputs]

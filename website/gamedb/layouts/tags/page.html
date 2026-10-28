@@ -1,0 +1,17 @@
+{{ define "main" }}
+{{/* a tag's page, tags/<id>/ (content/tags/_content.gotmpl): what it means, its parent or its subgroup's tags,
+     and the games that have it, as cards */}}
+{{ $cat := hugo.Data.catalog }}
+{{ $id := .Params.tid }}
+{{ $t := index $cat.tags $id }}
+<p class="crumbs"><a href="{{ site.Home.RelPermalink }}">All games</a> / <a href="{{ "tags/" | relURL }}">Tags</a></p>
+<h1><span class="muted">{{ $t.group_label }}:</span> {{ $t.label }}{{ with $t.parent }} <span class="muted">{{ (index $cat.tags .).label }}</span>{{ end }}</h1>
+{{ with $t.description }}<p>{{ . }}</p>{{ end }}
+{{ if $t.automatic }}<p class="muted small">Set automatically from the game's facts, never by hand.</p>{{ end }}
+{{ with $t.parent }}<p>Part of {{ partial "tag-link.html" (dict "id" .) }}.</p>{{ end }}
+{{ $subs := slice }}{{ range $t.sub }}{{ if gt (index $cat.tags .).games 0 }}{{ $subs = $subs | append . }}{{ end }}{{ end }}
+{{ with $subs }}<p>Narrower: {{ range . }}{{ partial "tag-link.html" (dict "id" .) }} {{ end }}</p>{{ end }}
+{{ $games := slice }}{{ range $cat.games }}{{ if in .tags $id }}{{ $games = $games | append . }}{{ end }}{{ end }}
+<p class="muted">{{ len $games }} game{{ if ne (len $games) 1 }}s{{ end }}</p>
+{{ partial "cards.html" (dict "games" $games "filters" false) }}
+{{ end }}

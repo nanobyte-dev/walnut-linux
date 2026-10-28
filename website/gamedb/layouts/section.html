@@ -1,4 +1,4 @@
 {{ define "main" }}
 <h1>{{ .Title }}</h1>
-{{ partial "cards.html" . }}
+{{ partial "cards.html" (dict "games" hugo.Data.catalog.games "filters" true) }}
 {{ end }}

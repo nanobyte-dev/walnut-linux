@@ -1,0 +1,6 @@
+{{/* the tag panel's checkboxes of one group: (dict "ids" <tag ids> "group" <group id>), a subgroup's tags
+     indented under their parent, each with its number of games */}}
+{{ $cat := hugo.Data.catalog }}
+{{ range .ids }}{{ $t := index $cat.tags . }}
+<label class="tag-box{{ if $t.parent }} tag-sub{{ end }}"><input type="checkbox" value="{{ . }}" data-group="{{ $.group }}"> {{ $t.label }} <span class="n">{{ $t.games }}</span></label>
+{{ end }}

@@ -1,0 +1,11 @@
+{{/* A page per tag that a published game has, at tags/<id>/, from catalog.json's tags (gamedb/tags.toml): the
+     games with it, as cards (layouts/tags/page.html). A subgroup's tag (fps) names its parent (shooter) */}}
+{{ $tags := hugo.Data.catalog.tags }}
+{{ range $id, $t := $tags }}
+  {{ if gt $t.games 0 }}
+  {{ $name := $t.label }}{{ with $t.parent }}{{ $name = printf "%s %s" $t.label (index $tags .).label }}{{ end }}
+  {{ $sum := printf "Games on Walnut tagged %s (%s)." $name (lower $t.group_label) }}
+  {{ with $t.description }}{{ $sum = printf "%s %s" $sum . }}{{ end }}
+  {{ $.AddPage (dict "path" $id "title" (printf "%s: %s" $t.group_label $name) "params" (dict "tid" $id "summary" $sum)) }}
+  {{ end }}
+{{ end }}

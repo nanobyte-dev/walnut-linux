@@ -1,0 +1,12 @@
+{{/* a game's tags under their groups' small labels (a game page's head), each a link to its page: the game's
+     catalog entry */}}
+{{ $g := . }}
+<dl class="tag-groups">
+{{- range hugo.Data.catalog.tag_groups }}
+  {{- $in := slice }}{{ range .tags }}{{ if in $g.tags . }}{{ $in = $in | append . }}{{ end }}{{ end }}
+  {{- if $in }}
+  <dt>{{ .label }}</dt>
+  <dd>{{ range $in }}{{ partial "tag-link.html" (dict "id" . "note" (index $g.tag_notes .)) }} {{ end }}</dd>
+  {{- end }}
+{{- end }}
+</dl>

@@ -2,5 +2,5 @@
 <section class="intro">
   <h1>Games on Walnut</h1>
 </section>
-{{ partial "cards.html" . }}
+{{ partial "cards.html" (dict "games" hugo.Data.catalog.games "filters" true) }}
 {{ end }}

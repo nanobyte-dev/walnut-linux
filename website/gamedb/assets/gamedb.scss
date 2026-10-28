@@ -135,9 +135,9 @@ main.wrap { padding-bottom: rem(3); }
   background: $panel;
   border: 1px solid $border;
   border-radius: 10px;
-  @include row(rem(0.6));
 }
-.filters input, .filters select {
+.filter-row { @include row(rem(0.6)); }
+.filters input, .filters select, .filters button.clear {
   background: $code;
   color: $text;
   border: 1px solid $border;
@@ -146,15 +146,34 @@ main.wrap { padding-bottom: rem(3); }
   font: inherit;
 }
 .filters input { flex: 1 1 rem(14); }
+.filters button.clear { cursor: pointer; }
+.filters button.clear:hover { border-color: $accent-deep; }
+// the tag panel: a box per group, a group's tags one per line (a subgroup's indented), Keywords folded
+.tag-panel { margin-top: rem(0.8); @include card-grid(rem(11), rem(0.8)); }
+fieldset.tag-group { border: 1px solid $border; border-radius: 8px; padding: rem(0.3) rem(0.7) rem(0.6); min-width: 0; }
+fieldset.tag-group legend { color: $muted; font-size: rem(0.75); text-transform: uppercase; letter-spacing: 0.5px; padding: 0 rem(0.3); }
+label.tag-box { display: block; font-size: rem(0.9); line-height: 1.6; padding: rem(0.1) 0; cursor: pointer; }
+label.tag-sub, li.tag-sub { padding-left: rem(1.2); }
+label.tag-box input { margin: 0 rem(0.3) 0 0; vertical-align: middle; }
+.tag-box .n, .tag-list .n { color: $muted; font-size: rem(0.75); }
+details.tag-more > summary { font-size: rem(0.85); }
+// the genres, the longest group: two columns wide, its tags in two columns, where the engine has a grid
+@supports (display: grid) {
+  .tag-panel { align-items: start; }
+  .tag-panel > .tag-group-genre { grid-column: span 2; columns: 2; column-gap: rem(0.8); }
+  .tag-group-genre label.tag-box { break-inside: avoid; }
+  .tag-index > .tag-index-wide { grid-column: 1 / -1; }
+}
+.tag-index-link { margin: rem(0.6) 0 0; }
 .cards { list-style: none; margin: 0; padding: 0; @include card-grid(240px, rem(1.1)); }
 .card { background: $panel; border: 1px solid $border; border-radius: 12px; overflow: hidden; transition: transform 0.12s, border-color 0.12s; }
 .card:hover { transform: translateY(-2px); border-color: $accent-deep; }
-.card a { display: block; color: $text; text-decoration: none; height: 100%; }
+.card a.card-link { display: block; color: $text; text-decoration: none; }
 .card img { display: block; width: 100%; height: auto; background: $code; aspect-ratio: 16 / 9; object-fit: cover; }
 .card-body { padding: rem(0.8) rem(1) rem(1); }
 .card h2 { margin: 0 0 rem(0.4); font-size: rem(1.1); color: $accent-light; }
-.card .meta, .card .cat { margin: rem(0.2) 0; }
-.card .cat { color: $muted; font-size: rem(0.85); }
+.card .meta { margin: rem(0.2) 0; }
+.card-tags { margin: 0; padding: 0 rem(1) rem(0.7); }
 .card .summary { margin: rem(0.5) 0 0; font-size: rem(0.9); }
 
 // a game's head and its tabs
@@ -168,6 +187,23 @@ main.wrap { padding-bottom: rem(3); }
 .badges { margin: rem(0.4) 0; line-height: 2; }
 .badge { display: inline-block; line-height: 1.5; background: $panel; border: 1px solid $border; border-radius: 6px; padding: 0.05em 0.55em; font-size: rem(0.8); color: $muted; white-space: nowrap; }
 .badge-no-sound, .badge-low-memory, .badge-needs-data { color: $warn; }
+// tags (partials/tag-link.html): each a link to its page, tags/<id>/; the Needs group's in the warning colour
+a.tag { display: inline-block; line-height: 1.5; margin: 0 rem(0.15) rem(0.3) 0; padding: 0.05em 0.55em; background: $panel; border: 1px solid $border; border-radius: 6px; font-size: rem(0.8); color: $accent-light; text-decoration: none; white-space: nowrap; }
+a.tag:hover { border-color: $accent-deep; color: $accent; }
+a.tag-needs { color: $warn; }
+.tag-note { font-size: rem(0.8); color: $muted; }
+// a game's tags by group: the group's small label in a narrow column on the left (floats: CSS 2.1)
+dl.tag-groups { margin: rem(0.6) 0; overflow: hidden; }
+dl.tag-groups dt { float: left; clear: left; width: rem(5.5); padding-top: rem(0.15); color: $muted; font-size: rem(0.7); text-transform: uppercase; letter-spacing: 0.5px; }
+dl.tag-groups dd { margin: 0 0 0 rem(5.5); }
+// the tags index, tags/: a box per group
+.tag-index { @include card-grid(rem(15), rem(1.2)); }
+.tag-index-group h2 { margin-top: rem(0.6); }
+ul.tag-list { list-style: none; margin: 0; padding: 0; }
+ul.tag-list li { margin: rem(0.1) 0; }
+// a folded group (Keywords) across the whole width, its tags in a row
+.tag-index > .tag-index-wide { display: block; width: auto; }
+.tag-index-wide ul.tag-list li { display: inline; margin-right: rem(0.6); }
 .tabs {
   list-style: none;
   margin: rem(1.2) 0 rem(0.4);

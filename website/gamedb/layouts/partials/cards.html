@@ -1,38 +1,55 @@
-{{/* the filter bar and the card grid of every game: the full list without JavaScript */}}
-{{ $games := hugo.Data.catalog.games }}
+{{/* the card grid of games: (dict "games" <catalog entries> "filters" <bool>). With filters, the filter bar above
+     it (search, medal, the tag panel: a group's ticked tags are ORed, the groups ANDed; assets/gamedb.js, which
+     keeps the state in the query string). Without JavaScript the bar stays hidden: the full list, and the tag
+     links (each tag's page, tags/) are the way in */}}
+{{ $games := .games }}
+{{ $cat := hugo.Data.catalog }}
+{{ if .filters }}
 <div class="filters" id="filters" hidden>
-  <input type="search" id="f-search" placeholder="Search games" aria-label="Search games">
-  <select id="f-category" aria-label="Category"><option value="">All categories</option>
-    {{ $cats := slice }}{{ range $games }}{{ range .categories }}{{ $cats = $cats | append . }}{{ end }}{{ end }}
-    {{ range sort (uniq $cats) }}<option value="{{ . }}">{{ . }}</option>{{ end }}
-  </select>
-  <select id="f-medal" aria-label="Medal"><option value="">All medals</option>
-    {{/* Tin is rules 1's only (rules 2.1 has none): listed only when a game has it */}}
-    {{ $medals := slice }}{{ range $games }}{{ $medals = $medals | append .rating.medal }}{{ end }}
-    {{ range slice "Platinum" "Gold" "Silver" "Bronze" "Tin" "Rust" "Scrap" "Untested" }}{{ if or (ne . "Tin") (in $medals "Tin") }}<option value="{{ lower . }}">{{ . }}</option>{{ end }}{{ end }}
-  </select>
-  <select id="f-tag" aria-label="Tag"><option value="">All tags</option>
-    {{ $tags := slice }}{{ range $games }}{{ range .tags }}{{ $tags = $tags | append . }}{{ end }}{{ end }}
-    {{ range sort (uniq $tags) }}<option value="{{ . }}">{{ . }}</option>{{ end }}
-  </select>
-  <span id="f-count" class="muted" aria-live="polite"></span>
+  <div class="filter-row">
+    <input type="search" id="f-search" placeholder="Search games" aria-label="Search games">
+    <select id="f-medal" aria-label="Medal"><option value="">All medals</option>
+      {{/* Tin is rules 1's only (rules 2.1 has none): listed only when a game has it */}}
+      {{ $medals := slice }}{{ range $games }}{{ $medals = $medals | append .rating.medal }}{{ end }}
+      {{ range slice "Platinum" "Gold" "Silver" "Bronze" "Tin" "Rust" "Scrap" "Untested" }}{{ if or (ne . "Tin") (in $medals "Tin") }}<option value="{{ lower . }}">{{ . }}</option>{{ end }}{{ end }}
+    </select>
+    <button type="button" id="f-clear" class="clear">Clear</button>
+    <span id="f-count" class="muted" aria-live="polite"></span>
+  </div>
+  <div class="tag-panel" id="f-tags">
+  {{ range $cat.tag_groups }}
+    {{ $used := slice }}{{ range .tags }}{{ if gt (index $cat.tags .).games 0 }}{{ $used = $used | append . }}{{ end }}{{ end }}
+    {{ if $used }}
+    <fieldset class="tag-group tag-group-{{ .id }}">
+      <legend>{{ .label }}</legend>
+      {{ $boxes := partial "tag-boxes.html" (dict "ids" $used "group" .id) }}
+      {{ if .collapsed }}<details class="tag-more" data-group="{{ .id }}"><summary>Show {{ len $used }} {{ lower .label }}</summary>{{ $boxes }}</details>{{ else }}{{ $boxes }}{{ end }}
+    </fieldset>
+    {{ end }}
+  {{ end }}
+  </div>
+  <p class="small tag-index-link"><a href="{{ "tags/" | relURL }}">All tags</a></p>
 </div>
+{{ end }}
 <ul class="cards" id="cards">
 {{ range sort $games "title" }}
   {{ $page := site.GetPage (printf "/games/%s" .id) }}
-  <li class="card" data-id="{{ .id }}" data-category="{{ delimit .categories " " }}" data-medal="{{ lower .rating.medal }}"
-      data-tags="{{ delimit .tags "|" }}" data-needs-data="{{ .needs_data }}"
-      data-search="{{ lower (printf "%s %s %s %s" .title .summary (delimit .tags " ") (delimit .categories " ")) }}">
-    <a href="{{ $page.RelPermalink }}">
+  {{ $g := . }}
+  {{ $labels := slice }}{{ range .tags }}{{ $labels = $labels | append (index $cat.tags .).label }}{{ end }}
+  <li class="card" data-id="{{ .id }}" data-medal="{{ lower .rating.medal }}"
+      data-tags="{{ delimit .tags " " }}" data-needs-data="{{ .needs_data }}"
+      data-search="{{ lower (printf "%s %s %s" .title .summary (delimit $labels " ")) }}">
+    <a class="card-link" href="{{ $page.RelPermalink }}">
       {{ with $page.Resources.Get "thumb.png" }}<img src="{{ .RelPermalink }}" width="256" height="144" alt="" loading="lazy">
       {{- else }}{{ with resources.Get "no-screenshot.png" }}<img src="{{ .RelPermalink }}" width="256" height="144" alt="No screenshot yet" loading="lazy">{{ end }}{{ end }}
       <div class="card-body">
         <h2>{{ .title }}</h2>
         <p class="meta">{{ partial "medal.html" .rating }}</p>
-        <p class="cat">{{ delimit .categories ", " }}</p>
         <p class="summary">{{ .summary }}</p>
       </div>
     </a>
+    {{/* a few tags, outside the card's link (a link can't hold links): the genres and the gamepad */}}
+    <p class="card-tags">{{ range .tags }}{{ $t := index $cat.tags . }}{{ if or (eq $t.group "genre") (eq . "gamepad") }}{{ partial "tag-link.html" (dict "id" . "note" (index $g.tag_notes .)) }} {{ end }}{{ end }}</p>
   </li>
 {{ end }}
 </ul>

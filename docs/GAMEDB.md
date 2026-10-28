@@ -6,7 +6,7 @@ scripted runs (the harness for measuring game and GPU-driver optimizations) and 
 rating: no crash-free hours, no checklist answers, no frame-rate numbers. It is two things over one catalog:
 
 - **the website**, https://walnut.nanobyte.dev/gamedb/: a card for every game with its medal,
-  filters (category, medal, tags) and search; each game has four tabs, Overview (the rating, the
+  filters (medal, a tag panel) and search, and a page per tag; each game has four tabs, Overview (the rating, the
   screenshots, the installation), Test runs, Technical and Guides ([The website](#the-website));
 - **the desktop app** on Walnut (`walnut-games`): the same cards, with Install, Remove and Play.
 
@@ -451,6 +451,14 @@ browser, NetSurf and the app's HTML view (the user, 2026-10-28):
 - **How a game is tested**: the Test runs tab says testing is done with the rating tool (`walnut-rate`,
   planned) and links `ratingDocs` (hugo.toml params; for now the about page's "How a game is tested"),
   the one place to point at the tool's own documentation when it exists.
+- **Tags** (gamedb/tags.toml, [gamedb/README.md](../gamedb/README.md#tags)): every tag shown is a link to
+  its page, `tags/<id>/` (content/tags/_content.gotmpl, from catalog.json's tags), which lists the games that
+  have it as cards; `tags/` is the index, by group. A game's head shows its tags under small group labels; a
+  card shows its genres and "supports gamepad". The home page's filter panel (assets/gamedb.js, where the
+  browser has URLSearchParams and history.replaceState) has a box per group with a checkbox per tag
+  (Keywords folded): ticked tags of one group are ORed, the groups ANDed, with the medal and the search as
+  before; the state is the query string (`?tags=fps,local-multiplayer&medal=gold&q=...`), so a filtered
+  view can be linked. Without the script (NetSurf) the panel stays hidden and the tag links are the way in.
 - **"Open in Walnut Games"**: the Overview's head has a `walnut://game/<id>` link for a visitor on a
   Walnut console, with no script: the site's CSS hides `.walnut-os-only`, and walnut-games' postinst puts the rule that shows it
   into NetSurf's system user stylesheet, `/usr/share/netsurf/user.css` (NetSurf 3.11 reads `resource:user.css`
@@ -635,7 +643,7 @@ worst). The PS3's pages look the same as the PC's (an amd64 build under Xvfb): n
 ## Adding a game
 
 A game is one folder, `gamedb/games/<id>/` (gamedb/README.md has the schema): `index.md` with the catalog entry in its
-front matter (title, summary, categories, tags, the packages to install, optionally the .desktop entries,
+front matter (title, summary, tags from gamedb/tags.toml, the packages to install, optionally the .desktop entries,
 `fps_cap` if it has one, whether it needs the user's own data, the controller, `designed_for`:
 `"pad"` by default or `"keyboard-mouse"`, set by the user per game) and notes as its
 body, a `thumb.png`, and one folder per test (`rating/sessions/<date>-<kind>/`) with its generated
