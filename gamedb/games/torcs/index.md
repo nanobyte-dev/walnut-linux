@@ -2,6 +2,6 @@
 id = "torcs"
 title = "TORCS"
 draft = true
-status = "candidate"
-status_note = "Smoke recipe exists and the package is installed on the PS3, but the game is menu only and waits for the user at the controller (technical.md, todo.toml); no run yet."
+status = "tried"
+status_note = "Smoke run on the PS3 on 2026-10-29: Quick Race on Forza through the menus by XTEST, fullscreen 1920x1080, the picture right, but about 7 fps (the game's counter 6.6) with frames up to 6 s: runs, far too slow (technical.md); no played session yet."
 +++

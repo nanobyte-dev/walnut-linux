@@ -35,3 +35,13 @@ variant_notc() { TORCS_TC=disabled; }
 variant_window() { TORCS_FS=no; }
 # no multitexturing (torcs -s), the fallback for old cards: the second texture unit is not used
 variant_single() { CMD+=(-s); }
+# Into a race without the user (games night 2026-10-29): Return through the menus by XTEST (Race,
+# Quick Race, New Race) 15 s after the window; the screenshots count from there. The titles are logged.
+TORCS_KEYS=(Return +3 Return +3 Return +5)
+during() {
+	[ ${#TORCS_KEYS[@]} = 0 ] && return 0
+	sleep 8; xwininfo -root -tree | grep '"' | grep -v 'Openbox\|has no name' | head -3 | sed 's/^ */window: /'
+	smoke_xkeys /usr/lib/powerpc64-linux-gnu/torcs 7 "${TORCS_KEYS[@]}"; shot_mark	# the window is named after the binary
+}
+SHOT_FROM=mark
+variant_menu() { TORCS_KEYS=(); SHOT_STATIC=1; }

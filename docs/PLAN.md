@@ -236,7 +236,6 @@ backlog, the played-session queue's place included, is its todo.toml. The full l
 | [Red Eclipse](../gamedb/games/redeclipse/todo.toml) | 1 | 1 fix | 3.8 |
 | [SuperTuxKart](../gamedb/games/supertuxkart/todo.toml) | 5 | 2 fix, 1 package, 1 research, 1 session | 2.1, 3.1 |
 | [Teeworlds](../gamedb/games/teeworlds/todo.toml) | 1 | 1 benchmark | 2.6 |
-| [TORCS](../gamedb/games/torcs/todo.toml) | 1 | 1 benchmark | 1.11 |
 | [ioquake3 (engine)](../gamedb/engines/ioquake3/todo.toml) | 1 | 1 fix | 3.9 |
 <!-- /gamedb:todo-summary -->
 
