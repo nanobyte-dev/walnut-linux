@@ -1,0 +1,38 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Wed, 28 Oct 2026 20:34:37 +0200
+Subject: SIMD::findInterleaved: low bytes in val[0] on big-endian too
+
+findInterleaved de-interleaves UTF-16 text with vld2q_u8 and hands the matcher the characters' low bytes in val[0] and their high bytes in val[1]. A byte de-interleave puts the bytes at even addresses in val[0], which are the high bytes on big-endian, so the HTML fast parser (HTMLDocumentParserFastPath, 16-bit input from innerHTML and fragments) never found '<', '&', CR or the closing quote in ASCII text and read tags as text; a character like U+263C could also match. Swap the halves on big-endian.
+
+diff --git a/Source/WTF/wtf/SIMDHelpers.h b/Source/WTF/wtf/SIMDHelpers.h
+--- a/Source/WTF/wtf/SIMDHelpers.h
++++ b/Source/WTF/wtf/SIMDHelpers.h
+@@ -621,15 +621,25 @@ ALWAYS_INLINE const CharacterType* findInterleaved(std::span<const CharacterType
+ {
+     constexpr size_t stride = SIMD::stride<CharacterType> * 2;
+     static_assert(threshold >= stride);
++    // vectorMatch takes the characters' low bytes in val[0] and their high bytes in val[1]. A byte
++    // de-interleave gives the bytes at even addresses in val[0]: the low ones on little-endian, the
++    // high ones on big-endian.
++    auto load = [](const CharacterType* pointer) ALWAYS_INLINE_LAMBDA {
++        auto bytes = simde_vld2q_u8(std::bit_cast<const uint8_t*>(pointer));
++#if CPU(BIG_ENDIAN)
++        std::swap(bytes.val[0], bytes.val[1]);
++#endif
++        return bytes;
++    };
+     const auto* cursor = span.data();
+     const auto* end = span.data() + span.size();
+     if (span.size() >= threshold) {
+         for (; cursor + stride <= end; cursor += stride) {
+-            if (auto index = vectorMatch(simde_vld2q_u8(std::bit_cast<const uint8_t*>(cursor))))
++            if (auto index = vectorMatch(load(cursor)))
+                 return cursor + index.value();
+         }
+         if (cursor < end) {
+-            if (auto index = vectorMatch(simde_vld2q_u8(std::bit_cast<const uint8_t*>(end - stride))))
++            if (auto index = vectorMatch(load(end - stride)))
+                 return end - stride + index.value();
+         }
+         return end;

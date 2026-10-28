@@ -1,0 +1,793 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Wed, 28 Oct 2026 20:18:38 +0200
+Subject: Walnut: the GTK 3 flavour only, without the features a PS3 browser
+ leaves out
+
+Only the 4.1 API (GTK 3) flavour is built, for Badwolf: no GTK 4 (6.0) packages, no documentation, no introspection data, no WebDriver, no MiniBrowser. Left out at build time: WebGL and WebGPU, WebRTC, media capture and recording, WebAudio, WebCodecs, speech synthesis, encrypted media, GStreamer GL, gamepads, geolocation, spellchecking, libsecret, AVIF and JPEG XL, PDF.js, the remote inspector, the Wayland target, journald logging, and the bubblewrap sandbox (no namespaces on the PS3's kernel). <video> and Media Source stay, with GStreamer; the plugins recommended are libav only (base and good are Depends), not plugins-bad or gstreamer1.0-gl. The build profile pkg.webkit2gtk.novideo also drops GStreamer, for measuring. On ppc64 the code is scheduled for the Cell PPE (-mtune=cell; the instruction set stays the baseline). dpkg-gensymbols does not stop on API symbols that the left-out features take with them.
+
+diff --git a/debian/WebKitWebDriver.1 b/debian/WebKitWebDriver.1
+deleted file mode 100644
+--- a/debian/WebKitWebDriver.1
++++ /dev/null
+@@ -1,46 +0,0 @@
+-.\"                                      Hey, EMACS: -*- nroff -*-
+-.\" First parameter, NAME, should be all caps
+-.\" Second parameter, SECTION, should be 1-8, maybe w/ subsection
+-.\" other parameters are allowed: see man(7), man(1)
+-.TH WebKitWebDriver 1 "Feb 27, 2020"
+-.\" Please adjust this date whenever revising the manpage.
+-.\"
+-.\" Some roff macros, for reference:
+-.\" .nh        disable hyphenation
+-.\" .hy        enable hyphenation
+-.\" .ad l      left justify
+-.\" .ad b      justify to both left and right margins
+-.\" .nf        disable filling
+-.\" .fi        enable filling
+-.\" .br        insert line break
+-.\" .sp <n>    insert n+1 empty lines
+-.\" for manpage-specific macros, see man(7)
+-.SH NAME
+-WebKitWebDriver \- WebDriver service implementation for WebKitGTK.
+-.SH SYNOPSIS
+-.B WebKitWebDriver
+-.RI [ options ]
+-.SH DESCRIPTION
+-This manual page documents briefly the
+-.B WebKitWebDriver
+-command.
+-.PP
+-WebDriver is an automation API to control a web browser. It allows the
+-user to create automated tests for web applications independently of the
+-browser and platform.
+-
+-The \fBWebKitWebDriver\fP binary provides the WebDriver service
+-implementation for WebKitGTK. It works as a server, processing client
+-requests to spawn and control the web browser. This driver is not tied
+-to any specific browser and can be used with any WebKitGTK-based
+-browser, but it uses MiniBrowser as the default.
+-.SH OPTIONS
+-.TP
+-.B \-h,\ \-\-help
+-Show summary of command-line options.
+-.TP
+-.B \-p <port>,\ \-\-port=<port>
+-Set the port number that the driver will use.
+-.SH AUTHOR
+-This manual page was written by Alberto Garcia <berto@igalia.com>,
+-based on the contents of \fIhttps://blogs.igalia.com/carlosgc/2017/09/09/webdriver-support-in-webkitgtk-2-18/\fP.
+diff --git a/debian/control b/debian/control
+--- a/debian/control
++++ b/debian/control
+@@ -6,17 +6,9 @@ Uploaders: Alberto Garcia <berto@igalia.com>,
+            Emilio Pozuelo Monfort <pochu@debian.org>
+ X-Ubuntu-Use-Langpack: no
+ Build-Depends: debhelper-compat (= 13),
+-               bubblewrap [amd64 arm64 armel armhf i386 ppc64el riscv64 s390x loong64 hppa ppc64 x32],
+-               xdg-dbus-proxy [amd64 arm64 armel armhf i386 ppc64el riscv64 s390x loong64 hppa ppc64 x32],
+-               libseccomp-dev [amd64 arm64 armel armhf i386 ppc64el riscv64 s390x loong64 hppa ppc64 x32],
+                clang [amd64 arm64 armel i386 ppc64el riscv64 s390x],
+                clang-22 [armhf],
+                cmake (>= 3.20),
+-               flite1-dev,
+-               gir1.2-gobject-2.0-dev,
+-               gir1.2-gtk-3.0-dev,
+-               gir1.2-gtk-4.0-dev,
+-               gir1.2-soup-3.0-dev,
+                libglib2.0-dev,
+                libharfbuzz-dev,
+                libcairo2-dev,
+@@ -26,11 +18,8 @@ Build-Depends: debhelper-compat (= 13),
+                libicu-dev,
+                libgcrypt20-dev,
+                libgtk-3-dev,
+-               libgtk-4-dev,
+                libhyphen-dev,
+-               libjxl-dev,
+                liblcms2-dev,
+-               libmanette-0.2-dev [!hurd-any !i386],
+                libsoup-3.0-dev,
+                libsysprof-capture-4-dev (>= 3.38.0) [amd64 arm64 armel armhf i386 ppc64el riscv64 s390x hppa loong64 powerpc ppc64 sh4],
+                libxslt1-dev,
+@@ -44,7 +33,6 @@ Build-Depends: debhelper-compat (= 13),
+                flex,
+                ruby:native,
+                unifdef,
+-               libavif-dev,
+                libjpeg-dev,
+                libopenjp2-7-dev,
+                libpng-dev,
+@@ -54,14 +42,10 @@ Build-Depends: debhelper-compat (= 13),
+                libxt-dev,
+                libgstreamer1.0-dev,
+                libgstreamer-plugins-base1.0-dev,
+-               libenchant-2-dev,
+-               libsecret-1-dev,
+-               gobject-introspection,
+                ninja-build,
+                libegl-dev,
+                libgl-dev,
+                libgles-dev
+-Build-Depends-Indep: gi-docgen, jdupes
+ Standards-Version: 4.7.4
+ Vcs-Browser: https://salsa.debian.org/webkit-team/webkit
+ Vcs-Git: https://salsa.debian.org/webkit-team/webkit.git
+@@ -84,47 +68,6 @@ Description: JavaScript engine library from WebKitGTK - command-line interpreter
+  .
+  This package provides jsc, a command-line JavaScript interpreter.
+ 
+-Package: libwebkitgtk-doc
+-Build-Profiles: <!nodoc>
+-Section: doc
+-Architecture: all
+-Multi-Arch: foreign
+-Depends: ${misc:Depends}
+-Breaks: libwebkit2gtk-4.0-doc (<< 2.43.4-2~)
+-Replaces: libwebkit2gtk-4.0-doc (<< 2.43.4-2~)
+-Description: Web content engine library for GTK - documentation
+- WebKit is a web content engine, derived from KHTML and KJS from KDE, and
+- used primarily in Apple's Safari browser.  It is made to be embedded in
+- other applications, such as mail readers, or web browsers.
+- .
+- It is able to display content such as HTML, SVG, XML, and others. It also
+- supports DOM, XMLHttpRequest, XSLT, CSS, JavaScript/ECMAScript and more.
+- .
+- WebKitGTK is a WebKit port designed to be used in GTK applications.
+- .
+- This package contains the documentation.
+-
+-Package: webkitgtk-webdriver
+-Architecture: any
+-Pre-Depends: ${misc:Pre-Depends}
+-Depends: libwebkit2gtk-4.1-0 (= ${binary:Version}),
+-         ${shlibs:Depends},
+-         ${misc:Depends}
+-Breaks: webkit2gtk-driver (<< 2.45.5~)
+-Replaces: webkit2gtk-driver (<< 2.45.5~)
+-Description: WebKitGTK WebDriver support
+- WebKit is a web content engine, derived from KHTML and KJS from KDE, and
+- used primarily in Apple's Safari browser.  It is made to be embedded in
+- other applications, such as mail readers, or web browsers.
+- .
+- It is able to display content such as HTML, SVG, XML, and others. It also
+- supports DOM, XMLHttpRequest, XSLT, CSS, JavaScript/ECMAScript and more.
+- .
+- WebKitGTK is a WebKit port designed to be used in GTK applications.
+- .
+- This package provides the WebDriver service implementation for
+- WebKitGTK.
+-
+ Package: libjavascriptcoregtk-4.1-0
+ Section: libs
+ Architecture: any
+@@ -148,9 +91,7 @@ Architecture: any
+ Multi-Arch: same
+ Depends: libjavascriptcoregtk-4.1-0 (= ${binary:Version}),
+          libglib2.0-dev,
+-         ${gir:Depends},
+          ${misc:Depends}
+-Provides: ${gir:Provides}
+ Description: JavaScript engine library from WebKitGTK - development files
+  JavaScriptCore is the JavaScript engine used in WebKit. It consists
+  of the following building blocks: lexer, parser, start-up interpreter
+@@ -161,25 +102,6 @@ Description: JavaScript engine library from WebKitGTK - development files
+  .
+  This package contains the development files.
+ 
+-Package: gir1.2-javascriptcoregtk-4.1
+-Section: introspection
+-Architecture: any
+-Multi-Arch: same
+-Depends: libjavascriptcoregtk-4.1-0 (= ${binary:Version}),
+-         ${gir:Depends},
+-         ${misc:Depends}
+-Provides: ${gir:Provides}
+-Description: JavaScript engine library from WebKitGTK - GObject introspection data
+- JavaScriptCore is the JavaScript engine used in WebKit. It consists
+- of the following building blocks: lexer, parser, start-up interpreter
+- (LLInt), baseline JIT, a low-latency optimizing JIT (DFG), and a
+- high-throughput optimizing JIT (FTL).
+- .
+- This build comes from the GTK port of WebKit (API version 4.1).
+- .
+- This package contains the introspection data, which can be used by
+- packages using the GIRepository format to generate dynamic bindings.
+-
+ Package: libwebkit2gtk-4.1-0
+ Section: libs
+ Architecture: any
+@@ -193,8 +115,7 @@ Depends: libjavascriptcoregtk-4.1-0 (= ${binary:Version}),
+          ${shlibs:Depends},
+          ${gles:Depends},
+          ${misc:Depends}
+-Recommends: gstreamer1.0-gl,
+-            libgl1-mesa-dri,
++Recommends: libgl1-mesa-dri,
+             ${bwrap:Recommends},
+             ${gst:Recommends}
+ Suggests: ${gst:Suggests},
+@@ -220,9 +141,7 @@ Depends: libwebkit2gtk-4.1-0 (= ${binary:Version}),
+          libgtk-3-dev,
+          libsoup-3.0-dev,
+          libjavascriptcoregtk-4.1-dev (= ${binary:Version}),
+-         ${gir:Depends},
+          ${misc:Depends}
+-Provides: ${gir:Provides}
+ Description: Web content engine library for GTK - development files
+  WebKit is a web content engine, derived from KHTML and KJS from KDE, and
+  used primarily in Apple's Safari browser.  It is made to be embedded in
+@@ -236,161 +155,3 @@ Description: Web content engine library for GTK - development files
+  toolkit.
+  .
+  This package contains the development files.
+-
+-Package: gir1.2-webkit2-4.1
+-Section: introspection
+-Architecture: any
+-Multi-Arch: same
+-Depends: libwebkit2gtk-4.1-0 (= ${binary:Version}),
+-         ${gir:Depends},
+-         ${misc:Depends}
+-Provides: ${gir:Provides}
+-Description: Web content engine library for GTK - GObject introspection data
+- WebKit is a web content engine, derived from KHTML and KJS from KDE, and
+- used primarily in Apple's Safari browser.  It is made to be embedded in
+- other applications, such as mail readers, or web browsers.
+- .
+- It is able to display content such as HTML, SVG, XML, and others. It also
+- supports DOM, XMLHttpRequest, XSLT, CSS, JavaScript/ECMAScript and more.
+- .
+- WebKitGTK is a WebKit port designed to be used in GTK applications.
+- This build provides version 4.1 of the API and uses the GTK 3 widget
+- toolkit.
+- .
+- This package contains introspection data, which can be used by
+- packages using the GIRepository format to generate dynamic bindings.
+-
+-Package: libjavascriptcoregtk-6.0-1
+-Section: libs
+-Architecture: any
+-Multi-Arch: same
+-Pre-Depends: ${misc:Pre-Depends}
+-Depends: ${shlibs:Depends},
+-         ${misc:Depends}
+-Description: JavaScript engine library from WebKitGTK
+- JavaScriptCore is the JavaScript engine used in WebKit. It consists
+- of the following building blocks: lexer, parser, start-up interpreter
+- (LLInt), baseline JIT, a low-latency optimizing JIT (DFG), and a
+- high-throughput optimizing JIT (FTL).
+- .
+- This build comes from the GTK port of WebKit (API version 6.0).
+- .
+- This package contains the shared libraries.
+-
+-Package: libjavascriptcoregtk-6.0-dev
+-Section: libdevel
+-Architecture: any
+-Multi-Arch: same
+-Depends: libjavascriptcoregtk-6.0-1 (= ${binary:Version}),
+-         libglib2.0-dev,
+-         ${gir:Depends},
+-         ${misc:Depends}
+-Provides: ${gir:Provides}
+-Description: JavaScript engine library from WebKitGTK - development files
+- JavaScriptCore is the JavaScript engine used in WebKit. It consists
+- of the following building blocks: lexer, parser, start-up interpreter
+- (LLInt), baseline JIT, a low-latency optimizing JIT (DFG), and a
+- high-throughput optimizing JIT (FTL).
+- .
+- This build comes from the GTK port of WebKit (API version 6.0).
+- .
+- This package contains the development files.
+-
+-Package: gir1.2-javascriptcoregtk-6.0
+-Section: introspection
+-Architecture: any
+-Multi-Arch: same
+-Depends: libjavascriptcoregtk-6.0-1 (= ${binary:Version}),
+-         ${gir:Depends},
+-         ${misc:Depends}
+-Provides: ${gir:Provides}
+-Description: JavaScript engine library from WebKitGTK - GObject introspection data
+- JavaScriptCore is the JavaScript engine used in WebKit. It consists
+- of the following building blocks: lexer, parser, start-up interpreter
+- (LLInt), baseline JIT, a low-latency optimizing JIT (DFG), and a
+- high-throughput optimizing JIT (FTL).
+- .
+- This build comes from the GTK port of WebKit (API version 6.0).
+- .
+- This package contains the introspection data, which can be used by
+- packages using the GIRepository format to generate dynamic bindings.
+-
+-Package: libwebkitgtk-6.0-4
+-Section: libs
+-Architecture: any
+-Multi-Arch: same
+-Pre-Depends: ${misc:Pre-Depends}
+-Depends: libjavascriptcoregtk-6.0-1 (= ${binary:Version}),
+-         gstreamer1.0-plugins-base,
+-         gstreamer1.0-plugins-good,
+-         libgles2,
+-         ${bwrap:Depends},
+-         ${shlibs:Depends},
+-         ${gles:Depends},
+-         ${misc:Depends}
+-Recommends: gstreamer1.0-gl,
+-            libgl1-mesa-dri,
+-            ${bwrap:Recommends},
+-            ${gst:Recommends}
+-Suggests: ${gst:Suggests},
+-         gstreamer1.0-alsa
+-Description: Web content engine library for GTK
+- WebKit is a web content engine, derived from KHTML and KJS from KDE, and
+- used primarily in Apple's Safari browser.  It is made to be embedded in
+- other applications, such as mail readers, or web browsers.
+- .
+- It is able to display content such as HTML, SVG, XML, and others. It also
+- supports DOM, XMLHttpRequest, XSLT, CSS, JavaScript/ECMAScript and more.
+- .
+- WebKitGTK is a WebKit port designed to be used in GTK applications.
+- This build provides version 6.0 of the API and uses the GTK 4 widget
+- toolkit.
+- .
+- This package contains the shared libraries.
+-
+-Package: libwebkitgtk-6.0-dev
+-Section: libdevel
+-Architecture: any
+-Depends: libwebkitgtk-6.0-4 (= ${binary:Version}),
+-         libgtk-4-dev,
+-         libsoup-3.0-dev,
+-         libjavascriptcoregtk-6.0-dev (= ${binary:Version}),
+-         ${gir:Depends},
+-         ${misc:Depends}
+-Provides: ${gir:Provides}
+-Description: Web content engine library for GTK - development files
+- WebKit is a web content engine, derived from KHTML and KJS from KDE, and
+- used primarily in Apple's Safari browser.  It is made to be embedded in
+- other applications, such as mail readers, or web browsers.
+- .
+- It is able to display content such as HTML, SVG, XML, and others. It also
+- supports DOM, XMLHttpRequest, XSLT, CSS, JavaScript/ECMAScript and more.
+- .
+- WebKitGTK is a WebKit port designed to be used in GTK applications.
+- This build provides version 6.0 of the API and uses the GTK 4 widget
+- toolkit.
+- .
+- This package contains the development files.
+-
+-Package: gir1.2-webkit-6.0
+-Section: introspection
+-Architecture: any
+-Multi-Arch: same
+-Depends: libwebkitgtk-6.0-4 (= ${binary:Version}),
+-         ${gir:Depends},
+-         ${misc:Depends}
+-Provides: ${gir:Provides}
+-Description: Web content engine library for GTK - GObject introspection data
+- WebKit is a web content engine, derived from KHTML and KJS from KDE, and
+- used primarily in Apple's Safari browser.  It is made to be embedded in
+- other applications, such as mail readers, or web browsers.
+- .
+- It is able to display content such as HTML, SVG, XML, and others. It also
+- supports DOM, XMLHttpRequest, XSLT, CSS, JavaScript/ECMAScript and more.
+- .
+- WebKitGTK is a WebKit port designed to be used in GTK applications.
+- This build provides version 6.0 of the API and uses the GTK 4 widget
+- toolkit.
+- .
+- This package contains introspection data, which can be used by
+- packages using the GIRepository format to generate dynamic bindings.
+diff --git a/debian/control-common.in b/debian/control-common.in
+--- a/debian/control-common.in
++++ b/debian/control-common.in
+@@ -21,9 +21,7 @@ Architecture: any
+ Multi-Arch: same
+ Depends: @LIBJSC_PKG@ (= ${binary:Version}),
+          libglib2.0-dev,
+-         ${gir:Depends},
+          ${misc:Depends}
+-Provides: ${gir:Provides}
+ Description: JavaScript engine library from WebKitGTK - development files
+  JavaScriptCore is the JavaScript engine used in WebKit. It consists
+  of the following building blocks: lexer, parser, start-up interpreter
+@@ -34,25 +32,6 @@ Description: JavaScript engine library from WebKitGTK - development files
+  .
+  This package contains the development files.
+ 
+-Package: gir1.2-javascriptcoregtk-@WK_API_VERSION@
+-Section: introspection
+-Architecture: any
+-Multi-Arch: same
+-Depends: @LIBJSC_PKG@ (= ${binary:Version}),
+-         ${gir:Depends},
+-         ${misc:Depends}
+-Provides: ${gir:Provides}
+-Description: JavaScript engine library from WebKitGTK - GObject introspection data
+- JavaScriptCore is the JavaScript engine used in WebKit. It consists
+- of the following building blocks: lexer, parser, start-up interpreter
+- (LLInt), baseline JIT, a low-latency optimizing JIT (DFG), and a
+- high-throughput optimizing JIT (FTL).
+- .
+- This build comes from the GTK port of WebKit (API version @WK_API_VERSION@).
+- .
+- This package contains the introspection data, which can be used by
+- packages using the GIRepository format to generate dynamic bindings.
+-
+ Package: @LIBWEBKITGTK_PKG@
+ Section: libs
+ Architecture: any
+@@ -66,8 +45,7 @@ Depends: @LIBJSC_PKG@ (= ${binary:Version}),
+          ${shlibs:Depends},
+          ${gles:Depends},
+          ${misc:Depends}
+-Recommends: gstreamer1.0-gl,
+-            libgl1-mesa-dri,
++Recommends: libgl1-mesa-dri,
+             ${bwrap:Recommends},
+             ${gst:Recommends}
+ Suggests: ${gst:Suggests},
+@@ -93,9 +71,7 @@ Depends: @LIBWEBKITGTK_PKG@ (= ${binary:Version}),
+          libgtk-@GTK_VERSION@-dev,
+          libsoup-3.0-dev,
+          libjavascriptcoregtk-@WK_API_VERSION@-dev (= ${binary:Version}),
+-         ${gir:Depends},
+          ${misc:Depends}
+-Provides: ${gir:Provides}
+ Description: Web content engine library for GTK - development files
+  WebKit is a web content engine, derived from KHTML and KJS from KDE, and
+  used primarily in Apple's Safari browser.  It is made to be embedded in
+@@ -110,26 +86,3 @@ Description: Web content engine library for GTK - development files
+  .
+  This package contains the development files.
+ 
+-Package: gir1.2-@WEBKIT@-@WK_API_VERSION@
+-Section: introspection
+-Architecture: any
+-Multi-Arch: same
+-Depends: @LIBWEBKITGTK_PKG@ (= ${binary:Version}),
+-         ${gir:Depends},
+-         ${misc:Depends}
+-Provides: ${gir:Provides}
+-Description: Web content engine library for GTK - GObject introspection data
+- WebKit is a web content engine, derived from KHTML and KJS from KDE, and
+- used primarily in Apple's Safari browser.  It is made to be embedded in
+- other applications, such as mail readers, or web browsers.
+- .
+- It is able to display content such as HTML, SVG, XML, and others. It also
+- supports DOM, XMLHttpRequest, XSLT, CSS, JavaScript/ECMAScript and more.
+- .
+- WebKitGTK is a WebKit port designed to be used in GTK applications.
+- This build provides version @WK_API_VERSION@ of the API and uses the GTK @GTK_VERSION@ widget
+- toolkit.
+- .
+- This package contains introspection data, which can be used by
+- packages using the GIRepository format to generate dynamic bindings.
+-
+diff --git a/debian/control.in b/debian/control.in
+--- a/debian/control.in
++++ b/debian/control.in
+@@ -5,17 +5,9 @@ Uploaders: Alberto Garcia <berto@igalia.com>,
+            Emilio Pozuelo Monfort <pochu@debian.org>
+ X-Ubuntu-Use-Langpack: no
+ Build-Depends: debhelper-compat (= 13),
+-               bubblewrap [amd64 arm64 armel armhf i386 ppc64el riscv64 s390x loong64 hppa ppc64 x32],
+-               xdg-dbus-proxy [amd64 arm64 armel armhf i386 ppc64el riscv64 s390x loong64 hppa ppc64 x32],
+-               libseccomp-dev [amd64 arm64 armel armhf i386 ppc64el riscv64 s390x loong64 hppa ppc64 x32],
+                clang [amd64 arm64 armel i386 ppc64el riscv64 s390x],
+                clang-22 [armhf],
+                cmake (>= 3.20),
+-               flite1-dev,
+-               gir1.2-gobject-2.0-dev,
+-               gir1.2-gtk-3.0-dev,
+-               gir1.2-gtk-4.0-dev,
+-               gir1.2-soup-3.0-dev,
+                libglib2.0-dev,
+                libharfbuzz-dev,
+                libcairo2-dev,
+@@ -25,11 +17,8 @@ Build-Depends: debhelper-compat (= 13),
+                libicu-dev,
+                libgcrypt20-dev,
+                libgtk-3-dev,
+-               libgtk-4-dev,
+                libhyphen-dev,
+-               libjxl-dev,
+                liblcms2-dev,
+-               libmanette-0.2-dev [!hurd-any !i386],
+                libsoup-3.0-dev,
+                libsysprof-capture-4-dev (>= 3.38.0) [amd64 arm64 armel armhf i386 ppc64el riscv64 s390x hppa loong64 powerpc ppc64 sh4],
+                libxslt1-dev,
+@@ -43,7 +32,6 @@ Build-Depends: debhelper-compat (= 13),
+                flex,
+                ruby:native,
+                unifdef,
+-               libavif-dev,
+                libjpeg-dev,
+                libopenjp2-7-dev,
+                libpng-dev,
+@@ -53,14 +41,10 @@ Build-Depends: debhelper-compat (= 13),
+                libxt-dev,
+                libgstreamer1.0-dev,
+                libgstreamer-plugins-base1.0-dev,
+-               libenchant-2-dev,
+-               libsecret-1-dev,
+-               gobject-introspection,
+                ninja-build,
+                libegl-dev,
+                libgl-dev,
+                libgles-dev
+-Build-Depends-Indep: gi-docgen, jdupes
+ Standards-Version: 4.7.4
+ Vcs-Browser: https://salsa.debian.org/webkit-team/webkit
+ Vcs-Git: https://salsa.debian.org/webkit-team/webkit.git
+@@ -83,44 +67,3 @@ Description: JavaScript engine library from WebKitGTK - command-line interpreter
+  .
+  This package provides jsc, a command-line JavaScript interpreter.
+ 
+-Package: libwebkitgtk-doc
+-Build-Profiles: <!nodoc>
+-Section: doc
+-Architecture: all
+-Multi-Arch: foreign
+-Depends: ${misc:Depends}
+-Breaks: libwebkit2gtk-4.0-doc (<< 2.43.4-2~)
+-Replaces: libwebkit2gtk-4.0-doc (<< 2.43.4-2~)
+-Description: Web content engine library for GTK - documentation
+- WebKit is a web content engine, derived from KHTML and KJS from KDE, and
+- used primarily in Apple's Safari browser.  It is made to be embedded in
+- other applications, such as mail readers, or web browsers.
+- .
+- It is able to display content such as HTML, SVG, XML, and others. It also
+- supports DOM, XMLHttpRequest, XSLT, CSS, JavaScript/ECMAScript and more.
+- .
+- WebKitGTK is a WebKit port designed to be used in GTK applications.
+- .
+- This package contains the documentation.
+-
+-Package: webkitgtk-webdriver
+-Architecture: any
+-Pre-Depends: ${misc:Pre-Depends}
+-Depends: libwebkit2gtk-4.1-0 (= ${binary:Version}),
+-         ${shlibs:Depends},
+-         ${misc:Depends}
+-Breaks: webkit2gtk-driver (<< 2.45.5~)
+-Replaces: webkit2gtk-driver (<< 2.45.5~)
+-Description: WebKitGTK WebDriver support
+- WebKit is a web content engine, derived from KHTML and KJS from KDE, and
+- used primarily in Apple's Safari browser.  It is made to be embedded in
+- other applications, such as mail readers, or web browsers.
+- .
+- It is able to display content such as HTML, SVG, XML, and others. It also
+- supports DOM, XMLHttpRequest, XSLT, CSS, JavaScript/ECMAScript and more.
+- .
+- WebKitGTK is a WebKit port designed to be used in GTK applications.
+- .
+- This package provides the WebDriver service implementation for
+- WebKitGTK.
+-
+diff --git a/debian/gir1.2-javascriptcoregtk-4.1.install b/debian/gir1.2-javascriptcoregtk-4.1.install
+deleted file mode 100644
+--- a/debian/gir1.2-javascriptcoregtk-4.1.install
++++ /dev/null
+@@ -1 +0,0 @@
+-usr/lib/*/girepository-1.0/JavaScriptCore-4.1.typelib
+diff --git a/debian/gir1.2-webkit2-4.1.install b/debian/gir1.2-webkit2-4.1.install
+deleted file mode 100644
+--- a/debian/gir1.2-webkit2-4.1.install
++++ /dev/null
+@@ -1,2 +0,0 @@
+-usr/lib/*/girepository-1.0/WebKit2-4.1.typelib
+-usr/lib/*/girepository-1.0/WebKit2WebExtension-4.1.typelib
+diff --git a/debian/libjavascriptcoregtk-4.1-dev.install b/debian/libjavascriptcoregtk-4.1-dev.install
+--- a/debian/libjavascriptcoregtk-4.1-dev.install
++++ b/debian/libjavascriptcoregtk-4.1-dev.install
+@@ -2,4 +2,3 @@ usr/include/webkitgtk-4.1/JavaScriptCore/
+ usr/include/webkitgtk-4.1/jsc/
+ usr/lib/*/libjavascriptcoregtk-4.1.so
+ usr/lib/*/pkgconfig/javascriptcoregtk-4.1.pc
+-usr/share/gir-1.0/JavaScriptCore-4.1.gir usr/share/gir-1.0/
+diff --git a/debian/libwebkit2gtk-4.1-0.install b/debian/libwebkit2gtk-4.1-0.install
+--- a/debian/libwebkit2gtk-4.1-0.install
++++ b/debian/libwebkit2gtk-4.1-0.install
+@@ -1,5 +1,4 @@
+ usr/lib/*/libwebkit2gtk-4.1.so.*
+ usr/lib/*/webkit2gtk-4.1/*Process
+-usr/lib/*/webkit2gtk-4.1/MiniBrowser
+ usr/lib/*/webkit2gtk-4.1/injected-bundle
+ usr/share/locale/*/LC_MESSAGES/WebKitGTK-4.1.mo
+diff --git a/debian/libwebkit2gtk-4.1-dev.install b/debian/libwebkit2gtk-4.1-dev.install
+--- a/debian/libwebkit2gtk-4.1-dev.install
++++ b/debian/libwebkit2gtk-4.1-dev.install
+@@ -4,5 +4,3 @@ usr/include/webkitgtk-4.1/webkitdom
+ usr/lib/*/libwebkit2gtk-4.1.so
+ usr/lib/*/pkgconfig/webkit2gtk-4.1.pc
+ usr/lib/*/pkgconfig/webkit2gtk-web-extension-4.1.pc
+-usr/share/gir-1.0/WebKit2-4.1.gir usr/share/gir-1.0/
+-usr/share/gir-1.0/WebKit2WebExtension-4.1.gir usr/share/gir-1.0/
+diff --git a/debian/libwebkitgtk-doc.doc-base.javascriptcoregtk b/debian/libwebkitgtk-doc.doc-base.javascriptcoregtk
+deleted file mode 100644
+--- a/debian/libwebkitgtk-doc.doc-base.javascriptcoregtk
++++ /dev/null
+@@ -1,9 +0,0 @@
+-Document: javascriptcoregtk
+-Title: JavaScriptCore GLib Reference Manual
+-Author: WebKitGTK development team
+-Abstract: This is the reference manual of the JavaScriptCore GLib API
+-Section: Programming
+-
+-Format: HTML
+-Index: /usr/share/doc/libwebkitgtk-doc/html/javascriptcoregtk-6.0/index.html
+-Files: /usr/share/doc/libwebkitgtk-doc/html/javascriptcoregtk-6.0/*.html
+diff --git a/debian/libwebkitgtk-doc.doc-base.webkitgtk b/debian/libwebkitgtk-doc.doc-base.webkitgtk
+deleted file mode 100644
+--- a/debian/libwebkitgtk-doc.doc-base.webkitgtk
++++ /dev/null
+@@ -1,15 +0,0 @@
+-Document: webkitgtk
+-Title: WebKitGTK reference manual
+-Author: WebKitGTK development team
+-Abstract: This manual contains the developer documentation of
+- WebKitGTK, a web content engine, designed to be embedded in other
+- applications, such as mail readers, or web browsers.
+- .
+- It is able to display content such as HTML, SVG, XML, and others. It
+- also supports DOM, XMLHttpRequest, XSLT, CSS, JavaScript/ECMAScript
+- and more.
+-Section: Programming
+-
+-Format: HTML
+-Index: /usr/share/doc/libwebkitgtk-doc/html/webkitgtk-6.0/index.html
+-Files: /usr/share/doc/libwebkitgtk-doc/html/webkitgtk-6.0/*.html
+diff --git a/debian/libwebkitgtk-doc.doc-base.webkitgtk-web-process-extension b/debian/libwebkitgtk-doc.doc-base.webkitgtk-web-process-extension
+deleted file mode 100644
+--- a/debian/libwebkitgtk-doc.doc-base.webkitgtk-web-process-extension
++++ /dev/null
+@@ -1,9 +0,0 @@
+-Document: webkitgtk-web-process-extension
+-Title: WebKit web extension and DOM Reference Manual
+-Author: WebKitGTK development team
+-Abstract: This is the reference manual of the WebKit web extension and DOM library
+-Section: Programming
+-
+-Format: HTML
+-Index: /usr/share/doc/libwebkitgtk-doc/html/webkitgtk-web-process-extension-6.0/index.html
+-Files: /usr/share/doc/libwebkitgtk-doc/html/webkitgtk-web-process-extension-6.0/*.html
+diff --git a/debian/libwebkitgtk-doc.install b/debian/libwebkitgtk-doc.install
+deleted file mode 100644
+--- a/debian/libwebkitgtk-doc.install
++++ /dev/null
+@@ -1 +0,0 @@
+-usr/share/doc/* usr/share/doc/libwebkitgtk-doc/html
+diff --git a/debian/libwebkitgtk-doc.links b/debian/libwebkitgtk-doc.links
+deleted file mode 100644
+--- a/debian/libwebkitgtk-doc.links
++++ /dev/null
+@@ -1,3 +0,0 @@
+-usr/share/doc/libwebkitgtk-doc/html/javascriptcoregtk-6.0 usr/share/gtk-doc/html/javascriptcoregtk-6.0
+-usr/share/doc/libwebkitgtk-doc/html/webkitgtk-6.0 usr/share/gtk-doc/html/webkitgtk-6.0
+-usr/share/doc/libwebkitgtk-doc/html/webkitgtk-web-process-extension-6.0 usr/share/gtk-doc/html/webkitgtk-web-process-extension-6.0
+diff --git a/debian/rules b/debian/rules
+--- a/debian/rules
++++ b/debian/rules
+@@ -8,12 +8,42 @@ include /usr/share/dpkg/buildflags.mk
+ # gtk3 build -> 4.1 API packages
+ # gtk4 build -> 6.0 API packages
+ ENABLE_GTK3=YES
+-ENABLE_GTK4=YES
++ENABLE_GTK4=NO
+ # YES => build libwebkit2gtk-4.0-doc, libjavascriptcoregtk-4.0-bin and webkit2gtk-driver (for trixie)
+ BUILD_TRANSITIONAL_PKGS=NO
+ 
++# Walnut (the PS3): the GTK 3 flavour only (Badwolf), and what a 256 MB console's browser leaves out
++# (docs/research/BROWSERS.md "Our build"). Gone: WebGL (and ANGLE), WebRTC and media capture,
++# WebAudio, WebCodecs, speech synthesis, gamepads, geolocation, spellchecking, credential storage
++# (libsecret), AVIF and JPEG XL images, PDF.js, WebDriver, the remote inspector, MiniBrowser, the
++# Wayland target (X11 only), journald logging, introspection and documentation, and the bubblewrap
++# sandbox (no user namespaces on our kernel; the GTK 3 API never turns it on anyway).
++# Kept: <video>/<audio> with GStreamer and Media Source (decided 2026-10-28: video is tried on the
++# PS3 before deciding), without GStreamer GL.
++# DEB_BUILD_PROFILES=pkg.webkit2gtk.novideo also drops GStreamer, for measuring.
++WALNUT_CMAKE_ARGUMENTS = \
++	   -DENABLE_WEBGL=OFF -DENABLE_WEBGPU=OFF \
++	   -DENABLE_WEB_RTC=OFF -DUSE_GSTREAMER_WEBRTC=OFF -DENABLE_MEDIA_STREAM=OFF -DENABLE_MEDIA_RECORDER=OFF \
++	   -DENABLE_WEB_AUDIO=OFF -DENABLE_WEB_CODECS=OFF -DENABLE_SPEECH_SYNTHESIS=OFF \
++	   -DENABLE_ENCRYPTED_MEDIA=OFF -DUSE_GSTREAMER_GL=OFF \
++	   -DENABLE_GAMEPAD=OFF -DENABLE_GEOLOCATION=OFF -DENABLE_SPELLCHECK=OFF -DUSE_LIBSECRET=OFF \
++	   -DUSE_AVIF=OFF -DUSE_JPEGXL=OFF -DENABLE_PDFJS=OFF \
++	   -DENABLE_WEBDRIVER=OFF -DENABLE_REMOTE_INSPECTOR=OFF -DENABLE_MINIBROWSER=OFF \
++	   -DENABLE_WAYLAND_TARGET=OFF -DENABLE_JOURNALD_LOG=OFF \
++	   -DENABLE_INTROSPECTION=OFF -DENABLE_DOCUMENTATION=OFF \
++	   -DENABLE_BUBBLEWRAP_SANDBOX=OFF
++# The PS3's PPE is a Cell: schedule for it (the instruction set stays Debian's ppc64 baseline)
++ifeq ($(DEB_HOST_ARCH),ppc64)
++	CFLAGS += -mtune=cell
++	CXXFLAGS += -mtune=cell
++endif
++ifneq (,$(filter pkg.webkit2gtk.novideo,$(DEB_BUILD_PROFILES)))
++	WALNUT_CMAKE_ARGUMENTS += -DUSE_GSTREAMER=OFF
++endif
++
+ EXTRA_DH_ARGUMENTS =
+ EXTRA_CMAKE_ARGUMENTS = -DPORT=GTK \
++	   $(WALNUT_CMAKE_ARGUMENTS) \
+ 	   -DCMAKE_INSTALL_LIBEXECDIR=lib/$(DEB_HOST_MULTIARCH) \
+ 	   -DCMAKE_C_FLAGS_RELEASE="" \
+ 	   -DCMAKE_C_FLAGS_DEBUG="" \
+@@ -128,18 +158,7 @@ ifneq (,$(filter $(DEB_HOST_ARCH),i386))
+ 	EXTRA_CMAKE_ARGUMENTS += -DENABLE_GAMEPAD=OFF
+ endif
+ 
+-# Don't recommend xdg portals on Ubuntu i386 where it doesn't exist
+-ifeq ($(shell dpkg-vendor --is Ubuntu && echo yes) $(DEB_HOST_ARCH), yes i386)
+-	EXTRA_CMAKE_ARGUMENTS += -DENABLE_BUBBLEWRAP_SANDBOX=ON
+-	DH_GENCONTROL_ARGS += -Vbwrap:Depends="bubblewrap (>= 0.3.1), xdg-dbus-proxy"
+-# Disable the bubblewrap sandbox if libseccomp-dev is not available
+-else ifeq ($(shell pkg-config --exists libseccomp && echo yes),yes)
+-	EXTRA_CMAKE_ARGUMENTS += -DENABLE_BUBBLEWRAP_SANDBOX=ON
+-	DH_GENCONTROL_ARGS += -Vbwrap:Depends="bubblewrap (>= 0.3.1), xdg-dbus-proxy"
+-	DH_GENCONTROL_ARGS += -Vbwrap:Recommends="xdg-desktop-portal-gtk"
+-else
+-	EXTRA_CMAKE_ARGUMENTS += -DENABLE_BUBBLEWRAP_SANDBOX=OFF
+-endif
++# Walnut: no bubblewrap sandbox (WALNUT_CMAKE_ARGUMENTS), so no bwrap Depends or portal Recommends
+ 
+ # set the distributor agent for Ubuntu
+ ifeq ($(shell dpkg-vendor --derives-from Ubuntu && echo yes),yes)
+@@ -155,7 +174,7 @@ endif
+ ifeq ($(shell dpkg-vendor --derives-from Ubuntu && echo yes),yes)
+ 	DH_GENCONTROL_ARGS += -Vgst:Suggests="gstreamer1.0-libav, gstreamer1.0-plugins-bad"
+ else
+-	DH_GENCONTROL_ARGS += -Vgst:Recommends="gstreamer1.0-libav, gstreamer1.0-plugins-bad"
++	DH_GENCONTROL_ARGS += -Vgst:Recommends="gstreamer1.0-libav"
+ endif
+ 
+ # flite (speech) and libmanette (gamepad) are not in Ubuntu main LP: #2096940 LP: #1918446
+@@ -182,7 +201,7 @@ ifneq ($(ENABLE_GTK3),YES)
+ endif
+ ifneq ($(ENABLE_GTK4),YES)
+ 	GTK4_BUILD = @:
+-	EXTRA_DH_ARGUMENTS += -Nlibwebkitgtk-doc
++	# (no libwebkitgtk-doc package any more)
+ endif
+ 
+ # The debhelper files for the gtk3 and gtk4 builds are almost
+@@ -219,7 +238,7 @@ WEBKIT_DH_RENAME_GTK4 = sed -e 's/libwebkit2gtk-4.1-0/libwebkitgtk-6.0-4/' \
+ 			    -e 's/4\.1/6.0/g'
+ 
+ %:
+-	dh $@ --with gir --buildsystem=cmake+ninja $(EXTRA_DH_ARGUMENTS)
++	dh $@ --buildsystem=cmake+ninja $(EXTRA_DH_ARGUMENTS)
+ 
+ debian/control: debian/control.in debian/control-common.in debian/control-transitional.in debian/rules
+ 	echo '# This file is autogenerated. DO NOT EDIT' > debian/control
+@@ -256,7 +275,7 @@ override_dh_auto_configure:
+ 		done ; \
+ 	fi
+ 	$(GTK3_BUILD) dh_auto_configure -Bbuild-gtk3 -- \
+-		-DENABLE_DOCUMENTATION=OFF -DUSE_GTK4=OFF \
++		-DUSE_GTK4=OFF \
+ 		$(EXTRA_CMAKE_ARGUMENTS)
+ 	$(GTK4_BUILD) dh_auto_configure -Bbuild-gtk4 -- \
+ 		-DENABLE_DOCUMENTATION=$(BUILD_DOCS) -DENABLE_WEBDRIVER=OFF \
+@@ -286,7 +305,7 @@ ifneq (,$(filter libwebkitgtk-doc,$(shell dh_listpackages)))
+ endif
+ 
+ override_dh_makeshlibs:
+-	$(GTK3_BUILD) dh_makeshlibs -plibwebkit2gtk-4.1-0 -Xinjected-bundle
++	$(GTK3_BUILD) dh_makeshlibs -plibwebkit2gtk-4.1-0 -Xinjected-bundle -- -c0
+ 	$(GTK3_BUILD) dh_makeshlibs -plibjavascriptcoregtk-4.1-0 -VNone
+ 	$(GTK4_BUILD) dh_makeshlibs -plibwebkitgtk-6.0-4 -Xinjected-bundle
+ 	$(GTK4_BUILD) dh_makeshlibs -plibjavascriptcoregtk-6.0-1 -VNone
+diff --git a/debian/webkitgtk-webdriver.install b/debian/webkitgtk-webdriver.install
+deleted file mode 100644
+--- a/debian/webkitgtk-webdriver.install
++++ /dev/null
+@@ -1 +0,0 @@
+-usr/bin/WebKitWebDriver
+diff --git a/debian/webkitgtk-webdriver.manpages b/debian/webkitgtk-webdriver.manpages
+deleted file mode 100644
+--- a/debian/webkitgtk-webdriver.manpages
++++ /dev/null
+@@ -1 +0,0 @@
+-debian/WebKitWebDriver.1

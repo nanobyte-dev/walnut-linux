@@ -1,0 +1,18 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Wed, 28 Oct 2026 21:03:04 +0200
+Subject: DocumentLoader.cpp: include EventLoop.h
+
+It uses EventLoopTaskGroup::queueTask and got its definition from another file of its unified-source bundle; with WebAudio, WebRTC and the other features we leave out the bundles are cut differently and the build fails (member access into incomplete type).
+
+diff --git a/Source/WebCore/loader/DocumentLoader.cpp b/Source/WebCore/loader/DocumentLoader.cpp
+--- a/Source/WebCore/loader/DocumentLoader.cpp
++++ b/Source/WebCore/loader/DocumentLoader.cpp
+@@ -53,6 +53,7 @@
+ #include "DocumentWriter.h"
+ #include "ElementChildIteratorInlines.h"
+ #include "Event.h"
++#include "EventLoop.h"
+ #include "EventNames.h"
+ #include "ExtensionStyleSheets.h"
+ #include "FormSubmission.h"

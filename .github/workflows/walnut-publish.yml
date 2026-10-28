@@ -60,6 +60,7 @@ on:
       - "pkg: uqm"
       - "pkg: walnut-games"
       - "pkg: warzone2100"
+      - "pkg: webkit2gtk"
       - "pkg: wesnoth"
       - "pkg: xmoto"
       - "pkg: yquake2"

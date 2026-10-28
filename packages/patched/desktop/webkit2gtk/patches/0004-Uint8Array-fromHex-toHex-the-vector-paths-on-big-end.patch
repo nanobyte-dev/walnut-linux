@@ -1,0 +1,56 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Wed, 28 Oct 2026 20:34:38 +0200
+Subject: Uint8Array fromHex/toHex: the vector paths on big-endian
+
+Both reinterpret byte vectors as 16-bit lanes and assume that a lane's first byte in memory is its low byte. On big-endian fromHex swapped the two nibbles of every output byte (8-bit input), toHex printed every byte low nibble first, and fromHex of a 16-bit string never took the vector path. Build the lanes the other way round on big-endian; little-endian is unchanged.
+
+diff --git a/Source/JavaScriptCore/runtime/JSGenericTypedArrayViewConstructor.cpp b/Source/JavaScriptCore/runtime/JSGenericTypedArrayViewConstructor.cpp
+--- a/Source/JavaScriptCore/runtime/JSGenericTypedArrayViewConstructor.cpp
++++ b/Source/JavaScriptCore/runtime/JSGenericTypedArrayViewConstructor.cpp
+@@ -135,9 +135,16 @@ template<typename CharacterType>
+         if (SIMD::isNonZero(flags)) [[unlikely]]
+             return false;
+ 
++        // Each 16-bit lane holds a pair of nibbles: the first (high) one in its low byte on
++        // little-endian, in its high byte on big-endian. The result is the lane's low 8 bits.
+         auto converted = simde_vreinterpretq_u16_u8(nibbles);
++#if CPU(BIG_ENDIAN)
++        auto low = converted;
++        auto high = simde_vshrq_n_u16(converted, 4);
++#else
+         auto low = simde_vshrq_n_u16(converted, 8);
+         auto high = simde_vshlq_n_u16(converted, 4);
++#endif
+         simde_vst1_u8(output, simde_vmovn_u16(simde_vorrq_u16(low, high)));
+         return true;
+     };
+@@ -165,6 +172,10 @@ template<typename CharacterType>
+                 return true;
+             } else {
+                 auto vectorDecode16 = [&](simde_uint8x16x2_t input, uint8_t* output) ALWAYS_INLINE_LAMBDA {
++#if CPU(BIG_ENDIAN)
++                    // the de-interleave put the characters' high bytes in val[0]
++                    std::swap(input.val[0], input.val[1]);
++#endif
+                     if (SIMD::isNonZero(input.val[1])) [[unlikely]]
+                         return false;
+                     return vectorDecode8(input.val[0], output);
+diff --git a/Source/JavaScriptCore/runtime/JSGenericTypedArrayViewPrototype.cpp b/Source/JavaScriptCore/runtime/JSGenericTypedArrayViewPrototype.cpp
+--- a/Source/JavaScriptCore/runtime/JSGenericTypedArrayViewPrototype.cpp
++++ b/Source/JavaScriptCore/runtime/JSGenericTypedArrayViewPrototype.cpp
+@@ -253,8 +253,14 @@ JSC_DEFINE_HOST_FUNCTION(uint8ArrayPrototypeToHex, (JSGlobalObject* globalObject
+             // masked             : 0H0L0H0L0H0L0H0L0H0L0H0L0H0L0H0L
+             constexpr simde_uint8x16_t characters { '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f' };
+             auto widen = simde_vmovl_u8(input);
++#if CPU(BIG_ENDIAN)
++            // The lane's first byte in memory is its high byte here: the high nibble goes there.
++            auto high = simde_vshlq_n_u16(simde_vshrq_n_u16(widen, 4), 8);
++            auto low = widen;
++#else
+             auto high = simde_vshlq_n_u16(widen, 8);
+             auto low = simde_vshrq_n_u16(widen, 4);
++#endif
+             auto merged = SIMD::bitOr(high, low);
+             auto masked = SIMD::bitAnd(simde_vreinterpretq_u8_u16(merged), SIMD::splat<uint8_t>(0xf));
+             return simde_vqtbl1q_u8(characters, masked);

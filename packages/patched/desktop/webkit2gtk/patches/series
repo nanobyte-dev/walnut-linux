@@ -1,0 +1,4 @@
+0002-CompactVariant-keep-small-payloads-in-the-storage-s-.patch
+0003-SIMD-findInterleaved-low-bytes-in-val-0-on-big-endia.patch
+0004-Uint8Array-fromHex-toHex-the-vector-paths-on-big-end.patch
+0005-DocumentLoader.cpp-include-EventLoop.h.patch

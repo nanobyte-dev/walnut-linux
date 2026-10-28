@@ -1,0 +1,80 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Wed, 28 Oct 2026 20:28:50 +0200
+Subject: CompactVariant: keep small payloads in the storage's low-order bytes
+ on big-endian
+
+A payload of at most 4 bytes was constructed at the address of the uint64_t storage and read back from it. On big-endian that address holds the high-order bytes, so any non-zero value (a float length, a percentage) met the top byte and RELEASE_ASSERT(!(data & topByteMask)) aborted the web process on nearly every page (https://bugs.webkit.org/show_bug.cgi?id=300442, https://bugs.debian.org/1117148). Place and read the payload at offset sizeof(Storage) - sizeof(T) on big-endian; pointers and alternative representations fill the whole storage and keep offset 0. Little-endian code is unchanged.
+
+diff --git a/Source/WTF/wtf/CompactVariantOperations.h b/Source/WTF/wtf/CompactVariantOperations.h
+--- a/Source/WTF/wtf/CompactVariantOperations.h
++++ b/Source/WTF/wtf/CompactVariantOperations.h
+@@ -79,6 +79,23 @@ template<CompactVariantAlternative... Ts> struct CompactVariantOperations {
+     static constexpr Storage topByteShift = 64 - 8;
+     static constexpr Storage topByteMask = 0xFFULL << topByteShift;
+ 
++    // A payload that isn't a pointer is at most 4 bytes and must sit in the storage's low-order
++    // bytes (bits 47-0), below the index: at the start of the uint64_t on little-endian, at its end
++    // on big-endian. Pointers and alternative representations fill the whole Storage (offset 0).
++    template<typename T> static constexpr size_t payloadOffset()
++    {
++        static_assert(sizeof(T) <= sizeof(Storage));
++        if constexpr (std::endian::native == std::endian::big)
++            return sizeof(Storage) - sizeof(T);
++        else
++            return 0;
++    }
++
++    template<typename T> static T* payloadAddress(Storage& storage)
++    {
++        return reinterpret_cast<T*>(reinterpret_cast<uint8_t*>(&storage) + payloadOffset<T>());
++    }
++
+     static constexpr Storage encodedIndex(Index index)
+     {
+         return static_cast<Storage>(index) << indexShift;
+@@ -96,7 +113,7 @@ template<CompactVariantAlternative... Ts> struct CompactVariantOperations {
+         if constexpr (CompactVariantTraits<T>::hasAlternativeRepresentation)
+             data = CompactVariantTraits<T>::encode(std::forward<U>(payload));
+         else
+-            new (NotNull, &data) T(std::forward<U>(payload));
++            new (NotNull, payloadAddress<T>(data)) T(std::forward<U>(payload));
+ 
+         // For data other than pointers, ensure the data doesn't overwrite the top byte.
+         // (i.e top byte should be zero)
+@@ -119,7 +136,7 @@ template<CompactVariantAlternative... Ts> struct CompactVariantOperations {
+         if constexpr (CompactVariantTraits<T>::hasAlternativeRepresentation)
+             data = CompactVariantTraits<T>::encodeFromArguments(std::forward<Args>(arguments)...);
+         else
+-            new (NotNull, &data) T(std::forward<Args>(arguments)...);
++            new (NotNull, payloadAddress<T>(data)) T(std::forward<Args>(arguments)...);
+ 
+         // For data other than pointers, ensure the data doesn't overwrite the top byte.
+         // (i.e top byte should be zero)
+@@ -143,7 +160,7 @@ template<CompactVariantAlternative... Ts> struct CompactVariantOperations {
+             T decodedData = CompactVariantTraits<T>::decode(maskedData);
+             return f(decodedData);
+         } else {
+-            T& decodedData = *std::launder(reinterpret_cast<T*>(&maskedData));
++            T& decodedData = *std::launder(payloadAddress<T>(maskedData));
+             return f(decodedData);
+         }
+     }
+@@ -156,7 +173,7 @@ template<CompactVariantAlternative... Ts> struct CompactVariantOperations {
+             T decodedData = CompactVariantTraits<T>::decode(maskedData);
+             return f(std::as_const(decodedData));
+         } else {
+-            T& decodedData = *std::launder(reinterpret_cast<T*>(&maskedData));
++            T& decodedData = *std::launder(payloadAddress<T>(maskedData));
+             return f(std::as_const(decodedData));
+         }
+     }
+@@ -230,7 +247,7 @@ template<CompactVariantAlternative... Ts> struct CompactVariantOperations {
+         if constexpr (CompactVariantTraits<T>::hasAlternativeRepresentation)
+             return CompactVariantTraits<T>::decode(maskedA) == CompactVariantTraits<T>::decode(maskedB);
+         else
+-            return *std::launder(reinterpret_cast<T*>(&maskedA)) == *std::launder(reinterpret_cast<T*>(&maskedB));
++            return *std::launder(payloadAddress<T>(maskedA)) == *std::launder(payloadAddress<T>(maskedB));
+     }
+ };
+ 
