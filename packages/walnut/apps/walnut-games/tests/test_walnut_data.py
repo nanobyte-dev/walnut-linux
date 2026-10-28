@@ -731,6 +731,99 @@ class DataImport(unittest.TestCase):
         self.assertEqual(a[a.index("-p") + 1], "rct2-demo")
         self.assertEqual(a[-2:], ["rct2-demo", "roller-coaster-tycoon2"])     # no source after the game
 
+    def test_plain_import_asks_for_the_base_only(self):
+        self.partial_games()
+        rc, out = self.imp(self.t / "src")
+        self.assertEqual(rc, 0, out)
+        a = self.log()[0]["gdp"]
+        self.assertEqual([a[i + 1] for i, x in enumerate(a) if x == "-p"], ["a-data", "b-data"])   # not c-music
+        rc, out = self.imp(self.t / "src", opts=("-p", "c-music"))
+        a = [e for e in self.log() if "gdp" in e][1]["gdp"]
+        self.assertEqual([a[i + 1] for i, x in enumerate(a) if x == "-p"], ["c-music"])
+        ds = self.games["openrct2"]["data_setup"]
+        ds.update(required=[], optional=["x-data", "x-music"])                       # only optional ones: all
+        self.assertEqual(wd.wanted_packages(ds, []), ["x-data", "x-music"])
+
+    def test_space_of_an_installer_is_its_own_size(self):
+        self.partial_games()
+        Path(wd.MANIFEST).write_text(json.dumps({"packages": {
+            "a-data": {"files": {"a": [{"size": 100}]}}, "b-data": {"files": {"b": [{"size": 100}]}},
+            "c-music": {"files": {"c": [{"size": 1 << 40}]}}}}))
+        (self.t / "setup.exe").write_bytes(b"x" * 1000)
+        seen = {}
+        real = wd.check_space
+        wd.check_space = lambda total, archive, cache, **kw: seen.update(total=total, archive=archive, **kw)
+        try:
+            rc, out = self.imp(self.t / "setup.exe")
+        finally:
+            wd.check_space = real
+        self.assertEqual(rc, 0, out)
+        self.assertEqual((seen["total"], seen["archive"], seen["unpack"]), (200, True, 1000))   # not 1 TB
+
+    def test_addons_found_in_a_folder(self):
+        self.partial_games()
+        man = {"c-music": {"files": {"usr/x/Music/TRACK.ogg": [{"size": 5}]}, "required": ["usr/x/Music/TRACK.ogg"]},
+               "d-pack": {"files": {"usr/x/d/pak0.pak": [{"size": 7}, {"size": 9}], "usr/x/d/pak1.pak": [{"size": 3}]},
+                          "required": ["usr/x/d/pak0.pak"]}}
+        ds = self.games["openrct2"]["data_setup"]
+        ds.update(optional=["c-music", "d-pack", "e-pack"])
+        (self.t / "src/music").mkdir()
+        (self.t / "src/music/track.OGG").write_bytes(b"12345")
+        (self.t / "src/PAK0.PAK").write_bytes(b"123456789")
+        self.assertEqual(wd.find_addons(ds, ["a-data"], [str(self.t / "src")], [], man), ["c-music", "d-pack"])
+        (self.t / "src/PAK0.PAK").write_bytes(b"12")                     # the wrong size is another file
+        self.assertEqual(wd.find_addons(ds, ["a-data"], [str(self.t / "src")], [], man), ["c-music"])
+        self.assertEqual(wd.find_addons(ds, ["a-data", "c-music"], [str(self.t / "src")], [], man), [])
+        self.assertEqual(wd.find_addons(ds, ["a-data"], [str(self.t / "src")], [], {}), [])
+        self.assertEqual(wd.find_addons(ds, ["a-data"], [str(self.t / "none")], [], man), [])
+        # reported by the whole import, after the base
+        Path(wd.MANIFEST).write_text(json.dumps({"packages": man}))
+        rc, out = self.imp(self.t / "src")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual([l for l in out if l.startswith("addon ")], ["addon available c-music"])
+        self.assertEqual(out.index("addon available c-music"), len(out) - 1)
+
+    def test_addons_found_in_an_installer_listing(self):
+        self.partial_games()
+        inno = self.t / "innoextract"
+        inno.write_text('#!/bin/sh\necho "$*" >> "$FAKE_LOG.inno"\n'
+                        'echo \'Extracting "Game" - setup data version 5.5.0\'\n'
+                        'echo \' - "app\\Hipnotic\\Pak0.pak" (7 B)\'\n'
+                        'echo \' - "app/music/track.ogg" (5.0 KiB)\'\n'
+                        'echo \' - "tmp/readme.txt"\'\n')
+        inno.chmod(0o755)
+        old, wd.INNOEXTRACT = wd.INNOEXTRACT, str(inno)
+        try:
+            (self.t / "setup.exe").write_bytes(b"MZ")
+            self.assertEqual(wd.listed_files(str(self.t / "setup.exe")),
+                             [("pak0.pak", (7, 0)), ("track.ogg", (5120, 0.5 * 1024 * 0.1)), ("readme.txt", None)])
+            self.assertEqual((self.t / "log.inno").read_text().split(), ["--list", str(self.t / "setup.exe")])
+            man = {"d-pack": {"files": {"usr/x/hipnotic/pak0.pak": [{"size": 7}]}, "required": ["usr/x/hipnotic/pak0.pak"]},
+                   "c-music": {"files": {"m/track.ogg": [{"size": 5200}]}},
+                   "e-pack": {"files": {"m/readme.txt": [{"size": 3}]}}}
+            ds = {"optional": ["d-pack", "c-music", "e-pack"]}
+            self.assertEqual(wd.find_addons(ds, [], [str(self.t / "setup.exe")], [], man), ["d-pack", "e-pack"])
+        finally:
+            wd.INNOEXTRACT = old
+        wd.INNOEXTRACT = str(self.t / "missing")
+        try:
+            self.assertEqual(wd.listed_files(str(self.t / "setup.exe")), [])      # no innoextract: nothing offered
+        finally:
+            wd.INNOEXTRACT = old
+
+    def test_addons_found_in_a_zip_and_music_on_a_cue(self):
+        import zipfile
+        with zipfile.ZipFile(self.t / "g.zip", "w") as z:
+            z.writestr("Dir/PAK0.PAK", b"1234567")
+        self.assertEqual(wd.listed_files(str(self.t / "g.zip")), [("pak0.pak", (7, 0))])
+        track = type("T", (), {"audio": True})
+        data = type("T", (), {"audio": False})
+        man = {"m-music": {"files": {}, "tracks": {"source": "m/track%02d.ogg", "first": 2, "last": 3}}}
+        ds = {"optional": ["m-music"]}
+        self.assertEqual(wd.find_addons(ds, [], [], [("disc", ("x.cue", [data, track]), 0)], man), ["m-music"])
+        self.assertEqual(wd.find_addons(ds, [], [], [("disc", ("x.cue", [data]), 0)], man), [])
+        self.assertEqual(wd.find_addons(ds, [], [], [("path", "/x", 0)], man), [])
+
     def test_import_direct(self):
         rc, out = self.imp(self.t / "src")
         self.assertEqual(rc, 0, out)
@@ -801,7 +894,7 @@ class DataImport(unittest.TestCase):
     def test_partial_download_package_missing_exit_0(self):
         self.partial_games()
         os.environ["FAKE_GDP_SKIP"] = "b-data c-music"
-        rc, out = self.imp(self.t / "src")
+        rc, out = self.imp(self.t / "src", opts=("-p", "a-data", "-p", "b-data", "-p", "c-music"))
         self.assertEqual(rc, 0, out)
         self.assertTrue(any(l.startswith("gdp error needs-download b-data: ") for l in out), out)
         self.assertTrue(any(l.startswith("warning missing c-music: ") for l in out), out)
@@ -1277,7 +1370,7 @@ class BinCueImport(unittest.TestCase):
             return real(src, path)
         wd.Sources.add = add
         try:
-            rc, out = self.imp(self.t / "game.cue", game="quakespasm")
+            rc, out = self.imp(self.t / "game.cue", game="quakespasm", opts=("-p", "quake-registered", "-p", "quake-music"))
         finally:
             wd.Sources.add = real
         self.assertEqual(rc, 0, out)
@@ -1524,7 +1617,7 @@ class MdfImport(unittest.TestCase):
             return real(src, path)
         wd.Sources.open_image = open_image
         try:
-            rc, out = self.imp(self.t / "game.mdf", game="quakespasm")
+            rc, out = self.imp(self.t / "game.mdf", game="quakespasm", opts=("-p", "quake-registered", "-p", "quake-music"))
         finally:
             wd.Sources.open_image = real
         self.assertEqual(rc, 0, out)

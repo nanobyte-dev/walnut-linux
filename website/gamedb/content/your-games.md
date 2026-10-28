@@ -77,9 +77,9 @@ Several of these games played music from the CD's audio tracks. A BIN/CUE image 
 encodes the tracks to Ogg Vorbis (Quake's tracks 2 to 11, Quake II's the same), which takes a few
 minutes on the PS3's processor, and the games play those files. From an ISO, which has no audio
 tracks, or a GOG installer, you get what the copy holds: GOG's Quake Enhanced has its own music;
-Transport Tycoon's music comes as MIDI files. Quake and Quake II import their music as a second
-step (`-p quake-music`, `-p quake2-music`), so import the game and its music from the same
-`.cue`.
+Transport Tycoon's music comes as MIDI files. Quake and Quake II import their music as an add-on
+(`-p quake-music`, `-p quake2-music`): after the game, an "Also add: Music" button appears when the
+same `.cue` has audio tracks.
 
 ## Editions
 
@@ -93,6 +93,9 @@ average into one number.
 Installed sizes are modest: Quake about 50 MB, Quake III about 480 MB, RollerCoaster Tycoon 2
 about 550 MB, the Doom family a few tens of MB each. The import needs more room while it works.
 Plan for around three times the installed size for a disc or folder, and up to four times for an
-installer, which is unpacked first. RollerCoaster Tycoon 2 from an installer can want 2 GB free.
+installer, which is unpacked first (the installer's own size counts, whatever you ask for). A plain
+import makes the base game; expansions and music the same disc or installer holds show up as
+"Also add" buttons afterwards, and each is a separate import with its own space check.
+RollerCoaster Tycoon 2 from an installer can want 2 GB free.
 If space is short, the import says so before it starts and changes nothing. Delete the image or
 installer afterwards, since the game doesn't need it any more.

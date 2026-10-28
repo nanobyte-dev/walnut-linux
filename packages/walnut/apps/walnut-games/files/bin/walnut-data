@@ -58,9 +58,11 @@ Design
   without a user manager it runs directly. Its command: `game-data-packager --no-search --no-compress
   --no-launchers --progress-fd 3 -n -d ~/.cache/walnut-data/out --download|--no-download -p PKG...
   GDPGAME SOURCE...` with TMPDIR=~/.cache/walnut-data/tmp (the PS3's /tmp is a small tmpfs). The
-  packages: -p's, else the game's required and optional ones, each always passed as -p (without -p
-  gdp builds whatever else it can, downloads included); a deb gdp made that was not asked for fails
-  the import, nothing imported. --download only when every one of
+  packages: -p's, else the game's base, its required ones (all of them: gdp makes those the source has;
+  a game with only optional packages gets those), each always passed as -p (without -p gdp builds
+  whatever else it can, downloads included); the optional ones (expansions, music) are add-ons, imported
+  on request with -p from the same source. A deb gdp made that was not asked for fails the import,
+  nothing imported. --download only when every one of
   them is among the game's downloads (the official patch files gdp knows), else --no-download.
   A gdp without --progress-fd or --no-launchers (Debian's) runs without them: no progress lines, and
   the helper drops the Doom family's menu files anyway. In the unit, descriptor 3 is a FIFO in the
@@ -73,9 +75,10 @@ Design
   Free space is checked before gdp runs, from the data manifest's sizes of the packages (T): the most
   each file system holds at one time over the phases (gdp: 3T in the cache, its copy of the files,
   dpkg-deb's temporary data member and the deb (a Quake II import ran out of space at 2T), for an
-  installer or archive 3T plus its unpacked files, counted as the data of every required and optional
-  package of the game whichever were asked for (gdp unpacks what the installer holds for any of them:
-  GOG's Quake III Gold gave baseq3/pak0.pk3 to a Team Arena import, which ran out of space at 4T), plus
+  installer or archive 3T plus its unpacked files, counted as the packages' data or the installer's
+  or archive's own size, the larger (gdp unpacks what the installer holds for any package of the game:
+  GOG's Quake III Gold gave baseq3/pak0.pk3 to a Team Arena import, which ran out of space at 4T; the
+  unpacked files are about the installer's size, whichever packages were asked for), plus
   what the sources put there (a BIN/CUE's ISO and music) and DOWNLOAD_BYTES
   when it may download; streaming: T cache + T staging; the helper's deb: 3T staging, its files, dpkg-deb's
   temporary data member and the deb; installing: T staging +
@@ -83,6 +86,12 @@ Design
   One import at a time per player: import holds an flock on ~/.cache/walnut-data/import.lock for its
   whole run, the file saying "PID GAME"; a second import is refused (busy, exit 2). The Walnut Games
   app reads that lock to show "importing" when it is opened again during an import (import_state).
+- Add-ons. After an import, "addon available PKG" says an optional package of the game (not made now, not
+  installed) can be made from the same sources: its required files are among theirs, found without
+  unpacking by a case-insensitive base name and size against the data manifest (a folder or mount is
+  walked, a zip read, an installer listed with `innoextract --list`), and a music package when a source
+  has audio tracks (a BIN/CUE or MDS). `import -p PKG GAME SOURCE` makes it. Only a hint: failures to
+  look are ignored.
 - remove: `walnut-games-helper remove-data GAME` (the game's data packages only). install-repo:
   `walnut-games-helper install-repo-data GAME` (its data from the configured apt sources).
 - Output, one item per line, flushed: "gdp step|file|generated|error ..." (gdp's progress lines),
@@ -120,6 +129,7 @@ import subprocess
 import sys
 import threading
 import time
+import zipfile
 
 CATALOG = "/usr/share/walnut-games/catalog.json"
 HELPER = "/usr/lib/ps3/sbin/walnut-games-helper"
@@ -141,6 +151,9 @@ IMPORT_DIR = "/var/lib/walnut-games/import"    # the helper's staging (root's)
 USR = "/usr"
 SPACE_MARGIN = 64 << 20
 SYS_BLOCK = "/sys/block"
+INNOEXTRACT = "/usr/bin/innoextract"
+LIST_TIMEOUT = 120        # seconds for an installer's file list
+LIST_MAX = 300000         # files of a folder or archive looked at for add-ons
 
 
 class Refused(Exception):
@@ -201,14 +214,15 @@ def covered(ds, pkg, made):
 
 
 def wanted_packages(ds, asked):
-    """the packages to make: -p's (each one of the game's), else required then optional"""
+    """the packages to make: -p's (each one of the game's), else the base: the required packages (a game
+    that has only optional ones, like OpenTTD, gets those); the optional ones are add-ons, asked for with -p"""
     known = names(ds, "required") + names(ds, "optional")
     if asked:
         bad = [p for p in asked if p not in known]
         if bad:
             raise Refused("%s: not a data package of this game (%s)" % (", ".join(bad), ", ".join(known)))
         return list(dict.fromkeys(asked))
-    return known
+    return names(ds, "required") or known
 
 
 def download_choice(ds, pkgs, no_download=False, sourceless=False):
@@ -1333,8 +1347,9 @@ def cmd_import(game_id, sources, asked, no_download, games):
         if total:
             # an installer or archive: unpacked first
             archive = any(kind == "path" and os.path.isfile(what) for kind, what, _ in plans)
-            # an installer is unpacked whole: the files of every package of the game it may hold
-            unpack = max(total, data_bytes(names(ds, "required") + names(ds, "optional")) or 0)
+            # an installer is unpacked whole, whichever packages were asked for: about its own size
+            unpack = max(total, sum(os.path.getsize(what) for kind, what, _ in plans
+                                    if kind == "path" and os.path.isfile(what)))
             check_space(total, archive, base, unpack=unpack, extra=sum(extra for _, _, extra in plans)
                         + (DOWNLOAD_BYTES if download == "--download" else 0))
         paths = list(dict.fromkeys(p for plan in plans for p in src.open(plan)))
@@ -1362,6 +1377,7 @@ def cmd_import(game_id, sources, asked, no_download, games):
             hint = gdp_hint(next((e for e in errors if e.startswith("no-space ")), errors[-1] if errors else None))
             raise Failed("game-data-packager made no package%s" % (": " + hint if hint else
                                                                     " (exit %d)" % rc if rc else ""))
+        addons = find_addons(ds, [p for p, _ in debs], paths, plans)    # while the disc or image is there
         src.close()            # the disc or image is no longer needed
         worst = 0
         for pkg, deb in debs:
@@ -1372,6 +1388,8 @@ def cmd_import(game_id, sources, asked, no_download, games):
             raise Refused("the helper refused the data")
         if worst:
             raise Failed("the helper failed")
+        for pkg in addons:
+            say("addon", "available " + pkg)
         reload_menu()
         return 0
     finally:
@@ -1379,6 +1397,91 @@ def cmd_import(game_id, sources, asked, no_download, games):
         for d in (out, tmp):
             shutil.rmtree(d, ignore_errors=True)
         os.close(lock)
+
+
+def size_bytes(num, unit):
+    """(bytes, tolerance) of a size as innoextract prints it: '1234', '180.8 MiB' (rounded to the digits shown)"""
+    mult = {"": 1, "B": 1, "KIB": 1 << 10, "MIB": 1 << 20, "GIB": 1 << 30}.get(unit.upper(), None)
+    if mult is None:
+        return None
+    dec = len(num.partition(".")[2])
+    return int(float(num) * mult), (0 if mult == 1 and not dec else mult * 0.5 * 10 ** -dec)
+
+
+def listed_files(path):
+    """[(lower-case base name, (bytes, tolerance) or None)] of the files a source holds, without unpacking
+    them: a folder is walked, a zip (GOG's .sh installers carry one) read, an installer listed by
+    `innoextract --list`; [] when it can't be looked at"""
+    out = []
+    if os.path.isdir(path):
+        for root, _, files in os.walk(path):
+            for n in files:
+                try:
+                    out.append((n.lower(), (os.stat(os.path.join(root, n)).st_size, 0)))
+                except OSError:
+                    pass
+            if len(out) > LIST_MAX:
+                break
+        return out
+    try:
+        if zipfile.is_zipfile(path):
+            with zipfile.ZipFile(path) as z:
+                return [(i.filename.replace("\\", "/").rpartition("/")[2].lower(), (i.file_size, 0))
+                        for i in z.infolist()[:LIST_MAX] if not i.is_dir()]
+    except (OSError, ValueError, zipfile.BadZipFile):
+        pass
+    try:
+        rc, text = run([INNOEXTRACT, "--list", path], timeout=LIST_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        return []
+    for line in text.splitlines()[:LIST_MAX]:
+        m = re.match(r'\s*-?\s*"([^"]+)"(?:.*\((\d+(?:\.\d+)?)\s*([KMG]i?B|B)?\)\s*$)?', line)
+        if rc == 0 and m:
+            out.append((m.group(1).replace("\\", "/").rpartition("/")[2].lower(),
+                        size_bytes(m.group(2), m.group(3) or "") if m.group(2) else None))
+    return out
+
+
+def has_file(listed, name, sizes):
+    """a listed file called name (case-insensitively) of one of these sizes (an unknown size matches)"""
+    base = name.rpartition("/")[2].lower()
+    for n, sz in listed:
+        if n == base and (sz is None or not sizes or any(abs(sz[0] - s) <= sz[1] for s in sizes)):
+            return True
+    return False
+
+
+def find_addons(ds, made, paths, plans, manifest=None):
+    """the optional packages of the game (not made now, not installed) whose required files the sources
+    also hold, found by file names and sizes against the data manifest (cheap: nothing is unpacked or
+    read); a music package when a source has audio tracks. Never raises: an add-on is only a hint."""
+    try:
+        man = manifest if manifest is not None else load_manifest()
+        pending = [p for p in names(ds, "optional") if p not in made and not covered(ds, p, made)]
+        pending = [p for p in pending if p not in installed(pending)]
+        if not man or not pending:
+            return []
+        listed = None
+        audio = any(kind == "disc" and any(t.audio for t in what[1]) for kind, what, _ in plans)
+        found = []
+        for pkg in pending:
+            e = man.get(pkg)
+            if not isinstance(e, dict):
+                continue
+            if music_tracks(e):
+                if audio:
+                    found.append(pkg)
+                continue
+            if listed is None:
+                listed = [f for p in paths for f in listed_files(p)]
+            need = [r for r in e.get("required") or [] if isinstance(r, str)] or list(e.get("files") or [])
+            if need and all(has_file(listed, r, [a["size"] for a in e["files"].get(r, []) if "size" in a])
+                            for r in need):
+                found.append(pkg)
+        return found
+    except (OSError, ValueError, KeyError, TypeError, AttributeError) as e:
+        say("log", "add-ons not looked for: %s" % e)
+        return []
 
 
 def cmd_helper(action, game_id, games):

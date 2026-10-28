@@ -304,6 +304,13 @@ game-data-packager's output isn't reproducible (the files' dates are the build t
 
 ### Data built on the console
 
+A plain import (no `-p`) makes the game's base, its `required` packages (the user, 2026-10-28), and the
+free-space check counts only those, plus an installer's or archive's own size for its unpacking. The `optional` packages
+(expansions, music) are add-ons: after the base, `walnut-data` prints `addon available PKG` for those the same source
+holds (found by base name and size against the manifest: a folder is walked, a zip read, an installer listed with
+`innoextract --list`, a BIN/CUE with audio tracks offers the music), and the app's "Also add: NAME" buttons run
+`walnut-data import -p PKG <game> <same source>`.
+
 `walnut-data import <game> <source>` (walnut-games, PLAN 5.10) makes the player's own data into packages
 on the PS3 itself: our game-data-packager runs as the player and writes a deb, and only its file tree goes
 to root, as `dpkg-deb --fsys-tarfile X.deb | sudo -n walnut-games-helper import-data <game> <pkg>`. The

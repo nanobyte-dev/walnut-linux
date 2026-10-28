@@ -643,8 +643,9 @@ class AppFunctions(unittest.TestCase):
 
 QS = {"id": "quakespasm", "title": "QuakeSpasm", "packages": ["quakespasm"], "data_setup": {
     "original": "Quake",
-    "gdp": "quake", "required": ["quake-shareware", "quake-registered"], "optional": [], "downloads": ["quake-registered"],
-    "fetch": ["quake-shareware"], "hint": "Quake's id1/pak0.pak.", "editions": {"quake-shareware": "shareware", "quake-registered": "full"},
+    "gdp": "quake", "required": ["quake-shareware", "quake-registered"], "optional": ["quake-music"], "downloads": ["quake-registered"],
+    "fetch": ["quake-shareware"], "hint": "Quake's id1/pak0.pak.",
+    "editions": {"quake-shareware": "shareware", "quake-registered": "full", "quake-music": "music"},
     "present_any": ["quake-shareware", "quake-registered", "quake-licensed-data"]}}
 TTD = {"id": "openttd", "title": "OpenTTD", "packages": ["openttd"], "data_setup": {
     "original": "Transport Tycoon Deluxe",
@@ -787,6 +788,14 @@ class DataSetup(unittest.TestCase):
         self.assertEqual(app.drop_alternatives(miss, None, {"ttd-music-fm"}), miss)
         self.assertEqual(app.partial_notice(["quake-registered"], []),
                          "Quake Registered needs its official patch files from the network: Try again with download")
+        self.assertEqual(P("addon available quake-music"), ("addon", "quake-music"))
+        v = app.ImportView("quakespasm", t0=0)
+        for line in ("addon available quake-music", "addon available quake-music", "log x"):
+            v.feed(P(line))
+        self.assertEqual(v.addons, ["quake-music"])
+        self.assertEqual(app.addon_label(QS, "quake-music"), "Also add: Music (music)")
+        self.assertEqual(app.addon_label({"data_setup": {"gdp": "q", "required": ["quake-rerelease"]}},
+                                         "quake-rerelease-armagon"), "Also add: Armagon")
         self.assertEqual(app.elapsed_text(75), "1:15")
         self.assertEqual(app.elapsed_text(3725), "1:02:05")
         self.assertEqual(app.import_command("quakespasm", "/m", ["quake-registered"], "wd"),
@@ -1169,11 +1178,37 @@ while not app.imp.done and time.time() - t < 30:
     root.update(); time.sleep(0.05)
 args = open(os.environ["FAKE_WD_ARGS"]).read().split("\\n")[-2]
 assert args == "import -p quake-registered quakespasm " + src, repr(args)
+# a plain import whose source also holds an add-on: the "Also add" button runs -p PKG with the same source
+open(os.environ["FAKE_WD_ARGS"] + ".addon", "w").close()
+src = os.path.join(os.environ["HOME"], "Downloads", "quake106.zip")
+app.start_import(app.g, src); root.update()
+t = time.time()
+while not app.imp.done and time.time() - t < 30:
+    root.update(); time.sleep(0.05)
+t = time.time()
+while not app.addon_buttons and time.time() - t < 30:
+    root.update(); time.sleep(0.05)
+assert [b["text"] for b in app.addon_buttons] == ["Also add: Music (music)"], [b["text"] for b in app.addon_buttons]
+assert mapped(app.addon_buttons[0]), "addon button"
+os.remove(os.environ["FAKE_WD_ARGS"] + ".addon")
+app.addon_buttons[0].invoke(); root.update()
+t = time.time()
+while not app.imp.done and time.time() - t < 30:
+    root.update(); time.sleep(0.05)
+args = open(os.environ["FAKE_WD_ARGS"]).read().split("\\n")[-2]
+assert args == "import -p quake-music quakespasm " + src, repr(args)
+root.update()
+assert not app.addon_buttons, "no add-on left after it was imported"
 root.destroy()
 print("data smoke ok")
 """
 FAKE_WALNUT_DATA = """#!/bin/sh
 echo "$*" >> "$FAKE_WD_ARGS"
+if [ -e "$FAKE_WD_ARGS.addon" ]; then
+echo "log made quake-shareware"
+echo "addon available quake-music"
+exit 0
+fi
 if [ -e "$FAKE_WD_ARGS.partial" ]; then
 echo "gdp error needs-download quake-registered: its official patch files have to be downloaded"
 echo "warning missing quake-extra: no such file"

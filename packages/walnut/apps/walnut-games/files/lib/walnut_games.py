@@ -51,7 +51,10 @@ Design
   the whole import) and shows it in place of the buttons. A failure is told by game-data-packager's
   error kind (import_error_message); unsuitable (a known release gdp refuses, e.g. Hexen 1.0) tells the release and gdp's reason;
   needs-download offers "Try again with download" (-p for the
-  game's downloads packages) when the game has some. After a success the menu is made again
+  game's downloads packages) when the game has some. A plain import makes the game's base (its required
+  packages); when the same source also holds optional ones (walnut-data's "addon available PKG" lines:
+  expansions, music) the page shows "Also add: NAME" buttons, which run `walnut-data import -p PKG GAME
+  SOURCE` with the same source. After a success the menu is made again
   (ps3-game-menu --reload) and the page shows Play, naming the launchers the data added. Remove names
   the installed data packages and their size and runs the helper's remove-data after remove. The
   installed data's edition (X-Walnut-Edition, dpkg-query) is shown with the rating's facts.
@@ -743,7 +746,7 @@ def import_command(gid, source, packages=None, walnut_data=None):
 
 def parse_import_line(line):
     """one line of walnut-data's output: ('step', text) | ('file', name, bytes) | ('generated', path) |
-    ('gdp-error', kind, text) | ('progress', percent, text) | ('log'|'error'|'status', text) | None"""
+    ('addon', package) | ('gdp-error', kind, text) | ('progress', percent, text) | ('log'|'error'|'status', text) | None"""
     line = line.rstrip("\n")
     if line.startswith("gdp "):
         kind, _, rest = line[4:].partition(" ")
@@ -761,6 +764,10 @@ def parse_import_line(line):
             k, _, text = rest.partition(" ")
             return ("gdp-error", k, text)
         return ("log", line[4:]) if line[4:].strip() else None
+    if line.startswith("addon available "):
+        pkg = line[len("addon available "):].strip()
+        if pkg and " " not in pkg:
+            return ("addon", pkg)
     if line.startswith("warning missing "):
         pkg, sep, why = line[len("warning missing "):].partition(": ")
         if pkg and " " not in pkg:
@@ -788,6 +795,23 @@ def drop_alternatives(missing, alternatives, have):
             continue
         out.append((p, why))
     return out
+
+
+def addon_label(game, pkg):
+    """the button that adds an optional package from the same source: 'Also add: Armagon (expansion)'"""
+    ds = data_setup(game) or {}
+    words = data_package_name(pkg).split()
+    for r in ds.get("required") or []:       # drop the words it shares with the base ("Quake Rerelease Armagon")
+        base = data_package_name(r).split()
+        n = 0
+        while n < len(base) and n < len(words) - 1 and base[n] == words[n]:
+            n += 1
+        if n:
+            words = words[n:]
+            break
+    name = " ".join(words)
+    ed = (ds.get("editions") or {}).get(pkg)
+    return "Also add: %s%s" % (name, " (%s)" % ed if ed in ("expansion", "music") else "")
 
 
 def partial_notice(download, missing):
@@ -887,6 +911,7 @@ class ImportView:
         self.gid, self.t0 = gid, t0 if t0 is not None else time.time()
         self.step, self.file, self.tail, self.errors = "Starting...", "", [], []
         self.gdp_kind, self.gdp_text, self.done = None, "", False
+        self.addons = []                         # optional packages the source also holds (walnut-data: addon available)
         self.download, self.missing = [], []     # packages that need their download / (package, reason) not made
 
     def feed(self, ev):
@@ -906,6 +931,9 @@ class ImportView:
             pkg, sep, _ = ev[2].partition(": ")
             if ev[1] == "needs-download" and sep and pkg and " " not in pkg and pkg not in self.download:
                 self.download.append(pkg)
+        elif k == "addon":
+            if ev[1] not in self.addons:
+                self.addons.append(ev[1])
         elif k == "missing":
             self.missing.append((ev[1], ev[2]))
             self.tail.append("not made: %s" % ev[1])
@@ -965,6 +993,7 @@ class App:
         self.busy = None                       # (id, "install"|"remove") while the helper runs
         self.imp = None                        # ImportView of the walnut-data import running (or just ended)
         self.imp_source = {}                   # game id -> the source of its last import (Try again)
+        self.addons = {}                       # game id -> packages the last import's source also holds (Also add)
         self.partial = {}                      # game id -> (packages needing a download, the notice) of a partial import
         self.retry = {}                        # game id -> the source to import again with downloads on
         self.imp_before = set()                # the Play entries before the import (what it added)
@@ -1140,6 +1169,8 @@ class App:
         self.note_text.pack(side="left", fill="x")
         self.b_retry = ttk.Button(self.data_row, text="Try again with download", style="Accent.TButton",
                                   command=self.retry_download)
+        self.addon_row = ttk.Frame(self.data_row, style="Panel.TFrame")
+        self.addon_buttons = []
         self.partial_label = ttk.Label(self.data_row, text="", style="Muted.TLabel", background=PANEL,
                                        wraplength=330, justify="left", font=self.f["small"])
         # an import's file being read, elapsed time and its last log lines (under the status line)
@@ -1709,8 +1740,19 @@ class App:
     def update_data_buttons(self, g, idle):
         running = self.imp.gid if self.imp is not None and not self.imp.done else None
         acts = data_actions(g, self.have, self.repo, running) if g and g["id"] in self.pkg_data else []
-        for b in (self.b_repo, self.b_data, self.b_retry, self.b_note, self.partial_label):
+        for b in (self.b_repo, self.b_data, self.b_retry, self.b_note, self.partial_label, self.addon_row):
             b.pack_forget()
+        for b in self.addon_buttons:
+            b.destroy()
+        self.addon_buttons = []
+        adds = [p for p in self.addons.get(g["id"], []) if p not in self.have] if g and not running else []
+        if adds and g["id"] in self.pkg_data and self.imp_source.get(g["id"]):
+            self.addon_row.pack(side="bottom", anchor="w", pady=(0, 6))
+            for p in adds:
+                b = ttk.Button(self.addon_row, text=addon_label(g, p), style="Accent.TButton",
+                               command=lambda p=p: self.add_on(p), state="normal" if idle else "disabled")
+                b.pack(side="left", padx=(0, 8))
+                self.addon_buttons.append(b)
         part = self.partial.get(g["id"]) if g and not running else None
         if part and g["id"] in self.pkg_data:
             self.partial_label.configure(text=part[1])
@@ -1975,6 +2017,13 @@ class App:
         self.show_import()
         self.update_buttons()
 
+    def add_on(self, pkg):
+        """an add-on the last import's source also holds: walnut-data import -p PKG from the same source (a
+        disc or image is opened again by walnut-data)"""
+        g = self.g
+        if g and self.imp_source.get(g["id"]) and pkg in self.addons.get(g["id"], []):
+            self.start_import(g, self.imp_source[g["id"]], [pkg])
+
     def retry_download(self):
         g = self.g
         if not g:
@@ -2068,6 +2117,7 @@ class App:
         ok = rc == 0 if rc is not None else (not v.errors and g is not None and
                                              (bool(data_present(g, self.have)) or optional_data_present(g, self.have)))
         if ok:
+            self.addons[gid] = list(v.addons)
             note = partial_notice(v.download, drop_alternatives(
                 v.missing, (data_setup(g) or {}).get("alternatives") if g else None, self.have))
             if note:
