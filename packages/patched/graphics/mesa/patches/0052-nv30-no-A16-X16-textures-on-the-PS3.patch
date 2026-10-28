@@ -1,0 +1,48 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Thu, 29 Oct 2026 00:14:19 +0200
+Subject: nv30: no A16 (X16) textures on the PS3
+
+mpv --vo=gpu (0.41, --hwdec=no) on a 360p H.264 clip wedged the RSX at its first frame on
+2026-10-28: graph exception 0x105, which no reset short of a console reboot recovers. mpv's
+renderer on GL 2.1 runs in "dumb mode": one draw samples the three planes (L8, linear,
+640x360 and 320x180) and a 64x64 dither texture, GL_LUMINANCE16, which nv30 stores as L16_UNORM
+in NV40's A16 format (format 0x14, libgcm's X16), swizzled, sampled NEAREST with GL_REPEAT at
+coordinates from gl_FragCoord. Run on the PC (mpv's renderer through libmpv on this Mesa under
+qemu, the nouveau drm-shim answering like ps3rsx), its submit lines up word for word with the
+PFIFO cache the PS3 dumped: the dither upload (SIFM 64x64, pitch 128), the state, the
+texture units, the draw of 6 vertices, the timer query and the fence, and the exception came
+after PGRAPH had taken the fence's release, so from the draw. Nothing had sampled the A16
+format on the RSX before (gl-texfmt covers L8, A8, I8, 4444, 1555 and L8A8; the state tracker
+picks L16, A16 or I16 only for the sized 16-bit internal formats, which games hardly use, and
+R16 needs ARB_texture_rg, absent), and the rest of the draw is what games and glamor send.
+
+On the PS3 is_format_supported now refuses sampler views of the formats that map to A16 (L16,
+A16, I16, R16, unorm and snorm); the state tracker then takes L8, A8 or I8 (GL_LUMINANCE16:
+L16, RGBA16, then L8). mpv's dither goes from 16 to 8 bits of resolution, which its output to
+an 8-bit display hardly shows. ps3rsx's validator refuses the format now (texfmt_ok()).
+
+Checked on the PC with the shim: mpv's first frame samples the dither texture as L8 (format
+0x81), and ps3rsx's validator passes the submit (its host test, fixtures/mpv-vo-gpu-0x105.h).
+
+Found by: docs/dumps/exception-0x105-mpv-vo-gpu.txt (video baseline for the browser)
+
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_screen.c b/src/gallium/drivers/nouveau/nv30/nv30_screen.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_screen.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_screen.c
+@@ -330,6 +330,15 @@ nv30_screen_is_format_supported(struct pipe_screen *pscreen,
+        util_format_get_blocksize(format) == 2)
+       return false;
+ 
++   /* PS3: the RSX raised graph exception 0x105, which wedges it until the console reboots, at
++    * the first draw that sampled the A16 format (libgcm's X16: L16, A16, I16 and R16), mpv's
++    * dither texture (GL_LUMINANCE16); nothing had sampled the format on the RSX before, and
++    * ps3rsx refuses it. Without it the state tracker takes the 8-bit format of the kind (L8
++    * for GL_LUMINANCE16). */
++   if (nv30_screen(pscreen)->base.is_ps3 && (bindings & PIPE_BIND_SAMPLER_VIEW) &&
++       nv30_texfmt(pscreen, format)->nv40 == NV40_3D_TEX_FORMAT_FORMAT_A16)
++      return false;
++
+    /* NV30_VTX_SNORM8: fetched as unsigned bytes, normalized by the vertex program */
+    if ((bindings & PIPE_BIND_VERTEX_BUFFER) && nv30_screen(pscreen)->vtx_snorm8 &&
+        nv30_snorm8_components(format)) {
