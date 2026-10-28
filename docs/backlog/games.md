@@ -67,6 +67,10 @@ they came from.
 
 ## Across the games
 
+### Comments on a game's page
+
+Players' comments on the site and in Walnut Games (a Community tab next to the PLAN 5.11 tabs). Parked by the user (2026-10-28). The idea so far: no database; a comment is a small submission through the receiver of the testers' CLI (walnut-rate, plan Part B), reviewed by the maintainer and committed as `gamedb/games/<id>/comments/*.toml`, which Hugo and the app both render. Works from the console without an account and keeps the site static; the cost is a delay until review. The other way, GitHub Discussions through giscus, needs a GitHub account and JavaScript (not NetSurf, not the console).
+
 ### OpenAL's stuck mixer: the sound card's DMA stops
 
 Rank 72. In about 10% of OpenAL runs the sound stopped for the rest of the run.
