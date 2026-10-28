@@ -2,7 +2,8 @@
 # xkeys.py TITLE KEY...: key presses through the X server's XTEST extension (libX11 + libXtst by
 # ctypes, both in the image; no xdotool, no input device, no root). The window whose name starts
 # with TITLE (case-insensitive) gets the X input focus first, then each KEY (an X keysym name:
-# Return, space, Up, Escape) is pressed, held HOLD s (0.25) and released; "+N" waits N seconds.
+# Return, space, Up, Escape) is pressed, held HOLD s (0.25) and released; "+N" waits N seconds;
+# "@X,Y" moves the pointer to X,Y (screen pixels) and clicks the left button.
 # Used by smoke.inc's smoke_xkeys. Exit 1 when the display or the window is missing.
 import ctypes, os, sys, time
 
@@ -17,7 +18,17 @@ x.XKeysymToKeycode.restype = ctypes.c_ubyte
 x.XKeysymToKeycode.argtypes = [ctypes.c_void_p, ctypes.c_ulong]
 x.XStringToKeysym.restype = ctypes.c_ulong
 x.XStringToKeysym.argtypes = [ctypes.c_char_p]
-x.XFetchName.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.POINTER(ctypes.c_char_p)]
+
+
+class XTextProperty(ctypes.Structure):
+    _fields_ = [("value", ctypes.c_void_p), ("encoding", ctypes.c_ulong), ("format", ctypes.c_int),
+                ("nitems", ctypes.c_ulong)]
+
+
+# XGetWMName, not XFetchName: XFetchName returns only a STRING-typed WM_NAME, and sdl2-compat's SDL3
+# sets it as UTF8_STRING (Chromium B.S.U., 2026-10-28: its window was never found); the bytes of an
+# ASCII title are the same either way
+x.XGetWMName.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.POINTER(XTextProperty)]
 x.XQueryTree.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.POINTER(ctypes.c_ulong),
                          ctypes.POINTER(ctypes.c_ulong), ctypes.POINTER(ctypes.POINTER(ctypes.c_ulong)),
                          ctypes.POINTER(ctypes.c_uint)]
@@ -26,6 +37,8 @@ x.XFree.argtypes = [ctypes.c_void_p]
 x.XFlush.argtypes = [ctypes.c_void_p]
 x.XSync.argtypes = [ctypes.c_void_p, ctypes.c_int]
 tst.XTestFakeKeyEvent.argtypes = [ctypes.c_void_p, ctypes.c_uint, ctypes.c_int, ctypes.c_ulong]
+tst.XTestFakeMotionEvent.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_ulong]
+tst.XTestFakeButtonEvent.argtypes = [ctypes.c_void_p, ctypes.c_uint, ctypes.c_int, ctypes.c_ulong]
 # the default error handler exits the process: a window that went away must not kill the helper
 ERR = ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_void_p, ctypes.c_void_p)
 handler = ERR(lambda d, e: 0)
@@ -35,11 +48,11 @@ x.XSetErrorHandler(handler)
 def find(dpy, win, title):
     root, parent = ctypes.c_ulong(), ctypes.c_ulong()
     kids, n = ctypes.POINTER(ctypes.c_ulong)(), ctypes.c_uint()
-    name = ctypes.c_char_p()
-    if x.XFetchName(dpy, win, ctypes.byref(name)) and name.value:
-        ok = name.value.decode("latin1").lower().startswith(title)
-        x.XFree(name)
-        if ok:
+    tp = XTextProperty()
+    if x.XGetWMName(dpy, win, ctypes.byref(tp)) and tp.value:
+        name = ctypes.string_at(tp.value, tp.nitems)
+        x.XFree(tp.value)
+        if name.decode("latin1").lower().startswith(title):
             return win
     if not x.XQueryTree(dpy, win, ctypes.byref(root), ctypes.byref(parent), ctypes.byref(kids), ctypes.byref(n)):
         return None
@@ -64,6 +77,17 @@ def main():
     for k in keys:
         if k.startswith("+"):
             time.sleep(float(k[1:])); continue
+        if k.startswith("@"):	# @X,Y: the pointer to X,Y on the screen, then a left click held HOLD s
+            px, py = (int(v) for v in k[1:].split(","))
+            x.XSetInputFocus(dpy, win, 2, 0)
+            tst.XTestFakeMotionEvent(dpy, -1, px, py, 0); x.XSync(dpy, 0)
+            time.sleep(0.3)
+            tst.XTestFakeButtonEvent(dpy, 1, 1, 0); x.XSync(dpy, 0)
+            time.sleep(HOLD)
+            tst.XTestFakeButtonEvent(dpy, 1, 0, 0); x.XSync(dpy, 0)
+            print("xkeys: click at %d,%d at %.3f" % (px, py, time.time()), flush=True)
+            time.sleep(0.5)
+            continue
         code = x.XKeysymToKeycode(dpy, x.XStringToKeysym(k.encode()))
         if not code:
             print("xkeys: no keycode for", k); return 1
