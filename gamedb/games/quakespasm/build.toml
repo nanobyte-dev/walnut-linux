@@ -1,6 +1,6 @@
 # How QuakeSpasm is built, installed and integrated (gamedb/README.md "build.toml").
 packages = ["quakespasm"]
-# in ps3-games, not in the public ps3-games-free: its data is licensed
+# its data is licensed: kept out of the public image (tools/image-packages.sh)
 suite = "licensed"
 needs_data = true
 data = ["quake-shareware"]

@@ -1,5 +1,5 @@
 # How Quake III Arena is built, installed and integrated (gamedb/README.md "build.toml").
-# our ioquake3 (gamedb/engines/ioquake3, OpenArena's engine, which puts it in ps3-games): ioquake3 pulls
+# our ioquake3 (gamedb/engines/ioquake3, OpenArena's engine): ioquake3 pulls
 # ioquake3-server (qagame.so) and has the native cgame/ui/qagame links in /usr/lib/quake3/{base,ta}
 packages = ["ioquake3"]
 engine = "ioquake3"

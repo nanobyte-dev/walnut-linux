@@ -13,7 +13,7 @@ a session with all three is still to be played.
 | Package | Suite | What |
 |---|---|---|
 | `sauerbraten-walnut` ([packages/sauerbraten-walnut](packages/sauerbraten-walnut/)) | public (testing, stable; CI builds it, `0.N`; up to 0.874 it was named `sauerbraten`, Debian's non-free package's name, and now Conflicts/Replaces it) | `/usr/games/sauerbraten`, the menu entry (Name `Sauerbraten`), an icon. Depends on `cube2`, Suggests `sauerbraten-data` |
-| `sauerbraten-data` (`licensed/sauerbraten-data`) | the licensed suite only, built locally (`0.0.20201229-1+ps3.N`, about 980 MB) | the release's `data/` and `packages/` whole, in `/usr/share/games/sauerbraten`. Depends on `sauerbraten`, so installing the data installs the game. Not in `ps3-games-licensed`'s Depends (980 MB): install by name |
+| `sauerbraten-data` (`licensed/sauerbraten-data`) | the licensed suite only, built locally (`0.0.20201229-1+ps3.N`, about 980 MB) | the release's `data/` and `packages/` whole, in `/usr/share/games/sauerbraten`. Depends on `sauerbraten`, so installing the data installs the game. Install by name (no `[data_setup]` yet) |
 
 - The launcher runs `cube2_client -q$HOME/.sauerbraten -k/usr/share/sauerbraten/walnut
   -k/usr/share/games/sauerbraten -t1`: fullscreen at the desktop's resolution (the engine sizes its window

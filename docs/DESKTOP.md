@@ -45,7 +45,7 @@ The menu has Shut down and Reboot entries. The user D-Bus runs under systemd (`d
 
 ### Packages
 
-`ps3-desktop` holds the session, autologin, game mode, the Openbox/tint2/GTK/PCManFM defaults in `/etc/xdg/ps3`, the default applications and the X configuration. It is currently at 0.474 in the repository build (0.474 is installed on the PS3). `ps3-apps` is the everyday applications, all light GTK programs that suit 256 MB of RAM: Mousepad, GPicView, zathura, Xarchiver, Galculator, LXTask, scrot (on the Print key) and mpv. PCManFM opens files with them by default, and removing `ps3-apps` removes them. `ps3-games` pulls in the games that run on the RSX; see [games/README.md](games/README.md).
+`ps3-desktop` holds the session, autologin, game mode, the Openbox/tint2/GTK/PCManFM defaults in `/etc/xdg/ps3`, the default applications and the X configuration. `ps3-apps` is the everyday applications, all light GTK programs that suit 256 MB of RAM: Mousepad, GPicView, zathura, Xarchiver, Galculator, LXTask, scrot (on the Print key) and mpv. PCManFM opens files with them by default, and removing `ps3-apps` removes them. No game comes with the desktop: players install them from Walnut Games ([GAMEDB.md](GAMEDB.md)), and `ps3-games-integration` adds each installed game's menu entry, settings and diversions ([PACKAGING.md](PACKAGING.md#no-game-metapackages)); [games/README.md](games/README.md) has how they run.
 
 ### The X setup
 

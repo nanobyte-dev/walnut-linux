@@ -22,7 +22,7 @@ no audible dropouts: one of the games that meet the 60 fps target with room to s
   Section `non-free/games`, and published once to our licensed suite, since game-data-packager's output
   isn't reproducible: the version 89 files the LAN repository published are in the retirement backup's
   `ps3-licensed-debs/`, and `make publish DEBS="<those files>"` before the next `make game-data` keeps
-  them the same. `ps3-games-licensed` pulls it in. A registered Quake needs the player's own `id1/pak0.pak` and `pak1.pak` (the data guide on the
+  them the same. Install it by name or from Walnut Games (`ps3-games-licensed`, which pulled it in, is retired). A registered Quake needs the player's own `id1/pak0.pak` and `pak1.pak` (the data guide on the
   game's page).
 
 ## How it performs
