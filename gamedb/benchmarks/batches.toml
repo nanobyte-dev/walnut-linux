@@ -1147,6 +1147,16 @@ observations = "same boot (2026-10-28 10:40-13:04Z), 38 runs in four rounds, ord
 source = "bench/analysis/matrix.py"
 
 [[batch]]
+name = "2026-10-28-rt-audio-shipped"
+order = 107
+kind = "run"
+title = "Real-time audio as shipped: ps3-desktop 0.1013 (limits.d rtprio 10 + ps3-rt-audio, RTAUDIO=1) against none (RTPRIO=0) on dsda-doom software (owncfg), Extreme Tux Racer, X-Moto and Neverball (kernel .874)"
+date = 2026-10-28
+runs = 23
+observations = "same boot (2026-10-28 15:38-17:18Z), 25 runs in three rounds, games interleaved, arm order alternating per game and round; 2 Neverball RTAUDIO runs interfered by the agent's own SSH status checks (left out: Neverball RTAUDIO has 2 runs). Every run fullscreen at 1920x1080 (geom=) and in gameplay at its 40 s screenshot. ps3-rt-audio set SCHED_RR 1 on SDLAudioP19 (dsda-doom, X-Moto, Neverball) and on ETR's unnamed miniaudio thread in every RTAUDIO run, from the harness's watch as game mode runs it. Audible dropouts a run (about 200 s), median: dsda-doom 29 to 2 (audible time 0.8-1.2 s to 50-113 ms), ETR 26 to 2 (0.65-0.92 s to 58-124 ms), Neverball 3 to 0, X-Moto 0 to 0 (logged underruns 78 to 11). Steady fps unchanged within 0.4% (dsda-doom 39.75/39.8, X-Moto 161.7/161.0, Neverball 82.73/82.72); 1% lows a little lower with it in the light games (X-Moto 113.4 to 109.4, Neverball 57.9 to 56.6, dsda-doom 20.6 to 19.0, ranges touching) and higher in ETR (HUD 1% low 19.8 to 29.2, steady 56 to 59; the previous batch had no such gap, 29.9 against 28.6). docs/SPU-AUDIO.md \"Real-time mixer\""
+source = "bench/analysis/matrix.py"
+
+[[batch]]
 name = "suite-summary-2026-10"
 kind = "summary"
 title = "The suite's numbers, 2026-10: the rules-1 calibration"

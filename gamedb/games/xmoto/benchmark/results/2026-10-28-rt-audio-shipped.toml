@@ -1,0 +1,32 @@
+# xmoto's numbers in batch 2026-10-28-rt-audio-shipped (gamedb/benchmarks/README.md)
+batch = "2026-10-28-rt-audio-shipped"
+
+[variant."base@rtaudio"]
+fps = 159.2
+cpu = 306.9
+underruns = 11
+ram_free = 56.0
+vram = 37.3
+fps_steady = 161.0
+low1 = 109.4
+stalls = 1
+longest_ms = 249.1
+stalls_play = 0
+stall_play_s = 0.0
+low1_play = 110.9
+longest_play_ms = 26.1
+
+[variant."base@rtprio0"]
+fps = 160.2
+cpu = 306.4
+underruns = 78
+ram_free = 64.6
+vram = 37.3
+fps_steady = 161.7
+low1 = 113.4
+stalls = 1
+longest_ms = 248.8
+stalls_play = 0
+stall_play_s = 0.0
+low1_play = 116.9
+longest_play_ms = 19.2

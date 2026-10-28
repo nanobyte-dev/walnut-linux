@@ -150,8 +150,8 @@ OpenArena with bots, 1-21 in 150 s). With a real-time limit for the game (`Limit
 puts its mixer on SCHED_RR by itself; the session has none and no RTKit) Quake III had none in 3 runs
 and OpenArena 3 against 21 ([the investigation](../../gamedb/engines/ioquake3/investigations/2026-10-28-sigterm-hang-and-openal-xruns.md)).
 The same day's suite measurement (SPU-AUDIO.md "Real-time mixer") found no audible dropout with the
-limit or without it in 38 runs, so the RT limit is not shipped; it stays the fix to try when the
-dropouts come back.
+limit or without it in 38 runs. The limit shipped anyway on 2026-10-28 (ps3-desktop's limits.d, rtprio
+10 for the audio group), with real-time audio for every game, for the CPU-bound games' sake.
 
 Fix: kernel patch `packages/patched/kernel/linux/patches/local/0047-snd-ps3-dma-watchdog.patch`. While playing, a timer checks
 every `snd_ps3.dma_watchdog_ms` (default 200, 0 off, read at stream start;

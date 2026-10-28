@@ -1,0 +1,32 @@
+# dsda-doom's numbers in batch 2026-10-28-rt-audio-shipped (gamedb/benchmarks/README.md)
+batch = "2026-10-28-rt-audio-shipped"
+
+[variant."owncfg@rtaudio"]
+fps = 37.5
+cpu = 283.6
+underruns = 3436
+ram_free = 43.2
+vram = 25.7
+fps_steady = 39.8
+low1 = 19.0
+stalls = 1
+longest_ms = 104.0
+stalls_play = 0
+stall_play_s = 0.0
+low1_play = 19.4
+longest_play_ms = 87.1
+
+[variant."owncfg@rtprio0"]
+fps = 37.7
+cpu = 281.6
+underruns = 4290
+ram_free = 39.9
+vram = 25.7
+fps_steady = 39.8
+low1 = 20.6
+stalls = 2
+longest_ms = 109.9
+stalls_play = 1
+stall_play_s = 0.1
+low1_play = 21.0
+longest_play_ms = 104.3

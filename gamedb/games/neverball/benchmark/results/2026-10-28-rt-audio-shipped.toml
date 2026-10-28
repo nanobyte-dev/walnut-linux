@@ -1,0 +1,32 @@
+# neverball's numbers in batch 2026-10-28-rt-audio-shipped (gamedb/benchmarks/README.md)
+batch = "2026-10-28-rt-audio-shipped"
+
+[variant."base@rtaudio"]
+fps = 82.5
+cpu = 99.5
+underruns = 53.0
+ram_free = 56.8
+vram = 34.2
+fps_steady = 82.7
+low1 = 56.5
+stalls = 9.0
+longest_ms = 193.4
+stalls_play = 0.0
+stall_play_s = 0.0
+low1_play = 57.3
+longest_play_ms = 28.6
+
+[variant."base@rtprio0"]
+fps = 82.6
+cpu = 94.8
+underruns = 106
+ram_free = 54.2
+vram = 34.2
+fps_steady = 82.7
+low1 = 57.9
+stalls = 9
+longest_ms = 214.4
+stalls_play = 0
+stall_play_s = 0.0
+low1_play = 58.4
+longest_play_ms = 28.3
