@@ -23,7 +23,7 @@ inside() {
 		cp /etc/resolv.conf $R/etc/resolv.conf 2>/dev/null || true
 		mountpoint -q $R/proc || mount -t proc proc $R/proc
 		mountpoint -q $R/dev || mount --bind /dev $R/dev
-		cp /r/in/* $R/tmp/
+		rm -rf $R/tmp/debs; cp -r /r/in/* $R/tmp/
 		rc=0; chroot $R /usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin HOME=/tmp \
 			DEBIAN_FRONTEND=noninteractive sh -c "cd /tmp && $1" || rc=$?
 		umount $R/dev $R/proc; exit $rc' _ "$1"
@@ -31,11 +31,12 @@ inside() {
 case $what in
 setup)
 	debs=${1:-$top/build/debs/mesa}
-	cp "$debs"/{libegl-mesa0,libgbm1,libgl1-mesa-dri,libglx-mesa0,mesa-drm-shim,mesa-libgallium}_*_ppc64.deb "$D/in/"
+	rm -rf "$D/in/debs"; mkdir -p "$D/in/debs"
+	cp "$debs"/{libegl-mesa0,libgbm1,libgl1-mesa-dri,libglx-mesa0,mesa-drm-shim,mesa-libgallium}_*_ppc64.deb "$D/in/debs/"
 	docker run --rm --privileged -v "$D:/r" -v "$top/build/chroot:/c:ro" "$img" \
 		sh -c '[ -e /r/root/usr/bin/apt-get ] || { mkdir -p /r/root && tar -xf /c/sid-ppc64.tar -C /r/root; }'
 	inside 'apt-get update -qq && apt-get install -y -q --no-install-recommends mpv gcc libc6-dev libdrm-dev libegl-dev libgl-dev pkg-config >apt.log 2>&1 &&
-		apt-get install -y -q --allow-downgrades ./*.deb >>apt.log 2>&1 &&
+		apt-get install -y -q --allow-downgrades ./debs/*.deb >>apt.log 2>&1 &&
 		apt-get download libmpv-dev >>apt.log 2>&1 && rm -rf mpvdev && dpkg -x libmpv-dev_*.deb mpvdev &&
 		dpkg -l libgl1-mesa-dri mpv | tail -2' ;;
 play)

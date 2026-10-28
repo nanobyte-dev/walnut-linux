@@ -9,7 +9,7 @@
  *   Mesa sends: its float, short and byte formats, 0043's UB256 x4;
  * - texture formats: X16 (0x14, mpv's dither texture: 0x105) refused in every fragment and vertex
  *   unit, every other format passes; mpv's first frame as captured (fixtures/) refused, and
- *   passed once its dither texture is L8 (what Mesa 0052 sends);
+ *   passed with its dither texture as L8 and as Mesa 0052 sends it;
  * - texture offsets not 128-byte aligned (Neverball's +0xaa0 blit source: 0x105), swizzled render
  *   targets 1 pixel wide (0x106), M2MF methods on the surface-2D object (0x109).
  * Built in userspace with inc/ (kernel stand-ins) by the Makefile here.
@@ -183,6 +183,9 @@ int main(int argc, char **argv)
 		CHECK(nfmt == 1, "mpv's frame: %u X16 format words, expected 1", nfmt);
 		r = run_mpv(f, ARRAY_SIZE(f));
 		CHECK(r == 0, "mpv's frame with an L8 dither texture: %d (%s)", r, last_warn);
+		/* and as Mesa 0052 sends it */
+		r = run_mpv(mpv_frame1_0052, ARRAY_SIZE(mpv_frame1_0052));
+		CHECK(r == 0, "mpv's frame from Mesa 0052: %d (%s)", r, last_warn);
 	}
 
 	/* 0x105, Neverball: Mesa's blit sampling a 2x2 level at +0xaa0 (fragment unit 0); and the
