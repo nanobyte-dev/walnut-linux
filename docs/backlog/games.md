@@ -25,7 +25,7 @@ they came from.
 | [Diablo (DevilutionX)](../../gamedb/games/diablo/todo.toml) | 1 | 1 benchmark |  |
 | [dsda-doom](../../gamedb/games/dsda-doom/todo.toml) | 2 | 1 research, 1 session | 2.8 |
 | [Duke Nukem 3D](../../gamedb/games/duke-nukem-3d/todo.toml) | 1 | 1 benchmark |  |
-| [Dungeon Crawl Stone Soup](../../gamedb/games/crawl-tiles/todo.toml) | 1 | 1 benchmark |  |
+| [Dungeon Crawl Stone Soup](../../gamedb/games/crawl-tiles/todo.toml) | 2 | 1 benchmark, 1 package |  |
 | [Endless Sky](../../gamedb/games/endless-sky/todo.toml) | 1 | 1 benchmark |  |
 | [Extreme Tux Racer](../../gamedb/games/etr/todo.toml) | 3 | 1 benchmark, 1 research, 1 session | 2.6 |
 | [Flare](../../gamedb/games/flare/todo.toml) | 1 | 1 benchmark |  |
@@ -57,7 +57,7 @@ they came from.
 | [VVVVVV](../../gamedb/games/vvvvvv/todo.toml) | 1 | 1 benchmark |  |
 | [Warmux](../../gamedb/games/warmux/todo.toml) | 1 | 1 benchmark |  |
 | [Warzone 2100](../../gamedb/games/warzone2100/todo.toml) | 1 | 1 session |  |
-| [Widelands](../../gamedb/games/widelands/todo.toml) | 1 | 1 benchmark |  |
+| [Widelands](../../gamedb/games/widelands/todo.toml) | 1 | 1 fix |  |
 | [Wolfenstein: Enemy Territory (ET: Legacy)](../../gamedb/games/wolfenstein-enemy-territory/todo.toml) | 1 | 1 benchmark |  |
 | [X-COM: UFO Defense (OpenXcom)](../../gamedb/games/x-com-ufo-defense/todo.toml) | 1 | 1 benchmark |  |
 | [X-Moto](../../gamedb/games/xmoto/todo.toml) | 2 | 1 package, 1 session |  |

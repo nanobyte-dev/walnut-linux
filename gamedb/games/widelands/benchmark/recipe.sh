@@ -13,10 +13,17 @@
 # Risks: RAM (the map and building graphics are decoded into big textures: a 217 MB machine is the
 # worry, watch dmesg.log and MemAvailable), GLSL limits, loading time, the game's own music.
 COMM=widelands
+REF_PKGS=widelands	# the PC reference (tools/bench-ref.sh): Debian's widelands
 . "$BENCH_LIB/smoke.inc"
 BACKUP=("$HOME/.widelands/config")
 WL_MAP=/usr/share/games/widelands/data/campaigns/tutorial01_basic_control.wmf
 CMD=(/usr/games/widelands --fullscreen --scenario="$WL_MAP")
-variant_menu() { CMD=(/usr/games/widelands --fullscreen); SHOT_STATIC=1; }
+# the tutorial's first message pauses the game, which Widelands shows as a dotted (1 pixel in 4) map
+# (the PC the same, 2026-10-28): OK on it through XTEST (xkeys.py, 1920x1080; Return too) 60 s after the window (the scenario loads for about 40 s), so
+# the shots show the live map
+WL_KEYS=1
+during() { [ "$WL_KEYS" = 1 ] || return 0; smoke_xkeys Widelands 60 @950,640 +1 @957,647 +3 Return +3; shot_mark; }
+SHOT_FROM=mark
+variant_menu() { WL_KEYS=0; CMD=(/usr/games/widelands --fullscreen); SHOT_STATIC=1; }
 variant_nosound() { CMD+=(--nosound); }
 variant_skip() { CMD+=(--autosave=0); }

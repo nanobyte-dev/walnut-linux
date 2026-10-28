@@ -2,10 +2,11 @@
 # a session item's order is its place in the played-session queue (docs/TESTS.md's generated block).
 
 [[item]]
-kind = "benchmark"
-added = 2026-10-19
-source = "TESTS.md Next (smoke re-runs)"
+kind = "fix"
+added = 2026-10-28
+source = "games night 2026-10-28 (smoke)"
 text = """\
-Smoke re-run: `run.sh smoke widelands` (the recipe passes `--fullscreen` without a value since \
-e40e282, and not with `--xres` since 57339ca); ssdroot5's run was nudged by the user, so it doesn't \
-count. `make bench-push` first."""
+Performance: the tutorial plays at 23 fps with a 1% low of 7 and many frames over 100 ms after a 40 s \
+load. A `PERF=1 MEM=1` run of the base recipe (OK clicked) first: the map renderer's CPU (terrain, \
+the many small sprite draws), the Lua scenario, the swap; then the levers (Widelands' own options: \
+animations, the minimap, texture quality)."""
