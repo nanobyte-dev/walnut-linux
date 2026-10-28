@@ -51,7 +51,7 @@ they came from.
 | [SuperTuxKart](../../gamedb/games/supertuxkart/todo.toml) | 5 | 2 fix, 1 package, 1 research, 1 session | 2.1, 3.1 |
 | [Teeworlds](../../gamedb/games/teeworlds/todo.toml) | 1 | 1 benchmark | 2.6 |
 | [TORCS](../../gamedb/games/torcs/todo.toml) | 1 | 1 benchmark | 1.11 |
-| [Trigger Rally](../../gamedb/games/trigger-rally/todo.toml) | 1 | 1 benchmark | 1.11 |
+| [Trigger Rally](../../gamedb/games/trigger-rally/todo.toml) | 1 | 1 session |  |
 | [UFO: Alien Invasion](../../gamedb/games/ufoai/todo.toml) | 1 | 1 benchmark |  |
 | [Ultima VII (Exult)](../../gamedb/games/ultima-7/todo.toml) | 1 | 1 benchmark |  |
 | [VVVVVV](../../gamedb/games/vvvvvv/todo.toml) | 1 | 1 benchmark |  |

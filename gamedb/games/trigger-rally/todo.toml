@@ -2,7 +2,12 @@
 # a session item's order is its place in the played-session queue (docs/TESTS.md's generated block).
 
 [[item]]
-kind = "benchmark"
-added = 2026-10-19
-source = "PLAN 1.11"
-text = "Menu-only smoke with the user (installed on the PS3)."
+kind = "session"
+order = 17
+launcher = "Trigger Rally"
+pc = "ready"
+added = 2026-10-28
+source = "games night 2026-10-28 (smoke)"
+text = """\
+First played session on the game's defaults (58 fps in the smoke race): a few stages with the DualShock 3 \
+(the game finds it; does its mapping steer, throttle and brake?), the engine and co-driver by ear."""
