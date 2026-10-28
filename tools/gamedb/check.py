@@ -434,7 +434,7 @@ def check_game(gdir, bad, repo, ctx=None):
         elif f in GAME_DIRS and not (gdir / f).is_dir():
             errs.append("%s is not a folder" % f)
     errs += benchmark_errors(gdir, build)
-    errs += desktop_errors(gdir)
+    errs += desktop_errors(gdir, build, ctx)
     rating = gdir / "rating"
     for f in sorted(x.name for x in rating.iterdir()) if rating.is_dir() else []:
         if f not in ("sessions", "test.toml"):
@@ -740,7 +740,28 @@ def pack_integration():
     return m
 
 
-def desktop_errors(gdir):
+def requires_errors(name, text, build, ctx):
+    """a launcher's X-Walnut-Requires= must be a file of one of the game's [data_setup] packages in the data
+    manifest (files or required, no leading /); skipped when none of those is in the manifest"""
+    manifest = (ctx or {}).get("manifest")
+    ds = build.get("data_setup")
+    if not manifest or not isinstance(ds, dict):
+        return []
+    pkgs = [p for p in list(ds.get("required", [])) + list(ds.get("optional", [])) if p in manifest]
+    if not pkgs:
+        return []
+    known = set()
+    for p in pkgs:
+        known |= set(manifest[p].get("files", {})) | set(manifest[p].get("required", []))
+    errs = []
+    for l in text.splitlines():
+        if l.startswith("X-Walnut-Requires=") and l.split("=", 1)[1].lstrip("/") not in known:
+            errs.append("desktop/launchers/%s: X-Walnut-Requires %s is no file of %s in %s" % (
+                name, l.split("=", 1)[1], ", ".join(pkgs), GDP_MANIFEST.name))
+    return errs
+
+
+def desktop_errors(gdir, build=None, ctx=None):
     """desktop/: only DESKTOP_FILES; launchers/*.desktop that start the game through ps3-game (as
     pack-integration.py reads them), files/ holding files only, migrate-home.txt lines it can read"""
     errs, d = [], gdir / "desktop"
@@ -755,6 +776,7 @@ def desktop_errors(gdir):
             if not f.name.endswith(".desktop") or not f.is_file():
                 raise pi.Error("desktop/launchers/%s is not a .desktop file" % f.name)
             pi.launcher(gdir.name, f)
+            errs += requires_errors(f.name, f.read_text(), build or {}, ctx)
         except pi.Error as e:
             errs.append(str(e))
     if (d / "migrate-home.txt").is_file():

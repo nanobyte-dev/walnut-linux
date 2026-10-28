@@ -606,6 +606,20 @@ class Check(unittest.TestCase):
         self.assertIn("migrate-home.txt line", text)
         self.assertIn("unexpected file desktop/notes.txt", text)
 
+    def test_launcher_requires(self):
+        """X-Walnut-Requires= is a file of a [data_setup] package in the data manifest"""
+        ds = '[data_setup]\ngdp = "final-doom"\nrequired = ["tnt-wad"]\neditions = { "tnt-wad" = "full" }\n'
+        g = write_game(self.content, build=ds, **self.DATA)
+        (g / "desktop" / "launchers").mkdir(parents=True)
+        lf = g / "desktop" / "launchers" / "ex.desktop"
+        man = check.gdp_manifest()["tnt-wad"]
+        path = man["required"][0]
+        lf.write_text("[Desktop Entry]\nName=Ex\nExec=ps3-game ex\nX-Walnut-Requires=/%s\n" % path)
+        self.assertEqual(self.problems(), {})
+        lf.write_text("[Desktop Entry]\nName=Ex\nExec=ps3-game ex\nX-Walnut-Requires=/usr/share/games/doom/nope.wad\n")
+        self.assertIn("X-Walnut-Requires /usr/share/games/doom/nope.wad is no file of tnt-wad",
+                      " ".join(self.problems()["ex"]))
+
     def test_build_toml_licensed(self):
         lic = '[[licensed]]\nname = "ex-data"\nbuilder = "source"\nedition = "full"\n'
         write_game(self.content, build=lic + 'meta = true\n')    # gone with ps3-games-licensed (2026-10-28)
