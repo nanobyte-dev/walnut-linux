@@ -1,0 +1,61 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Wed, 28 Oct 2026 21:51:44 +0200
+Subject: GTK: no view transitions without accelerated compositing
+
+document.startViewTransition() puts the page in compositing mode whatever the settings say (Document::setActiveViewTransition enables the compositor, whose root layer makes the drawing area enter accelerated compositing). With hardware acceleration NEVER, or without the DMA-BUF renderer (WEBKIT_DISABLE_DMABUF_RENDERER), the UI process has no accelerated backing store and crashed in webkitWebViewBaseEnterAcceleratedCompositingMode: YouTube took Badwolf down within seconds. The web process no longer offers view transitions when accelerated compositing is off (pages fall back as in browsers without the API), and the UI process ignores compositing requests it can't show instead of dereferencing a null backing store.
+
+diff --git a/Source/WebKit/UIProcess/API/gtk/WebKitWebViewBase.cpp b/Source/WebKit/UIProcess/API/gtk/WebKitWebViewBase.cpp
+--- a/Source/WebKit/UIProcess/API/gtk/WebKitWebViewBase.cpp
++++ b/Source/WebKit/UIProcess/API/gtk/WebKitWebViewBase.cpp
+@@ -2900,19 +2900,26 @@ void webkitWebViewBaseResetClickCounter(WebKitWebViewBase* webkitWebViewBase)
+ 
+ void webkitWebViewBaseEnterAcceleratedCompositingMode(WebKitWebViewBase* webkitWebViewBase, const LayerTreeContext& layerTreeContext)
+ {
+-    ASSERT(webkitWebViewBase->priv->acceleratedBackingStore);
++    // No backing store (acceleration off, no DMA-BUF renderer): nothing can show composited
++    // content, but a web process that asks anyway must not take the UI process down with it.
++    if (!webkitWebViewBase->priv->acceleratedBackingStore)
++        return;
+     webkitWebViewBase->priv->acceleratedBackingStore->update(layerTreeContext);
+ }
+ 
+ void webkitWebViewBaseUpdateAcceleratedCompositingMode(WebKitWebViewBase* webkitWebViewBase, const LayerTreeContext& layerTreeContext)
+ {
+-    ASSERT(webkitWebViewBase->priv->acceleratedBackingStore);
++    // No backing store (acceleration off, no DMA-BUF renderer): nothing can show composited
++    // content, but a web process that asks anyway must not take the UI process down with it.
++    if (!webkitWebViewBase->priv->acceleratedBackingStore)
++        return;
+     webkitWebViewBase->priv->acceleratedBackingStore->update(layerTreeContext);
+ }
+ 
+ void webkitWebViewBaseExitAcceleratedCompositingMode(WebKitWebViewBase* webkitWebViewBase)
+ {
+-    ASSERT(webkitWebViewBase->priv->acceleratedBackingStore);
++    if (!webkitWebViewBase->priv->acceleratedBackingStore)
++        return;
+     webkitWebViewBase->priv->acceleratedBackingStore->update(LayerTreeContext());
+ }
+ 
+diff --git a/Source/WebKit/WebProcess/WebPage/WebPage.cpp b/Source/WebKit/WebProcess/WebPage/WebPage.cpp
+--- a/Source/WebKit/WebProcess/WebPage/WebPage.cpp
++++ b/Source/WebKit/WebProcess/WebPage/WebPage.cpp
+@@ -4806,6 +4806,17 @@ void WebPage::updatePreferences(const WebPreferencesStore& store)
+ 
+     updateSettingsGenerated(store, settings);
+ 
++#if PLATFORM(GTK) || PLATFORM(WPE)
++    // A view transition puts the page in compositing mode whatever the settings say
++    // (Document::setActiveViewTransition), and a UI process without an accelerated backing store
++    // (hardware acceleration policy NEVER, or no DMA-BUF renderer) then crashes. Without accelerated
++    // compositing the API is not offered: pages fall back as they do in browsers without it.
++    if (!settings.acceleratedCompositingEnabled()) {
++        settings.setViewTransitionsEnabled(false);
++        settings.setCrossDocumentViewTransitionsEnabled(false);
++    }
++#endif
++
+ #if !PLATFORM(GTK) && !PLATFORM(WIN) && !PLATFORM(PLAYSTATION) && !PLATFORM(WPE)
+     if (!settings.acceleratedCompositingEnabled()) {
+         WEBPAGE_RELEASE_LOG(Layers, "updatePreferences: acceleratedCompositingEnabled setting was false. WebKit cannot function in this mode; changing setting to true");
