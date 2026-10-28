@@ -46,9 +46,11 @@
   {{ if $shot_tests }}
   <section>
     <h2>Screenshots</h2>
+    {{/* the app's copy carries them at their display size (each decoded 800x450 JPEG costs Tkhtml about 3.5 MB
+         on the PS3), the full picture behind the click */}}
     <p class="muted">As rendered on the PS3.</p>
     <div class="shots">
-    {{ range $shot_tests }}{{ range .ps3 }}{{ with $page.Resources.Get . }}<a href="{{ .RelPermalink }}"><img src="{{ .RelPermalink }}" width="800" height="450" alt="{{ $g.title }} on the PS3" loading="lazy"></a>
+    {{ range $shot_tests }}{{ range .ps3 }}{{ with $page.Resources.Get . }}{{ $img := . }}{{ if site.Params.app }}{{ $img = .Resize "352x" }}{{ end }}<a href="{{ .RelPermalink }}"><img src="{{ $img.RelPermalink }}" width="{{ $img.Width }}" height="{{ $img.Height }}" alt="{{ $g.title }} on the PS3" loading="lazy"></a>
     {{ end }}{{ end }}{{ end }}
     </div>
   </section>

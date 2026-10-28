@@ -441,7 +441,9 @@ browser, NetSurf and the app's HTML view (the user, 2026-10-28):
 - **Links are relative** (build.sh rewrites every site link against the page after Hugo; Hugo's own
   relativeURLs breaks under the /gamedb/ base path), so a copy of the output works offline.
 - **The app's copy**, `build.sh --app OUT` (designed, not used yet): the same pages without the site's
-  header, footer and script, every folder link naming its `index.html` (a file:// view adds none), and
+  header, footer and script, every folder link naming its `index.html` (a file:// view adds none), the
+  screenshots at their display size, 352x198 (a decoded 800x450 JPEG costs Tkhtml about 3.5 MB on the PS3;
+  the full one is behind the click), the tab links kept on one line, selectors CSS 2.1 only, and
   the game's actions as `walnut://install/<id>`, `walnut://add-data/<id>` and `walnut://play/<id>` links
   in place of the apt line (`layouts/partials/get-game.html`), for the Details view to catch.
 
