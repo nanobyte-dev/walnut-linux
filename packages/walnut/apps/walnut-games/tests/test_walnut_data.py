@@ -505,6 +505,11 @@ class RemoveAndRepo(unittest.TestCase):
         self.assertIsNone(r)
         self.assertEqual(fake.streams, [])
         self.assertIsInstance(run_say(helper.do_remove_data, "beta", GAMES, fake.runner, fake.stream)[0], helper.Refused)
+        fake = Fake(sim="Remv alpha-data [89]\n", inst={"alpha-data"}, running=True)
+        r, out = run_say(helper.do_remove_data, "alpha", GAMES, fake.runner, fake.stream)
+        self.assertIsInstance(r, helper.Refused)
+        self.assertIn("a game is running", str(r))
+        self.assertEqual(fake.streams, [])
 
     POLICY = "alpha-data:\n  Installed: (none)\n  Candidate: (none)\nalpha-lic-data:\n  Installed: (none)\n  Candidate: 1.0\n"
 

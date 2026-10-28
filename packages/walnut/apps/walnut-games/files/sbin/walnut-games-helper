@@ -1091,6 +1091,8 @@ def do_import_data(game_id, pkg, games, src, manifest, gdp_version, runner=run, 
 
 def do_remove_data(game_id, games, runner=run, stream=apt_stream):
     data_setup_of(game_id, games)
+    if game_running(runner):
+        raise Refused("a game is running: close it first")
     names = data_packages(game_id, games)
     have = [p for p in names if p in installed(names, runner)]
     if not have:
