@@ -1,0 +1,222 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Thu, 29 Oct 2026 01:13:56 +0200
+Subject: Game pads work the menus too, and a DualShock 3's D-pad and Start in
+ a match
+
+The menus read the keyboard only, so a pad that plays the matches could
+not start one: a player on a console needed a keyboard for every menu.
+
+- The menus and the screens that wait for a key (they all read events
+  through s_fetchevent) get the pads' events as the keys they know: a hat
+  or the first stick are the arrow keys, the first button Return and the
+  second Escape (Cross and Circle on a DualShock 3, which drop and use in
+  a match), and on a DualShock 3 its D-pad buttons the arrow keys and
+  Start Return. The results screen takes them too.
+- In a match a DualShock 3's Start is Escape (the game menu, which the
+  pad then works through the same translation), and its D-pad buttons, or
+  any pad's hat, move as the stick does.
+
+A DualShock 3 is recognised by its name ("Sony PLAYSTATION(R)3
+Controller", or SDL's "PS3 Controller"); its buttons under Linux's
+hid-sony are Cross 0, Circle 1, Triangle 2, Square 3, ..., Start 9 and
+the D-pad 13-16 (up, down, left, right).
+
+Forwarded: not-needed
+
+diff --git a/include/sysfunc.h b/include/sysfunc.h
+--- a/include/sysfunc.h
++++ b/include/sysfunc.h
+@@ -29,6 +29,8 @@ struct __direntry {
+ 
+ extern void s_delay (int ms);
+ extern int s_fetchevent (SDL_Event *event);
++extern int s_ds3 (int pad);
++extern SDLKey s_padevent (SDL_Event *event);
+ extern int s_random (int maxnr);
+ extern char *s_gethomedir ();
+ extern int s_countbits (int nbomb, int nr);
+diff --git a/src/game.c b/src/game.c
+--- a/src/game.c
++++ b/src/game.c
+@@ -264,6 +264,10 @@ game_loop ()
+                 bman.state = GS_quit;
+             }
+ 
++        /* Walnut: a pad works the game menu (s_padevent) */
++        if (eventstate && menu != NULL)
++            s_padevent (&event);
++
+         /*
+          * input handling 
+          */
+@@ -899,17 +903,21 @@ game_showresult ()
+ 
+     while (!done && bman.state != GS_quit) {
+         /* do the keyboard handling */
++        SDLKey pad = SDLK_UNKNOWN;    /* Walnut: a pad's button as a key (s_fetchevent), not in keys[] */
+         if (s_fetchevent (&event) != 0)
+             switch (event.type) {
+             case (SDL_QUIT):
+                 bman.state = GS_quit;
+                 bman.p_nr = -1;
+                 done = 1;
++                break;
++            case (SDL_KEYDOWN):
++                pad = event.key.keysym.sym;
+             }
+ 
+         keys = SDL_GetKeyState (NULL);
+ 
+-        if (keys[SDLK_ESCAPE] && event.type == SDL_KEYDOWN) {
++        if ((keys[SDLK_ESCAPE] || pad == SDLK_ESCAPE) && event.type == SDL_KEYDOWN) {
+             /* we want to quit */
+             done = 1;
+             bman.p_nr = -1;
+@@ -917,7 +925,7 @@ game_showresult ()
+             bman.state = GS_startup;
+         }
+ 
+-        if ((keys[SDLK_RETURN] || keys[SDLK_KP_ENTER] || keys[SDLK_LCTRL] || keys[SDLK_RCTRL]) && (!keypressed)
++        if ((keys[SDLK_RETURN] || keys[SDLK_KP_ENTER] || keys[SDLK_LCTRL] || keys[SDLK_RCTRL] || pad == SDLK_RETURN) && (!keypressed)
+             && (event.type = SDL_KEYDOWN)) {
+             done = 1;
+             keypressed = 1;
+diff --git a/src/keyb.c b/src/keyb.c
+--- a/src/keyb.c
++++ b/src/keyb.c
+@@ -427,6 +427,25 @@ void keyb_loop (SDL_Event *event) {
+ 					keyb_gamekeys.state[offset + BCPK_drop] |= 1;
+ 				if (n != 0 && i == joy_keys[j].special)
+ 					keyb_gamekeys.state[offset + BCPK_special] |= 1;
++				/* Walnut: a DualShock 3's Start is Escape, the game menu (sysfunc.c s_padevent),
++				 * and its D-pad buttons move as the stick does */
++				if (n != 0 && i >= 9 && i <= 16 && s_ds3 (j))
++					switch (i) {
++					case 9: keyb_gamekeys.state[BCK_esc] |= 1; break;
++					case 13: keyb_gamekeys.state[offset + BCPK_up] |= 1; break;
++					case 14: keyb_gamekeys.state[offset + BCPK_down] |= 1; break;
++					case 15: keyb_gamekeys.state[offset + BCPK_left] |= 1; break;
++					case 16: keyb_gamekeys.state[offset + BCPK_right] |= 1; break;
++					}
++			}
++
++			/* Walnut: a hat (a D-pad some drivers give as one) moves too */
++			if (SDL_JoystickNumHats (joy[j]) > 0) {
++				Uint8 h = SDL_JoystickGetHat (joy[j], 0);
++				if (h & SDL_HAT_UP) keyb_gamekeys.state[offset + BCPK_up] |= 1;
++				if (h & SDL_HAT_DOWN) keyb_gamekeys.state[offset + BCPK_down] |= 1;
++				if (h & SDL_HAT_LEFT) keyb_gamekeys.state[offset + BCPK_left] |= 1;
++				if (h & SDL_HAT_RIGHT) keyb_gamekeys.state[offset + BCPK_right] |= 1;
+ 			}
+ 
+ 			for (  i=0; i < SDL_JoystickNumAxes ( joy[j] ); ++i )  {
+diff --git a/src/sysfunc.c b/src/sysfunc.c
+--- a/src/sysfunc.c
++++ b/src/sysfunc.c
+@@ -27,11 +27,104 @@ s_delay (int ms)
+ };
+ 
+ 
++/* Walnut: a game pad works the menus too. The joystick events of the pads keyb_init opened become
++ * the keys the menus read: a hat or the first stick the arrow keys, the first button Return and the
++ * second Escape (Cross and Circle on a DualShock 3, which also drop and use in a match), and on a
++ * DualShock 3 its D-pad buttons the arrow keys and Start Return. The menus and screens that wait for
++ * a key read events through here; a match reads the pads itself (keyb_loop: there Start is Escape,
++ * the game menu) and hands its events to s_padevent while the game menu is up (game_loop). */
++int
++s_ds3 (int pad)
++{
++	const char *name = SDL_JoystickName (pad);
++	return name && (strstr (name, "PLAYSTATION(R)3") || strstr (name, "PS3"));
++}
++
++static void
++s_padkey (SDL_Event *event, SDLKey sym, int down)
++{
++	event->type = down ? SDL_KEYDOWN : SDL_KEYUP;
++	event->key.which = 0;
++	event->key.state = down ? SDL_PRESSED : SDL_RELEASED;
++	event->key.keysym.scancode = 0;
++	event->key.keysym.sym = sym;
++	event->key.keysym.mod = KMOD_NONE;
++	event->key.keysym.unicode = sym == SDLK_RETURN ? '\r' : sym == SDLK_ESCAPE ? 27 : 0;
++}
++
++/* the key a pad event stands for, the event changed into it; SDLK_UNKNOWN: none */
++SDLKey
++s_padevent (SDL_Event *event)
++{
++	static SDLKey held[8][2];	/* per pad: the key its stick holds on X and on Y */
++	static Uint8 hat[8];
++	SDLKey sym = SDLK_UNKNOWN;
++	int pad, down = 1, i;
++
++	switch (event->type) {
++	case SDL_JOYBUTTONDOWN:
++	case SDL_JOYBUTTONUP:
++		down = event->type == SDL_JOYBUTTONDOWN;
++		switch (event->jbutton.button) {
++		case 0: sym = SDLK_RETURN; break;
++		case 1: sym = SDLK_ESCAPE; break;
++		default:
++			if (!s_ds3 (event->jbutton.which))
++				break;
++			switch (event->jbutton.button) {
++			case 9: sym = SDLK_RETURN; break;
++			case 13: sym = SDLK_UP; break;
++			case 14: sym = SDLK_DOWN; break;
++			case 15: sym = SDLK_LEFT; break;
++			case 16: sym = SDLK_RIGHT; break;
++			}
++		}
++		break;
++	case SDL_JOYHATMOTION:
++		pad = event->jhat.which & 7;
++		/* the direction that came on (a press), else the one that went off (a release) */
++		for (i = 0; i < 2 && sym == SDLK_UNKNOWN; i++) {
++			Uint8 v = i == 0 ? event->jhat.value & ~hat[pad] : hat[pad] & ~event->jhat.value;
++			down = i == 0;
++			if (v & SDL_HAT_UP) sym = SDLK_UP;
++			else if (v & SDL_HAT_DOWN) sym = SDLK_DOWN;
++			else if (v & SDL_HAT_LEFT) sym = SDLK_LEFT;
++			else if (v & SDL_HAT_RIGHT) sym = SDLK_RIGHT;
++		}
++		hat[pad] = event->jhat.value;
++		break;
++	case SDL_JOYAXISMOTION:
++		if (event->jaxis.axis > 1)
++			break;
++		pad = event->jaxis.which & 7;
++		i = event->jaxis.axis;
++		if (event->jaxis.value < -16000)
++			sym = i ? SDLK_UP : SDLK_LEFT;
++		else if (event->jaxis.value > 16000)
++			sym = i ? SDLK_DOWN : SDLK_RIGHT;
++		if (sym == held[pad][i])
++			return SDLK_UNKNOWN;	/* no change past the dead zone */
++		if (sym == SDLK_UNKNOWN) {	/* back to the middle: the release */
++			sym = held[pad][i];
++			down = 0;
++			held[pad][i] = SDLK_UNKNOWN;
++		}
++		else
++			held[pad][i] = sym;
++		break;
++	}
++	if (sym != SDLK_UNKNOWN)
++		s_padkey (event, sym, down);
++	return sym;
++}
++
+ int
+ s_fetchevent (SDL_Event *event)
+ {
+-	if (SDL_PollEvent (event))
++	if (SDL_PollEvent (event)) {
++		s_padevent (event);
+ 		return 1;
++	}
+   	s_delay (20);
+ 	return 0;
+ }

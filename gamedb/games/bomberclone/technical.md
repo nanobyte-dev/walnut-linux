@@ -17,6 +17,13 @@ replacing Debian's; in no suite.
   SIGTERM. Now it closes the audio and SDL first.
 - [0002](packages/bomberclone/patches/0002-config-full-screen-by-default.patch): full screen by default (it started in a 640x480 window
   on the desktop); the saved config and the Options menu still change it.
+- [0003](packages/bomberclone/patches/0003-Game-pads-work-the-menus-too-and-a-DualShock-3-s-D-p.patch): the pads work the menus
+  (they read the keyboard only): every menu and wait-for-a-key screen reads events through
+  `s_fetchevent`, which now hands them a pad's hat or first stick as the arrow keys, the first button as
+  Return and the second as Escape (Cross and Circle on a DualShock 3), and a DualShock 3's D-pad buttons
+  and Start too. In a match a DualShock 3's Start opens the game menu (which the pad then works) and its
+  D-pad moves as the stick does (any pad's hat too). Tried on the PC with a virtual DS3 (evemu, the
+  hid-sony layout): the main menu, the manual's pages and back. Pending its PS3 test.
 
 ## How it performs
 
@@ -28,6 +35,6 @@ session; the recipe ([benchmark/recipe.sh](benchmark/recipe.sh)) is for sessions
 
 ## Known problems
 
-- The gamepad works in matches but not in the menus: BomberClone's menus read the keyboard only (as on the
-  PC).
+- The gamepad worked in matches but not in the menus: BomberClone's menus read the keyboard only (as on the
+  PC). 0003 (pending its PS3 test) makes the pads work them.
 - The HUD text is small at 1080p (12 px: Player1, Bombs, Range, Speed at the top).

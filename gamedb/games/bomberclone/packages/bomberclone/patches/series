@@ -1,3 +1,4 @@
 # Our patches on Debian's bomberclone (an Atomic Bomberman clone)
 0001-main-close-the-audio-and-SDL-before-exiting.patch
 0002-config-full-screen-by-default.patch
+0003-Game-pads-work-the-menus-too-and-a-DualShock-3-s-D-p.patch
