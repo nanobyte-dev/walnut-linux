@@ -14,12 +14,15 @@ Depends: ${misc:Depends}, python3, python3-tk, python3-pil.imagetk, ps3-desktop 
 # walnut-data import runs game-data-packager (ours, with --progress-fd and --no-launchers) and opens
 # disc images with udisksctl; a game's CD music: oggenc (vorbis-tools) encodes a BIN/CUE's audio tracks,
 # and game-data-packager rips the disc in the drive with cdparanoia (and oggenc)
-Recommends: ps3-games-integration, game-data-packager, udisks2, vorbis-tools, cdparanoia
+# python3-tkinterweb shows the Details view (the site's pages in Tkhtml); without it Details opens the website
+Recommends: ps3-games-integration, game-data-packager, udisks2, vorbis-tools, cdparanoia, python3-tkinterweb
 Description: Walnut Games, the games database and launcher
  A window with a card for every game in the Walnut Games catalog: its medal and scores from the
  tests on the PS3, screenshots next to the PC's, known issues and the patches Walnut made. Install,
  Remove and Play (through ps3-game, so game mode applies). The catalog is the one packaged with this
- version, so the app works offline; https://walnut.nanobyte.dev/gamedb/ is always current.
+ version, so the app works offline, and so are its pages for the Details view;
+ https://walnut.nanobyte.dev/gamedb/ is always current. The website's "Open in Walnut Games" links
+ (walnut://game/<id>) open the app on that game.
  Installing and removing go through walnut-games-helper (sudoers: group sudo, no password), which
  only knows the catalog's games, never removes anything but the game's own packages, and never
  runs autoremove.

@@ -45,7 +45,7 @@ ROOTFS_VARS_NOW := $(foreach v,DEBIAN_SNAPSHOT DEBIAN_SUITE DEBIAN_MIRROR SOURCE
 $(shell mkdir -p $(BUILD); [ "$$(cat $(ROOTFS_VARS) 2>/dev/null)" = "$(ROOTFS_VARS_NOW)" ] || echo "$(ROOTFS_VARS_NOW)" > $(ROOTFS_VARS))
 ROOTFS_BASE_INPUTS := $(ROOTFS_PACKAGES) tools/build-rootfs.sh $(ROOTFS_VARS)
 
-.PHONY: gamedb-catalog walnut-server walnut-site walnut-server-test public-push initrd-ssd initrd-walnut initrd-busybox publish du clean-ephemeral chroot packages ps3rsx-modules snd-ps3-ko netboot-deb spu-toolchain spu-tests spu-deploy help all builder rootfs rootfs-base checksums nfs-root usb-root usb-root-petitboot deploy listen shell clean gpu-deploy test test-slow ps3-reboot bench-push bench-pull bench-shots bench-ref bench-matrix \
+.PHONY: gamedb-catalog gamedb-app-pages walnut-server walnut-site walnut-server-test public-push initrd-ssd initrd-walnut initrd-busybox publish du clean-ephemeral chroot packages ps3rsx-modules snd-ps3-ko netboot-deb spu-toolchain spu-tests spu-deploy help all builder rootfs rootfs-base checksums nfs-root usb-root usb-root-petitboot deploy listen shell clean gpu-deploy test test-slow ps3-reboot bench-push bench-pull bench-shots bench-ref bench-matrix \
 	classicube-audio game-data gdp-index gdp-manifest licensed-data game-debs game-deploy gamedb-integration
 
 help:
@@ -552,7 +552,11 @@ ps3-boot-src: initrd-walnut
 # the screenshots are Git LFS files: a checkout without them stops the pack)
 gamedb-catalog:
 	python3 -I tools/gamedb/pack-catalog.py
-walnut-games-src: gamedb-catalog
+# and the site's pages for its Details view (tools/gamedb/build.sh --app: Hugo runs here, on the host or
+# the CI runner, not in the PS3 build chroot); the catalog's pictures go in as links to it
+gamedb-app-pages: gamedb-catalog
+	python3 -I tools/gamedb/pack-app-pages.py
+walnut-games-src: gamedb-catalog gamedb-app-pages
 # ps3-games ships the games' integration (ps3-games-integration: launchers, config files, divert and
 # migrate-home lists; package.conf COPY_IN): packed from gamedb first
 gamedb-integration:

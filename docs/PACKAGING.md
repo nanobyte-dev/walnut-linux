@@ -213,6 +213,22 @@ Walnut Linux's splash is Plymouth with our theme, made to show early from the US
 - **Debugging without text on tty1:** put `plymouth.debug=file:/var/log/plymouth-debug.log plymouth.debug=stream:/dev/null` on the kernel line. `file:` alone still printed the debug text on tty1; the second option sends the stream to `/dev/null`. For a test boot, append both to the one line of `/usr/lib/ps3/boot/<release>.args` and run `sudo ps3-update-kboot`. The file belongs to the kernel package, so the next upgrade of that package drops the change again.
 - **pnmixer.** `packages/patched/desktop/pnmixer/` is Debian's `pnmixer` 0.7.2-3 (the tray's volume applet; upstream has been quiet since 2018) plus `0001-audio-don-t-crash-on-a-volume-change-without-a-sound.patch`. When it hooks no sound card it runs on with a NULL card, and a slider move, a scroll on the icon or a hotkey read the volume from it: SIGSEGV, and the tray had no volume icon on the first nightly. The three setters read the volume through `audio_get_volume`, which gives 0 without a card.
 
+## Walnut Games' catalog and pages
+
+`walnut-games` carries two things made on the host before its source package (`make walnut-games-src` runs
+both; `package.conf` `COPY_IN` takes them in): `build/gamedb/catalog.tar` (`make gamedb-catalog`: catalog.json,
+thumbnails, the gallery's screenshots) and `build/gamedb/app-pages.tar` (`make gamedb-app-pages`,
+`tools/gamedb/pack-app-pages.py`), the site's pages for the app's Details view, made by
+`tools/gamedb/build.sh --app`. Hugo runs in that host step, on a developer's PC or the CI runner (build.sh
+downloads its pinned release and checks it), never in the PS3 build chroot, which has none. A picture the
+catalog already has (every full-size screenshot and thumbnail, same path and bytes) goes into the pages'
+tarball as a relative symlink to the catalog's copy, so the package holds each one once: the pages add
+3.3 MB unpacked (2.1 MB of HTML, 0.9 MB of 352x198 screenshots, 2026-10-28), unpacked to
+`/usr/share/walnut-games/pages/`. Its `VERSION_PATHS` name what the pages are made from (`website/gamedb`,
+a game's technical.md, guides, investigations and benchmark folder, the engines, the research pages,
+build.sh and the Hugo pin), so a change to the site makes a new walnut-games. walnut-games Recommends
+`python3-tkinterweb` (and through it `tk-html3`), which shows the pages; without it Details opens the website.
+
 ## No game metapackages
 
 There are none since 2026-10-28 (the user): no game is mandatory, a fresh image ships none (Walnut Games

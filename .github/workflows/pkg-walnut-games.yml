@@ -23,6 +23,17 @@ on:
       - "tools/licensed.py"
       - "gamedb/engines/*/build.toml"
       - "tools/gamedb/gdp-manifest.json"
+      - "website/gamedb/**"
+      - "gamedb/games/*/technical.md"
+      - "gamedb/games/*/guides/**"
+      - "gamedb/games/*/investigations/**"
+      - "gamedb/games/*/benchmark/**"
+      - "gamedb/engines/**"
+      - "gamedb/research/**"
+      - "tools/gamedb/technical.py"
+      - "tools/gamedb/build.sh"
+      - "tools/gamedb/hugo.version"
+      - "tools/gamedb/pack-app-pages.py"
   workflow_dispatch:
     inputs:
       target:
