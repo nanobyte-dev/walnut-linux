@@ -112,12 +112,17 @@ The recipe was called `sauerbraten` before 2026-10-26; old runs keep that name.
   site: Mesa's `st_setup_current()` copying into a NULL upload buffer, fixed by Mesa 0047 and 0048
   (Sauerbraten's [technical notes](../sauerbraten/technical.md)). BananaBread's own call sites were not
   resolved; the fix is not yet confirmed on the PS3 for it.
-- **Missing content in the logs**, 65-74 of 74 runs: `could not read "data/blendbrush.cfg"`,
-  `"data/heightmap.cfg"` (editor files), `could not load texture
-  packages/gk/fantasy/skyfantasy/skyfantasy` (73 runs) and `could not load envmap skyboxes/morning`
-  (65 runs, 910 lines). If the benchmark map uses them, its sky and reflections use a fallback and the
-  picture differs from a PC's; the package is still to be checked for the files. The `could not load
-  model` and `failed to load sample` lines of nine early runs (2026-10-17) were missing data files, fixed.
+- **Missing content in the logs, none of it drawn** (checked 2026-10-29 against cube2-data 1.3-1 and our
+  licensed package): `could not read "data/blendbrush.cfg"` and `"data/heightmap.cfg"` are editor files.
+  `could not load texture packages/gk/fantasy/skyfantasy/skyfantasy` (73 of 74 runs) is cave.cfg's
+  `texture 0 "gk/fantasy/skyfantasy/skyfantasy"`: slot 0 is the sky slot, whose faces draw the skybox, and
+  the skybox itself loads (`loadsky gk/fantasy/skyfantasy/skyfantasy`, the six `_bk`...`_up` files are in
+  cube2-data); only the slot's own texture, a name without a face suffix, is a typo in the data, on a PC too.
+  `could not load envmap skyboxes/morning` (65 runs) comes from the Sauerbraten model configs in
+  `sauerbraten-nonfree-data` (57 of them, `mdlenvmap 0 0 skyboxes/morning`): with an envmap strength of 0
+  the engine never draws the reflection (`envmapped()` wants `envmapmax > 0`), so the missing skybox only
+  costs the failed lookups. Nothing to fix; the `could not load model` and `failed to load sample` lines of
+  nine early runs (2026-10-17) were missing data files, fixed.
 - On 2026-10-17 and 10-18, seven runs logged `speq: s3tc dxt1/dxt5 ... Operation not supported` (the SPE
   compressor refused those job sizes and the CPU path took over) and one `N batches in a row failed on
   the SPEs, the game skins for N ms`; none since.

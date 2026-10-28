@@ -17,7 +17,7 @@ they came from.
 | Game | Open items | Kinds | From the plan |
 |---|---|---|---|
 | [Armagetron Advanced](../../gamedb/games/armagetronad/todo.toml) | 2 | 1 benchmark, 1 session | 2.6 |
-| [BananaBread](../../gamedb/games/bananabread/todo.toml) | 7 | 4 benchmark, 1 fix, 1 package, 1 session | 2.6, 3.1 |
+| [BananaBread](../../gamedb/games/bananabread/todo.toml) | 6 | 4 benchmark, 1 package, 1 session | 2.6, 3.1 |
 | [Battle for Wesnoth](../../gamedb/games/wesnoth/todo.toml) | 1 | 1 benchmark |  |
 | [BZFlag](../../gamedb/games/bzflag/todo.toml) | 2 | 1 package, 1 session |  |
 | [Chromium B.S.U.](../../gamedb/games/chromium-bsu/todo.toml) | 2 | 1 benchmark, 1 session |  |

@@ -224,7 +224,7 @@ backlog, the played-session queue's place included, is its todo.toml. The full l
 | Game | Open items | Kinds | From the plan |
 |---|---|---|---|
 | [Armagetron Advanced](../gamedb/games/armagetronad/todo.toml) | 2 | 1 benchmark, 1 session | 2.6 |
-| [BananaBread](../gamedb/games/bananabread/todo.toml) | 7 | 4 benchmark, 1 fix, 1 package, 1 session | 2.6, 3.1 |
+| [BananaBread](../gamedb/games/bananabread/todo.toml) | 6 | 4 benchmark, 1 package, 1 session | 2.6, 3.1 |
 | [ClassiCube](../gamedb/games/classicube/todo.toml) | 4 | 1 fix, 2 package, 1 research | 3.12 |
 | [dsda-doom](../gamedb/games/dsda-doom/todo.toml) | 2 | 1 research, 1 session | 2.8 |
 | [Extreme Tux Racer](../gamedb/games/etr/todo.toml) | 3 | 1 benchmark, 1 research, 1 session | 2.6 |

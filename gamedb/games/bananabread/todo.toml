@@ -53,17 +53,6 @@ of it textures; DDS and JPG at a quarter would take 45-60 MB off, blurrier (the 
 fallback if texture compression at upload takes little here (cube2 already compresses from 1024 up)."""
 
 [[item]]
-kind = "fix"
-added = 2026-10-19
-source = "backlog/games.md rank 73"
-text = """\
-Data files the logs miss (LOG-FINDINGS items 6): `could not load texture \
-packages/gk/fantasy/skyfantasy/skyfantasy` (73 of 74 runs) and `could not load envmap \
-skyboxes/morning` (65 runs), so the benchmark map may draw without its sky and reflections. List \
-those paths in the installed cube2 data, find which package has them, look at a run's photo for the \
-sky."""
-
-[[item]]
 kind = "package"
 added = 2026-10-19
 source = "MEMORY.md \"Texture compression at upload\""
