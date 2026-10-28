@@ -1,5 +1,17 @@
 # Neverputt: technical notes
 
+## Status
+
+Our `neverputt` and `neverputt-data` from the neverball source package (gamedb:neverball's packages,
+`1.6.0+git20180603-3+ps3.N`; dev build `ps3.931~dev` installed with `dpkg -i`, Neverball's packages with it).
+Smoke run on 2026-10-29 (kernel .874, Mesa ps3.924, the VRAM swap on; `ps3-bench-20261028T230058Z`): without a
+`~/.neverball/neverputtrc` (the recipe sets the player's aside and restores it), Return three times by XTEST
+(Play, the first course, the first hole): hole 1 with the flag, the course, the score and par, fullscreen
+1920x1080 from the package's new default (neverball 0004). 129 fps steady on the Gallium HUD, 1% low 88, sound
+running with 6 audible dropouts, 47 MB peak RSS. Not checked: a putt, the pad, the sound by ear. The recipe:
+[benchmark/recipe.sh](benchmark/recipe.sh).
+
+
 ## Research
 
 What the surveys and plans said about it, newest first; each line names its source, the section and the date.

@@ -35,6 +35,7 @@ they came from.
 | [Luanti](../../gamedb/games/luanti/todo.toml) | 7 | 1 benchmark, 1 fix, 1 package, 3 research, 1 session | 2.6, 2.9, 3.12 |
 | [Mr.Boom](../../gamedb/games/mrboom/todo.toml) | 1 | 1 session |  |
 | [Neverball](../../gamedb/games/neverball/todo.toml) | 2 | 1 benchmark, 1 session | 3.10 |
+| [Neverputt](../../gamedb/games/neverputt/todo.toml) | 1 | 1 session |  |
 | [Nexuiz Classic](../../gamedb/games/nexuiz/todo.toml) | 1 | 1 benchmark | 1.12 |
 | [OpenArena](../../gamedb/games/openarena/todo.toml) | 6 | 2 benchmark, 2 fix, 1 package, 1 session | 3.7 |
 | [OpenRCT2](../../gamedb/games/openrct2/todo.toml) | 1 | 1 benchmark |  |
