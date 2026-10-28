@@ -7,10 +7,6 @@ license = "LGPL-2.1-or-later"
 homepage = "https://www.luanti.org/"
 controller = "keyboard"
 designed_for = "keyboard-mouse"
-known_issues = [
-  "Starts in a window instead of fullscreen.",
-  "The options menu is broken.",
-]
 +++
 
 Luanti 5.15.2 runs on Walnut's own build, since Debian ships none for this CPU, with LuaJIT and the

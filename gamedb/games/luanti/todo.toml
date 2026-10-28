@@ -13,19 +13,6 @@ Played 2026-10-24: Scrap (25 s of stutter a minute, frames up to 4.3 s). Next af
 in its todo.toml; the stutter (map generation and meshing) is the real problem."""
 
 [[item]]
-kind = "fix"
-added = 2026-10-24
-source = "TESTS.md played sessions"
-text = """\
-A package patch for the two known issues (index.md): it starts in a window instead of fullscreen, \
-and the options menu is broken. Done in the packages on 2026-10-28 (luajit 0002 fixes the menu, \
-checked on the PS3 with the dev build; luanti 0008 fullscreen, 0009 viewing range 60, \
-gamedb:luanti/settings-menu-string-lower). Checked on the PS3 on 2026-10-28 with luanti \
-ps3.1025 and the luajit dev build: an empty configuration starts fullscreen 1920x1080 and the \
-Settings dialog opens (run.sh smoke luanti freshmenu). Left: the known issues go once the stable \
-suite has luanti ps3.1025 or later and a luajit with 0002."""
-
-[[item]]
 kind = "benchmark"
 added = 2026-10-19
 source = "PLAN 2.6"
