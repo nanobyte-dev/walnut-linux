@@ -8,8 +8,9 @@ Rules-Requires-Root: no
 
 Package: walnut-games
 Architecture: all
-# ps3-desktop 0.931: ps3-game-menu --reload (run after an install or a data import)
-Depends: ${misc:Depends}, python3, python3-tk, python3-pil.imagetk, ps3-desktop (>= 0.931), sudo, apt, dpkg
+# ps3-desktop 0.931: ps3-game-menu --reload (run after an install or a data import); 0.1000: no longer ships
+# /usr/share/netsurf/user.css (0.991-0.999 did), so dpkg removes that file before this postinst adds its block
+Depends: ${misc:Depends}, python3, python3-tk, python3-pil.imagetk, ps3-desktop (>= 0.1000), sudo, apt, dpkg
 # Play finds a game's launchers among the menu entries (Walnut's own, one per mode, are there);
 # walnut-data import runs game-data-packager (ours, with --progress-fd and --no-launchers) and opens
 # disc images with udisksctl; a game's CD music: oggenc (vorbis-tools) encodes a BIN/CUE's audio tracks,
