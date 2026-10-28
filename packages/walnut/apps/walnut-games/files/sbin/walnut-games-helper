@@ -24,6 +24,10 @@ Design
   --no-remove (an install never takes a package away), the configuration files kept
   (--force-confold), noninteractive, waiting up to 60 s for another apt's lock. apt's status
   descriptor is read on a pipe of our own (sudo closes every descriptor above 2) and relayed.
+- install of a game with catalog former_packages (older names of its packages: Debian's sauerbraten,
+  which sauerbraten-walnut Conflicts/Replaces) one of which is installed: apt-get -s install first, every
+  Remv must be one of those names (else refused, nothing changed), then the install without --no-remove
+  when the simulation removes one. Any other install keeps --no-remove.
 - remove of a game sharing a package with another catalog game that is installed (all its packages,
   and its data when it needs some: data_setup present_any): that package stays (an engine: dsda-doom
   for Freedoom, Doom and Heretic); what goes is the game's other packages and its installed
@@ -319,12 +323,40 @@ def do_install(game_id, games, stream=apt_stream, age=lists_age, runner=run):
             # an old index may still hold the package; say so and try
             say("log", "apt-get update failed (%d): installing from the lists as they are" % rc)
     check_sections(pkgs, runner)
+    former = former_packages(game_id, games, pkgs)
+    gone = []
+    if former and installed(former, runner):
+        # a renamed package (sauerbraten-walnut Conflicts/Replaces sauerbraten): apt removes the old name,
+        # which --no-remove refuses; the simulation may remove that game's former names and nothing else
+        rc, sim = runner([APT_GET, "-s", "-o", "Debug::NoLocking=1", "install"] + pkgs)
+        if rc != 0:
+            say("error", "apt-get -s install failed: " + (sim.strip().splitlines() or ["?"])[-1])
+            raise AptFailed()
+        gone = removal_set(sim)
+        extra = [p for p in gone if p not in former]
+        if extra:
+            raise Refused("installing %s would also remove %s: nothing was changed"
+                          % (game_id, ", ".join(extra[:8]) + (" ..." if len(extra) > 8 else "")))
+        if gone:
+            say("log", "%s takes the place of %s" % (" ".join(pkgs), " ".join(gone)))
     say("progress", "0 installing " + " ".join(pkgs))
-    rc, tail = stream(["install", "--no-remove"] + pkgs)
+    rc, tail = stream(["install"] + ([] if gone else ["--no-remove"]) + pkgs)
     if rc != 0:
         say("error", "apt-get install failed (%d)%s" % (rc, ": " + tail[-1] if tail else ""))
         raise AptFailed()
     say("progress", "100 installed")
+
+
+def former_packages(game_id, games, pkgs):
+    """the game's catalog former_packages (build.toml: older names of its packages, sauerbraten for
+    sauerbraten-walnut), validated, without its current packages; [] when it has none"""
+    v = games[game_id].get("former_packages") or []
+    if not isinstance(v, list):
+        raise Refused("%s: bad former_packages" % game_id)
+    for p in v:
+        if not isinstance(p, str) or not PKG_RE.match(p):
+            raise Refused("%s: bad former package name %r" % (game_id, p))
+    return [p for p in dict.fromkeys(v) if p not in pkgs]
 
 
 def removal_set(sim_output):

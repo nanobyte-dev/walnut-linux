@@ -218,6 +218,51 @@ class Install(unittest.TestCase):
             self.assertIsInstance(r, helper.Refused)
             self.assertEqual(calls, [])
 
+    def test_former_package_replaced(self):
+        games = dict(GAMES, beta=dict(GAMES["beta"], former_packages=["beta-old", "beta"]))
+        sections = fake_apt_cache({"beta": "games"})
+
+        def runner_for(inst, sim):
+            seen = []
+
+            def runner(cmd):
+                seen.append(cmd)
+                if cmd[0] == helper.DPKG_QUERY:
+                    return 0, "".join("%s\tii \n" % p for p in cmd[4:] if p in inst)
+                if cmd[0] == helper.APT_GET:
+                    return 0, sim
+                return sections(cmd)
+            return runner, seen
+
+        def install(runner):
+            calls = []
+            r, out = run_say(helper.do_install, "beta", games, lambda a: (calls.append(a), (0, []))[1], lambda: 600,
+                             runner)
+            return r, out, calls
+
+        # the old name installed: the simulation removes it, the install runs without --no-remove
+        runner, seen = runner_for({"beta-old"}, "Remv beta-old [0.874]\nInst beta (1.0 walnut)\n")
+        r, out, calls = install(runner)
+        self.assertNotIsInstance(r, Exception, out)
+        self.assertIn([helper.APT_GET, "-s", "-o", "Debug::NoLocking=1", "install", "beta"], seen)
+        self.assertEqual(calls, [["install", "beta"]])
+        self.assertIn("log beta takes the place of beta-old", out)
+        # a removal beyond the former names: refused, nothing installed
+        runner, _ = runner_for({"beta-old"}, "Remv beta-old [0.874]\nRemv alpha [1]\nInst beta (1.0 walnut)\n")
+        r, out, calls = install(runner)
+        self.assertIsInstance(r, helper.Refused)
+        self.assertIn("would also remove alpha", str(r))
+        self.assertEqual(calls, [])
+        # none of the former names installed: no simulation, --no-remove as for any game
+        runner, seen = runner_for(set(), "")
+        r, out, calls = install(runner)
+        self.assertEqual(calls, [["install", "--no-remove", "beta"]])
+        self.assertFalse([c for c in seen if c[0] == helper.APT_GET])
+        # a bad former name refuses before anything
+        bad = dict(games, beta=dict(games["beta"], former_packages=["Bad name"]))
+        r, _ = run_say(helper.do_install, "beta", bad, lambda a: (0, []), lambda: 600, sections)
+        self.assertIsInstance(r, helper.Refused)
+
     def test_install_options(self):
         o = helper.APT_OPTS
         self.assertIn("Dpkg::Options::=--force-confold", o)

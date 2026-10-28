@@ -113,7 +113,7 @@ and `needs_data`; a draft has a build.toml only when something about its build i
 | Key | Type | Meaning |
 |---|---|---|
 | `packages` | list | the packages the app installs (`walnut-games-helper`; `tools/play-pc.sh` on the PC): Debian package names, none licensed; each one in the apt index (`check.py --apt-index URL`, e.g. the Debian snapshot's and our repository's Packages) or built by a `debian/control` of ours |
-| `former_packages` | list | older names of the game's packages, which earlier sessions recorded their versions under (catalog.py reads them after `packages`): a renamed package keeps its version history |
+| `former_packages` | list | older names of the game's packages, which earlier sessions recorded their versions under (catalog.py reads them after `packages`): a renamed package keeps its version history. The catalog carries them, and walnut-games-helper's install lets apt remove an installed one (the new package Conflicts/Replaces it) and nothing else |
 | `engine` | string | the engine bundle in `engines/` it runs on; that engine's `engine.md` `games` lists the game (check.py checks both ways) |
 | `suite` | string | the game suite (docs/games/SUITE.md: a game joins once it runs with its picture and sound): `free` in it, its data free; `licensed` in it, its data licensed (check.py wants a licensed `data` package; the public image never installs its packages: `build-info.py needs-licensed`, `tools/image-packages.sh`); `none` not in it yet. It installs nothing: there are no game metapackages since 2026-10-28 (docs/PACKAGING.md "No game metapackages"), players install games from Walnut Games |
 | `needs_data` | bool | the player supplies data the game can't run without (index.md then has `data_guide` and `data_steps`) |

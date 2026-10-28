@@ -366,7 +366,7 @@ def build_game(gdir, repo, debs):
             **({"data": t["data"]} if t.get("data") else {}),     # the data packages (older tests: none)
             "ps3": ["%s/%s/%s" % (check.SESSIONS, t["id"], f) for f in t.get("shots", {}).get("ps3", [])]})
     g = {k: fm[k] for k in ("id", "title", "summary", "categories", "tags", "license", "homepage", "packages",
-                            "desktop", "needs_data", "controller") if k in fm}
+                            "desktop", "needs_data", "controller", "former_packages") if k in fm}
     g.update({k: fm.get(k, v) for k, v in (("recipes", []), ("fps_cap", None), ("data_guide", None), ("data_steps", []),
                                            ("medal_note", None), ("known_issues", []))})
     if fm.get("data_setup"):
