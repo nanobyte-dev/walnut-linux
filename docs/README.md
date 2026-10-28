@@ -41,6 +41,7 @@ layout and the build commands are in [LAYOUT.md](LAYOUT.md).
 | [WALNUT-SERVER.md](WALNUT-SERVER.md) | walnut.nanobyte.dev's containers, and why concurrent uploads, publishes and ccache writes can't break anything |
 | [release/ALPHA.md](release/ALPHA.md) | Walnut 0.1-alpha, the first public release: plan, milestones M0-M9, the review's blockers, cuts, verification |
 | [release/TESTING-0.1.md](release/TESTING-0.1.md) | Testing the nightlies before 0.1.0: feedback from the PS3 and what was done about each |
+| [INSTALL.md](INSTALL.md) | Installing Walnut on a PS3 for players: the risks, what the console needs first (CFW, OtherOS++, webMAN's fan setting, an XMB backup), the internal disk image or a USB disk, the first-boot wizard, updates, returning to GameOS, recovery and uninstalling |
 | [IMAGE-DIFF.md](IMAGE-DIFF.md) | A fresh image compared with the live PS3 (2026-10-16): what a reimage would lose |
 
 ## Games
@@ -181,5 +182,5 @@ Measuring
 Packages and versions
 
 - **stable, testing, licensed**: the suites at walnut.nanobyte.dev. `stable` holds releases (kept forever), `testing` every push's CI build, `licensed` game data we may not redistribute (password-protected, published from the PC). `ps3`, `ps3-dev` and `ps3-licensed` were the retired LAN repository's suites (until 2026-10-26).
-- **`+ps3.N`, `0.N`, `~dev<stamp>`**: version suffixes. A Debian package we rebuild gets `<debver>+ps3.N`, our own packages `0.N`; a dev build adds `~dev<stamp>`. "Mesa .476" or "kernel .472" means `+ps3.476`, `+ps3.472`.
+- **`+ps3.N`, `0.N`, `~dev<stamp>`**: version suffixes. A package we patch or repackage gets its original version plus `+ps3.N` (Debian's `<debver>+ps3.N`, or upstream's `<upver>-1+ps3.N`), our own packages `0.N` ([PACKAGING.md](PACKAGING.md#kinds-of-source-packages)); a dev build adds `~dev<stamp>`. "Mesa .476" or "kernel .472" means `+ps3.476`, `+ps3.472`.
 - **local/NNNN**: our kernel patches in `packages/patched/kernel/linux/patches/local/` (for example local/0009, the idle fix).
