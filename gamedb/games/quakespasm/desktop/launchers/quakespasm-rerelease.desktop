@@ -2,7 +2,7 @@
 Type=Application
 Name=Quake (2021 re-release)
 Comment=The 2021 re-release of Quake from your own copy (GOG's Quake Enhanced), QuakeSpasm with GLSL at 1920x1080
-Exec=ps3-game quakespasm -basedir /usr/share/games/quake-rerelease -nopackedpixels -width 1920 -height 1080 -fullscreen
+Exec=ps3-game quakespasm -basedir /usr/share/games/quake-rerelease -game rerelease -nopackedpixels -width 1920 -height 1080 -fullscreen
 Icon=quakespasm
 Terminal=false
 Categories=Game;ActionGame;

@@ -9,3 +9,14 @@ pc = "needs the data"
 added = 2026-10-24
 source = "TESTS.md played sessions"
 text = "The user's own game data on both sides."
+
+[[item]]
+kind = "package"
+added = 2026-10-28
+source = "TESTS.md Next (quake-rerelease add-ons)"
+text = """\
+The re-release's add-ons on the PS3 (game-data-packager 0015): the import from GOG's Quake Enhanced \
+installer makes quake-rerelease-armagon, -dissolution, -dopa and -dimension-of-the-machine; each \
+launcher starts its pak with the right status bar, music and picture; the re-release's saves land in \
+~/.quakespasm/rerelease (-game rerelease) and the add-ons' in ~/.quakespasm/<dir>, apart from the \
+original game's id1. On the PC every map of each pak spawned in a 0.96.3 dedicated server."""

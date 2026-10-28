@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Quake (2021): Dimension of the Machine
+Comment=The 2021 re-release's Dimension of the Machine, from your own copy (GOG's Quake Enhanced), QuakeSpasm with GLSL at 1920x1080
+Exec=ps3-game quakespasm -basedir /usr/share/games/quake-rerelease -game mg1 -nopackedpixels -width 1920 -height 1080 -fullscreen
+Icon=quakespasm
+Terminal=false
+Categories=Game;ActionGame;
+Keywords=quake;first person shooter;rerelease;machine;mg1;machinegames;
+NoDisplay=true
+X-Walnut-Requires=/usr/share/games/quake-rerelease/mg1/pak0.pak

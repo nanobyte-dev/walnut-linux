@@ -140,6 +140,74 @@
     "usr/share/games/quake-rerelease/localization/loc_english.txt": [{"sha256": "7a1a3358f0d23ed3ecef623e4bf5bb77df71b296978b4c9f20a437ce0b8d3a95", "size": 77248}]
    }
   },
+  "quake-rerelease-armagon": {
+   "conflicts": [],
+   "edition": "expansion",
+   "game": "quake",
+   "launchers": false,
+   "replaces": [],
+   "required": ["usr/share/games/quake-rerelease/hipnotic/pak0.pak"],
+   "symlinks": {},
+   "version": "89",
+   "files": {
+    "usr/share/games/quake-rerelease/hipnotic/music/track02.ogg": [{"release": "rerelease", "sha256": "12d4ce89d26d0da975e3190d14917601fd12b4f3ea5f32ee2c196f7e2b379f37", "size": 3584045}],
+    "usr/share/games/quake-rerelease/hipnotic/music/track03.ogg": [{"release": "rerelease", "sha256": "2d88ecc1629bb307e655809b0dcae7282dec4bbecea957549ba899d784c0d08e", "size": 3261158}],
+    "usr/share/games/quake-rerelease/hipnotic/music/track04.ogg": [{"release": "rerelease", "sha256": "8a2f05cf83aae81d6d9e6064413bb970ac573573b2326e6aa1cd99adf2156427", "size": 3711921}],
+    "usr/share/games/quake-rerelease/hipnotic/music/track05.ogg": [{"release": "rerelease", "sha256": "5f2f305406ceb9878137ca61c65b94ae01a0baca11fdf77d67f5ca87a19c9985", "size": 3550815}],
+    "usr/share/games/quake-rerelease/hipnotic/music/track06.ogg": [{"release": "rerelease", "sha256": "7edc2ac820530d835e36136cf6846bc1255b1ba4aa5a4adc19c51091d2df7cce", "size": 3570631}],
+    "usr/share/games/quake-rerelease/hipnotic/music/track07.ogg": [{"release": "rerelease", "sha256": "7584fcb2a46393792b581c1713689788e875bb21dbd047d09539d40b7c4d26e7", "size": 3359939}],
+    "usr/share/games/quake-rerelease/hipnotic/music/track08.ogg": [{"release": "rerelease", "sha256": "10c7d37ac58683ee72ef067028f7ef0a50c2feeeb68e02d6dcc15f916d607b8b", "size": 3518561}],
+    "usr/share/games/quake-rerelease/hipnotic/music/track09.ogg": [{"release": "rerelease", "sha256": "a2a3c7207553c0f28515b6dd8c0cf7ef7e37c3c42682219f5b033edc00ab1c9c", "size": 3153990}],
+    "usr/share/games/quake-rerelease/hipnotic/pak0.pak": [{"release": "rerelease", "sha256": "5963cc2ab77504de8f2d49df313791fc7155fb2c954589c271d4e172708c7363", "size": 79928896}]
+   }
+  },
+  "quake-rerelease-dimension-of-the-machine": {
+   "conflicts": [],
+   "edition": "expansion",
+   "game": "quake",
+   "launchers": false,
+   "replaces": [],
+   "required": ["usr/share/games/quake-rerelease/mg1/pak0.pak"],
+   "symlinks": {},
+   "version": "89",
+   "files": {
+    "usr/share/games/quake-rerelease/mg1/pak0.pak": [{"sha256": "41436d7e10965276a28ff7b2649bfb9cadd491c9236c5cbd44a135d69023c0d0", "size": 496862633}]
+   }
+  },
+  "quake-rerelease-dissolution": {
+   "conflicts": [],
+   "edition": "expansion",
+   "game": "quake",
+   "launchers": false,
+   "replaces": [],
+   "required": ["usr/share/games/quake-rerelease/rogue/pak0.pak"],
+   "symlinks": {},
+   "version": "89",
+   "files": {
+    "usr/share/games/quake-rerelease/rogue/music/track02.ogg": [{"release": "rerelease", "sha256": "01c1953f74cb511cdb9422018068bec1219d4cce3d3340fc1634b7a54bb8d5f2", "size": 3778171}],
+    "usr/share/games/quake-rerelease/rogue/music/track03.ogg": [{"release": "rerelease", "sha256": "d2690a6f3a2157ff8dacf0d60f86b1495ce2683860e35c42bda21864cfcff81f", "size": 3436962}],
+    "usr/share/games/quake-rerelease/rogue/music/track04.ogg": [{"release": "rerelease", "sha256": "413616dc80bda22e78ed4ae4cd79c45983627c80645e680c6e5dc558fde90e69", "size": 3594600}],
+    "usr/share/games/quake-rerelease/rogue/music/track05.ogg": [{"release": "rerelease", "sha256": "32ffa4cc8318b9b5282c59bab30532158e2bc28dc154d1585be86128691db0ca", "size": 3418846}],
+    "usr/share/games/quake-rerelease/rogue/music/track06.ogg": [{"release": "rerelease", "sha256": "2a9b18d9e887986dfc5d6d1f0b18fea06e75844ef7c628d607b7237587a3ef63", "size": 3807391}],
+    "usr/share/games/quake-rerelease/rogue/music/track07.ogg": [{"release": "rerelease", "sha256": "09f5fa06aa6d0bf230853a04affbe7e7587f9da939fa3939e4acc5cfd1b1a17b", "size": 3429553}],
+    "usr/share/games/quake-rerelease/rogue/music/track08.ogg": [{"release": "rerelease", "sha256": "3afe929cdae504bcf3638d68542c02ab9048f8a415405cf9c134dab52c4a8f35", "size": 3401822}],
+    "usr/share/games/quake-rerelease/rogue/music/track09.ogg": [{"release": "rerelease", "sha256": "f35da98435162b2526386f03015ec2f60ebb524a542f9342cfc6bcb2fae8050e", "size": 3335344}],
+    "usr/share/games/quake-rerelease/rogue/pak0.pak": [{"release": "rerelease", "sha256": "19309481ebc14cd027cd747798e7d80931d6e02a84370fd2b042b20f9ec67da7", "size": 44490612}]
+   }
+  },
+  "quake-rerelease-dopa": {
+   "conflicts": [],
+   "edition": "expansion",
+   "game": "quake",
+   "launchers": false,
+   "replaces": [],
+   "required": ["usr/share/games/quake-rerelease/dopa/pak0.pak"],
+   "symlinks": {},
+   "version": "89",
+   "files": {
+    "usr/share/games/quake-rerelease/dopa/pak0.pak": [{"release": "rerelease", "sha256": "18a293f6e61ebb47d16acbba2d435141173b87e3985f137ddb846c4657c78610", "size": 40600041}]
+   }
+  },
   "quake-shareware": {
    "conflicts": ["quake-registered"],
    "edition": "shareware",

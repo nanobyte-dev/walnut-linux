@@ -29,6 +29,10 @@ deb make game-data-packager-deb built into the deb builder image and runs this t
 - 0014 --no-launchers drops a GOG installer's icon too: not tested here (it needs a real Inno Setup
   installer and python3-pil); the PS3 import of GOG's Quake Enhanced installer is its check (TESTS
   quake-rerelease).
+- 0015 the re-release's add-ons: quake-rerelease-armagon, -dissolution, -dopa and
+  -dimension-of-the-machine, expansions of quake-rerelease in its base directory, with their paks'
+  sizes and checksums, the mission packs' music optional, GOG's Quake Enhanced installer providing
+  them (loader only); QuakeTask's tryexec detector only for packages in $assets/quake.
 
 game-data-packager checks every file against its checksums, so the builds use a game of our own,
 "walnuttest" (plugin doom_common, so DoomTask writes its launchers), whose checksums are those of
@@ -574,6 +578,65 @@ class QuakeRerelease(unittest.TestCase):
         self.assertEqual(len(p.optional_files), 10)
         # the classic packages keep their files
         self.assertNotIn('id1/pak0.pak?rerelease', {w.name for w in g.packages['quake-registered'].install_files})
+
+
+class QuakeRereleaseAddons(unittest.TestCase):
+    """0015: the re-release's mission packs and episodes as expansions of quake-rerelease"""
+    # package: (its pak, size, md5, sha256), the values in the patch (the user's GOG installer)
+    PAKS = {
+        'quake-rerelease-armagon': ('hipnotic/pak0.pak?rerelease', 79928896, 'a9e2a6e544da7f506f6b65b0661e89a9',
+                                    '5963cc2ab77504de8f2d49df313791fc7155fb2c954589c271d4e172708c7363'),
+        'quake-rerelease-dissolution': ('rogue/pak0.pak?rerelease', 44490612, 'd189c8aca9b15b1ebc31be4cf1809c14',
+                                        '19309481ebc14cd027cd747798e7d80931d6e02a84370fd2b042b20f9ec67da7'),
+        'quake-rerelease-dopa': ('dopa/pak0.pak?rerelease', 40600041, 'a3da46a3364bb02c5b6f3e1fca3d068a',
+                                 '18a293f6e61ebb47d16acbba2d435141173b87e3985f137ddb846c4657c78610'),
+        'quake-rerelease-dimension-of-the-machine': ('mg1/pak0.pak', 496862633, '0aff296d1ec3b9b70e67ce84c60a0d13',
+                                                     '41436d7e10965276a28ff7b2649bfb9cadd491c9236c5cbd44a135d69023c0d0'),
+    }
+    MUSIC = {'quake-rerelease-armagon': 'hipnotic', 'quake-rerelease-dissolution': 'rogue'}
+
+    def setUp(self):
+        from game_data_packager.game import load_games
+        self.g = load_games()['quake']
+        self.g.load_file_data()
+
+    def test_packages(self):
+        for name, (pak, size, md5, sha256) in self.PAKS.items():
+            p = self.g.packages[name]
+            self.assertEqual(p.expansion_for, 'quake-rerelease', name)
+            self.assertEqual(p.install_to, '$assets/quake-rerelease', name)
+            self.assertEqual({w.name for w in p.install_files}, {pak}, name)
+            f = self.g.files[pak]
+            self.assertEqual((f.size, f.md5, f.sha256), (size, md5, sha256), name)
+            self.assertEqual(f.install_as, pak.split('?')[0], name)
+            d = self.MUSIC.get(name)
+            want = {'%s/music/track%02d.ogg?rerelease' % (d, i) for i in range(2, 10)} if d else set()
+            self.assertEqual({w.name for w in p.optional_files}, want, name)
+            for w in want:
+                self.assertEqual(self.g.files[w].install_as, w.split('?')[0])
+                self.assertIsNotNone(self.g.files[w].sha256)
+        # the classic packages keep their files
+        self.assertEqual({w.name for w in self.g.packages['quake-armagon'].install_files}, {'hipnotic/pak0.pak'})
+        self.assertEqual(self.g.packages['quake-dimension-of-the-machine'].install_to, '$assets/quake')
+
+    def test_installer_provides_them(self):
+        f = self.g.files[QuakeRerelease.NAME]
+        for pak in ('hipnotic/pak0.pak?rerelease', 'rogue/pak0.pak?rerelease', 'dopa/pak0.pak?rerelease',
+                    'MG1 content', 'hipnotic/music/track09.ogg?rerelease', 'rogue/music/track02.ogg?rerelease'):
+            self.assertIn(pak, f.provides)
+
+    def test_tryexec_only_for_the_classic_packs(self):
+        from game_data_packager.games.quake import QuakeTask
+        task = object.__new__(QuakeTask)	# fill_extra_files needs nothing of the task's own
+        task._cleanup_dirs = set()		# what its __del__ empties
+        for name, want in (('quake-armagon', ['usr/share/games/quake/hipnotic-tryexec.sh']),
+                           ('quake-dissolution', ['usr/share/games/quake/rogue-tryexec.sh']),
+                           ('quake-rerelease-armagon', []), ('quake-rerelease-dissolution', [])):
+            with tempfile.TemporaryDirectory() as d:
+                st = type('State', (), {'package': self.g.packages[name], 'destdir': d})()
+                task.fill_extra_files(st)
+                got = sorted(os.path.relpath(os.path.join(r, n), d) for r, _, ns in os.walk(d) for n in ns)
+                self.assertEqual(got, want, name)
 
 
 class QuakePackageOption(unittest.TestCase):

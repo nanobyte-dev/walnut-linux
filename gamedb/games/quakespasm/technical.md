@@ -73,22 +73,60 @@ the right picture (xwd fullscreen, looked at) and `id1/music/track06.ogg` open f
   quake-registered, so the re-release carries its own copy). GOG's installer is unpacked with
   innoextract for it. Our launcher `quakespasm-rerelease.desktop` (Quake (2021 re-release), GLSL,
   `NoDisplay` with `X-Walnut-Requires` on the pak) starts it with `-basedir
-  /usr/share/games/quake-rerelease`. The import on the PS3 found two gdp bugs, fixed as 0013 and 0014:
+  /usr/share/games/quake-rerelease -game rerelease` (its own user folder, below). The import on the PS3 found two gdp bugs, fixed as 0013 and 0014:
   `-p` given before the game name was reset by the quake subparser's shortcut options, so with
   quake-registered installed gdp also built quake-music and quake-dimension-of-the-machine from the
   installer (walnut-data refuses a deb it did not ask for); and a GOG `setup_*.exe` gave every
   package an icon converted from the installer's `.ico` (python3-pil), which the manifest can't know.
-- **Not done.** The re-release's add-ons are not packaged: its hipnotic, rogue and dopa paks are
-  builds gdp doesn't know, and gdp's `quake-dimension-of-the-machine` (the same `mg1/pak0.pak`) is an
-  expansion of quake-registered installed into `/usr/share/games/quake/mg1`, where the original
-  game's QuakeC can't run it. Steam's re-release and other GOG builds are unchecked (other checksums
-  would need alternatives).
+- **Its own user folder.** QuakeSpasm 0.96.3 has no `-userdir`: Debian builds it with `DO_USERDIRS=1`
+  and `Sys_GetUserdir` (sys_sdl_unix.c) fixes it at `~/.quakespasm` from the passwd entry (`$HOME`
+  only when that fails), whatever `-basedir` says. What it does keep apart is the game directory:
+  `COM_AddGameDirectory` adds `<basedir>/<game>` and `~/.quakespasm/<game>` for id1 and for a `-game`,
+  and `config.cfg` and the saves go to the last one (`com_gamedir`). So the launcher passes `-game
+  rerelease`: at start-up `-game` needs no such folder in the base directory (only the `game` console
+  command checks), the re-release's id1 stays the base, and its settings and saves land in
+  `~/.quakespasm/rerelease`. `~/.quakespasm/id1` is still on the search path behind it: on its first
+  start the re-release reads the original game's `config.cfg` (once; it writes its own on quit), and
+  an `autoexec.cfg` or `quake.rc` there applies to both. Checked with Debian's 0.96.3 amd64 build as a
+  dedicated server (below): "Playing registered version" with `-game rerelease`, and the map loads.
+- **The add-ons.** The installer's `hipnotic` (79928896 bytes), `rogue` (44490612) and `dopa`
+  (40600041) paks are the re-release's own builds, each with its own `progs.dat` (with `quake.rc` and
+  `default.cfg` for hipnotic, `quake.rc` for rogue); `mg1/pak0.pak` is the one game-data-packager
+  already knows as Dimension of the Machine. QuakeSpasm 0.94 added the re-release's builtins
+  (`PR_PatchRereleaseBuiltins`) and 0.94.2-0.96.3 fixed DOTM maps. Debian's 0.96.3 amd64 binary as a
+  dedicated server (`-dedicated 1 -basedir <the installer's files> -game <dir>`, `map` for every BSP of
+  each pak through a pty, `status` after each) spawned all of them with the re-release's QuakeC and
+  no Host_Error: hipnotic's 18 maps, rogue's 17, dopa's 13, mg1's 25 (horde1-7 too) and ctf's 10. The
+  only warnings were map ones (no external `.vis`, mg1's visleafs over the old 8192 limit, two
+  textures not 16-aligned). That covers the server side; the picture, the HUD (`-game hipnotic`
+  and `rogue` set QuakeSpasm's mission-pack status bars) and the music are the PS3's check (TESTS,
+  Scheduled). game-data-packager 0015 packages them as expansions of quake-rerelease in its folder:
+  `quake-rerelease-armagon` (the pak and `hipnotic/music/track02-09.ogg`, the re-release's own
+  encodes, not the johnnylaw rips gdp knows), `quake-rerelease-dissolution` (likewise for rogue),
+  `quake-rerelease-dopa` and `quake-rerelease-dimension-of-the-machine`; the music is optional, as
+  for quake-rerelease. QuakeTask wrote `hipnotic-tryexec.sh`/`rogue-tryexec.sh` into
+  `/usr/share/games/quake` for any package with a hipnotic or rogue file (the quake wrapper's
+  detector; it would clash with quake-armagon's and the helper would refuse it): 0015 writes it only
+  for packages in `$assets/quake`. Launchers `quakespasm-rerelease-{armagon,dissolution,dopa,mg1}`
+  (Quake (2021): Scourge of Armagon and so on), `-game hipnotic|rogue|dopa|mg1`, NoDisplay with
+  X-Walnut-Requires on each pak. Their user folders are `~/.quakespasm/<dir>`, shared with the
+  classic packages of the same add-on (quake-armagon and the rest), which Walnut doesn't offer.
+  Steam's re-release and other GOG builds are unchecked (other checksums would need alternatives).
+- **Not packaged.** `ctf/pak0.pak` (Threewave CTF, 20 MiB): multiplayer only, and QuakeSpasm has no
+  bots; it loads (10 maps in the dedicated-server check).
+- **Space.** The four add-ons built from the installer on the PC with gdp 89+ps3.965~dev (`-p` for
+  each, as walnut-data runs it) in 26 s: 107.7, 72.8, 40.7 and 496.9 MB debs beside quake-rerelease's
+  263.5, every file accepted by walnut-games-helper's manifest check. Walnut Data's space check counts
+  every package of the game an installer may hold (1.1 GB with the add-ons, the music at 12 MB a
+  track), so a plain `walnut-data import quakespasm <installer>` now asks for about 4.4 GB free in
+  the cache's file system, where it asked about 1.8 GB before; `-p quake-rerelease` alone about
+  1.9 GB. The PS3 had 3.4 GB free after the re-release's import.
 
 ## Known problems
 
-- Both editions share `~/.quakespasm/id1` (QuakeSpasm's user directory doesn't depend on
-  `-basedir`): a save made in the re-release is offered in the original game and the other way round,
-  and the two `progs.dat` differ. Not tried yet.
+- `~/.quakespasm/id1` is behind the re-release's own `~/.quakespasm/rerelease` on its search path
+  (above): its first start takes the original game's settings, and an `autoexec.cfg` there applies
+  to both editions.
 
 - The interface text is tiny at 1080p (8 px; `-15` on the session's Display score).
 - A DualShock 3 plugged in by USB but not yet activated (PS button) made the menu cursor run up by

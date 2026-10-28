@@ -39,7 +39,7 @@ they came from.
 | [OpenRCT2](../../gamedb/games/openrct2/todo.toml) | 1 | 1 benchmark |  |
 | [OpenTTD](../../gamedb/games/openttd/todo.toml) | 5 | 2 benchmark, 1 fix, 1 research, 1 session | 2.8, 3.1 |
 | [OpenTyrian](../../gamedb/games/opentyrian/todo.toml) | 1 | 1 benchmark |  |
-| [QuakeSpasm](../../gamedb/games/quakespasm/todo.toml) | 1 | 1 session |  |
+| [QuakeSpasm](../../gamedb/games/quakespasm/todo.toml) | 2 | 1 package, 1 session |  |
 | [Red Eclipse](../../gamedb/games/redeclipse/todo.toml) | 1 | 1 fix | 3.8 |
 | [Return to Castle Wolfenstein (iortcw)](../../gamedb/games/return-to-castle-wolfenstein/todo.toml) | 1 | 1 benchmark |  |
 | [Sauerbraten](../../gamedb/games/sauerbraten/todo.toml) | 2 | 1 package, 1 session |  |

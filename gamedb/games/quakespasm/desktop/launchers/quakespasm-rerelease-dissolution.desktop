@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Quake (2021): Dissolution of Eternity
+Comment=The 2021 re-release's second mission pack, Dissolution of Eternity, from your own copy (GOG's Quake Enhanced), QuakeSpasm with GLSL at 1920x1080
+Exec=ps3-game quakespasm -basedir /usr/share/games/quake-rerelease -game rogue -nopackedpixels -width 1920 -height 1080 -fullscreen
+Icon=quakespasm
+Terminal=false
+Categories=Game;ActionGame;
+Keywords=quake;first person shooter;rerelease;dissolution;eternity;rogue;mission pack;
+NoDisplay=true
+X-Walnut-Requires=/usr/share/games/quake-rerelease/rogue/pak0.pak

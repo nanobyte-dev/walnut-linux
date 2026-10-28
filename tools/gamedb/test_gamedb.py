@@ -1065,6 +1065,43 @@ class PackIntegration(unittest.TestCase):
                 self.assertIn("\nX-Walnut-Game=", a.read_text())
             self.assertFalse((Path(t) / "tree" / "control").exists())
 
+    def test_quakespasm_rerelease_launchers(self):
+        """the re-release's launchers as Walnut Games starts them (play_commands on the packed tree): its base
+        folder, a -game of their own (QuakeSpasm's user folder ~/.quakespasm/<game>: the re-release isn't the
+        original game's id1), X-Walnut-Requires on the pak that -game loads (id1's for the re-release itself)"""
+        wg = load_tool("walnut_games_t", REPO / "packages/walnut/apps/walnut-games/files/lib/walnut_games.py")
+        want = {"quakespasm-rerelease.desktop": ("rerelease", "id1"),
+                "quakespasm-rerelease-armagon.desktop": ("hipnotic", "hipnotic"),
+                "quakespasm-rerelease-dissolution.desktop": ("rogue", "rogue"),
+                "quakespasm-rerelease-dopa.desktop": ("dopa", "dopa"),
+                "quakespasm-rerelease-mg1.desktop": ("mg1", "mg1")}
+        base = "/usr/share/games/quake-rerelease"
+        with tempfile.TemporaryDirectory() as t:
+            os.environ["SOURCE_DATE_EPOCH"] = "0"
+            try:
+                self.pi.pack(self.pi.GAMES, Path(t) / "i.tar", Path(t) / "tree")
+            finally:
+                del os.environ["SOURCE_DATE_EPOCH"]
+            apps = Path(t) / "tree" / "tree" / "usr/share/applications"
+            got = wg.play_commands({"id": "quakespasm", "desktop": sorted(want)}, None, str(apps))
+            self.assertEqual(len(got), len(want))
+            for (label, argv, cwd), name in zip(got, sorted(want)):
+                game, pakdir = want[name]
+                self.assertEqual(argv[:2], ["ps3-game", "quakespasm"], name)
+                self.assertEqual(argv[argv.index("-basedir") + 1], base, name)
+                self.assertEqual(argv.count("-game"), 1, name)
+                self.assertEqual(argv[argv.index("-game") + 1], game, name)
+                self.assertIn("-nopackedpixels", argv)
+                e = wg.desktop_entry(str(apps / name))
+                self.assertEqual(e["X-Walnut-Requires"], "%s/%s/pak0.pak" % (base, pakdir), name)
+                self.assertEqual(e["NoDisplay"], "true", name)
+                self.assertTrue(label.startswith("Quake (2021"), label)
+            # the original game's launchers stay on id1 (no -game) in its own folder
+            for name in ("quakespasm-glsl.desktop", "quakespasm-noglsl.desktop"):
+                argv = wg.parse_exec(wg.desktop_entry(str(apps / name))["Exec"])
+                self.assertNotIn("-game", argv)
+                self.assertEqual(argv[argv.index("-basedir") + 1], "/usr/share/games/quake")
+
 
 class Importer(unittest.TestCase):
     def setUp(self):
