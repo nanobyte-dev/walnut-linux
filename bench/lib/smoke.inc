@@ -76,7 +76,9 @@ smoke_pad() {
 		/=/ { split($0, kv, "="); if (!(kv[1] in x)) { print "smoke_pad: no stick " kv[1] > "/dev/stderr"; next }
 		      ev(t, 3, x[kv[1]], kv[2]); next }
 		{ if (!($0 in b)) { print "smoke_pad: no button " $0 > "/dev/stderr"; next }
-		  ev(t, 1, b[$0], 1); t += 0.3; ev(t, 1, b[$0], 0) }
+		  tr = ($0 == "l2") ? 2 : ($0 == "r2") ? 5 : -1	# the triggers are axes too (ABS_Z, ABS_RZ): SDL reads those
+		  ev(t, 1, b[$0], 1); if (tr >= 0) ev(t, 3, tr, 255)
+		  t += 0.3; ev(t, 1, b[$0], 0); if (tr >= 0) ev(t, 3, tr, 0) }
 		END { printf "E: %.6f 0000 0000 0000\n", (end > t + 1 ? end : t + 1) }'
 	} > "$rec"
 	mkdir -p "$rec.bin" && ln -sf "$(command -v evemu-play)" "$rec.bin/evemu-device-pad"
