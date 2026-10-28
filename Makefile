@@ -45,7 +45,7 @@ ROOTFS_VARS_NOW := $(foreach v,DEBIAN_SNAPSHOT DEBIAN_SUITE DEBIAN_MIRROR SOURCE
 $(shell mkdir -p $(BUILD); [ "$$(cat $(ROOTFS_VARS) 2>/dev/null)" = "$(ROOTFS_VARS_NOW)" ] || echo "$(ROOTFS_VARS_NOW)" > $(ROOTFS_VARS))
 ROOTFS_BASE_INPUTS := $(ROOTFS_PACKAGES) tools/build-rootfs.sh $(ROOTFS_VARS)
 
-.PHONY: gamedb-catalog gamedb-app-pages walnut-server walnut-site walnut-server-test public-push initrd-ssd initrd-walnut initrd-busybox publish du clean-ephemeral chroot packages ps3rsx-modules snd-ps3-ko netboot-deb spu-toolchain spu-tests spu-deploy help all builder rootfs rootfs-base checksums nfs-root usb-root usb-root-petitboot deploy listen shell clean gpu-deploy test test-slow ps3-reboot bench-push bench-pull bench-shots bench-ref bench-matrix \
+.PHONY: xcc-toolchain gamedb-catalog gamedb-app-pages walnut-server walnut-site walnut-server-test public-push initrd-ssd initrd-walnut initrd-busybox publish du clean-ephemeral chroot packages ps3rsx-modules snd-ps3-ko netboot-deb spu-toolchain spu-tests spu-deploy help all builder rootfs rootfs-base checksums nfs-root usb-root usb-root-petitboot deploy listen shell clean gpu-deploy test test-slow ps3-reboot bench-push bench-pull bench-shots bench-ref bench-matrix \
 	classicube-audio game-data gdp-index gdp-manifest licensed-data game-debs game-deploy gamedb-integration
 
 help:
@@ -564,8 +564,33 @@ gamedb-integration:
 ps3-games-src: gamedb-integration
 %-deb: %-src | $(BUILD)/chroot/sid-ppc64.tar
 	@tools/disk-check.sh
-	tools/ccache-remote.sh docker run --rm --privileged -v $(CURDIR):/work -w /work $(DEB_ENV) -e JOBS=$(DEB_JOBS) -e KEEP_TREE=$(KEEP_TREE) \
-		$(REPO_BUILDER_TAG) tools/deb-build.sh $*
+	@if grep -q '^BUILD=xcc' $(call pkgdir,$*)/package.conf; then \
+		$(MAKE) --no-print-directory xcc-toolchain && \
+		used=$$(df --output=pcent $(XCC_ROOT) | tail -1 | tr -dc 0-9) && \
+		{ [ "$$used" -le 90 ] || { echo "!! $(XCC_ROOT) is $$used% full (less than 10% free): stopping."; exit 1; }; } && \
+		echo "docker run ... tools/xcc-build.sh $* (in $(XCC_ROOT))" && \
+		docker run --rm --privileged -v $(CURDIR):/work -v $(XCC_ROOT):/xcc -w /work $(DEB_ENV) -e JOBS=$(XCC_JOBS) \
+			-e XCC_TREE=/xcc/$(notdir $(XCC_TREE)) $(REPO_BUILDER_TAG) tools/xcc-build.sh $*; \
+	else \
+		echo "docker run ... tools/deb-build.sh $*"; \
+		tools/ccache-remote.sh docker run --rm --privileged -v $(CURDIR):/work -w /work $(DEB_ENV) -e JOBS=$(DEB_JOBS) -e KEEP_TREE=$(KEEP_TREE) \
+			$(REPO_BUILDER_TAG) tools/deb-build.sh $*; \
+	fi
+# BUILD=xcc packages (tools/xcc-build.sh: the ppc64 chroot with the x86-64 cross compiler run natively
+# inside; WebKitGTK): their chroot, deps cache and ccache live in XCC_ROOT (config.local.mk may move it
+# to a bigger disk), the exported toolchain (build-containers/Dockerfile.xcc) in XCC_ROOT/x86-<tag>
+XCC_ROOT ?= $(CURDIR)/$(BUILD)/xcc
+# GCC needs 2-3 GB per job on WebKit's unified sources: 14 jobs leave room on a 62 GB PC
+XCC_JOBS ?= 14
+XCC_TAG := ps3-xcc:$(shell (cat build-containers/Dockerfile.xcc; echo $(BUILDER_TAG)) | sha256sum | cut -c1-12)
+XCC_TREE := $(XCC_ROOT)/x86-$(lastword $(subst :, ,$(XCC_TAG)))
+xcc-toolchain: $(XCC_TREE)/.done
+$(XCC_TREE)/.done: build-containers/Dockerfile.xcc | $(BUILDER_STAMP)
+	docker build -q -t $(XCC_TAG) -f build-containers/Dockerfile.xcc --build-arg BUILDER=$(BUILDER_TAG) build-containers
+	rm -rf $(XCC_TREE).tmp && mkdir -p $(XCC_TREE).tmp
+	cid=$$(docker create $(XCC_TAG)) && docker export $$cid | tar -x -C $(XCC_TREE).tmp --anchored --exclude=dev --exclude=proc --exclude=sys; \
+		rc=$$?; docker rm $$cid >/dev/null; [ $$rc = 0 ]
+	rm -rf $(XCC_TREE) && mv $(XCC_TREE).tmp $(XCC_TREE) && touch $@
 DEB_JOBS ?= 16
 # Changing a Debian-source package's patches (docs/PACKAGING.md): make <pkg>-work makes a git tree
 # in build/work/<pkg> (Debian's tree, then one commit per patch of ours; FORCE=1 discards unsaved

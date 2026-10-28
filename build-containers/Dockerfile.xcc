@@ -1,0 +1,9 @@
+# The x86-64 half of BUILD=xcc (tools/xcc-build.sh): Debian's ppc64 cross compiler (the same GCC
+# 16.2 as the chroot's native one) and ccache, from the builder's snapshot. Its filesystem is
+# exported to $(XCC_ROOT)/x86-<tag> and mounted read-only at /x86 in the ppc64 build chroot, where
+# x86-64 programs run natively and everything else runs under qemu-user.
+ARG BUILDER
+FROM ${BUILDER}
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends g++-16-powerpc64-linux-gnu ccache && \
+    rm -rf /var/lib/apt/lists/*
