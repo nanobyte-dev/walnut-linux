@@ -101,6 +101,7 @@ A graph exception is reported through ps3fb's interrupt (for channel 1 as well).
 | Cause | Trigger |
 |---|---|
 | 0x105 | an M2MF transfer in a fresh context whose notifier DMA was never set; also a 3D texture sampled at an offset that is not 128-byte aligned (+0xaa0, from Mesa's blit reading back a 2x2 mip level for [Neverball](../gamedb/games/neverball/), 2026-10-17) |
+| 0x105 (open) | mpv `--vo=gpu --hwdec=no` on a 360p H.264 clip, 7 frames in (2026-10-28, kernel .874, Mesa ps3.924, ps3rsx 0.924): the PFIFO cache ends in a texture setup on the 3D object and a scaled-image blit of a 64x64 source at 0x64d000; a whole-RSX wedge, console reboot. Not analysed yet (task #65; [dump](dumps/exception-0x105-mpv-vo-gpu.txt)) |
 | 0x106 | rendering to a swizzled surface 1 pixel wide (RT_FORMAT type swizzled, log2 width 0); also a draw from a vertex format of type 7 (U8_USCALED, libgcm's UB256) with 3 components (0x1740+ with `data & 0xff == 0x37`), Mesa 0043 on [BananaBread](../gamedb/games/bananabread/), 2026-10-19 |
 | 0x109 | M2MF methods sent to the surface-2D object |
 | (graph exception, no cause noted) | vertex format type 0 (0x1740+ with `data & 0xf == 0`) |

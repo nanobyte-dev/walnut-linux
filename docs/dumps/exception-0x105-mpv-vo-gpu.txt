@@ -1,0 +1,743 @@
+# RSX graph exception 0x105 from mpv --vo=gpu --hwdec=no (360p H.264), 2026-10-28 22:42 local (PS3 clock; dmesg 38108 s, 1 min after the test started); full dmesg, versions
+## dmesg
+[    0.000000] Page orders: linear mapping = 24, virtual = 12, io = 12
+[    0.000000] read_node:129: lv1_read_repository_node failed: 
+[    0.000000] hash-mmu: Initializing hash mmu with SLB
+[    0.000000] Linux version 6.12.111+ps3.874 (debian-kernel@lists.debian.org) (powerpc64-linux-gnu-gcc-16 (Debian 16.2.0-3) 16.2.0, GNU ld (GNU Binutils for Debian) 2.47) #1 SMP Debian 6.12.111-1+ps3.874 (2026-10-26)
+[    0.000000] OF: reserved mem: Reserved memory: No reserved-memory node in the DT
+[    0.000000] Found initrd at 0xc000000001532000:0xc00000000176d9d0
+[    0.000000] read_node:129: lv1_read_repository_node failed: 
+[    0.000000] Hardware name: SonyPS3 Cell Broadband Engine 0x702100 PS3
+[    0.000000] CPU maps initialized for 2 threads per core
+[    0.000000]  (thread shift is 1)
+[    0.000000] Allocated 912 bytes for 2 pacas
+[    0.000000] -----------------------------------------------------
+[    0.000000] phys_mem_size     = 0xf000000
+[    0.000000] dcache_bsize      = 0x80
+[    0.000000] icache_bsize      = 0x80
+[    0.000000] cpu_features      = 0x0000010030bc0182
+[    0.000000]   possible        = 0x001ffbebfbffb18f
+[    0.000000]   always          = 0x0000000000000180
+[    0.000000] cpu_user_features = 0xdc014000 0x00000000
+[    0.000000] mmu_features      = 0x2c000001
+[    0.000000] firmware_features = 0x0000000000c00000
+[    0.000000] vmalloc start     = 0xc0003d0000000000
+[    0.000000] IO start          = 0xc0003e0000000000
+[    0.000000] vmemmap start     = 0xc0003f0000000000
+[    0.000000] hash-mmu: ppc64_pft_size    = 0x14
+[    0.000000] hash-mmu: htab_hash_mask    = 0x1fff
+[    0.000000] -----------------------------------------------------
+[    0.000000] PS3 firmware version 4.9.2
+[    0.000000] ps3fb videomemory: 9437184 bytes at (____ptrval____)
+[    0.000000] cma: Reserved 64 MiB at 0x000000000a000000 on node -1
+[    0.000000] ps3rsx: 64 MiB CMA area for the GART
+[    0.000000] barrier-nospec: using ORI speculation barrier
+[    0.000000] barrier-nospec: patched 203 locations
+[    0.000000] Top of RAM: 0xf000000, Total RAM: 0xf000000
+[    0.000000] Memory hole size: 0MB
+[    0.000000] Zone ranges:
+[    0.000000]   Normal   [mem 0x0000000000000000-0x000000000effffff]
+[    0.000000] Movable zone start for each node
+[    0.000000] Early memory node ranges
+[    0.000000]   node   0: [mem 0x0000000000000000-0x000000000effffff]
+[    0.000000] Initmem setup node 0 [mem 0x0000000000000000-0x000000000effffff]
+[    0.000000] percpu: Embedded 18 pages/cpu s35480 r0 d38248 u524288
+[    0.000000] pcpu-alloc: s35480 r0 d38248 u524288 alloc=1*1048576
+[    0.000000] pcpu-alloc: [0] 0 1 
+[    0.000000] Kernel command line: root=/dev/mapper/ps3root rootfstype=ext4 ro ps3ssd.image=/linux/walnut.img consoleblank=0 ps3rsx_gart=0 ps3rsx_cma=64M console=tty1 loglevel=3 fbcon=logo-pos:center,logo-count:1 quiet splash video=ps3fb:mode:5 
+[    0.000000] Unknown kernel command line parameters "splash", will be passed to user space.
+[    0.000000] Dentry cache hash table entries: 32768 (order: 6, 262144 bytes, linear)
+[    0.000000] Inode-cache hash table entries: 16384 (order: 5, 131072 bytes, linear)
+[    0.000000] Built 1 zonelists, mobility grouping on.  Total pages: 61440
+[    0.000000] mem auto-init: stack:all(zero), heap alloc:off, heap free:off
+[    0.000000] SLUB: HWalign=128, Order=0-3, MinObjects=0, CPUs=2, Nodes=1
+[    0.000000] rcu: Hierarchical RCU implementation.
+[    0.000000] rcu: RCU calculated value of scheduler-enlistment delay is 25 jiffies.
+[    0.000000] NR_IRQS: 512, nr_irqs: 512, preallocated irqs: 16
+[    0.000000] rcu: srcu_init: Setting srcu_struct sizes based on contention.
+[    0.000000] clocksource: jiffies: mask: 0xffffffff max_cycles: 0xffffffff, max_idle_ns: 7645041785100000 ns
+[    0.000000] time_init: decrementer frequency = 79.800000 MHz
+[    0.000000] time_init: processor frequency   = 3192.000000 MHz
+[    0.000001] clocksource: timebase: mask: 0xffffffffffffffff max_cycles: 0x126781ccd2, max_idle_ns: 440795203058 ns
+[    0.000017] clocksource: timebase mult[c880522] shift[24] registered
+[    0.000037] clockevent: decrementer mult[146dc5d6] shift[32] cpu[1]
+[    0.000265] Console: colour dummy device 80x25
+[    0.000283] printk: legacy console [tty1] enabled
+[    0.000436] pid_max: default: 32768 minimum: 301
+[    0.000601] Mount-cache hash table entries: 512 (order: 0, 4096 bytes, linear)
+[    0.000625] Mountpoint-cache hash table entries: 512 (order: 0, 4096 bytes, linear)
+[    0.003157] rcu: Hierarchical SRCU implementation.
+[    0.003175] rcu: 	Max phase no-delay instances is 1000.
+[    0.003840] smp: Bringing up secondary CPUs ...
+[    0.004611] smp: Brought up 1 node, 2 CPUs
+[    0.004739] Memory: 150612K/245760K available (5852K kernel code, 632K rwdata, 2396K rodata, 2876K init, 411K bss, 28360K reserved, 65536K cma-reserved)
+[    0.005193] devtmpfs: initialized
+[    0.006855] futex hash table entries: 512 (order: 4, 65536 bytes, linear)
+[    0.011046] NET: Registered PF_NETLINK/PF_ROUTE protocol family
+[    0.014918] SCSI subsystem initialized
+[    0.015051] usbcore: registered new interface driver usbfs
+[    0.015105] usbcore: registered new interface driver hub
+[    0.015146] usbcore: registered new device driver usb
+[    0.015203] pps_core: LinuxPPS API ver. 1 registered
+[    0.015212] pps_core: Software ver. 5.3.6 - Copyright 2005-2007 Rodolfo Giometti <giometti@linux.it>
+[    0.015234] PTP clock support registered
+[    0.016481] clocksource: Switched to clocksource timebase
+[    0.026886] NET: Registered PF_INET protocol family
+[    0.027027] IP idents hash table entries: 4096 (order: 3, 32768 bytes, linear)
+[    0.027587] tcp_listen_portaddr_hash hash table entries: 256 (order: 0, 4096 bytes, linear)
+[    0.027608] Table-perturb hash table entries: 256 (order: 0, 1024 bytes, linear)
+[    0.027626] TCP established hash table entries: 2048 (order: 2, 16384 bytes, linear)
+[    0.027661] TCP bind hash table entries: 2048 (order: 4, 65536 bytes, linear)
+[    0.027723] TCP: Hash tables configured (established 2048 bind 2048)
+[    0.027786] UDP hash table entries: 256 (order: 1, 8192 bytes, linear)
+[    0.027807] UDP-Lite hash table entries: 256 (order: 1, 8192 bytes, linear)
+[    0.027923] NET: Registered PF_UNIX/PF_LOCAL protocol family
+[    0.028411] RPC: Registered named UNIX socket transport module.
+[    0.028426] RPC: Registered udp transport module.
+[    0.028434] RPC: Registered tcp transport module.
+[    0.028442] RPC: Registered tcp-with-tls transport module.
+[    0.028477] RPC: Registered tcp NFSv4.1 backchannel transport module.
+[    0.028810] Trying to unpack rootfs image as initramfs...
+[    0.032679] ps3_system_bus_match:355: dev=4.0(vuart_01), drv=4.0(ps3_av): match
+[    0.192773] ps3_av vuart_01: ps3av_probe:1072: registered misc device 256
+[    0.193644] read_node:129: lv1_read_repository_node failed: 
+[    0.194540] Initialise system trusted keyrings
+[    0.196597] workingset: timestamp_bits=46 max_order=16 bucket_order=0
+[    0.201131] Key type asymmetric registered
+[    0.201151] Asymmetric key parser 'x509' registered
+[    0.201223] Block layer SCSI generic (bsg) driver version 0.4 loaded (major 251)
+[    0.201239] io scheduler mq-deadline registered
+[    0.201251] io scheduler kyber registered
+[    0.201617] ps3_system_bus_match:355: dev=10.1(ioc0_01), drv=10.1(ps3fb): match
+[    0.215853] version_driver:211
+[    0.288550] Console: switching to colour frame buffer device 211x60
+[    0.288592] fb0: Framebuffer is not in virtual address space.
+[    0.288614] fb0: Framebuffer is not in virtual address space.
+[    0.299892] ps3fb ioc0_01: graphics fb0, using 8704 KiB of video memory
+[    0.300097] ps3fb ioc0_01: ps3fb_probe: using major 250 for direct GPU access
+[    0.300963] ps3disk_init:895: registered block device major 254
+[    0.301006] ps3_system_bus_match:355: dev=6.0(sb_03), drv=6.0(ps3disk): match
+[    0.301624] ps3disk sb_03: accessible region 0 start 0 size 1875385008
+[    0.301818] ps3disk sb_03: accessible region 1 start 524320 size 1870666384
+[    0.301968] ps3disk sb_03: accessible region 2 start 1871190704 size 4194296
+[    0.301987] ps3disk sb_03: ps3stor_probe_access:119: 3 accessible regions found
+[    0.302380] ps3disk sb_03: ps3da is a KIOXIA-EXCERIA SATA SSD (915715 MiB total, 915715 MiB for OtherOS)
+[    0.304185] ps3disk sb_03: ps3da (region 0 id 0, start 0, 1875385008 sectors): write guard: read-only
+[    0.304421] ps3disk sb_03: ps3db is a KIOXIA-EXCERIA SATA SSD (915715 MiB total, 913411 MiB for OtherOS)
+[    0.306271] ps3disk sb_03: ps3db (region 1 id 1, start 524320, 1870666384 sectors): write guard: writes only inside the ranges sealed in write_guard/
+[    0.306574] ps3disk sb_03: ps3dc is a KIOXIA-EXCERIA SATA SSD (915715 MiB total, 2047 MiB for OtherOS)
+[    0.308104]  ps3dc:
+[    0.308222] ps3disk sb_03: ps3dc (region 2 id 2, start 1871190704, 4194296 sectors): write guard: writable
+[    0.325271] brd: module loaded
+[    0.333482] loop: module loaded
+[    0.333524] ps3_system_bus_match:355: dev=7.0(sb_05), drv=7.0(ps3rom): match
+[    0.334182] scsi host0: ps3rom
+[    0.336079] scsi 0:0:0:0: CD-ROM            SONY     PS-SYSTEM   304R 5230 PQ: 0 ANSI: 0
+[    0.340216] sr 0:0:0:0: [sr0] scsi3-mmc drive: 0x/0x cd/rw xa/form2 cdda tray
+[    0.364968] cdrom: Uniform CD-ROM driver Revision: 3.20
+[    0.478698] sr 0:0:0:0: Attached scsi CD-ROM sr0
+[    0.478847] ps3_system_bus_match:355: dev=3.0(sb_06), drv=3.0(ps3_gelic_driver): match
+[    0.478903] dma_sb_region_create_linear:979: forcing 16M pages for linear map
+[    0.479032] ps3_gelic_driver sb_06: internal vlan disabled
+[    0.480178] ps3_gelic_driver sb_06: eth0: MAC addr 00:24:8d:xx:xx:xx
+[    0.480306] ps3_system_bus_match:355: dev=1.0(sb_07), drv=1.0(ps3-ehci-driver): match
+[    0.480356] dma_sb_region_create_linear:979: forcing 16M pages for linear map
+[    0.480622] ps3-ehci-driver sb_07: PS3 EHCI Host Controller
+[    0.480674] ps3-ehci-driver sb_07: new USB bus registered, assigned bus number 1
+[    0.480800] ps3-ehci-driver sb_07: irq 48, io mem 0x4000001c0000
+[    0.492516] ps3-ehci-driver sb_07: USB 2.0 started, EHCI 1.00
+[    0.492815] usb usb1: New USB device found, idVendor=1d6b, idProduct=0002, bcdDevice= 6.12
+[    0.492837] usb usb1: New USB device strings: Mfr=3, Product=2, SerialNumber=1
+[    0.492854] usb usb1: Product: PS3 EHCI Host Controller
+[    0.492869] usb usb1: Manufacturer: Linux 6.12.111+ps3.874 ehci_hcd
+[    0.492884] usb usb1: SerialNumber: sb_07
+[    0.493718] hub 1-0:1.0: USB hub found
+[    0.493861] hub 1-0:1.0: 2 ports detected
+[    0.494505] ps3_system_bus_match:355: dev=1.0(sb_09), drv=1.0(ps3-ehci-driver): match
+[    0.494775] dma_sb_region_create_linear:979: forcing 16M pages for linear map
+[    0.494994] ps3-ehci-driver sb_09: PS3 EHCI Host Controller
+[    0.495029] ps3-ehci-driver sb_09: new USB bus registered, assigned bus number 2
+[    0.495154] ps3-ehci-driver sb_09: irq 49, io mem 0x4000001d0000
+[    0.504519] ps3-ehci-driver sb_09: USB 2.0 started, EHCI 1.00
+[    0.504811] usb usb2: New USB device found, idVendor=1d6b, idProduct=0002, bcdDevice= 6.12
+[    0.504832] usb usb2: New USB device strings: Mfr=3, Product=2, SerialNumber=1
+[    0.504849] usb usb2: Product: PS3 EHCI Host Controller
+[    0.504864] usb usb2: Manufacturer: Linux 6.12.111+ps3.874 ehci_hcd
+[    0.504879] usb usb2: SerialNumber: sb_09
+[    0.505650] hub 2-0:1.0: USB hub found
+[    0.505788] hub 2-0:1.0: 2 ports detected
+[    0.506512] ps3_system_bus_match:355: dev=2.0(sb_08), drv=2.0(ps3-ohci-driver): match
+[    0.506553] dma_sb_region_create_linear:979: forcing 16M pages for linear map
+[    0.506776] ps3-ohci-driver sb_08: PS3 OHCI Host Controller
+[    0.506809] ps3-ohci-driver sb_08: new USB bus registered, assigned bus number 3
+[    0.506955] ps3-ohci-driver sb_08: irq 50, io mem 0x4000001e0000
+[    0.812553] usb usb3: New USB device found, idVendor=1d6b, idProduct=0001, bcdDevice= 6.12
+[    0.812580] usb usb3: New USB device strings: Mfr=3, Product=2, SerialNumber=1
+[    0.812598] usb usb3: Product: PS3 OHCI Host Controller
+[    0.812613] usb usb3: Manufacturer: Linux 6.12.111+ps3.874 ohci_hcd
+[    0.812628] usb usb3: SerialNumber: sb_08
+[    0.813643] hub 3-0:1.0: USB hub found
+[    0.813981] hub 3-0:1.0: 2 ports detected
+[    0.814646] ps3_system_bus_match:355: dev=2.0(sb_0a), drv=2.0(ps3-ohci-driver): match
+[    0.814688] dma_sb_region_create_linear:979: forcing 16M pages for linear map
+[    0.814925] ps3-ohci-driver sb_0a: PS3 OHCI Host Controller
+[    0.814959] ps3-ohci-driver sb_0a: new USB bus registered, assigned bus number 4
+[    0.815111] ps3-ohci-driver sb_0a: irq 51, io mem 0x4000001f0000
+[    1.120870] usb usb4: New USB device found, idVendor=1d6b, idProduct=0001, bcdDevice= 6.12
+[    1.120893] usb usb4: New USB device strings: Mfr=3, Product=2, SerialNumber=1
+[    1.120906] usb usb4: Product: PS3 OHCI Host Controller
+[    1.120918] usb usb4: Manufacturer: Linux 6.12.111+ps3.874 ohci_hcd
+[    1.120929] usb usb4: SerialNumber: sb_0a
+[    1.121715] hub 4-0:1.0: USB hub found
+[    1.121848] hub 4-0:1.0: 2 ports detected
+[    1.123126] usbcore: registered new interface driver uas
+[    1.123306] usbcore: registered new interface driver usb-storage
+[    1.180786] usb 2-2: new high-speed USB device number 2 using ps3-ehci-driver
+[    1.181078] rtc-ps3 rtc-ps3: registered as rtc0
+[    1.181116] rtc-ps3 rtc-ps3: setting system clock to 2026-10-28T18:40:30 UTC (1793212830)
+[    1.182080] device-mapper: ioctl: 4.48.0-ioctl (2023-03-01) initialised: dm-devel@lists.linux.dev
+[    1.182187] hid: raw HID events driver (C) Jiri Kosina
+[    1.182381] usbcore: registered new interface driver usbhid
+[    1.182393] usbhid: USB HID core driver
+[    1.182424] ps3_system_bus_match:355: dev=5.0(vuart_02), drv=5.0(ps3_sys_manager): match
+[    1.182650] ps3_sys_manager vuart_02: hwmon: 2 temperature zones, read on demand
+[    1.182672] ps3_sys_manager vuart_02: fan: policy control on, at boot SYSCON automatic, manual duty 0x99-0xf4
+[    1.183063] NET: Registered PF_PACKET protocol family
+[    1.183156] Key type dns_resolver registered
+[    1.183590] ps3_os_area: writes to the OS area in flash disabled, RTC changes last until reboot
+[    1.195885] Loading compiled-in X.509 certificates
+[    1.222152] printk: legacy console [netcon0] enabled
+[    1.222178] netconsole: network logging started
+[    1.325720] usb 2-2: New USB device found, idVendor=054c, idProduct=036f, bcdDevice= 5.01
+[    1.325750] usb 2-2: New USB device strings: Mfr=1, Product=2, SerialNumber=0
+[    1.325770] usb 2-2: Product: Bluetooth and Wireless LAN Composite Device
+[    1.325787] usb 2-2: Manufacturer: Sony
+[    1.380679] Freeing initrd memory: 2284K
+[    1.395670] Freeing unused kernel image (initmem) memory: 2876K
+[    1.395693] Kernel memory protection not selected by kernel config.
+[    1.395717] Run /init as init process
+[    1.395726]   with arguments:
+[    1.395734]     /init
+[    1.395742]     splash
+[    1.395750]   with environment:
+[    1.395758]     HOME=/
+[    1.395767]     TERM=linux
+[    1.409038] usb 3-1: new full-speed USB device number 2 using ps3-ohci-driver
+[    1.485475] ps3ssd: initramfs kind=generic release= built=dfaa867 arch=ppc64 maps= guard=required, kernel 6.12.111+ps3.874
+[    1.499090] ps3ssd: no ufs.ko in the initramfs: built into the kernel?
+[    1.524901] ps3ssd: no fat.ko in the initramfs: built into the kernel?
+[    1.537895] ps3ssd: no vfat.ko in the initramfs: built into the kernel?
+[    1.550631] ps3ssd: no nls_cp437.ko in the initramfs: built into the kernel?
+[    1.563536] ps3ssd: no nls_iso8859-1.ko in the initramfs: built into the kernel?
+[    1.620359] ps3ssd: ps3da (whole disk) and ps3dc read-only until the next boot
+[    1.627581] usb 3-1: New USB device found, idVendor=046d, idProduct=c534, bcdDevice=29.01
+[    1.627620] usb 3-1: New USB device strings: Mfr=1, Product=2, SerialNumber=0
+[    1.627641] usb 3-1: Product: USB Receiver
+[    1.627658] usb 3-1: Manufacturer: Logitech
+[    1.637273] input: Logitech USB Receiver as /devices/ps3_system/sb_08/usb3/3-1/3-1:1.0/0003:046D:C534.0001/input/input0
+[    1.693371] hid-generic 0003:046D:C534.0001: input,hidraw0: USB HID v1.11 Keyboard [Logitech USB Receiver] on usb-sb_08-1/input0
+[    1.701106] input: Logitech USB Receiver Mouse as /devices/ps3_system/sb_08/usb3/3-1/3-1:1.1/0003:046D:C534.0002/input/input1
+[    1.701626] input: Logitech USB Receiver Consumer Control as /devices/ps3_system/sb_08/usb3/3-1/3-1:1.1/0003:046D:C534.0002/input/input2
+[    1.721185] ps3_sys_manager vuart_02: fan: get reply: service id 51, payload 8, tag 0: 01 00 01 01 33 00 00 00
+[    1.721219] ps3_sys_manager vuart_02: fan: at boot (layout unconfirmed): status 1, policy 1 (SYSCON automatic), speed 0x33, duty 0x00
+[    1.756724] input: Logitech USB Receiver System Control as /devices/ps3_system/sb_08/usb3/3-1/3-1:1.1/0003:046D:C534.0002/input/input3
+[    1.757766] hid-generic 0003:046D:C534.0002: input,hiddev96,hidraw1: USB HID v1.11 Mouse [Logitech USB Receiver] on usb-sb_08-1/input1
+[    1.823599] ps3ssd: dev_hdd1: boot (state: installed 433c4482-cb70-43a4-93b2-19d265e0aa0f)
+[    2.312495] usb 3-2: new full-speed USB device number 3 using ps3-ohci-driver
+[    2.602542] usb 3-2: New USB device found, idVendor=054c, idProduct=0268, bcdDevice= 1.00
+[    2.602577] usb 3-2: New USB device strings: Mfr=1, Product=2, SerialNumber=0
+[    2.602601] usb 3-2: Product: PLAYSTATION(R)3 Controller
+[    2.602622] usb 3-2: Manufacturer: Sony
+[    2.752508] ps3_sys_manager vuart_02: fan: no reply to the set within 1000 ms (none is documented)
+[    2.752530] ps3_sys_manager vuart_02: fan: SYSCON automatic
+[    2.768483] ps3_sys_manager vuart_02: fan: get reply: service id 51, payload 8, tag 0: 01 00 01 01 33 00 00 00
+[    2.768509] ps3_sys_manager vuart_02: fan: get layout confirmed (policy 1 after setting SYSCON automatic): speed 0x33
+[    8.185812] ps3disk sb_03: ps3db: write guard sealed: 507 ranges, 33552384 sectors writable
+[    8.211582] ps3ssd: /dev/mapper/ps3root: 31455232 sectors (15359 MiB, 478 extents), device 253:0
+[    8.212517] ps3ssd: /dev/mapper/ps3swap: 2097152 sectors (1024 MiB, 33 extents), device 253:1
+[    8.213836] ps3ssd: write guard sealed: 511 ranges registered in 3 writes, 507 after merging, 33552384 sectors (16383 MiB) of ps3db writable, nothing else
+[    8.232009] EXT4-fs (dm-0): mounted filesystem 16b6bf9b-1d14-4b6b-babc-942bead6044e ro with ordered data mode. Quota mode: disabled.
+[    8.308681] ps3ssd: root /dev/mapper/ps3root (ext4, ro) from /linux/walnut.img; starting /sbin/init
+[    8.665068] systemd[1]: systemd 262.1-1 running in system mode (+PAM +AUDIT +SELINUX +APPARMOR +IMA +IPE +SMACK +SECCOMP -GNUTLS +OPENSSL +ACL +BLKID +CURL +ELFUTILS +FIDO2 +IDN2 +KMOD +LIBCRYPTSETUP +LIBCRYPTSETUP_PLUGINS +LIBFDISK +PCRE2 +PWQUALITY +P11KIT +QRENCODE +TPM2 +BZIP2 +LZ4 +XZ +ZLIB +ZSTD -BPF_FRAMEWORK -BTF -XKBCOMMON -UTMP +LIBARCHIVE)
+[    8.665128] systemd[1]: Detected architecture ppc64.
+[    8.673069] systemd[1]: Hostname set to <walnut>.
+[    9.612263] systemd[1]: Queued start job for default target graphical.target.
+[    9.638996] systemd[1]: Created slice system-getty.slice - Slice /system/getty.
+[    9.641687] systemd[1]: Created slice system-modprobe.slice - Slice /system/modprobe.
+[    9.643192] systemd[1]: Created slice user.slice - User and Session Slice.
+[    9.643629] systemd[1]: Started systemd-ask-password-wall.path - Forward Password Requests to Wall Directory Watch.
+[    9.644724] systemd[1]: Set up automount proc-sys-fs-binfmt_misc.automount - Arbitrary Executable File Formats File System Automount Point.
+[    9.645005] systemd[1]: Reached target imports.target - Image Downloads.
+[    9.645246] systemd[1]: Reached target remote-fs.target - Remote File Systems.
+[    9.645364] systemd[1]: Reached target slices.target - Slice Units.
+[    9.645512] systemd[1]: Reached target swap.target - Swaps.
+[    9.651924] systemd[1]: Listening on systemd-ask-password.socket - Query the User Interactively for a Password.
+[    9.659271] systemd[1]: Listening on systemd-coredump.socket - Process Core Dump Socket.
+[    9.663494] systemd[1]: Listening on systemd-creds.socket - Credential Encryption/Decryption.
+[    9.668882] systemd[1]: Listening on systemd-factory-reset.socket - Factory Reset Management.
+[    9.669455] systemd[1]: Listening on systemd-hostnamed.socket - Hostname Service Socket.
+[    9.670110] systemd[1]: Listening on systemd-journald-dev-log.socket - Journal Socket (/dev/log).
+[    9.670746] systemd[1]: Listening on systemd-journald.socket - Journal Sockets.
+[    9.676729] systemd[1]: Listening on systemd-mute-console.socket - Console Output Muting Service Socket.
+[    9.677801] systemd[1]: Listening on systemd-networkd-varlink-metrics.socket - Network Management Metrics Varlink Socket.
+[    9.678883] systemd[1]: Listening on systemd-networkd-varlink.socket - Network Management Varlink Socket.
+[    9.679784] systemd[1]: Listening on systemd-networkd.socket - Network Management Netlink Socket.
+[    9.684346] systemd[1]: Listening on systemd-sysinstall.socket - System Install Tool.
+[    9.684908] systemd[1]: Listening on systemd-udevd-kernel.socket - udev Kernel Socket.
+[    9.685564] systemd[1]: Listening on systemd-udevd-varlink.socket - udev Varlink Socket.
+[    9.686352] systemd[1]: dev-hugepages.mount - Huge Pages File System skipped, unmet condition check ConditionPathExists=/sys/kernel/mm/hugepages
+[    9.691716] systemd[1]: Mounting dev-mqueue.mount - POSIX Message Queue File System...
+[    9.701128] systemd[1]: Mounting sys-kernel-debug.mount - Kernel Debug File System...
+[    9.702114] systemd[1]: sys-kernel-tracing.mount - Kernel Trace File System skipped, unmet condition check ConditionPathExists=/sys/kernel/tracing
+[    9.721824] systemd[1]: Starting kmod-static-nodes.service - Create List of Static Device Nodes...
+[    9.722256] systemd[1]: modprobe@configfs.service - Load Kernel Module configfs skipped, unmet condition check ConditionKernelModuleLoaded=!configfs
+[    9.733261] systemd[1]: Mounting sys-kernel-config.mount - Kernel Configuration File System...
+[    9.757523] systemd[1]: Starting modprobe@drm.service - Load Kernel Module drm...
+[    9.785584] systemd[1]: Starting modprobe@efi_pstore.service - Load Kernel Module efi_pstore...
+[    9.817588] systemd[1]: Starting modprobe@fuse.service - Load Kernel Module fuse...
+[    9.818258] systemd[1]: ps3-nfsroot-network.service - Keep NetworkManager off the wired port of an NFS root skipped, unmet condition check ConditionKernelCommandLine=root=/dev/nfs
+[    9.869707] systemd[1]: Starting systemd-fsck-root.service - File System Check on Root Device...
+[    9.869952] systemd[1]: systemd-hibernate-clear.service - Clear Stale Hibernate Storage Info skipped, unmet condition check ConditionPathExists=/sys/firmware/efi/efivars/HibernateLocation-8cf2644b-4b0b-428f-9387-6d876050dc67
+[    9.872110] systemd[1]: systemd-journald.service: unit configures an IP firewall, but the local system does not support BPF/cgroup firewalling.
+[    9.872154] systemd[1]: systemd-journald.service: (This warning is only shown for the first unit using IP firewalling.)
+[    9.949484] systemd[1]: Starting systemd-journald.service - Journal Service...
+[   10.009524] systemd[1]: Starting systemd-modules-load.service - Load Kernel Modules...
+[   10.057534] systemd[1]: Starting systemd-network-generator.service - Generate Network Units from Kernel Command Line...
+[   10.109513] systemd[1]: Starting systemd-udev-load-credentials.service - Load udev Rules from Credentials...
+[   10.158240] systemd[1]: Starting systemd-udev-trigger.service - Coldplug All udev Devices...
+[   10.357928] systemd[1]: Mounted dev-mqueue.mount - POSIX Message Queue File System.
+[   10.495900] systemd[1]: Mounted sys-kernel-debug.mount - Kernel Debug File System.
+[   10.561188] systemd[1]: modprobe@drm.service: Deactivated successfully.
+[   10.588742] systemd[1]: Finished modprobe@drm.service - Load Kernel Module drm.
+[   10.690562] systemd[1]: Finished kmod-static-nodes.service - Create List of Static Device Nodes.
+[   10.694749] systemd[1]: Mounted sys-kernel-config.mount - Kernel Configuration File System.
+[   10.710047] systemd[1]: modprobe@efi_pstore.service: Deactivated successfully.
+[   10.715563] systemd[1]: Finished modprobe@efi_pstore.service - Load Kernel Module efi_pstore.
+[   10.718364] systemd[1]: modprobe@fuse.service: Deactivated successfully.
+[   10.719877] systemd[1]: Finished modprobe@fuse.service - Load Kernel Module fuse.
+[   10.734399] systemd[1]: sys-fs-fuse-connections.mount - FUSE Control File System skipped, unmet condition check ConditionPathExists=/sys/fs/fuse/connections
+[   10.759762] systemd[1]: Starting systemd-tmpfiles-setup-dev-early.service - Create Static Device Nodes in /dev gracefully...
+[   10.966975] systemd[1]: Finished systemd-network-generator.service - Generate Network Units from Kernel Command Line.
+[   10.967749] systemd[1]: Reached target network-pre.target - Preparation for Network.
+[   10.993541] systemd[1]: Listening on systemd-networkd-resolve-hook.socket - Network Management Resolve Hook Socket.
+[   11.082743] systemd[1]: Finished systemd-fsck-root.service - File System Check on Root Device.
+[   11.115152] systemd[1]: Starting systemd-remount-fs.service - Remount Root and Kernel File Systems...
+[   11.133175] systemd[1]: Finished systemd-udev-load-credentials.service - Load udev Rules from Credentials.
+[   11.255686] ps3rsx: loading out-of-tree module taints kernel.
+[   11.266552] ps3rsx ps3rsx: [drm] console 1688x964 inset (underscan): the display gets the whole 1920x1080 frame
+[   11.332061] [drm] Initialized nouveau 1.3.1 for ps3rsx on minor 0
+[   11.332123] ps3rsx ps3rsx: [drm] VRAM 245 MiB (from 0x900000), GART 63 MiB (on demand), display 1920x1080 pitch 7680
+[   11.377909] systemd[1]: Finished systemd-modules-load.service - Load Kernel Modules.
+[   11.406250] systemd[1]: Starting systemd-sysctl.service - Apply Kernel Variables...
+[   11.417002] systemd-journald[565]: Collecting audit messages is disabled.
+[   11.509206] systemd[1]: Finished systemd-tmpfiles-setup-dev-early.service - Create Static Device Nodes in /dev gracefully.
+[   11.520564] EXT4-fs (dm-0): re-mounted 16b6bf9b-1d14-4b6b-babc-942bead6044e r/w.
+[   11.561521] systemd[1]: Finished systemd-remount-fs.service - Remount Root and Kernel File Systems.
+[   11.563402] systemd[1]: systemd-hwdb-update.service - Rebuild Hardware Database skipped, unmet condition check ConditionNeedsUpdate=/etc
+[   11.563838] systemd[1]: systemd-pstore.service - Platform Persistent Storage Archival skipped, unmet condition check ConditionDirectoryNotEmpty=/sys/fs/pstore
+[   11.581633] systemd[1]: Starting systemd-random-seed.service - Load/Save OS Random Seed...
+[   11.582048] systemd[1]: systemd-sysusers.service - Create System Users skipped, no trigger condition checks were met.
+[   11.626114] systemd[1]: Starting systemd-journalctl.socket - Journal Log Access Socket...
+[   11.693486] systemd[1]: Starting systemd-timesyncd.service - Network Time Synchronization...
+[   11.725475] systemd[1]: Starting systemd-tmpfiles-setup-dev.service - Create Static Device Nodes in /dev...
+[   11.754619] systemd[1]: Listening on systemd-journalctl.socket - Journal Log Access Socket.
+[   11.864916] systemd[1]: Finished systemd-sysctl.service - Apply Kernel Variables.
+[   11.970392] systemd[1]: Started systemd-journald.service - Journal Service.
+[   12.530944] systemd-journald[565]: Received client request to flush runtime journal.
+[   12.648534] random: crng init done
+[   14.843034] sr 0:0:0:0: Attached scsi generic sg0 type 5
+[   15.615068] ps3_system_bus_match:355: dev=9.0(ioc0_02), drv=9.0(snd_ps3): match
+[   16.045447] Bluetooth: Core ver 2.22
+[   16.045637] NET: Registered PF_BLUETOOTH protocol family
+[   16.045656] Bluetooth: HCI device and connection manager initialized
+[   16.045708] Bluetooth: HCI socket layer initialized
+[   16.045728] Bluetooth: L2CAP socket layer initialized
+[   16.045783] Bluetooth: SCO socket layer initialized
+[   16.056401] PS3 sound started. start_delay=2000ms
+[   16.081529] input: Sony PLAYSTATION(R)3 Controller Motion Sensors as /devices/ps3_system/sb_08/usb3/3-2/3-2:1.0/0003:054C:0268.0003/input/input7
+[   16.097043] usbcore: registered new interface driver btusb
+[   16.152970] input: Sony PLAYSTATION(R)3 Controller as /devices/ps3_system/sb_08/usb3/3-2/3-2:1.0/0003:054C:0268.0003/input/input6
+[   16.175080] sony 0003:054C:0268.0003: input,hiddev97,hidraw2: USB HID v81.11 Joystick [Sony PLAYSTATION(R)3 Controller] on usb-sb_08-2/input0
+[   16.942892] cfg80211: Loading compiled-in X.509 certificates for regulatory database
+[   17.313148] Loaded X.509 cert 'benh@debian.org: 577e021cb980e0e820821ba7b54b4961b8b4fadf'
+[   17.314761] Loaded X.509 cert 'romain.perier@gmail.com: 3abbc6ec146e09d1b6016ab9d6cf71dd233f0328'
+[   17.316262] Loaded X.509 cert 'sforshee: 00b28ddf47aef9cea7'
+[   17.317769] Loaded X.509 cert 'wens: 61c038651aabdcf94bd0ac7ff06c7248db18c600'
+[   17.318077] platform regulatory.0: firmware: failed to load regulatory.db (-2)
+[   17.318103] platform regulatory.0: Direct firmware load for regulatory.db failed with error -2
+[   17.318146] cfg80211: failed to load regulatory.db
+[   18.949406] ps3vswap0: detected capacity change from 0 to 2097152
+[   18.949432] ps3vswap: 1024 MiB, up to 96 MiB of it in VRAM, the rest on /dev/mapper/ps3swap
+[   19.069165] zram: Added device: zram0
+[   19.140917] zram0: detected capacity change from 0 to 786432
+[   19.595060] Adding 393212k swap on /dev/zram0.  Priority:100 extents:1 across:393212k SS
+[   19.610903] Adding 1048572k swap on /dev/ps3vswap0.  Priority:300 extents:1 across:1048572k SSDc
+[   20.300802] Bluetooth: BNEP (Ethernet Emulation) ver 1.3
+[   20.300829] Bluetooth: BNEP filters: protocol multicast
+[   20.300856] Bluetooth: BNEP socket layer initialized
+[   20.380942] Bluetooth: MGMT ver 1.23
+[   21.269827] Bluetooth: hci0: expected 8706 bytes, got 36 bytes
+[   22.977990] gelic_ether_get_link_ksettings: speed unknown
+[   22.978041] gelic_ether_get_link_ksettings: speed unknown
+[   23.045321] Bluetooth: hci0: expected 8706 bytes, got 36 bytes
+[   28.547441] systemd-journald[565]: Time jumped backwards, rotating.
+[ 2060.510514] tee (2522): drop_caches: 3
+[ 2063.790201] Adding 393212k swap on /dev/zram0.  Priority:100 extents:1 across:393212k SS
+[ 2064.105085] Adding 1048572k swap on /dev/ps3vswap0.  Priority:300 extents:1 across:1048572k SSDsc
+[ 2064.551590] tee (2601): drop_caches: 3
+[ 2066.943754] ps3_sys_manager vuart_02: temperature reply: service id 14, payload 8, tag 0
+[ 2284.628790] tee (5001): drop_caches: 3
+[ 2288.714726] Adding 393212k swap on /dev/zram0.  Priority:100 extents:1 across:393212k SS
+[ 2289.029222] Adding 1048572k swap on /dev/ps3vswap0.  Priority:300 extents:1 across:1048572k SSDsc
+[ 2289.464597] tee (5081): drop_caches: 3
+[ 2515.481041] tee (7516): drop_caches: 3
+[ 2519.559018] Adding 393212k swap on /dev/zram0.  Priority:100 extents:1 across:393212k SS
+[ 2519.878181] Adding 1048572k swap on /dev/ps3vswap0.  Priority:300 extents:1 across:1048572k SSDsc
+[ 2520.318232] tee (7596): drop_caches: 3
+[ 2742.265317] tee (10024): drop_caches: 3
+[ 2745.924922] Adding 393212k swap on /dev/zram0.  Priority:100 extents:1 across:393212k SS
+[ 2746.234621] Adding 1048572k swap on /dev/ps3vswap0.  Priority:300 extents:1 across:1048572k SSDsc
+[ 2746.672152] tee (10104): drop_caches: 3
+[ 2968.633831] tee (12498): drop_caches: 3
+[ 2972.150665] Adding 393212k swap on /dev/zram0.  Priority:100 extents:1 across:393212k SS
+[ 2972.464961] Adding 1048572k swap on /dev/ps3vswap0.  Priority:300 extents:1 across:1048572k SSDsc
+[ 2972.904674] tee (12578): drop_caches: 3
+[ 3196.201274] tee (15049): drop_caches: 3
+[ 3200.123554] Adding 393212k swap on /dev/zram0.  Priority:100 extents:1 across:393212k SS
+[ 3200.434603] Adding 1048572k swap on /dev/ps3vswap0.  Priority:300 extents:1 across:1048572k SSDsc
+[ 3200.880983] tee (15129): drop_caches: 3
+[ 3422.596466] tee (17539): drop_caches: 3
+[ 3426.174237] Adding 393212k swap on /dev/zram0.  Priority:100 extents:1 across:393212k SS
+[ 3426.485512] Adding 1048572k swap on /dev/ps3vswap0.  Priority:300 extents:1 across:1048572k SSDsc
+[ 3426.930712] tee (17619): drop_caches: 3
+[ 3646.943596] tee (20016): drop_caches: 3
+[ 3651.134564] Adding 393212k swap on /dev/zram0.  Priority:100 extents:1 across:393212k SS
+[ 3651.449812] Adding 1048572k swap on /dev/ps3vswap0.  Priority:300 extents:1 across:1048572k SSDsc
+[ 3651.890889] tee (20096): drop_caches: 3
+[ 3872.910006] tee (22515): drop_caches: 3
+[ 3876.558038] Adding 393212k swap on /dev/zram0.  Priority:100 extents:1 across:393212k SS
+[ 3876.874013] Adding 1048572k swap on /dev/ps3vswap0.  Priority:300 extents:1 across:1048572k SSDsc
+[ 3877.309871] tee (22595): drop_caches: 3
+[ 4104.581067] tee (25030): drop_caches: 3
+[ 4108.393297] Adding 393212k swap on /dev/zram0.  Priority:100 extents:1 across:393212k SS
+[ 4108.702679] Adding 1048572k swap on /dev/ps3vswap0.  Priority:300 extents:1 across:1048572k SSDsc
+[ 4109.146844] tee (25110): drop_caches: 3
+[ 4116.479433] input: Logitech USB Receiver as /devices/virtual/input/input8
+[ 4315.033133] tee (27776): drop_caches: 3
+[ 4318.851724] Adding 393212k swap on /dev/zram0.  Priority:100 extents:1 across:393212k SS
+[ 4319.163248] Adding 1048572k swap on /dev/ps3vswap0.  Priority:300 extents:1 across:1048572k SSDsc
+[ 4319.600402] tee (27856): drop_caches: 3
+[ 4326.666373] input: Logitech USB Receiver as /devices/virtual/input/input9
+[ 4524.218340] tee (30443): drop_caches: 3
+[ 4527.977037] Adding 393212k swap on /dev/zram0.  Priority:100 extents:1 across:393212k SS
+[ 4528.292852] Adding 1048572k swap on /dev/ps3vswap0.  Priority:300 extents:1 across:1048572k SSDsc
+[ 4528.730538] tee (30525): drop_caches: 3
+[ 4535.730024] input: Logitech USB Receiver as /devices/virtual/input/input10
+[ 4725.353985] ps3rsx: no memory to back the GART (45 of 63 MiB in use)
+[ 4733.764670] tee (33104): drop_caches: 3
+[ 4737.299133] Adding 393212k swap on /dev/zram0.  Priority:100 extents:1 across:393212k SS
+[ 4737.614537] Adding 1048572k swap on /dev/ps3vswap0.  Priority:300 extents:1 across:1048572k SSDsc
+[ 4738.052899] tee (33184): drop_caches: 3
+[ 4745.001353] input: Logitech USB Receiver as /devices/virtual/input/input11
+[ 4943.375060] tee (35793): drop_caches: 3
+[ 4947.254364] Adding 393212k swap on /dev/zram0.  Priority:100 extents:1 across:393212k SS
+[ 4947.568388] Adding 1048572k swap on /dev/ps3vswap0.  Priority:300 extents:1 across:1048572k SSDsc
+[ 4948.012595] tee (35873): drop_caches: 3
+[ 4954.981236] input: Logitech USB Receiver as /devices/virtual/input/input12
+[ 5153.252982] tee (38459): drop_caches: 3
+[ 5156.835181] Adding 393212k swap on /dev/zram0.  Priority:100 extents:1 across:393212k SS
+[ 5157.145563] Adding 1048572k swap on /dev/ps3vswap0.  Priority:300 extents:1 across:1048572k SSDsc
+[ 5157.586650] tee (38539): drop_caches: 3
+[ 5164.264927] input: Logitech USB Receiver as /devices/virtual/input/input13
+[ 5364.938944] tee (41129): drop_caches: 3
+[ 5369.482325] Adding 393212k swap on /dev/zram0.  Priority:100 extents:1 across:393212k SS
+[ 5369.805397] Adding 1048572k swap on /dev/ps3vswap0.  Priority:300 extents:1 across:1048572k SSDsc
+[ 5370.246266] tee (41209): drop_caches: 3
+[ 5587.459791] tee (43801): drop_caches: 3
+[ 5591.691545] Adding 393212k swap on /dev/zram0.  Priority:100 extents:1 across:393212k SS
+[ 5592.011283] Adding 1048572k swap on /dev/ps3vswap0.  Priority:300 extents:1 across:1048572k SSDsc
+[ 5592.447517] tee (43881): drop_caches: 3
+[ 5808.824605] tee (46444): drop_caches: 3
+[ 5813.350532] Adding 393212k swap on /dev/zram0.  Priority:100 extents:1 across:393212k SS
+[ 5813.665240] Adding 1048572k swap on /dev/ps3vswap0.  Priority:300 extents:1 across:1048572k SSDsc
+[ 5814.107144] tee (46524): drop_caches: 3
+[ 6031.178221] tee (49099): drop_caches: 3
+[ 6035.610807] Adding 393212k swap on /dev/zram0.  Priority:100 extents:1 across:393212k SS
+[ 6035.927595] Adding 1048572k swap on /dev/ps3vswap0.  Priority:300 extents:1 across:1048572k SSDsc
+[ 6036.366596] tee (49179): drop_caches: 3
+[ 6253.401677] tee (51776): drop_caches: 3
+[ 6257.766413] Adding 393212k swap on /dev/zram0.  Priority:100 extents:1 across:393212k SS
+[ 6258.080029] Adding 1048572k swap on /dev/ps3vswap0.  Priority:300 extents:1 across:1048572k SSDsc
+[ 6258.518235] tee (51856): drop_caches: 3
+[ 6475.270008] tee (54418): drop_caches: 3
+[ 6479.654756] Adding 393212k swap on /dev/zram0.  Priority:100 extents:1 across:393212k SS
+[ 6479.971424] Adding 1048572k swap on /dev/ps3vswap0.  Priority:300 extents:1 across:1048572k SSDsc
+[ 6480.411192] tee (54498): drop_caches: 3
+[ 6806.483822] tee (57588): drop_caches: 3
+[ 6810.072008] Adding 393212k swap on /dev/zram0.  Priority:100 extents:1 across:393212k SS
+[ 6810.385296] Adding 1048572k swap on /dev/ps3vswap0.  Priority:300 extents:1 across:1048572k SSDsc
+[ 6810.825029] tee (57669): drop_caches: 3
+[ 7038.378321] tee (60191): drop_caches: 3
+[ 7042.732008] Adding 393212k swap on /dev/zram0.  Priority:100 extents:1 across:393212k SS
+[ 7043.048618] Adding 1048572k swap on /dev/ps3vswap0.  Priority:300 extents:1 across:1048572k SSDsc
+[ 7043.486693] tee (60271): drop_caches: 3
+[ 7272.787703] tee (62704): drop_caches: 3
+[ 7277.463940] Adding 393212k swap on /dev/zram0.  Priority:100 extents:1 across:393212k SS
+[ 7277.906821] Adding 1048572k swap on /dev/ps3vswap0.  Priority:300 extents:1 across:1048572k SSDsc
+[ 7278.461143] tee (62804): drop_caches: 3
+[ 7504.135405] tee (65253): drop_caches: 3
+[ 7507.687066] Adding 393212k swap on /dev/zram0.  Priority:100 extents:1 across:393212k SS
+[ 7508.004088] Adding 1048572k swap on /dev/ps3vswap0.  Priority:300 extents:1 across:1048572k SSDsc
+[ 7508.442808] tee (65333): drop_caches: 3
+[ 7515.438675] input: Logitech USB Receiver as /devices/virtual/input/input14
+[ 7712.993584] tee (67896): drop_caches: 3
+[ 7716.549514] Adding 393212k swap on /dev/zram0.  Priority:100 extents:1 across:393212k SS
+[ 7716.859606] Adding 1048572k swap on /dev/ps3vswap0.  Priority:300 extents:1 across:1048572k SSDsc
+[ 7717.299235] tee (67976): drop_caches: 3
+[ 7724.555575] input: Logitech USB Receiver as /devices/virtual/input/input15
+[ 7923.461594] tee (70607): drop_caches: 3
+[ 7927.302623] Adding 393212k swap on /dev/zram0.  Priority:100 extents:1 across:393212k SS
+[ 7927.612146] Adding 1048572k swap on /dev/ps3vswap0.  Priority:300 extents:1 across:1048572k SSDsc
+[ 7928.056271] tee (70687): drop_caches: 3
+[ 7934.949371] input: Logitech USB Receiver as /devices/virtual/input/input16
+[ 8133.404165] tee (73275): drop_caches: 3
+[ 8137.165321] Adding 393212k swap on /dev/zram0.  Priority:100 extents:1 across:393212k SS
+[ 8137.477928] Adding 1048572k swap on /dev/ps3vswap0.  Priority:300 extents:1 across:1048572k SSDsc
+[ 8137.916782] tee (73357): drop_caches: 3
+[ 8144.970567] input: Logitech USB Receiver as /devices/virtual/input/input17
+[ 8344.922090] tee (75942): drop_caches: 3
+[ 8348.862990] Adding 393212k swap on /dev/zram0.  Priority:100 extents:1 across:393212k SS
+[ 8349.181267] Adding 1048572k swap on /dev/ps3vswap0.  Priority:300 extents:1 across:1048572k SSDsc
+[ 8349.620744] tee (76022): drop_caches: 3
+[ 8567.289892] tee (78628): drop_caches: 3
+[ 8571.703568] Adding 393212k swap on /dev/zram0.  Priority:100 extents:1 across:393212k SS
+[ 8572.020368] Adding 1048572k swap on /dev/ps3vswap0.  Priority:300 extents:1 across:1048572k SSDsc
+[ 8572.456113] tee (78708): drop_caches: 3
+[ 8790.113951] tee (81331): drop_caches: 3
+[ 8794.591817] Adding 393212k swap on /dev/zram0.  Priority:100 extents:1 across:393212k SS
+[ 8794.909302] Adding 1048572k swap on /dev/ps3vswap0.  Priority:300 extents:1 across:1048572k SSDsc
+[ 8795.350191] tee (81411): drop_caches: 3
+[ 9010.562576] tee (83971): drop_caches: 3
+[ 9015.515839] Adding 393212k swap on /dev/zram0.  Priority:100 extents:1 across:393212k SS
+[ 9015.837059] Adding 1048572k swap on /dev/ps3vswap0.  Priority:300 extents:1 across:1048572k SSDsc
+[ 9016.273197] tee (84051): drop_caches: 3
+[ 9308.649929] tee (87169): drop_caches: 3
+[ 9311.994491] Adding 393212k swap on /dev/zram0.  Priority:100 extents:1 across:393212k SS
+[ 9312.306802] Adding 1048572k swap on /dev/ps3vswap0.  Priority:300 extents:1 across:1048572k SSDsc
+[ 9312.744015] tee (87248): drop_caches: 3
+[ 9530.312581] tee (89799): drop_caches: 3
+[ 9535.587527] Adding 393212k swap on /dev/zram0.  Priority:100 extents:1 across:393212k SS
+[ 9535.900691] Adding 1048572k swap on /dev/ps3vswap0.  Priority:300 extents:1 across:1048572k SSDsc
+[ 9536.336922] tee (89879): drop_caches: 3
+[ 9753.874061] tee (92485): drop_caches: 3
+[ 9758.569534] Adding 393212k swap on /dev/zram0.  Priority:100 extents:1 across:393212k SS
+[ 9758.891035] Adding 1048572k swap on /dev/ps3vswap0.  Priority:300 extents:1 across:1048572k SSDsc
+[ 9759.325516] tee (92565): drop_caches: 3
+[ 9976.509574] tee (95140): drop_caches: 3
+[ 9981.008096] Adding 393212k swap on /dev/zram0.  Priority:100 extents:1 across:393212k SS
+[ 9981.320402] Adding 1048572k swap on /dev/ps3vswap0.  Priority:300 extents:1 across:1048572k SSDsc
+[ 9981.752364] tee (95220): drop_caches: 3
+[10244.881898] tee (98273): drop_caches: 3
+[10248.996887] Adding 393212k swap on /dev/zram0.  Priority:100 extents:1 across:393212k SS
+[10249.306120] Adding 1048572k swap on /dev/ps3vswap0.  Priority:300 extents:1 across:1048572k SSDsc
+[10249.743894] tee (98352): drop_caches: 3
+[10467.524297] tee (100945): drop_caches: 3
+[10472.244119] Adding 393212k swap on /dev/zram0.  Priority:100 extents:1 across:393212k SS
+[10472.554009] Adding 1048572k swap on /dev/ps3vswap0.  Priority:300 extents:1 across:1048572k SSDsc
+[10472.991782] tee (101025): drop_caches: 3
+[17999.212230] ps3-game-mode (104651): drop_caches: 1
+[18061.185918] ps3-game-mode (105200): drop_caches: 1
+[18112.962244] ps3-game-mode (105641): drop_caches: 1
+[19298.085258] ps3-game-mode (106788): drop_caches: 1
+[19336.344175] ps3-game-mode (107253): drop_caches: 1
+[19488.976831] ps3-game-mode (108376): drop_caches: 1
+[19524.917041] ps3-game-mode (108820): drop_caches: 1
+[19583.982075] ps3-game-mode (109363): drop_caches: 1
+[19629.167644] ps3-game-mode (109902): drop_caches: 1
+[19671.732505] ps3-game-mode (110397): drop_caches: 1
+[19742.648816] ps3-game-mode (111034): drop_caches: 1
+[19785.023960] ps3-game-mode (111506): drop_caches: 1
+[19861.864308] ps3-game-mode (112043): drop_caches: 1
+[19958.011903] tee (113183): drop_caches: 3
+[19961.347173] Adding 393212k swap on /dev/zram0.  Priority:100 extents:1 across:393212k SS
+[19961.667742] Adding 1048572k swap on /dev/ps3vswap0.  Priority:300 extents:1 across:1048572k SSDsc
+[19962.107364] tee (113262): drop_caches: 3
+[20186.316983] tee (115710): drop_caches: 3
+[20190.429314] Adding 393212k swap on /dev/zram0.  Priority:100 extents:1 across:393212k SS
+[20190.742363] Adding 1048572k swap on /dev/ps3vswap0.  Priority:300 extents:1 across:1048572k SSDsc
+[20191.182383] tee (115790): drop_caches: 3
+[20417.578360] tee (118474): drop_caches: 3
+[20421.594097] Adding 393212k swap on /dev/zram0.  Priority:100 extents:1 across:393212k SS
+[20421.908590] Adding 1048572k swap on /dev/ps3vswap0.  Priority:300 extents:1 across:1048572k SSDsc
+[20422.349241] tee (118554): drop_caches: 3
+[20429.289000] input: Logitech USB Receiver as /devices/virtual/input/input18
+[20627.503199] tee (121236): drop_caches: 3
+[20631.698082] Adding 393212k swap on /dev/zram0.  Priority:100 extents:1 across:393212k SS
+[20632.014107] Adding 1048572k swap on /dev/ps3vswap0.  Priority:300 extents:1 across:1048572k SSDsc
+[20632.453604] tee (121316): drop_caches: 3
+[20639.555438] input: Logitech USB Receiver as /devices/virtual/input/input19
+[20838.334169] tee (123910): drop_caches: 3
+[20842.012376] Adding 393212k swap on /dev/zram0.  Priority:100 extents:1 across:393212k SS
+[20842.329864] Adding 1048572k swap on /dev/ps3vswap0.  Priority:300 extents:1 across:1048572k SSDsc
+[20842.765289] tee (123990): drop_caches: 3
+[21159.990879] tee (127512): drop_caches: 3
+[21163.892803] Adding 393212k swap on /dev/zram0.  Priority:100 extents:1 across:393212k SS
+[21164.208286] Adding 1048572k swap on /dev/ps3vswap0.  Priority:300 extents:1 across:1048572k SSDsc
+[21164.649847] tee (127592): drop_caches: 3
+[21485.152305] tee (131242): drop_caches: 3
+[21489.396349] Adding 393212k swap on /dev/zram0.  Priority:100 extents:1 across:393212k SS
+[21489.710647] Adding 1048572k swap on /dev/ps3vswap0.  Priority:300 extents:1 across:1048572k SSDsc
+[21490.150774] tee (131322): drop_caches: 3
+[21687.138756] tee (133995): drop_caches: 3
+[21690.547586] Adding 393212k swap on /dev/zram0.  Priority:100 extents:1 across:393212k SS
+[21690.855514] Adding 1048572k swap on /dev/ps3vswap0.  Priority:300 extents:1 across:1048572k SSDsc
+[21691.293902] tee (134075): drop_caches: 3
+[21888.734451] tee (136543): drop_caches: 3
+[21892.183751] Adding 393212k swap on /dev/zram0.  Priority:100 extents:1 across:393212k SS
+[21892.498788] Adding 1048572k swap on /dev/ps3vswap0.  Priority:300 extents:1 across:1048572k SSDsc
+[21892.941899] tee (136623): drop_caches: 3
+[22118.565254] tee (139302): drop_caches: 3
+[22123.092869] Adding 393212k swap on /dev/zram0.  Priority:100 extents:1 across:393212k SS
+[22123.404496] Adding 1048572k swap on /dev/ps3vswap0.  Priority:300 extents:1 across:1048572k SSDsc
+[22123.843624] tee (139382): drop_caches: 3
+[22353.747286] tee (141884): drop_caches: 3
+[22358.163793] Adding 393212k swap on /dev/zram0.  Priority:100 extents:1 across:393212k SS
+[22358.475917] Adding 1048572k swap on /dev/ps3vswap0.  Priority:300 extents:1 across:1048572k SSDsc
+[22358.919507] tee (141964): drop_caches: 3
+[22365.619645] input: Logitech USB Receiver as /devices/virtual/input/input20
+[22562.907877] tee (144489): drop_caches: 3
+[22567.171219] Adding 393212k swap on /dev/zram0.  Priority:100 extents:1 across:393212k SS
+[22567.482541] Adding 1048572k swap on /dev/ps3vswap0.  Priority:300 extents:1 across:1048572k SSDsc
+[22567.923655] tee (144571): drop_caches: 3
+[22575.349172] input: Logitech USB Receiver as /devices/virtual/input/input21
+[22773.483336] tee (147256): drop_caches: 3
+[22778.490570] Adding 393212k swap on /dev/zram0.  Priority:100 extents:1 across:393212k SS
+[22778.806098] Adding 1048572k swap on /dev/ps3vswap0.  Priority:300 extents:1 across:1048572k SSDsc
+[22779.247047] tee (147336): drop_caches: 3
+[23096.678157] tee (150988): drop_caches: 3
+[23100.868474] Adding 393212k swap on /dev/zram0.  Priority:100 extents:1 across:393212k SS
+[23101.182528] Adding 1048572k swap on /dev/ps3vswap0.  Priority:300 extents:1 across:1048572k SSDsc
+[23101.624788] tee (151068): drop_caches: 3
+[23421.290139] tee (154574): drop_caches: 3
+[23425.977809] Adding 393212k swap on /dev/zram0.  Priority:100 extents:1 across:393212k SS
+[23426.297003] Adding 1048572k swap on /dev/ps3vswap0.  Priority:300 extents:1 across:1048572k SSDsc
+[23426.737822] tee (154654): drop_caches: 3
+[23622.029056] tee (157095): drop_caches: 3
+[23625.431826] Adding 393212k swap on /dev/zram0.  Priority:100 extents:1 across:393212k SS
+[23625.745695] Adding 1048572k swap on /dev/ps3vswap0.  Priority:300 extents:1 across:1048572k SSDsc
+[23626.186753] tee (157175): drop_caches: 3
+[23824.640573] tee (159841): drop_caches: 3
+[23828.169850] Adding 393212k swap on /dev/zram0.  Priority:100 extents:1 across:393212k SS
+[23828.482507] Adding 1048572k swap on /dev/ps3vswap0.  Priority:300 extents:1 across:1048572k SSDsc
+[23828.924403] tee (159921): drop_caches: 3
+[24051.912251] tee (162354): drop_caches: 3
+[24055.854593] Adding 393212k swap on /dev/zram0.  Priority:100 extents:1 across:393212k SS
+[24056.164126] Adding 1048572k swap on /dev/ps3vswap0.  Priority:300 extents:1 across:1048572k SSDsc
+[24056.600697] tee (162434): drop_caches: 3
+[24283.395953] tee (165120): drop_caches: 3
+[24287.117489] Adding 393212k swap on /dev/zram0.  Priority:100 extents:1 across:393212k SS
+[24287.431105] Adding 1048572k swap on /dev/ps3vswap0.  Priority:300 extents:1 across:1048572k SSDsc
+[24287.869456] tee (165200): drop_caches: 3
+[24295.392292] input: Logitech USB Receiver as /devices/virtual/input/input22
+[24493.225473] tee (167883): drop_caches: 3
+[24497.038583] Adding 393212k swap on /dev/zram0.  Priority:100 extents:1 across:393212k SS
+[24497.350542] Adding 1048572k swap on /dev/ps3vswap0.  Priority:300 extents:1 across:1048572k SSDsc
+[24497.792337] tee (167963): drop_caches: 3
+[24505.162645] input: Logitech USB Receiver as /devices/virtual/input/input23
+[24703.618236] tee (170537): drop_caches: 3
+[24707.169108] Adding 393212k swap on /dev/zram0.  Priority:100 extents:1 across:393212k SS
+[24707.483972] Adding 1048572k swap on /dev/ps3vswap0.  Priority:300 extents:1 across:1048572k SSDsc
+[24707.922768] tee (170617): drop_caches: 3
+[25024.903784] tee (174123): drop_caches: 3
+[25028.784702] Adding 393212k swap on /dev/zram0.  Priority:100 extents:1 across:393212k SS
+[25029.094379] Adding 1048572k swap on /dev/ps3vswap0.  Priority:300 extents:1 across:1048572k SSDsc
+[25029.539306] tee (174204): drop_caches: 3
+[25350.816620] tee (177856): drop_caches: 3
+[25354.910782] Adding 393212k swap on /dev/zram0.  Priority:100 extents:1 across:393212k SS
+[25355.224499] Adding 1048572k swap on /dev/ps3vswap0.  Priority:300 extents:1 across:1048572k SSDsc
+[25355.665098] tee (177936): drop_caches: 3
+[25552.711158] tee (180622): drop_caches: 3
+[25556.402366] Adding 393212k swap on /dev/zram0.  Priority:100 extents:1 across:393212k SS
+[25556.715294] Adding 1048572k swap on /dev/ps3vswap0.  Priority:300 extents:1 across:1048572k SSDsc
+[25557.166810] tee (180702): drop_caches: 3
+[25754.479611] tee (183394): drop_caches: 3
+[25758.720818] Adding 393212k swap on /dev/zram0.  Priority:100 extents:1 across:393212k SS
+[25759.040400] Adding 1048572k swap on /dev/ps3vswap0.  Priority:300 extents:1 across:1048572k SSDsc
+[25759.485700] tee (183474): drop_caches: 3
+[27995.087448] tee (187030): drop_caches: 3
+[34708.047405] tee (189907): drop_caches: 3
+[34711.514875] Adding 393212k swap on /dev/zram0.  Priority:100 extents:1 across:393212k SS
+[34711.827541] Adding 1048572k swap on /dev/ps3vswap0.  Priority:300 extents:1 across:1048572k SSDsc
+[34712.598630] tee (189998): drop_caches: 3
+[34907.034492] tee (191899): drop_caches: 3
+[34908.292126] Adding 393212k swap on /dev/zram0.  Priority:100 extents:1 across:393212k SS
+[34908.670815] Adding 1048572k swap on /dev/ps3vswap0.  Priority:300 extents:1 across:1048572k SSDsc
+[34909.358458] tee (191975): drop_caches: 3
+[35667.343757] tee (194626): drop_caches: 3
+[35668.598285] Adding 393212k swap on /dev/zram0.  Priority:100 extents:1 across:393212k SS
+[35668.981642] Adding 1048572k swap on /dev/ps3vswap0.  Priority:300 extents:1 across:1048572k SSDsc
+[35669.667117] tee (194702): drop_caches: 3
+[35915.906230] tee (196739): drop_caches: 3
+[35917.153264] Adding 393212k swap on /dev/zram0.  Priority:100 extents:1 across:393212k SS
+[35917.536418] Adding 1048572k swap on /dev/ps3vswap0.  Priority:300 extents:1 across:1048572k SSDsc
+[35918.230297] tee (196815): drop_caches: 3
+[36119.024311] tee (198798): drop_caches: 3
+[36120.307512] Adding 393212k swap on /dev/zram0.  Priority:100 extents:1 across:393212k SS
+[36120.692310] Adding 1048572k swap on /dev/ps3vswap0.  Priority:300 extents:1 across:1048572k SSDsc
+[36121.377270] tee (198874): drop_caches: 3
+[36292.467396] tee (200864): drop_caches: 3
+[36293.780102] Adding 393212k swap on /dev/zram0.  Priority:100 extents:1 across:393212k SS
+[36294.162493] Adding 1048572k swap on /dev/ps3vswap0.  Priority:300 extents:1 across:1048572k SSDsc
+[36294.859090] tee (200940): drop_caches: 3
+[36458.268690] Adding 1048572k swap on /dev/ps3vswap0.  Priority:300 extents:1 across:1048572k SSDsc
+[36540.058645] tee (203612): drop_caches: 3
+[36542.841354] Adding 393212k swap on /dev/zram0.  Priority:100 extents:1 across:393212k SS
+[36543.152378] Adding 1048572k swap on /dev/ps3vswap0.  Priority:300 extents:1 across:1048572k SSDsc
+[36543.913080] tee (203705): drop_caches: 3
+[36645.037795] tee (205000): drop_caches: 3
+[36646.473433] Adding 393212k swap on /dev/zram0.  Priority:100 extents:1 across:393212k SS
+[36646.860930] Adding 1048572k swap on /dev/ps3vswap0.  Priority:300 extents:1 across:1048572k SSDsc
+[36647.543276] tee (205076): drop_caches: 3
+[36757.022423] tee (206375): drop_caches: 3
+[36758.289798] Adding 393212k swap on /dev/zram0.  Priority:100 extents:1 across:393212k SS
+[36758.672659] Adding 1048572k swap on /dev/ps3vswap0.  Priority:300 extents:1 across:1048572k SSDsc
+[36759.029010] tee (206439): drop_caches: 3
+[36983.331984] tee (208902): drop_caches: 3
+[36987.300329] Adding 393212k swap on /dev/zram0.  Priority:100 extents:1 across:393212k SS
+[36987.614471] Adding 1048572k swap on /dev/ps3vswap0.  Priority:300 extents:1 across:1048572k SSDsc
+[36988.057222] tee (208982): drop_caches: 3
+[38108.419464] ps3fb ioc0_01: ps3fb_vsync_interrupt: graphics exception
+[38108.419508] ps3fb ioc0_01: channel id 0x00000001 cause 0x00000105
+[38108.419536] ps3fb ioc0_01: fifo:
+[38108.419559] ps3fb ioc0_01: 	dma get 0x001e5c14 dma put 0x001e5c14
+[38108.419587] ps3fb ioc0_01: 	call 0x00193fa4 jump 0x000009b4
+[38108.419614] ps3fb ioc0_01: 	get 0x00000138 put 0x00000139 ref 0x5e2a78c4
+[38108.419642] ps3fb ioc0_01: 	    [000] 0000fa08:00010101 0000fa0c:80000000 0000fa10:0000aae4 0000fa14:01012000
+[38108.419681] ps3fb ioc0_01: 	    [004] 0000c000:31337303 0000c180:66604200 0000c184:feed0000 0000c188:feed0001
+[38108.419720] ps3fb ioc0_01: 	    [008] 00004310:00000000 00004314:00000140 00004318:00000140 0000431c:00000140
+[38108.419757] ps3fb ioc0_01: 	    [00c] 0000fd88:000000c8 0000ffd8:00000001 0000f710:00000000 00008184:feed0000
+[38108.419795] ps3fb ioc0_01: 	    [010] 0000a400:00400040 0000a404:00010080 0000a408:0064d000 0000a40c:00000000
+[38108.419834] ps3fb ioc0_01: 	    [014] 0000e388:00000000 0000e328:00000000 0000e32c:000000ff 0000e348:00000000
+[38108.419870] ps3fb ioc0_01: 	    [018] 0000ea68:00000000 0000e3b8:00000008 0000e3bc:00000000 0000fdb4:00000000
+[38108.419909] ps3fb ioc0_01: 	    [01c] 0000f484:ffffffff 0000f488:ffffffff 0000f48c:ffffffff 0000f490:ffffffff
+[38108.419964] ps3rsx: graph exception; last submit from channel 1, vo (pid 211655)
+
+## versions
+6.12.111+ps3.874
+libgl1-mesa-dri 26.2.4-1+ps3.924
+mesa-libgallium 26.2.4-1+ps3.924
+mpv 0.41.0-2+b4
+ps3rsx-modules-6.12.111+ps3.874 0.924+k6.12.111+ps3.874
+## mpv procs
+## the run
+command: mpv --fs --vo=gpu --hwdec=no --input-ipc-server=/tmp/mpv-211619.sock --length=50 --no-terminal /var/tmp/browser-test/bbb-360p.mp4
+  started by /var/tmp/browser-test/vid.sh through systemd-run --user --scope --slice=ps3-desktop.slice, PS3_GAME_MODE=off,
+  DISPLAY=:0 (Openbox desktop at 1920x1080), no mpv.conf; no -v log was taken
+clip: Big Buck Bunny 60-120 s re-encoded on the PC with ffmpeg: H.264 Main, 640x360, 24 fps, 700 kb/s, yuv420p;
+  AAC LC 128 kb/s; MP4 (faststart); the first clip of the run
+what mpv said over IPC 45 s later: vo-configured=True, current-vo=gpu, time-pos=0.29 (frozen after 7 frames),
+  frame-drop-count=0, 111% of one PPE thread (spinning); SIGTERM ended it, the RSX stayed wedged until the reboot
+FIFO cache, read as (subchannel << 13 | method): subchannel 7 (3D) texture unit 0 setup at 0x1a08-0x1a14 and
+  0x0388; subchannel 6 object bind (0xc000 = 0x31337303); subchannel 5 at 0x0400-0x040c = 0x00400040,
+  0x00010080, 0x0064d000, 0 (a scaled-image blit's source: 64x64, format/pitch word 0x10080, offset 0x64d000);
+  subchannel 2 at 0x0310-0x031c. Cause not analysed yet (task #65).
