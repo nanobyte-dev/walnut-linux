@@ -3,6 +3,6 @@ id = "diablo"
 title = "Diablo (DevilutionX)"
 homepage = "https://github.com/diasurgical/devilutionX"
 draft = true
-status = "candidate"
-status_note = "Try now (2026-10-19): an 8-bit software renderer, big-endian proven (Mac OS X Tiger PPC, Amiga), est. 60-120 MB, the shareware spawn.mpq as free data. Own build (not in Debian)."
+status = "tried"
+status_note = "Smoke runs on the PS3 on 2026-10-28 with a DevilutionX 1.5.5 build of ours (not committed: its licence, the Sustainable Use License, is for the user to decide) and the player's own Diablo 1.09 DIABDAT.MPQ: a new Warrior in Tristram, fullscreen 1920x1080, 58 fps steady (1% low 25), the colours right, the hero saved (technical.md); no played session yet."
 +++

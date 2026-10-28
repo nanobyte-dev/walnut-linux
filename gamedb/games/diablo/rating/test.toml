@@ -1,0 +1,6 @@
+# Diablo (DevilutionX): the played test (gamedb/README.md "games/<id>/rating/"). Data, never run: the session
+# harness reads it through bench/harness/playdef.py.
+process = 'devilutionx'
+# its settings, set aside for a session on fresh defaults: diablo.ini lives in the game's folder beside the
+# player's DIABDAT.MPQ and saves, so only the file (a whole-folder set-aside would hide the data)
+home = ['.local/share/diasurgical/devilution/diablo.ini']
