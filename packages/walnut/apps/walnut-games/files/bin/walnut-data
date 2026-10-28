@@ -1400,12 +1400,13 @@ def cmd_import(game_id, sources, asked, no_download, games):
 
 
 def size_bytes(num, unit):
-    """(bytes, tolerance) of a size as innoextract prints it: '1234', '180.8 MiB' (rounded to the digits shown)"""
+    """(bytes, tolerance) of a size as innoextract prints it: '1234', '180.8 MiB'; the tolerance is one unit of
+    the last digit shown, since it may cut the digits off instead of rounding (496862633 bytes: '473 MiB')"""
     mult = {"": 1, "B": 1, "KIB": 1 << 10, "MIB": 1 << 20, "GIB": 1 << 30}.get(unit.upper(), None)
     if mult is None:
         return None
     dec = len(num.partition(".")[2])
-    return int(float(num) * mult), (0 if mult == 1 and not dec else mult * 0.5 * 10 ** -dec)
+    return int(float(num) * mult), (0 if mult == 1 and not dec else mult * 10 ** -dec)
 
 
 def listed_files(path):

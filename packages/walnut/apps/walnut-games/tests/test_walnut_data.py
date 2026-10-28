@@ -790,19 +790,24 @@ class DataImport(unittest.TestCase):
                         'echo \'Extracting "Game" - setup data version 5.5.0\'\n'
                         'echo \' - "app\\Hipnotic\\Pak0.pak" (7 B)\'\n'
                         'echo \' - "app/music/track.ogg" (5.0 KiB)\'\n'
-                        'echo \' - "tmp/readme.txt"\'\n')
+                        'echo \' - "tmp/readme.txt"\'\n'
+                        # the real format (GOG's Quake Enhanced installer): a language tag, and a size cut off
+                        # rather than rounded (496862633 bytes is 473.8 MiB)
+                        'echo \' - "mg1/pak0.pak" [en-US] (473 MiB)\'\n')
         inno.chmod(0o755)
         old, wd.INNOEXTRACT = wd.INNOEXTRACT, str(inno)
         try:
             (self.t / "setup.exe").write_bytes(b"MZ")
             self.assertEqual(wd.listed_files(str(self.t / "setup.exe")),
-                             [("pak0.pak", (7, 0)), ("track.ogg", (5120, 0.5 * 1024 * 0.1)), ("readme.txt", None)])
+                             [("pak0.pak", (7, 0)), ("track.ogg", (5120, 1024 * 0.1)), ("readme.txt", None),
+                              ("pak0.pak", (473 << 20, 1 << 20))])
             self.assertEqual((self.t / "log.inno").read_text().split(), ["--list", str(self.t / "setup.exe")])
             man = {"d-pack": {"files": {"usr/x/hipnotic/pak0.pak": [{"size": 7}]}, "required": ["usr/x/hipnotic/pak0.pak"]},
-                   "c-music": {"files": {"m/track.ogg": [{"size": 5200}]}},
+                   "c-music": {"files": {"m/track.ogg": [{"size": 5300}]}},
+                   "f-pack": {"files": {"usr/x/mg1/pak0.pak": [{"size": 496862633}]}},
                    "e-pack": {"files": {"m/readme.txt": [{"size": 3}]}}}
-            ds = {"optional": ["d-pack", "c-music", "e-pack"]}
-            self.assertEqual(wd.find_addons(ds, [], [str(self.t / "setup.exe")], [], man), ["d-pack", "e-pack"])
+            ds = {"optional": ["d-pack", "c-music", "e-pack", "f-pack"]}
+            self.assertEqual(wd.find_addons(ds, [], [str(self.t / "setup.exe")], [], man), ["d-pack", "e-pack", "f-pack"])
         finally:
             wd.INNOEXTRACT = old
         wd.INNOEXTRACT = str(self.t / "missing")
