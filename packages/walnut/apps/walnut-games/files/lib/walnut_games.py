@@ -98,11 +98,7 @@ MEDAL_ORDER = ["Platinum", "Gold", "Silver", "Bronze", "Tin", "Rust", "Scrap", "
 OLD_MEDALS = {"Tin"}    # rules 1's scale only (rules 2.1 has none): in the filter only when a game has it
 MEDAL_COLORS = {"Platinum": "#e5e4e2", "Gold": "#d4af37", "Silver": "#c0c0c0", "Bronze": "#cd7f32",
                 "Tin": "#9a9ea3", "Rust": "#8a4b32", "Scrap": "#5f5a55", "Untested": "#6f7a86"}
-DETAILS_W = 372     # the details pane's content width
 QUICK_EXIT_S = 20   # a game that quits sooner than this gets a note in the status line
-ASPECT_TOP = 22     # the caption line above the aspect rows
-ASPECT_GAP = 8      # space between two aspects' blocks
-ASPECT_ORDER = ["frame", "smooth", "sound", "picture", "stability", "display", "load"]
 
 
 # ---- pure functions ---------------------------------------------------------------------------
@@ -542,13 +538,13 @@ FREE_EDITIONS = ("shareware", "demo")
 
 
 def data_note(game, required, full=False):
-    """(tag, text) of the label by the import button: REQUIRED (the game needs the files) or OPTIONAL (optional
-    data; full: the full game in place of the free shareware or demo installed)"""
+    """(tag, text) of the one line by the import button: REQUIRED (the game needs the files) or OPTIONAL
+    (optional data; full: the full game in place of the free shareware or demo installed)"""
     name = data_title(game)
     if full:
-        return "OPTIONAL:", "the full game from the original %s release, in place of the free edition" % name
+        return "OPTIONAL:", "the full game from the original %s, in place of the free one" % name
     if required:
-        return "REQUIRED:", "the game files from the original %s release (your CD, ISO, installer or folder)" % name
+        return "REQUIRED:", "the files from your copy of the original %s" % name
     return "OPTIONAL:", "the original %s graphics and sound" % name
 
 
@@ -671,6 +667,14 @@ def remove_question(game, info):
         q += ("\n\nThis also removes your imported game data (%s: %s); you'd need the disc or your copy again "
               "to play it." % (", ".join(names), human_size(kb)))
     return q, names
+
+
+def remove_data_question(game, info):
+    """the Remove data confirmation (the game stays installed), naming the data packages and their size"""
+    names = remove_question(game, info)[1]
+    kb = sum(info[p][1] for p in names)
+    return ("Remove your game data for %s (%s: %s)?\n\nThe game stays installed; you'd need the disc or your "
+            "copy again to play it." % (game["title"], ", ".join(names), human_size(kb)), names)
 
 
 def parse_lsblk_disc(text):
@@ -971,6 +975,356 @@ def screenshots(game):
     return out
 
 
+# ---- the pane's actions and glance, the Details view, the pad (PLAN 5.11) -----------------------
+
+def main_action(game, installed, can_install, acts, n_launchers, idle, data_ok):
+    """the pane's main button, which follows the game's state: (kind, label, enabled), None without a game.
+    install: not installed (off for a game the packaged catalog doesn't have: can_install False);
+    add-data: installed, its required data missing (data_actions "setup"); importing: an import of this game
+    runs; play: Play, a menu of the launchers when there are several, off without one or while the required
+    data is missing (data_ok False). Off while the helper or an import runs (idle False)."""
+    if game is None:
+        return None
+    if "importing" in acts:
+        return ("importing", "Importing…", False)
+    if not installed:
+        return ("install", "Install", bool(can_install and idle))
+    if "setup" in acts:
+        return ("add-data", DATA_LABEL, bool(idle))
+    return ("play", "Play ▾" if n_launchers > 1 else "Play", bool(idle and n_launchers and data_ok is not False))
+
+
+def side_actions(installed, acts, main, data_names, retry=False):
+    """the smaller buttons under the main one, in order: add-data (Add game files... when it is not the main
+    button: optional data, the full game in place of a free edition, or the data before the game is
+    installed), repo (Install from Walnut licensed), retry (Try again with download), remove (installed),
+    remove-data (game data installed: data_names, remove_question's)"""
+    out = []
+    if main != "add-data" and any(a in acts for a in ("setup", "add", "full")):
+        out.append("add-data")
+    if "repo" in acts:
+        out.append("repo")
+    if retry:
+        out.append("retry")
+    if installed:
+        out.append("remove")
+    if data_names:
+        out.append("remove-data")
+    return out
+
+
+FPS_RE = re.compile(r"median (\d+(?:\.\d+)?) fps")
+
+
+def glance_numbers(rating, size_kb=None):
+    """the pane's key numbers [(value, label)]: the median frame rate (from what the frame rate aspect
+    measured, else its score), the smoothness score and the game's installed size, each when known"""
+    out = []
+    asp = rating.get("aspects") or {}
+    fr = asp.get("frame") or {}
+    m = FPS_RE.search(fr.get("detail") or "")
+    if m:
+        out.append((m.group(1) + " fps", "median frame rate"))
+    elif fr.get("score") is not None:
+        out.append(("%d/100" % round(fr["score"]), "frame rate"))
+    sm = asp.get("smooth") or {}
+    if sm.get("score") is not None:
+        out.append(("%d/100" % round(sm["score"]), "smoothness"))
+    if size_kb:
+        out.append((human_size(size_kb), "installed size"))
+    return out
+
+
+def parse_apt_sizes(out):
+    """{package: installed KB} from `apt-cache show --no-all-versions NAME...`"""
+    sizes, name = {}, None
+    for line in out.splitlines():
+        if line.startswith("Package:"):
+            name = line.split(":", 1)[1].strip()
+        elif line.startswith("Installed-Size:") and name:
+            v = line.split(":", 1)[1].strip()
+            if v.isdigit():
+                sizes.setdefault(name, int(v))
+        elif not line.strip():
+            name = None
+    return sizes
+
+
+def package_sizes(names, runner=None):
+    """{package: installed KB} of the names apt knows (the sources' candidate, or the installed one); {}
+    when apt-cache can't say"""
+    if not names:
+        return {}
+    try:
+        out = (runner or (lambda c: subprocess.run(c, capture_output=True, text=True, timeout=120).stdout))(
+            [APT_CACHE, "show", "--no-all-versions"] + sorted(names))
+    except (OSError, subprocess.SubprocessError):
+        return {}
+    return parse_apt_sizes(out)
+
+
+WALNUT_ACTIONS = ("install", "add-data", "play")
+
+
+def parse_walnut_link(url):
+    """(action, game id, launcher name or None) of a link the app's pages carry (tools/gamedb/build.sh --app):
+    walnut://install/<id>, walnut://add-data/<id>, walnut://play/<id>, walnut://play/<id>?launcher=<name>;
+    None for anything else (another scheme, an unknown action, a bad id)"""
+    import urllib.parse
+    try:
+        u = urllib.parse.urlsplit(url)
+    except ValueError:
+        return None
+    parts = [p for p in u.path.split("/") if p]
+    if u.scheme != "walnut" or u.netloc not in WALNUT_ACTIONS or len(parts) != 1 or not ID_RE.match(parts[0]):
+        return None
+    launcher = urllib.parse.parse_qs(u.query).get("launcher", [None])[0] if u.netloc == "play" else None
+    return u.netloc, parts[0], launcher or None
+
+
+TABS = ("index.html", "test-runs/index.html", "technical/index.html", "guides/index.html")
+
+
+def details_tabs(pages, gid):
+    """the game's tab pages in the app's copy of the site (Overview, Test runs, Technical, Guides), those
+    that exist; [] when the copy doesn't have the game (a game only on the website, or no copy installed)"""
+    base = os.path.join(pages, "games", gid)
+    return [os.path.join(base, t) for t in TABS if os.path.isfile(os.path.join(base, t))]
+
+
+def tab_step(pages, current, d):
+    """the tab page d steps (-1, 1) from the page current (a path under pages/games/<id>/; a page or picture
+    that isn't a tab counts as the tab whose folder holds it), or None past either end or off a game"""
+    rel = os.path.relpath(current, pages).replace(os.sep, "/")
+    parts = rel.split("/")
+    if len(parts) < 3 or parts[0] != "games":
+        return None
+    tabs = details_tabs(pages, parts[1])
+    inside = "/".join(parts[2:])
+    best, i = -1, None
+    for n, t in enumerate(tabs):
+        folder = os.path.dirname(os.path.relpath(t, os.path.join(pages, "games", parts[1])))
+        if (not folder or inside == folder + "/index.html" or inside.startswith(folder + "/")) and len(folder) > best:
+            best, i = len(folder), n
+    if i is None or not 0 <= i + d < len(tabs):
+        return None
+    return tabs[i + d]
+
+
+def link_target(url, pages):
+    """what a link clicked in Details does: ("walnut", (action, id, launcher)) for the app's own links;
+    ("close", None) for the copy's home page (All games: back to the app's list); ("page", url) for a page
+    or picture of the app's copy; ("web", url) for another site or a page of the website the copy doesn't
+    carry (its address on the website); ("ignore", url) for the rest (an unknown walnut:// link)"""
+    import urllib.parse
+    if url.startswith("walnut:"):
+        w = parse_walnut_link(url)
+        return ("walnut", w) if w else ("ignore", url)
+    u = urllib.parse.urlsplit(url)
+    if u.scheme in ("http", "https"):
+        return ("web", url)
+    if u.scheme != "file":
+        return ("ignore", url)
+    path = os.path.normpath(urllib.parse.unquote(u.path))
+    root = os.path.normpath(pages)
+    if not path.startswith(root + os.sep):
+        return ("ignore", url)
+    rel = os.path.relpath(path, root).replace(os.sep, "/")
+    if rel == "index.html":
+        return ("close", None)
+    if os.path.exists(path):
+        return ("page", url)
+    web = rel[:-len("index.html")] if rel == "index.html" or rel.endswith("/index.html") else rel
+    return ("web", WEB + web + ("#" + u.fragment if u.fragment else ""))
+
+
+def nav_pick(cur, cands, direction):
+    """the index of the rectangle (x, y, w, h) among cands nearest to cur in a direction (up, down, left,
+    right), or None when none lies that way. A candidate must start past cur's middle in that direction;
+    the gap along the direction counts once, the gap across it (0 when the two overlap) twice, and the
+    offset of the middles breaks ties"""
+    cx, cy = cur[0] + cur[2] / 2, cur[1] + cur[3] / 2
+    best, pick = None, None
+    for i, (x, y, w, h) in enumerate(cands):
+        mx, my = x + w / 2, y + h / 2
+        if direction in ("left", "right"):
+            if (direction == "right" and (mx <= cx or x + 2 < cx)) or (direction == "left" and (mx >= cx or x + w - 2 > cx)):
+                continue
+            along = max(0, x - (cur[0] + cur[2])) if direction == "right" else max(0, cur[0] - (x + w))
+            across = max(0, y - (cur[1] + cur[3]), cur[1] - (y + h))
+            tie = abs(my - cy)
+        else:
+            if (direction == "down" and (my <= cy or y + 2 < cy)) or (direction == "up" and (my >= cy or y + h - 2 > cy)):
+                continue
+            along = max(0, y - (cur[1] + cur[3])) if direction == "down" else max(0, cur[1] - (y + h))
+            across = max(0, x - (cur[0] + cur[2]), cur[0] - (x + w))
+            tie = abs(mx - cx)
+        score = (along + 2 * across, tie)
+        if best is None or score < best:
+            best, pick = score, i
+    return pick
+
+
+def ui_scale(screen_h, env=None):
+    """how much bigger the text and the pane are than the app's 720-line sizes: 1 up to 720 lines, 1.5 at
+    1080 (the TV from the couch), at most 2; WALNUT_GAMES_SCALE (0.75-3) overrides"""
+    v = env if env is not None else os.environ.get("WALNUT_GAMES_SCALE")
+    if v:
+        try:
+            return max(0.75, min(3.0, float(v)))
+        except ValueError:
+            pass
+    return max(1.0, min(2.0, screen_h / 720.0))
+
+
+# the gamepad's buttons the X pointer driver leaves free (ps3-desktop's 40-joystick-pointer.conf: the
+# sticks move the pointer, Cross is a left click, Circle a right click): evdev key codes and hat axes
+PAD_KEYS = {310: "l1", 311: "r1", 308: "square", 544: "up", 545: "down", 546: "left", 547: "right"}
+PAD_HATS = {(16, -1): "left", (16, 1): "right", (17, -1): "up", (17, 1): "down"}
+PAD_STALE_S = 0.5      # a press older than this was queued while the app was frozen (game mode): dropped
+
+
+def pad_devices(text):
+    """the event devices (/dev/input/eventN) of the joysticks in /proc/bus/input/devices"""
+    out = []
+    for line in text.splitlines():
+        if line.startswith("H: Handlers="):
+            hs = line.split("=", 1)[1].split()
+            if any(h.startswith("js") for h in hs):
+                out += ["/dev/input/" + h for h in hs if re.match(r"^event\d+$", h)]
+    return out
+
+
+def pad_press(etype, code, value):
+    """the pad action of one input event (type, code, value), or None: a key going down (EV_KEY 1, value 1)
+    in PAD_KEYS, or a hat (EV_ABS 3) going to one side"""
+    if etype == 1 and value == 1:
+        return PAD_KEYS.get(code)
+    if etype == 3:
+        return PAD_HATS.get((code, value))
+    return None
+
+
+class PadReader:
+    """a thread reading the gamepads' event devices (no grab: the X pointer driver and the games still get
+    them) for the buttons the pointer leaves free (pad_press); each press is handed to put(name). Devices
+    are looked for again every 3 s (a pad plugged in or paired later); one that fails is closed. Presses
+    older than PAD_STALE_S are dropped (the kernel queued them while game mode froze the app)."""
+
+    def __init__(self, put, devices="/proc/bus/input/devices"):
+        self.put, self.devices, self.fds = put, devices, {}
+        import struct
+        self.ev = struct.Struct("@llHHi")      # struct input_event: a timeval, type, code, value
+
+    def scan(self):
+        try:
+            with open(self.devices) as f:
+                paths = pad_devices(f.read())
+        except OSError:
+            paths = []
+        for p in paths:
+            if p not in self.fds:
+                try:
+                    self.fds[p] = os.open(p, os.O_RDONLY | os.O_NONBLOCK | os.O_CLOEXEC)
+                except OSError:
+                    pass
+
+    def run(self):
+        import select
+        last = 0.0
+        while True:
+            if time.monotonic() - last > 3:
+                self.scan()
+                last = time.monotonic()
+            if not self.fds:
+                time.sleep(3)
+                continue
+            try:
+                ready, _, _ = select.select(list(self.fds.values()), [], [], 3)
+            except (OSError, ValueError):
+                ready = []
+            for fd in ready:
+                try:
+                    data = os.read(fd, self.ev.size * 64)
+                except BlockingIOError:
+                    continue
+                except OSError:
+                    data = b""
+                if not data:
+                    for p, f in list(self.fds.items()):
+                        if f == fd:
+                            del self.fds[p]
+                            os.close(fd)
+                    continue
+                for i in range(0, len(data) - self.ev.size + 1, self.ev.size):
+                    sec, usec, etype, code, value = self.ev.unpack_from(data, i)
+                    name = pad_press(etype, code, value)
+                    if name and abs(time.time() - (sec + usec / 1e6)) < PAD_STALE_S:
+                        self.put(name)
+
+    def start(self):
+        threading.Thread(target=self.run, daemon=True).start()
+        return self
+
+
+def external_game(url):
+    """the game id of the one link Walnut Games takes from outside (the website's "Open in Walnut Games",
+    through xdg-open and the .desktop file's x-scheme-handler/walnut): walnut://game/<id>; None for
+    anything else. install, add-data and play links are the Details view's own and never come in this way;
+    the id must still be in the catalog (App.open_game)"""
+    import urllib.parse
+    try:
+        u = urllib.parse.urlsplit(url)
+    except ValueError:
+        return None
+    parts = [p for p in u.path.split("/") if p]
+    if u.scheme != "walnut" or u.netloc != "game" or len(parts) != 1 or u.query or u.fragment:
+        return None
+    return parts[0] if ID_RE.match(parts[0]) else None
+
+
+def instance_paths(runtime=None):
+    """(lock, hand-off file) of the one running Walnut Games, in $XDG_RUNTIME_DIR/walnut-games/"""
+    d = os.path.join(runtime or os.environ.get("XDG_RUNTIME_DIR") or cache_dir(), "walnut-games")
+    return os.path.join(d, "lock"), os.path.join(d, "open")
+
+
+def claim_instance(lock):
+    """the lock's descriptor when no other Walnut Games runs (held, not inherited, while this one runs);
+    None when one does (or the lock can't be made: then this one runs on its own)"""
+    import fcntl
+    try:
+        os.makedirs(os.path.dirname(lock), mode=0o700, exist_ok=True)
+        fd = os.open(lock, os.O_RDWR | os.O_CREAT | os.O_CLOEXEC | os.O_NOFOLLOW, 0o600)
+    except OSError:
+        return -1
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        return fd
+    except OSError:
+        os.close(fd)
+        return None
+
+
+def hand_off(path, gid):
+    """tell the running Walnut Games to come forward (on game gid, when one is given): one line in the
+    hand-off file, written whole (it reads and removes it)"""
+    with open(path + ".part", "w") as f:
+        f.write((gid or "-") + "\n")
+    os.replace(path + ".part", path)
+
+
+def take_hand_off(path):
+    """what another start handed over: a game id, "" (just come forward), or None (nothing); read once"""
+    try:
+        with open(path) as f:
+            text = f.read(200).strip()
+        os.remove(path)
+    except OSError:
+        return None
+    return text if ID_RE.match(text) else ""
+
+
 def rounded_points(x1, y1, x2, y2, r):
     """polygon points for create_polygon(smooth=True) of a rounded rectangle"""
     return [x1 + r, y1, x1 + r, y1, x2 - r, y1, x2 - r, y1, x2, y1, x2, y1 + r, x2, y1 + r, x2, y2 - r, x2, y2 - r,
@@ -981,13 +1335,17 @@ def rounded_points(x1, y1, x2, y2, r):
 # ---- the window -------------------------------------------------------------------------------
 
 CARD_W, THUMB_W, THUMB_H, GAP = 264, 256, 144, 14
-CARD_H = THUMB_H + 96
-SHOT_W = 360
+PANE_W = 420        # the pane's width at scale 1 (ui_scale)
+GLANCE_SHOTS = 4    # screenshot thumbnails in the pane
+# the widgets the d-pad and the arrow keys move between (Tk's class names)
+FOCUS_CLASSES = {"TButton", "TCheckbutton", "TCombobox", "TEntry", "Button", "Checkbutton", "Radiobutton"}
 
 
 class App:
-    def __init__(self, root, data=None, runtime_dir=None, helper=HELPER, online=None):
+    def __init__(self, root, data=None, runtime_dir=None, helper=HELPER, online=None, pad=False, hand_off_path=None,
+                 start_game=None):
         self.root, self.data = root, data or DATA
+        self.pages = os.path.join(self.data, "pages")   # the app's copy of the site (Details)
         self.runtime_dir = runtime_dir if runtime_dir is not None else \
             (os.path.join(os.environ["XDG_RUNTIME_DIR"], "ps3-game-menu") if os.environ.get("XDG_RUNTIME_DIR") else None)
         self.helper = helper
@@ -1012,12 +1370,15 @@ class App:
         self.imp_before = set()                # the Play entries before the import (what it added)
         self.repo = set()                      # data names the apt sources have (the licensed suite)
         self.info = {}                         # installed data packages -> (edition, KB)
+        self.sizes = {}                        # package -> installed KB (apt-cache show, in a thread)
         self.chooser = None
+        self.menu = None                       # Play's menu of launchers while it is open
+        self.dv = None                         # the Details view while it is open (open_details)
+        self.main_kind = None                  # what the main button does now (main_action)
+        self.play_cmds = []
         self._manifests = {}                   # (game id, installed packages) -> dpkg -L
         self.events = queue.Queue()
-        self.shot_i, self.shot_img = 0, None
-        self.hover = None
-        self.pil_ok = None
+        self.glance_imgs = []
         self._style()
         self._build()
         self.refresh_installed()
@@ -1028,91 +1389,159 @@ class App:
         self.check_repo()
         self.resume_import()
         threading.Thread(target=adopt_games, args=(self.helper,), daemon=True).start()
+        if pad and os.environ.get("WALNUT_GAMES_PAD") != "off":
+            PadReader(lambda name: self.events.put(("pad", name))).start()
+        self.root.after(200, lambda: self.canvas.focus_set() if self.dv is None else None)
+        self.hand_off_path = hand_off_path     # another start's walnut://game/<id> comes in here (main)
+        self._hand_off_n = 0
+        if start_game:
+            self.root.after(300, lambda: self.open_game(start_game))
+
+    def open_game(self, gid):
+        """walnut://game/<id> from outside: the window comes forward on that game, its Details when the app's
+        copy has it, else its card and pane; an id the catalog doesn't have only brings the window forward"""
+        try:
+            self.root.deiconify()
+            self.root.lift()
+            self.root.focus_force()
+        except tk.TclError:
+            pass
+        if not gid or gid not in self.by_id:
+            if gid:
+                print("walnut-games: no game %r in the catalog" % gid, file=sys.stderr)
+            return False
+        self.close_details()
+        if self.menu is not None or self.chooser is not None:
+            self.back()
+        self.select(gid)
+        self._see_card(gid)
+        self.open_details(gid, quiet=True)
+        return True
 
     # -- look
     def _style(self):
         r = self.root
         r.configure(bg=BG)
+        self.scale = s = ui_scale(r.winfo_screenheight())
         fams = set(tkfont.families(r))
         fam = "DejaVu Sans" if "DejaVu Sans" in fams else tkfont.nametofont("TkDefaultFont").actual("family")
-        self.f = {"base": tkfont.Font(family=fam, size=10), "small": tkfont.Font(family=fam, size=9),
-                  "bold": tkfont.Font(family=fam, size=10, weight="bold"),
-                  "card": tkfont.Font(family=fam, size=11, weight="bold"),
-                  "pill": tkfont.Font(family=fam, size=9, weight="bold"),
-                  "title": tkfont.Font(family=fam, size=17, weight="bold"),
-                  "big": tkfont.Font(family=fam, size=13, weight="bold")}
+
+        def font(size, bold=False):
+            return tkfont.Font(family=fam, size=round(size * s), weight="bold" if bold else "normal")
+        self.f = {"base": font(10), "small": font(9), "bold": font(10, True), "card": font(11, True),
+                  "pill": font(9, True), "title": font(17, True), "big": font(13, True), "main": font(14, True),
+                  "num": font(15, True)}
         for n in ("TkDefaultFont", "TkTextFont", "TkMenuFont", "TkHeadingFont", "TkFixedFont"):
             try:
-                tkfont.nametofont(n).configure(family=fam, size=10)
+                tkfont.nametofont(n).configure(family=fam, size=round(10 * s))
             except tk.TclError:
                 pass
-        s = ttk.Style(r)
-        s.theme_use("clam")
-        s.configure(".", background=BG, foreground=TEXT, fieldbackground=ENTRY, bordercolor=BORDER,
-                    lightcolor=BORDER, darkcolor=BORDER, troughcolor=PANEL, font=self.f["base"],
-                    focuscolor=ACCENT, insertcolor=TEXT, selectbackground=ACCENT, selectforeground="#14304d")
-        s.configure("TFrame", background=BG)
-        s.configure("Panel.TFrame", background=PANEL)
-        s.configure("TLabel", background=BG, foreground=TEXT)
-        s.configure("Panel.TLabel", background=PANEL)
-        s.configure("Muted.TLabel", foreground=MUTED)
-        s.configure("Title.TLabel", font=self.f["title"])
-        s.configure("TEntry", fieldbackground=ENTRY, foreground=TEXT, bordercolor=BORDER, padding=5)
-        s.map("TEntry", bordercolor=[("focus", ACCENT)], lightcolor=[("focus", ACCENT)], darkcolor=[("focus", ACCENT)])
-        s.configure("TCombobox", fieldbackground=ENTRY, background=BORDER, foreground=TEXT, arrowcolor=MUTED,
-                    bordercolor=BORDER, padding=4)
-        s.map("TCombobox", fieldbackground=[("readonly", ENTRY)], foreground=[("readonly", TEXT)],
-              bordercolor=[("focus", ACCENT)], arrowcolor=[("active", ACCENT_LIGHT)])
+        # the cards' rows follow the text's size
+        self.pill_h = self.f["pill"].metrics("linespace") + 8
+        self.card_title_y = THUMB_H + 12 + self.pill_h + 8 + self.f["card"].metrics("linespace") // 2
+        self.card_cat_y = self.card_title_y + self.f["card"].metrics("linespace") // 2 + 6 + \
+            self.f["small"].metrics("linespace") // 2
+        self.card_h = self.card_cat_y + self.f["small"].metrics("linespace") // 2 + 12
+        pad = round(6 * s)
+        st = ttk.Style(r)
+        st.theme_use("clam")
+        st.configure(".", background=BG, foreground=TEXT, fieldbackground=ENTRY, bordercolor=BORDER,
+                     lightcolor=BORDER, darkcolor=BORDER, troughcolor=PANEL, font=self.f["base"],
+                     focuscolor=ACCENT_LIGHT, insertcolor=TEXT, selectbackground=ACCENT, selectforeground="#14304d")
+        st.configure("TFrame", background=BG)
+        st.configure("Panel.TFrame", background=PANEL)
+        st.configure("TLabel", background=BG, foreground=TEXT)
+        st.configure("Panel.TLabel", background=PANEL)
+        st.configure("Muted.TLabel", foreground=MUTED)
+        st.configure("Title.TLabel", font=self.f["title"])
+        st.configure("TEntry", fieldbackground=ENTRY, foreground=TEXT, bordercolor=BORDER, padding=pad)
+        # focus shows: a light border (and the button's dashed ring) on whatever the pad or the keys are on
+        st.map("TEntry", bordercolor=[("focus", ACCENT_LIGHT)], lightcolor=[("focus", ACCENT_LIGHT)],
+               darkcolor=[("focus", ACCENT_LIGHT)])
+        st.configure("TCombobox", fieldbackground=ENTRY, background=BORDER, foreground=TEXT, arrowcolor=MUTED,
+                     bordercolor=BORDER, padding=pad - 2, arrowsize=round(12 * s))
+        st.map("TCombobox", fieldbackground=[("focus", BORDER), ("readonly", ENTRY)], foreground=[("readonly", TEXT)],
+               bordercolor=[("focus", ACCENT_LIGHT)], lightcolor=[("focus", ACCENT_LIGHT)],
+               darkcolor=[("focus", ACCENT_LIGHT)], arrowcolor=[("active", ACCENT_LIGHT), ("focus", ACCENT_LIGHT)])
         r.option_add("*TCombobox*Listbox.background", ENTRY)
         r.option_add("*TCombobox*Listbox.foreground", TEXT)
         r.option_add("*TCombobox*Listbox.selectBackground", ACCENT)
         r.option_add("*TCombobox*Listbox.selectForeground", "#14304d")
         r.option_add("*TCombobox*Listbox.font", self.f["base"])
-        s.configure("TCheckbutton", background=BG, foreground=TEXT, indicatorbackground=ENTRY,
-                    indicatorforeground=ACCENT_LIGHT, padding=3)
-        s.map("TCheckbutton", background=[("active", BG)], indicatorbackground=[("selected", ENTRY)],
-              foreground=[("active", ACCENT_LIGHT)])
-        s.configure("TButton", background=BORDER, foreground=TEXT, bordercolor=BORDER, padding=(12, 6), relief="flat")
-        s.map("TButton", background=[("active", "#26507c"), ("disabled", PANEL)], foreground=[("disabled", "#6c7d90")])
-        s.configure("Accent.TButton", background=ACCENT, foreground="#14304d", font=self.f["bold"])
-        s.map("Accent.TButton", background=[("active", ACCENT_LIGHT), ("pressed", ACCENT_DEEP), ("disabled", PANEL)],
-              foreground=[("disabled", "#6c7d90")])
-        s.configure("Source.TButton", background=ENTRY, foreground=TEXT, anchor="w", padding=(12, 8), justify="left")
-        s.map("Source.TButton", background=[("active", BORDER), ("focus", BORDER)])
-        s.configure("Link.TButton", background=PANEL, foreground=MUTED, padding=(4, 2))
-        s.map("Link.TButton", foreground=[("active", ACCENT_LIGHT)], background=[("active", PANEL)])
-        s.configure("Horizontal.TProgressbar", background=ACCENT, troughcolor=ENTRY, bordercolor=BORDER,
-                    lightcolor=ACCENT, darkcolor=ACCENT)
+        st.configure("TCheckbutton", background=BG, foreground=TEXT, indicatorbackground=ENTRY,
+                     indicatorforeground=ACCENT_LIGHT, padding=pad - 2, indicatorsize=round(12 * s),
+                     focusthickness=2)
+        st.map("TCheckbutton", background=[("focus", BORDER), ("active", BG)], indicatorbackground=[("selected", ENTRY)],
+               foreground=[("active", ACCENT_LIGHT), ("focus", ACCENT_LIGHT)])
+        st.configure("TButton", background=BORDER, foreground=TEXT, bordercolor=BORDER, padding=(round(12 * s), pad),
+                     relief="flat", focusthickness=2)
+        st.map("TButton", background=[("disabled", PANEL), ("active", "#26507c"), ("focus", "#26507c")],
+               foreground=[("disabled", "#6c7d90")], bordercolor=[("focus", ACCENT_LIGHT)],
+               lightcolor=[("focus", ACCENT_LIGHT)], darkcolor=[("focus", ACCENT_LIGHT)])
+        accent = dict(background=[("disabled", PANEL), ("pressed", ACCENT_DEEP), ("active", ACCENT_LIGHT),
+                                  ("focus", ACCENT_LIGHT)],
+                      foreground=[("disabled", "#6c7d90")], bordercolor=[("focus", TEXT)],
+                      lightcolor=[("focus", TEXT)], darkcolor=[("focus", TEXT)])
+        st.configure("Accent.TButton", background=ACCENT, foreground="#14304d", font=self.f["bold"],
+                     focuscolor="#14304d")
+        st.map("Accent.TButton", **accent)
+        # the pane's main button: Install, Add game files..., Play
+        st.configure("Main.TButton", background=ACCENT, foreground="#14304d", font=self.f["main"],
+                     padding=(round(20 * s), round(10 * s)), focuscolor="#14304d")
+        st.map("Main.TButton", **accent)
+        st.configure("Source.TButton", background=ENTRY, foreground=TEXT, anchor="w", padding=(12, 8), justify="left")
+        st.map("Source.TButton", background=[("active", BORDER), ("focus", BORDER)])
+        st.configure("Link.TButton", background=PANEL, foreground=MUTED, padding=(round(8 * s), round(4 * s)))
+        st.map("Link.TButton", foreground=[("active", ACCENT_LIGHT), ("focus", ACCENT_LIGHT)],
+               background=[("active", PANEL), ("focus", BORDER)], bordercolor=[("focus", ACCENT_LIGHT)])
+        # a screenshot thumbnail in the pane (opens it in Details)
+        st.configure("Shot.TButton", background=ENTRY, padding=2, bordercolor=PANEL, focusthickness=0)
+        st.map("Shot.TButton", background=[("focus", ACCENT_LIGHT), ("active", ACCENT)],
+               bordercolor=[("focus", ACCENT_LIGHT)])
+        st.configure("Horizontal.TProgressbar", background=ACCENT, troughcolor=ENTRY, bordercolor=BORDER,
+                     lightcolor=ACCENT, darkcolor=ACCENT)
         for o in ("Vertical", "Horizontal"):
-            s.configure(o + ".TScrollbar", background=BORDER, troughcolor=PANEL, bordercolor=PANEL,
-                        arrowcolor=MUTED, lightcolor=BORDER, darkcolor=BORDER)
-            s.map(o + ".TScrollbar", background=[("active", "#26507c")])
+            st.configure(o + ".TScrollbar", background=BORDER, troughcolor=PANEL, bordercolor=PANEL,
+                         arrowcolor=MUTED, lightcolor=BORDER, darkcolor=BORDER, arrowsize=round(14 * s))
+            st.map(o + ".TScrollbar", background=[("active", "#26507c")])
 
     def _build(self):
         r = self.root
         r.title("Walnut Games")
         w, h = min(1480, r.winfo_screenwidth() - 40), min(900, r.winfo_screenheight() - 80)
+        if self.scale > 1:      # a TV: the whole screen
+            w, h = r.winfo_screenwidth(), r.winfo_screenheight()
         r.geometry("%dx%d" % (w, h))
         r.minsize(900, 560)
+        if self.scale > 1:
+            try:
+                r.attributes("-zoomed", True)
+            except tk.TclError:
+                pass
         # top bar
         bar = ttk.Frame(r, style="Panel.TFrame", padding=(12, 10))
         bar.pack(fill="x")
+        self.bar = bar
         self.v_text, self.v_cat, self.v_medal = tk.StringVar(), tk.StringVar(value="All"), tk.StringVar(value="All")
         self.v_sort = tk.StringVar(value="Best first")
         self.v_inst = tk.BooleanVar()
         ttk.Label(bar, text="Walnut Games", font=self.f["big"], style="Panel.TLabel").pack(side="left", padx=(0, 16))
-        self.search = ttk.Entry(bar, textvariable=self.v_text, width=26)
+        self.search = ttk.Entry(bar, textvariable=self.v_text, width=22, font=self.f["base"])
         self.search.pack(side="left", padx=(0, 10))
         cats = sorted({c for g in self.games for c in g.get("categories", [])})
         for var, vals, wd, name in ((self.v_cat, ["All"] + cats, 12, "Category"),
                                     (self.v_medal, ["All"] + medal_choices(self.games), 10, "Medal"),
                                     (self.v_sort, ["Best first", "Name"], 10, "Sort")):
             ttk.Label(bar, text=name, style="Muted.TLabel", background=PANEL).pack(side="left", padx=(8, 2))
-            cb = ttk.Combobox(bar, textvariable=var, values=vals, state="readonly", width=wd)
+            cb = ttk.Combobox(bar, textvariable=var, values=vals, state="readonly", width=wd, font=self.f["base"])
             cb.pack(side="left", padx=4)
             if name == "Category":
                 self.cat_box = cb
             cb.bind("<<ComboboxSelected>>", lambda e: self.apply_filters())
+            # up and down move between the controls (the pad's d-pad); Enter opens the list
+            for key in ("Up", "Down"):
+                cb.bind("<" + key + ">", lambda e, k=key: self._key_nav(e, k))
+            cb.bind("<Return>", lambda e: (e.widget.tk.call("ttk::combobox::Post", e.widget), "break")[1])
         for var, text in ((self.v_inst, "Installed only"),):
             ttk.Checkbutton(bar, text=text, variable=var, command=self.apply_filters, style="TCheckbutton").pack(
                 side="left", padx=8)
@@ -1121,15 +1550,17 @@ class App:
         self.b_refresh = ttk.Button(bar, text="Refresh", command=self.refresh)
         self.b_refresh.pack(side="right", padx=(0, 12))
         self.v_text.trace_add("write", lambda *a: self.apply_filters())
-        # body: the cards, then the details
-        # a draggable divider between the cards and the details (the user widens the details pane)
+        # body: the cards, then the pane
+        # a draggable divider between the cards and the pane (the user widens the pane)
         body = tk.PanedWindow(r, orient="horizontal", bg=BORDER, sashwidth=6, sashrelief="flat",
                               borderwidth=0, showhandle=False, opaqueresize=True)
         body.pack(fill="both", expand=True)
+        self.body = body
         left = ttk.Frame(body)
-        self.details = ttk.Frame(body, style="Panel.TFrame", padding=14)
+        self.pane_w = round(PANE_W * self.scale)
+        self.details = ttk.Frame(body, style="Panel.TFrame", padding=round(14 * self.scale))
         body.add(left, minsize=320, stretch="always")
-        body.add(self.details, minsize=360, width=420, stretch="never")
+        body.add(self.details, minsize=round(360 * self.scale), width=self.pane_w, stretch="never")
         self.canvas = tk.Canvas(left, bg=BG, highlightthickness=0, takefocus=1)
         sb = ttk.Scrollbar(left, orient="vertical", command=self.canvas.yview)
         self.canvas.configure(yscrollcommand=sb.set)
@@ -1140,118 +1571,119 @@ class App:
             self.canvas.bind(ev, lambda e, d=d: self._wheel(d))
         self.canvas.bind("<MouseWheel>", lambda e: self._wheel(-1 if e.delta > 0 else 1))
         for key, dx, dy in (("Left", -1, 0), ("Right", 1, 0), ("Up", 0, -1), ("Down", 0, 1)):
-            self.canvas.bind("<" + key + ">", lambda e, dx=dx, dy=dy: self._move(dx, dy))
+            self.canvas.bind("<" + key + ">", lambda e, dx=dx, dy=dy, k=key: self._card_key(e, k, dx, dy))
         self.canvas.bind("<Button-1>", lambda e: self.canvas.focus_set())
+        self.canvas.bind("<FocusIn>", lambda e: self._mark_selected())
+        self.canvas.bind("<FocusOut>", lambda e: self._mark_selected())
         r.bind("<Control-f>", lambda e: (self.search.focus_set(), "break")[1])
+        # the pad and the keys (docs/GAMEDB.md "The desktop app"): arrows move the focus, Enter presses the
+        # focused button, Escape and Circle (the pointer's right click) go back
+        for key in ("Up", "Down", "Left", "Right"):
+            r.bind_all("<" + key + ">", lambda e, k=key: self._key_nav(e, k))
+        r.bind_all("<Prior>", lambda e: self._details_scroll(-1, "pages") if self.dv else None)
+        r.bind_all("<Next>", lambda e: self._details_scroll(1, "pages") if self.dv else None)
+        r.bind_all("<Return>", self._key_press)
+        r.bind_all("<KP_Enter>", self._key_press)
+        r.bind_all("<Escape>", lambda e: self.back())
+        r.bind_all("<Button-3>", lambda e: self.back())
+        r.bind_all("<ButtonPress-1>", self._click_focus, add="+")
         self._build_details()
 
     def _build_details(self):
-        """the details pane: the actions (status, progress, Install/Remove/Play) pinned at the
-        bottom, everything else in a scrolling area above them, so any amount of content fits"""
+        """the pane: the game's name and medal, the actions (one main button that follows the state, smaller
+        ones under it, the import's and the helper's progress), then a quick glance (key numbers, the data's
+        edition, screenshot thumbnails, links and Details). One column of rows (grid): a row that doesn't
+        apply is taken out and comes back in its place."""
         d = self.details
         self.g = None
-        # pinned at the bottom
-        btns = ttk.Frame(d, style="Panel.TFrame")
-        btns.pack(side="bottom", fill="x", pady=(8, 0))
-        # the activity strip above the buttons (status, progress): only shown while something happens
-        self.activity = ttk.Frame(d, style="Panel.TFrame")
-        self.d_status = ttk.Label(self.activity, text="", style="Muted.TLabel", background=PANEL, wraplength=370,
-                                  justify="left")
-        self.d_status.pack(side="top", anchor="w", pady=(8, 2))
-        self.d_reason = ttk.Label(d, text="", style="Muted.TLabel", background=PANEL, wraplength=370, justify="left")
-        self.progress = ttk.Progressbar(self.activity, maximum=100, mode="determinate")
-        self._activity_after = None
-        self.b_install = ttk.Button(btns, text="Install", style="Accent.TButton", command=lambda: self.run_helper("install"))
-        self.b_remove = ttk.Button(btns, text="Remove", command=lambda: self.run_helper("remove"))
-        self.b_play = ttk.Button(btns, text="Play", style="Accent.TButton", command=self.play)
-        for b in (self.b_install, self.b_remove, self.b_play):
-            b.pack(side="left", padx=(0, 8))
-        self.btns = btns
-        # the game data's buttons, above Install/Remove/Play (shown when they apply: data_actions)
-        self.data_row = ttk.Frame(d, style="Panel.TFrame")
-        self.data_row.pack(side="bottom", fill="x")
-        self.b_repo = ttk.Button(self.data_row, text=REPO_LABEL, style="Accent.TButton",
-                                 command=lambda: self.run_helper("install-repo-data"))
-        self.b_data = ttk.Button(self.data_row, text=DATA_LABEL, command=self.open_chooser)
-        # what the button adds, under it: a bold tag (REQUIRED / OPTIONAL) and the text
-        self.b_note = ttk.Frame(self.data_row, style="Panel.TFrame")
+        wrap = self.pane_w - round(32 * self.scale)
+        self.wrap = wrap
+        d.columnconfigure(0, weight=1)
+        rows = {}
+
+        def row(name, widget, **kw):
+            rows[name] = widget
+            widget.grid(row=len(rows), column=0, sticky=kw.pop("sticky", "w"), **kw)
+            return widget
+        self.d_title = row("title", ttk.Label(d, text="", style="Title.TLabel", background=PANEL, wraplength=wrap))
+        self.d_medal = row("medal", tk.Canvas(d, height=self.f["big"].metrics("linespace") + 14, bg=PANEL,
+                                              highlightthickness=0, width=wrap), pady=(4, 0))
+        self.d_note = row("medal_note", ttk.Label(d, text="", foreground=ACCENT_LIGHT, background=PANEL,
+                                                  wraplength=wrap, justify="left", font=self.f["small"]))
+        self.d_sum = row("summary", ttk.Label(d, text="", style="Muted.TLabel", background=PANEL, wraplength=wrap,
+                                              justify="left"), pady=(4, 10))
+        # the main button, then what the data button adds (one line), the smaller buttons, the add-ons
+        self.b_main = row("main", ttk.Button(d, text="Install", style="Main.TButton", command=self.main_pressed),
+                          sticky="ew", pady=(0, 6))
+        self.b_install = self.b_play = self.b_main      # one button now (the tests' and older names)
+        self.b_note = ttk.Frame(d, style="Panel.TFrame")
         self.note_tag = ttk.Label(self.b_note, text="", font=self.f["bold"], foreground=ACCENT, background=PANEL)
-        self.note_text = ttk.Label(self.b_note, text="", style="Muted.TLabel", background=PANEL, wraplength=300,
+        self.note_text = ttk.Label(self.b_note, text="", style="Muted.TLabel", background=PANEL, wraplength=wrap - 120,
                                    justify="left", font=self.f["small"])
         self.note_tag.pack(side="left", anchor="n", padx=(0, 6))
         self.note_text.pack(side="left", fill="x")
-        self.b_retry = ttk.Button(self.data_row, text="Try again with download", style="Accent.TButton",
+        rows["note_main"] = None       # its place under the main button; "note_side": under the smaller ones
+        self.side_row = row("side", ttk.Frame(d, style="Panel.TFrame"), sticky="ew")
+        rows["note_side"] = None
+        self.side_rows = [ttk.Frame(self.side_row, style="Panel.TFrame") for _ in range(3)]
+        for f in self.side_rows:
+            f.pack(side="top", anchor="w")
+        self.b_data = ttk.Button(self.side_row, text=DATA_LABEL, command=self.open_chooser)
+        self.b_repo = ttk.Button(self.side_row, text=REPO_LABEL, command=lambda: self.run_helper("install-repo-data"))
+        self.b_retry = ttk.Button(self.side_row, text="Try again with download", style="Accent.TButton",
                                   command=self.retry_download)
-        self.addon_row = ttk.Frame(self.data_row, style="Panel.TFrame")
+        self.b_remove = ttk.Button(self.side_row, text="Remove", command=lambda: self.run_helper("remove"))
+        self.b_remove_data = ttk.Button(self.side_row, text="Remove data", command=lambda: self.run_helper("remove-data"))
+        self.side_buttons = {"add-data": self.b_data, "repo": self.b_repo, "retry": self.b_retry,
+                             "remove": self.b_remove, "remove-data": self.b_remove_data}
+        self.addon_row = row("addons", ttk.Frame(d, style="Panel.TFrame"), sticky="ew")
         self.addon_buttons = []
-        self.partial_label = ttk.Label(self.data_row, text="", style="Muted.TLabel", background=PANEL,
-                                       wraplength=330, justify="left", font=self.f["small"])
-        # an import's file being read, elapsed time and its last log lines (under the status line)
-        self.imp_detail = ttk.Label(self.activity, text="", style="Muted.TLabel", background=PANEL, wraplength=370,
+        self.partial_label = row("partial", ttk.Label(d, text="", style="Muted.TLabel", background=PANEL,
+                                                      wraplength=wrap, justify="left", font=self.f["small"]),
+                                 pady=(0, 6))
+        self.d_reason = row("reason", ttk.Label(d, text="", style="Muted.TLabel", background=PANEL, wraplength=wrap,
+                                                justify="left"))
+        # the activity strip (status, progress, an import's details): only while something happens
+        self.activity = row("activity", ttk.Frame(d, style="Panel.TFrame"), sticky="ew")
+        self.d_status = ttk.Label(self.activity, text="", style="Muted.TLabel", background=PANEL, wraplength=wrap,
+                                  justify="left")
+        self.d_status.pack(side="top", anchor="w", pady=(4, 2))
+        self.progress = ttk.Progressbar(self.activity, maximum=100, mode="determinate")
+        self.imp_detail = ttk.Label(self.activity, text="", style="Muted.TLabel", background=PANEL, wraplength=wrap,
                                     justify="left", font=self.f["small"])
-        # the scrolling area: a canvas holding one frame, its scroll region kept to the frame's size
-        area = ttk.Frame(d, style="Panel.TFrame")
-        area.pack(side="top", fill="both", expand=True)
-        self.d_area = area
-        self.d_scroll = tk.Canvas(area, bg=PANEL, highlightthickness=0, width=DETAILS_W)
-        dsb = ttk.Scrollbar(area, orient="vertical", command=self.d_scroll.yview)
-        self.d_scroll.configure(yscrollcommand=dsb.set)
-        dsb.pack(side="right", fill="y")
-        self.d_scroll.pack(side="left", fill="both", expand=True)
-        inner = ttk.Frame(self.d_scroll, style="Panel.TFrame")
-        self.d_win = self.d_scroll.create_window(0, 0, window=inner, anchor="nw", width=DETAILS_W)
-        inner.bind("<Configure>", lambda e: self.d_scroll.configure(scrollregion=self.d_scroll.bbox("all")))
-        self.d_scroll.bind("<Configure>", lambda e: self._details_width(e.width))
-        self.d_width = DETAILS_W
-        # the wheel scrolls this pane while the pointer is over it (the cards keep their own)
-        area.bind("<Enter>", lambda e: self._details_wheel(True))
-        area.bind("<Leave>", lambda e: self._details_wheel(False))
-        head = ttk.Frame(inner, style="Panel.TFrame")
-        head.pack(fill="x")
-        links = ttk.Frame(head, style="Panel.TFrame")
-        links.pack(side="right", anchor="n")
-        ttk.Button(links, text="Open on the web", style="Link.TButton", command=self.open_web).pack(anchor="e")
-        # the game's technical page on the site: its build, patches, played test and benchmark tables
-        ttk.Button(links, text="Technical notes", style="Link.TButton", command=self.open_technical).pack(anchor="e")
-        self.d_title = ttk.Label(head, text="", style="Title.TLabel", background=PANEL, wraplength=230)
-        self.d_title.pack(side="left", anchor="w")
-        self.d_sum = ttk.Label(inner, text="", style="Muted.TLabel", background=PANEL, wraplength=DETAILS_W - 8,
-                               justify="left")
-        self.d_sum.pack(anchor="w", pady=(2, 8))
-        # a game with several launchers (two renderers): which one's rating is shown
-        self.d_launch = ttk.Frame(inner, style="Panel.TFrame")
-        self.launch_var = tk.IntVar(value=0)
-        self.d_medal = tk.Canvas(inner, width=DETAILS_W, height=44, bg=PANEL, highlightthickness=0)
-        self.d_medal.pack(anchor="w")
-        self.d_aspects = tk.Canvas(inner, width=DETAILS_W, height=ASPECT_TOP + 7 * 40, bg=PANEL,
-                                   highlightthickness=0)
-        self.d_aspects.pack(anchor="w", pady=(6, 0))
-        self.d_stats = ttk.Label(inner, text="", style="Muted.TLabel", background=PANEL, wraplength=DETAILS_W - 8,
-                                 justify="left")
-        self.d_stats.pack(anchor="w", pady=(4, 8))
-        self.d_shots = ttk.Frame(inner, style="Panel.TFrame")
-        self.d_shots.pack(fill="x")
-        nav = ttk.Frame(self.d_shots, style="Panel.TFrame")
-        nav.pack(fill="x")
-        ttk.Button(nav, text="<", width=3, command=lambda: self.step_shot(-1)).pack(side="left")
-        self.d_cap = ttk.Label(nav, text="", style="Muted.TLabel", background=PANEL, anchor="center")
-        self.d_cap.pack(side="left", fill="x", expand=True)
-        ttk.Button(nav, text=">", width=3, command=lambda: self.step_shot(1)).pack(side="right")
-        box = tk.Frame(self.d_shots, width=SHOT_W + 4, height=SHOT_W * 9 // 16 + 6, bg=ENTRY)
-        box.pack(pady=(4, 8))
-        box.pack_propagate(False)
-        self.d_shot = tk.Label(box, bg=ENTRY, fg=MUTED, text="", font=self.f["small"], wraplength=330)
-        self.d_shot.pack(fill="both", expand=True)
-        # the notes grow to their text (no second scrollbar inside the scrolling pane)
-        self.d_notes = tk.Text(inner, wrap="word", height=1, width=1, bg=ENTRY, fg=TEXT, relief="flat",
-                               font=self.f["small"], padx=8, pady=6, highlightthickness=1,
-                               highlightbackground=BORDER, state="disabled", insertbackground=TEXT,
-                               selectbackground=ACCENT, spacing3=3, cursor="arrow")
-        self.d_notes.pack(fill="x", pady=(0, 6))
-        self.d_notes.tag_configure("h", foreground=MUTED, font=self.f["bold"], spacing1=6)
-        self.d_notes.tag_configure("warn", foreground=ACCENT_LIGHT)
-        self.d_notes.tag_configure("code", font=tkfont.Font(family="monospace", size=9), background=BORDER)
+        self._activity_after = None
+        # the glance
+        self.d_numbers = row("numbers", ttk.Frame(d, style="Panel.TFrame"), sticky="ew", pady=(12, 4))
+        self.d_info = row("info", ttk.Label(d, text="", style="Muted.TLabel", background=PANEL, wraplength=wrap,
+                                            justify="left"), pady=(2, 8))
+        self.d_thumbs = row("thumbs", ttk.Frame(d, style="Panel.TFrame"), sticky="w")
+        self.shot_w = (wrap - 8) // 2
+        self.shot_h = self.shot_w * 9 // 16
+        self.links = row("links", ttk.Frame(d, style="Panel.TFrame"), sticky="ew", pady=(10, 0))
+        self.b_details = ttk.Button(self.links, text="Details", command=self.open_details)
+        self.b_details.pack(side="top", anchor="w", pady=(0, 4))
+        weblinks = ttk.Frame(self.links, style="Panel.TFrame")
+        weblinks.pack(side="top", anchor="w")
+        ttk.Button(weblinks, text="Technical notes", style="Link.TButton", command=self.open_technical).pack(side="left")
+        ttk.Button(weblinks, text="Open on the web", style="Link.TButton", command=self.open_web).pack(side="left")
+        self.b_home = ttk.Button(weblinks, text="Home page", style="Link.TButton", command=self.open_home)
+        self.rows = rows
         self.show(None)
+
+    def _row(self, name, on, widget=None, **kw):
+        """show or hide one row of the pane, in its place"""
+        w = widget or self.rows[name]
+        if on:
+            if name in ("note_main", "note_side"):
+                # its own grid row, kept free for it (row(): the rows are numbered in their order)
+                w.grid(row=list(self.rows).index(name) + 1, column=0, sticky="w", pady=(0, 6), **kw)
+            elif not w.winfo_manager():
+                w.grid()
+        else:
+            if name in ("note_main", "note_side"):
+                w.grid_forget()
+            else:
+                w.grid_remove()
 
     # -- cards
     def apply_filters(self, *a):
@@ -1268,7 +1700,7 @@ class App:
             if not os.path.exists(path):
                 path = self.cache_path(gid, "thumb.png")
                 if not os.path.exists(path):
-                    if self.online and g.get("thumb", True) and ("thumb", gid) not in self._fetching:
+                    if self.online and g.get("thumb", True):
                         self.fetch(gid, "thumb.png", path, "thumb")
                     return None
             try:
@@ -1291,10 +1723,10 @@ class App:
         self.cols = cols
         for i, g in enumerate(self.shown):
             x = GAP + (i % cols) * (CARD_W + GAP)
-            y = GAP + (i // cols) * (CARD_H + GAP)
+            y = GAP + (i // cols) * (self.card_h + GAP)
             self.draw_card(g, x, y)
         rows = (len(self.shown) + cols - 1) // cols
-        c.configure(scrollregion=(0, 0, width, GAP + rows * (CARD_H + GAP)))
+        c.configure(scrollregion=(0, 0, width, GAP + rows * (self.card_h + GAP)))
         if not self.shown:
             c.create_text(width // 2, 80, text="No game matches.", fill=MUTED, font=self.f["big"])
         if reset:
@@ -1303,7 +1735,7 @@ class App:
     def draw_card(self, g, x, y):
         c, tag = self.canvas, "g_" + g["id"].replace("-", "_")
         sel = g["id"] == self.selected
-        c.create_polygon(rounded_points(x, y, x + CARD_W, y + CARD_H, 12), smooth=True, fill=PANEL,
+        c.create_polygon(rounded_points(x, y, x + CARD_W, y + self.card_h, 12), smooth=True, fill=PANEL,
                          outline=ACCENT if sel else BORDER, width=2 if sel else 1, tags=(tag, tag + "_bg"))
         img = self._thumb(g)
         if img:
@@ -1316,25 +1748,50 @@ class App:
         px, py = x + 10, y + THUMB_H + 12
         tw = self.f["pill"].measure(label) + 20
         fill = MEDAL_COLORS.get(m, MEDAL_COLORS["Untested"])
-        c.create_polygon(rounded_points(px, py, px + tw, py + 22, 10), smooth=True, fill=fill, outline="", tags=(tag,))
-        c.create_text(px + tw / 2, py + 11, text=label, fill=pill_text_color(fill), font=self.f["pill"], tags=(tag,))
-        flags = []
+        c.create_polygon(rounded_points(px, py, px + tw, py + self.pill_h, 10), smooth=True, fill=fill, outline="",
+                         tags=(tag,))
+        c.create_text(px + tw / 2, py + self.pill_h / 2, text=label, fill=pill_text_color(fill), font=self.f["pill"],
+                      tags=(tag,))
         if is_installed(g, self.have):
-            flags.append("Installed")
-        if flags:
-            c.create_text(x + CARD_W - 10, py + 11, text="  ".join(flags), fill=ACCENT_LIGHT, anchor="e",
+            c.create_text(x + CARD_W - 10, py + self.pill_h / 2, text="Installed", fill=ACCENT_LIGHT, anchor="e",
                           font=self.f["small"], tags=(tag,))
-        c.create_text(x + 10, y + THUMB_H + 48, text=g["title"], fill=TEXT, anchor="w", font=self.f["card"], tags=(tag,),
-                      width=CARD_W - 20)
-        c.create_text(x + 10, y + THUMB_H + 72, text=" / ".join(g.get("categories", [])), fill=MUTED, anchor="w",
-                      font=self.f["small"], tags=(tag,), width=CARD_W - 20)
+        c.create_text(x + 10, y + self.card_title_y, text=self.elide(g["title"], self.f["card"], CARD_W - 20),
+                      fill=TEXT, anchor="w", font=self.f["card"], tags=(tag,))
+        c.create_text(x + 10, y + self.card_cat_y, text=self.elide(" / ".join(g.get("categories", [])),
+                                                                   self.f["small"], CARD_W - 20),
+                      fill=MUTED, anchor="w", font=self.f["small"], tags=(tag,))
         self.cards[g["id"]] = (x, y)
         c.tag_bind(tag, "<Button-1>", lambda e, i=g["id"]: self.select(i))
+        c.tag_bind(tag, "<Double-Button-1>", lambda e, i=g["id"]: self.open_details(i))
         c.tag_bind(tag, "<Enter>", lambda e, t=tag: c.itemconfigure(t + "_bg", fill=CARD_HOVER))
         c.tag_bind(tag, "<Leave>", lambda e, t=tag: c.itemconfigure(t + "_bg", fill=PANEL))
+        if sel:
+            self._mark_selected()
+
+    @staticmethod
+    def elide(text, font, width):
+        """text cut to one line of width pixels, with an ellipsis when it was cut"""
+        if font.measure(text) <= width:
+            return text
+        while text and font.measure(text + "\u2026") > width:
+            text = text[:-1]
+        return text.rstrip() + "\u2026"
 
     def _wheel(self, d):
         self.canvas.yview_scroll(d * 3, "units")
+
+    def _card_key(self, e, key, dx, dy):
+        """an arrow on the cards: the next card; past the grid's edge, the focus leaves the cards (the
+        top bar above, the pane on the right)"""
+        ids = [g["id"] for g in self.shown]
+        i = ids.index(self.selected) if self.selected in ids else -1
+        cols = max(1, getattr(self, "cols", 1))
+        if i >= 0 and ((dx < 0 and i % cols == 0) or (dx > 0 and (i % cols == cols - 1 or i == len(ids) - 1)) or
+                       (dy < 0 and i < cols) or (dy > 0 and i + cols >= len(ids) and
+                                                 (i // cols) == (len(ids) - 1) // cols)):
+            return self._key_nav(e, key)
+        self._move(dx, dy)
+        return "break"
 
     def _move(self, dx, dy):
         ids = [g["id"] for g in self.shown]
@@ -1343,222 +1800,145 @@ class App:
         i = ids.index(self.selected) if self.selected in ids else -1
         j = 0 if i < 0 else min(len(ids) - 1, max(0, i + dx + dy * self.cols))
         self.select(ids[j])
-        x, y = self.cards[ids[j]]
+        self._see_card(ids[j])
+
+    def _see_card(self, gid):
+        if gid not in self.cards:
+            return
+        x, y = self.cards[gid]
         top, bot = self.canvas.canvasy(0), self.canvas.canvasy(self.canvas.winfo_height())
         total = float(self.canvas.cget("scrollregion").split()[3]) or 1
         if y < top:
             self.canvas.yview_moveto((y - GAP) / total)
-        elif y + CARD_H > bot:
-            self.canvas.yview_moveto((y + CARD_H + GAP - self.canvas.winfo_height()) / total)
+        elif y + self.card_h > bot:
+            self.canvas.yview_moveto((y + self.card_h + GAP - self.canvas.winfo_height()) / total)
+
+    def _mark_selected(self):
+        """the selected card's outline: bright and thick while the cards have the focus"""
+        try:
+            focused = self.root.focus_get() is self.canvas
+        except (KeyError, tk.TclError):
+            focused = False
+        for i in self.cards:
+            tag = "g_" + i.replace("-", "_") + "_bg"
+            if i == self.selected:
+                self.canvas.itemconfigure(tag, outline=ACCENT_LIGHT if focused else ACCENT, width=4 if focused else 2)
+            else:
+                self.canvas.itemconfigure(tag, outline=BORDER, width=1)
 
     def select(self, gid):
         self.selected = gid
-        for i, (x, y) in self.cards.items():
-            tag = "g_" + i.replace("-", "_") + "_bg"
-            self.canvas.itemconfigure(tag, outline=ACCENT if i == gid else BORDER, width=2 if i == gid else 1)
+        self._mark_selected()
         self.show(self.by_id.get(gid))
 
-    # -- details
+    # -- the pane
     def show(self, g):
-        self.shot_i = 0
         self.g = g
         d = self.d_medal
         d.delete("all")
-        self.d_aspects.delete("all")
-        notes = self.d_notes
-        notes.configure(state="normal")
-        notes.delete("1.0", "end")
         if g is None:
             self.d_title.configure(text="Walnut Games")
             self.d_sum.configure(text="Pick a game to see how it runs on the PS3.")
-            self.d_stats.configure(text="")
-            self.d_cap.configure(text="")
-            self.d_shot.configure(image="", text="")
-            self.d_shot.image = None
-            notes.configure(state="disabled")
-            self.d_shots.pack_forget()
-            self.d_launch.pack_forget()
-            self._fit_notes()
+            for name in ("medal", "medal_note", "main", "side", "numbers", "info", "thumbs", "links"):
+                self._row(name, False)
             self.update_buttons()
             return
         self.d_title.configure(text=g["title"])
         self.d_sum.configure(text=g.get("summary", ""))
-        for w in self.d_launch.winfo_children():
-            w.destroy()
-        launchers = g.get("launchers") or []
-        self.launch_var.set(0)
-        if len(launchers) > 1:
-            ttk.Label(self.d_launch, text="Launchers, best first:", style="Muted.TLabel",
-                      background=PANEL).pack(anchor="w")
-            row = ttk.Frame(self.d_launch, style="Panel.TFrame")
-            row.pack(anchor="w", fill="x")
-            for i, l in enumerate(launchers):
-                tk.Radiobutton(row, text=launcher_label(l), variable=self.launch_var, value=i, indicatoron=0,
-                               command=self.show_rating, bg=ENTRY, fg=TEXT, selectcolor=ACCENT_DEEP,
-                               activebackground=BORDER, activeforeground=TEXT, bd=0, highlightthickness=0,
-                               padx=8, pady=3, font=self.f["small"]).pack(anchor="w", pady=(2, 0))
-            if not self.d_launch.winfo_ismapped():
-                self.d_launch.pack(anchor="w", fill="x", pady=(0, 6), before=self.d_medal)
-        else:
-            self.d_launch.pack_forget()
-        if not self.d_shots.winfo_ismapped():
-            if self.d_notes.winfo_ismapped():
-                self.d_shots.pack(fill="x", before=self.d_notes)
-            else:
-                self.d_shots.pack(fill="x")
-        self.show_rating()
-        self.show_shot()
-        if g.get("medal_note"):
-            notes.insert("end", g["medal_note"] + "\n", "warn")
-        if g.get("needs_data") and g.get("data_steps"):
-            notes.insert("end", "Setting up the game data\n", "h")
-            for n, step in enumerate(g["data_steps"], 1):
-                notes.insert("end", "%d. " % n)
-                for text, code in step_parts(step):
-                    notes.insert("end", text, "code" if code else "")
-                notes.insert("end", "\n")
-            if g.get("data_guide"):
-                notes.insert("end", "More: " + g["data_guide"] + "\n")
-        if g.get("known_issues"):
-            notes.insert("end", "Known issues\n", "h")
-            for k in g["known_issues"]:
-                notes.insert("end", "- " + k + "\n")
-        if g.get("patches"):
-            notes.insert("end", "Walnut's changes (%d)\n" % len(g["patches"]), "h")
-            for p in g["patches"]:
-                notes.insert("end", "- " + p["subject"] + "\n")
-        notes.configure(state="disabled")
-        self._fit_notes()
-        self.d_scroll.yview_moveto(0)
-        self.update_buttons()
-
-    def _details_width(self, w):
-        """the pane was dragged or the window resized: the content follows its width"""
-        w = max(DETAILS_W, w)
-        if w == self.d_width:
-            return
-        self.d_width = w
-        self.d_scroll.itemconfigure(self.d_win, width=w)
-        self.d_sum.configure(wraplength=w - 8)
-        self.d_stats.configure(wraplength=w - 8)
-        self.d_title.configure(wraplength=max(200, w - 150))
-        self.d_medal.configure(width=w)
-        self.d_aspects.configure(width=w)
-        if self.g is not None:
-            self.d_aspects.delete("all")
-            self.draw_aspects(self.g["rating"])
-            self._fit_notes()
-
-    def _details_wheel(self, on):
-        if on:
-            self.root.bind_all("<Button-4>", lambda e: self.d_scroll.yview_scroll(-2, "units"))
-            self.root.bind_all("<Button-5>", lambda e: self.d_scroll.yview_scroll(2, "units"))
-            self.root.bind_all("<MouseWheel>", lambda e: self.d_scroll.yview_scroll(-2 if e.delta > 0 else 2, "units"))
-        else:
-            for ev in ("<Button-4>", "<Button-5>", "<MouseWheel>"):
-                self.root.unbind_all(ev)
-
-    def _fit_notes(self):
-        """the notes box as tall as its wrapped text (hidden when empty)"""
-        t = self.d_notes
-        if not t.get("1.0", "end-1c").strip():
-            t.pack_forget()
-            return
-        if not t.winfo_ismapped():
-            t.pack(fill="x", pady=(0, 6))
-        t.update_idletasks()
-        lines = t.count("1.0", "end", "displaylines")
-        t.configure(height=max(1, (lines[0] if isinstance(lines, tuple) else lines or 1)))
-
-    def show_rating(self):
-        """the medal, the scores and what they were measured on: the selected launcher's (the best by
-        default; a game with one launcher has only that)"""
-        g = self.g
-        if g is None:
-            return
-        launchers = g.get("launchers") or []
-        r = launchers[self.launch_var.get()]["rating"] if len(launchers) > 1 else g["rating"]
-        d = self.d_medal
-        d.delete("all")
+        for name in ("medal", "main", "side", "links"):
+            self._row(name, True)
+        r = g["rating"]
         m = r["medal"]
         fill = MEDAL_COLORS.get(m, MEDAL_COLORS["Untested"])
-        d.create_polygon(rounded_points(2, 4, 118, 38, 16), smooth=True, fill=fill, outline="")
-        d.create_text(60, 21, text=m, fill=pill_text_color(fill), font=self.f["big"])
+        lh = self.f["big"].metrics("linespace")
+        pw = self.f["big"].measure(m) + 28
+        d.create_polygon(rounded_points(2, 4, 2 + pw, lh + 12, 14), smooth=True, fill=fill, outline="")
+        d.create_text(2 + pw / 2, lh / 2 + 8, text=m, fill=pill_text_color(fill), font=self.f["big"])
+        x = pw + 14
         if r.get("score") is not None:
-            d.create_text(134, 21, text=str(r["score"]), fill=TEXT, font=self.f["title"], anchor="w")
-            d.create_text(178, 24, text="of 100" + ("  (cap: " + r["reason"] + ")" if r.get("capped") else ""),
-                          fill=MUTED, font=self.f["small"], anchor="w")
-        self.draw_aspects(r)
-        stats = []
+            t = d.create_text(x, lh / 2 + 8, text=str(r["score"]), fill=TEXT, font=self.f["title"], anchor="w")
+            x = d.bbox(t)[2] + 8
+            t = d.create_text(x, lh / 2 + 10, text="of 100", fill=MUTED, font=self.f["small"], anchor="w")
+            x = d.bbox(t)[2] + 16
         if r.get("hours"):
-            stats.append("%.1f h played, %d crash%s%s" % (r["hours"], r["crashes"], "" if r["crashes"] == 1 else "es",
-                                                         " (provisional)" if r.get("provisional") else ""))
-        stats.append("Controller: " + (r.get("controller") or g.get("controller") or "unknown"))
+            d.create_text(x, lh / 2 + 10, text="%.1f h played, %d crash%s" % (
+                r["hours"], r.get("crashes", 0), "" if r.get("crashes") == 1 else "es"), fill=MUTED,
+                font=self.f["small"], anchor="w")
+        note = g.get("medal_note") or ("Capped: " + r["reason"] if r.get("capped") and r.get("reason") else "")
+        self.d_note.configure(text=note)
+        self._row("medal_note", bool(note))
+        self.b_home.pack(side="left") if g.get("homepage") else self.b_home.pack_forget()
+        self.show_glance()
+        self.update_buttons()
+
+    def show_glance(self):
+        """the key numbers, the controller and the game data's edition, and up to 4 screenshot thumbnails"""
+        g = self.g
+        for w in self.d_numbers.winfo_children():
+            w.destroy()
+        size = sum(self.sizes.get(p, 0) for p in g["packages"]) if all(p in self.sizes for p in g["packages"]) else 0
+        nums = glance_numbers(g["rating"], size)
+        for i, (value, label) in enumerate(nums):
+            tile = ttk.Frame(self.d_numbers, style="Panel.TFrame")
+            tile.grid(row=0, column=i, sticky="w", padx=(0, round(24 * self.scale)))
+            ttk.Label(tile, text=value, font=self.f["num"], background=PANEL).pack(anchor="w")
+            ttk.Label(tile, text=label, style="Muted.TLabel", background=PANEL, font=self.f["small"]).pack(anchor="w")
+        self._row("numbers", bool(nums))
+        info = ["Controller: " + (g["rating"].get("controller") or g.get("controller") or "unknown")]
         ed = edition_text(g, self.info)
-        if g.get("needs_data"):
-            stats.append(("Your game data is installed" + (": " + ed if ed else "")) if data_present(g, self.have)
-                         else "Needs your own game data")
+        if g.get("needs_data") and data_present(g, self.have):
+            info.append("Your game data: " + (ed or "installed"))
         elif data_setup(g) and optional_data_present(g, self.have):
-            stats.append("Original data installed" + (": " + ed if ed else ""))
-        tested = tested_text(r)
-        lines = [x for x in (tested, basis_text(r)) if x] + problem_lines(r)
-        self.d_stats.configure(text="".join(x + "\n" for x in lines) + "  |  ".join(stats))
+            info.append("Original data: " + (ed or "installed"))
+        self.d_info.configure(text="   ·   ".join(info))
+        self._row("info", True)
+        self.show_thumbs()
 
-    def draw_aspects(self, r):
-        """one block per aspect: its name, a bar and the score out of 100, and under them what was
-        measured (a bare "2" next to "Frame rate" read as 2 fps). Each block is as tall as its text
-        (the measured line wraps on a narrow pane), and the canvas as tall as all of them."""
-        c = self.d_aspects
-        c.delete("all")
-        w = getattr(self, "d_width", DETAILS_W)
-        c.create_text(0, 8, text="Scores out of 100, with what was measured", fill=MUTED, anchor="w",
-                      font=self.f["small"])
-        y = ASPECT_TOP
-        for k in r.get("order") or ASPECT_ORDER:
-            a = r["aspects"].get(k)
-            if not a:
-                continue
-            c.create_text(0, y + 9, text=a["name"], fill=TEXT, anchor="w", font=self.f["small"])
-            c.create_rectangle(110, y + 4, 270, y + 14, fill=ENTRY, outline=BORDER)
-            bottom = y + 18
-            sc = a["score"]
-            if sc is None:
-                c.create_text(278, y + 9, text="not tested" if k in ("controls", "features") else "not measured",
-                              fill=MUTED, anchor="w", font=self.f["small"])
-            else:
-                if sc:
-                    c.create_rectangle(110, y + 4, 110 + 1.6 * sc, y + 14, fill=ACCENT, outline="")
-                c.create_text(278, y + 9, text="%d/100" % round(sc), fill=TEXT, anchor="w", font=self.f["bold"])
-                if a.get("detail"):
-                    t = c.create_text(110, y + 18, text=a["detail"], fill=MUTED, anchor="nw", font=self.f["small"],
-                                      width=max(160, w - 112))
-                    bottom = c.bbox(t)[3]
-            y = bottom + ASPECT_GAP
-        c.configure(height=y + 2, width=w)
-
-    # -- screenshots
-    def step_shot(self, d):
-        if self.g and screenshots(self.g):
-            self.shot_i = (self.shot_i + d) % len(screenshots(self.g))
-            self.show_shot()
-
-    def show_shot(self):
-        self.shot_img = None
-        shots = screenshots(self.g) if self.g else []
-        if not shots:
-            self.d_cap.configure(text="no screenshots yet")
-            self.d_shot.configure(image="", text="No screenshots yet.")
-            return
-        label, rel = shots[self.shot_i % len(shots)]
-        self.d_cap.configure(text="%s  %d/%d" % (label, self.shot_i % len(shots) + 1, len(shots)))
-        path = os.path.join(self.data, "games", self.g["id"], rel)
-        if not os.path.exists(path):
-            path = self.cache_path(self.g["id"], rel)
+    def show_thumbs(self):
+        for w in self.d_thumbs.winfo_children():
+            w.destroy()
+        self.glance_imgs = []
+        g = self.g
+        shots = screenshots(g)[:GLANCE_SHOTS] if g else []
+        for label, rel in shots:
+            path = os.path.join(self.data, "games", g["id"], rel)
             if not os.path.exists(path):
-                self.d_shot.configure(image="", text="Fetching the screenshot...")
-                self.fetch(self.g["id"], rel, path)
-                return
-        self.set_shot(path)
+                path = self.cache_path(g["id"], rel)
+                if not os.path.exists(path):
+                    self.fetch(g["id"], rel, path)
+                    continue
+            img = self.small_picture(path, self.shot_w, self.shot_h)
+            if img is None:
+                continue
+            self.glance_imgs.append(img)
+            b = ttk.Button(self.d_thumbs, image=img, style="Shot.TButton",
+                           command=lambda rel=rel: self.open_details(shot=rel))
+            n = len(self.glance_imgs) - 1
+            b.grid(row=n // 2, column=n % 2, padx=(0, 6), pady=(0, 6))
+        self._row("thumbs", bool(self.glance_imgs))
+
+    def small_picture(self, path, w, h):
+        """a screenshot as a PhotoImage of at most w x h (JPEG decoded at a smaller size), or None"""
+        try:
+            from PIL import Image
+        except ImportError:
+            return None
+        try:
+            im = Image.open(path)
+            im.draft("RGB", (w, h))
+            im = im.convert("RGB")
+            im.thumbnail((w, h))
+            try:
+                from PIL import ImageTk
+                return ImageTk.PhotoImage(im)
+            except ImportError:   # Pillow without its Tk part: hand Tk a PNG
+                import base64
+                import io
+                buf = io.BytesIO()
+                im.save(buf, "PNG")
+                return tk.PhotoImage(data=base64.b64encode(buf.getvalue()))
+        except Exception:         # a broken picture must not take the window down
+            return None
 
     def cache_path(self, gid, rel):
         return os.path.join(cache_dir(), gid, rel)
@@ -1567,7 +1947,9 @@ class App:
         if not self.online:
             self.events.put((kind, gid, rel, None))
             return
-        self._fetching.add((kind, gid))
+        if (kind, gid, rel) in self._fetching:
+            return
+        self._fetching.add((kind, gid, rel))
 
         def work():
             try:
@@ -1583,30 +1965,6 @@ class App:
                 print("walnut-games: can't fetch %s/%s: %s" % (gid, rel, e), file=sys.stderr)
                 self.events.put((kind, gid, rel, None))
         threading.Thread(target=work, daemon=True).start()
-
-    def set_shot(self, path):
-        try:
-            from PIL import Image
-        except ImportError:
-            self.d_shot.configure(image="", text="Screenshots need python3-pil.imagetk")
-            return
-        try:
-            im = Image.open(path).convert("RGB")
-            im.thumbnail((SHOT_W, SHOT_W * 9 // 16 + 1))
-            try:
-                from PIL import ImageTk
-                img = ImageTk.PhotoImage(im)
-            except ImportError:   # Pillow without its Tk part: hand Tk a PNG
-                import base64
-                import io
-                buf = io.BytesIO()
-                im.save(buf, "PNG")
-                img = tk.PhotoImage(data=base64.b64encode(buf.getvalue()))
-        except Exception:         # a broken picture must not take the window down
-            self.d_shot.configure(image="", text="This screenshot can't be shown.")
-            return
-        self.shot_img = img
-        self.d_shot.configure(image=img, text="")
 
     # -- buttons and the helper
     def fetch_catalog(self, manual):
@@ -1668,8 +2026,6 @@ class App:
     def apply_catalog(self, cat):
         """show another catalog without losing the filters, search, selection or scroll"""
         old = self.by_id.get(self.selected)
-        shot_i, launch_i = self.shot_i, self.launch_var.get()
-        dy = self.d_scroll.yview()[0]
         self.cat, self.games = cat, cat["games"]
         self.by_id = {g["id"]: g for g in self.games}
         self.thumbs.clear()
@@ -1684,13 +2040,6 @@ class App:
             self.show(None)
         elif new is not None and new != old:
             self.show(new)
-            self.shot_i = shot_i % max(1, len(screenshots(new)))
-            if len(new.get("launchers") or []) > 1:
-                self.launch_var.set(launch_i if launch_i < len(new["launchers"]) else 0)
-                self.show_rating()
-            self.show_shot()
-            self.d_scroll.update_idletasks()
-            self.d_scroll.yview_moveto(dy)
         else:
             if new is not None:
                 self.g = new
@@ -1712,13 +2061,18 @@ class App:
         self.info = data_info({p for g in games for p in data_packages(g) if p in self.have})
 
     def check_repo(self):
-        """which data packages the apt sources have (apt-cache policy, in a thread): "repo" event"""
-        names = {p for g in self.games if data_setup(g) for p in data_setup(g).get("present_any") or []}
-        if not names or not os.path.exists(APT_CACHE):
+        """which data packages the apt sources have (apt-cache policy, in a thread): "repo" event; and the
+        games' installed sizes (apt-cache show), once: "sizes" event"""
+        if not os.path.exists(APT_CACHE):
             return
+        names = {p for g in self.games if data_setup(g) for p in data_setup(g).get("present_any") or []}
+        want = {p for g in self.games for p in g["packages"]} - set(self.sizes)
 
         def work():
-            self.events.put(("repo", repo_candidates(names)))
+            if names:
+                self.events.put(("repo", repo_candidates(names)))
+            if want:
+                self.events.put(("sizes", package_sizes(want)))
         threading.Thread(target=work, daemon=True).start()
 
     def manifest(self, g):
@@ -1729,72 +2083,76 @@ class App:
         return self._manifests[key]
 
     def update_buttons(self):
+        """the main button and the smaller ones for the game's state (main_action, side_actions), with the
+        line that says what Add game files... adds, the add-ons and a partial import's notice"""
         g = getattr(self, "g", None)
         inst = bool(g) and is_installed(g, self.have)
         idle = self.busy is None and (self.imp is None or self.imp.done)
         can = bool(g) and g["id"] in self.pkg_ids
-        self.b_install.configure(state="normal" if can and idle and not inst else "disabled")
         reason = "Install it after the next Walnut Games update." if g and not can and not inst else ""
         self.d_reason.configure(text=reason)
-        if reason:
-            self.d_reason.pack(side="bottom", fill="x", after=self.btns)
-        else:
-            self.d_reason.pack_forget()
+        self._row("reason", bool(reason))
         self.b_refresh.configure(state="normal" if idle and not self.refreshing else "disabled")
-        self.b_remove.configure(state="normal" if g and idle and inst else "disabled")
         self.play_cmds = order_launchers(play_commands(g, self.runtime_dir, files=lambda: self.manifest(g)),
                                          g.get("launchers")) if g and inst else []
-        # Play waits for the required data (data_present is None when the game takes none)
-        self.b_play.configure(state="normal" if idle and self.play_cmds and data_present(g, self.have) is not False
-                              else "disabled",
-                              text="Play \u25be" if len(self.play_cmds) > 1 else "Play")
-        self.update_data_buttons(g, idle)
-
-    def update_data_buttons(self, g, idle):
         running = self.imp.gid if self.imp is not None and not self.imp.done else None
         acts = data_actions(g, self.have, self.repo, running) if g and g["id"] in self.pkg_data else []
-        for b in (self.b_repo, self.b_data, self.b_retry, self.b_note, self.partial_label, self.addon_row):
+        main = main_action(g, inst, can, acts, len(self.play_cmds), idle, data_present(g, self.have) if g else None)
+        self.main_kind = main[0] if main else None
+        if main:
+            self.b_main.configure(text=main[1], state="normal" if main[2] else "disabled")
+        retry = bool(g) and not running and (
+            (g["id"] in self.retry and any(a in acts for a in ("setup", "add", "full")) and
+             bool((data_setup(g) or {}).get("downloads"))) or
+            bool(g["id"] in self.pkg_data and (self.partial.get(g["id"]) or [None])[0] and self.imp_source.get(g["id"])))
+        names = remove_question(g, self.info)[1] if g else []
+        side = side_actions(inst, acts, self.main_kind, names, retry) if g else []
+        for b in self.side_buttons.values():
             b.pack_forget()
+        x, r = 0, 0
+        for key in side:       # the smaller buttons in rows as wide as the pane
+            b = self.side_buttons[key]
+            b.configure(state="normal" if idle else "disabled")
+            # the data button is the accent one when nothing else offers the data
+            if key == "add-data":
+                b.configure(style="TButton" if "repo" in acts or "full" in acts or g["id"] in self.retry
+                            else "Accent.TButton")
+            bw = b.winfo_reqwidth() + 8
+            if x and x + bw > self.wrap and r + 1 < len(self.side_rows):
+                x, r = 0, r + 1
+            b.pack(in_=self.side_rows[r], side="left", padx=(0, 8), pady=(0, 6))
+            x += bw
+        self._row("side", bool(side))
+        # REQUIRED / OPTIONAL: one line under the button it concerns
+        self._row("note_main", False, self.b_note)
+        self._row("note_side", False, self.b_note)
+        if any(a in acts for a in ("setup", "add", "full")):
+            tag, text = data_note(g, "setup" in acts, "full" in acts)
+            self.note_tag.configure(text=tag)
+            self.note_text.configure(text=text)
+            self._row("note_main" if self.main_kind == "add-data" else "note_side", True, self.b_note)
+        self.update_data_extras(g, idle, running)
+
+    def update_data_extras(self, g, idle, running):
+        """the add-on buttons (Also add: NAME) and a partial import's notice"""
         for b in self.addon_buttons:
             b.destroy()
         self.addon_buttons = []
         adds = [p for p in self.addons.get(g["id"], []) if p not in self.have] if g and not running else []
         if adds and g["id"] in self.pkg_data and self.imp_source.get(g["id"]):
-            self.addon_row.pack(side="bottom", anchor="w", pady=(0, 6))
             for p in adds:
                 b = ttk.Button(self.addon_row, text=addon_label(g, p), style="Accent.TButton",
                                command=lambda p=p: self.add_on(p), state="normal" if idle else "disabled")
-                b.pack(side="left", padx=(0, 8))
+                b.pack(side="top", anchor="w", pady=(0, 6))
                 self.addon_buttons.append(b)
-        part = self.partial.get(g["id"]) if g and not running else None
-        if part and g["id"] in self.pkg_data:
-            self.partial_label.configure(text=part[1])
-            self.partial_label.pack(side="bottom", anchor="w", pady=(0, 6))
-            if part[0] and self.imp_source.get(g["id"]):
-                self.b_retry.pack(side="left", padx=(0, 8), pady=(0, 6))
-                self.b_retry.configure(state="normal" if idle else "disabled")
-        if "setup" in acts or "add" in acts or "full" in acts:
-            tag, text = data_note(g, "setup" in acts, "full" in acts)
-            self.note_tag.configure(text=tag)
-            self.note_text.configure(text=text)
-            self.b_note.pack(side="bottom", anchor="w", pady=(0, 6))     # first: under the buttons
-        if g and g["id"] in self.retry and ("setup" in acts or "add" in acts or "full" in acts) and \
-                data_setup(g).get("downloads"):
-            self.b_retry.pack(side="left", padx=(0, 8), pady=(0, 6))
-            self.b_retry.configure(state="normal" if idle else "disabled")
-        if "repo" in acts:
-            self.b_repo.pack(side="left", padx=(0, 8), pady=(0, 6))
-            self.b_repo.configure(state="normal" if idle else "disabled")
-        if "setup" in acts or "add" in acts or "full" in acts:
-            self.b_data.configure(text=DATA_LABEL,
-                                  style="TButton" if "repo" in acts or "full" in acts or g["id"] in self.retry
-                                  else "Accent.TButton",
-                                  state="normal" if idle else "disabled")
-            self.b_data.pack(side="left", padx=(0, 8), pady=(0, 6))
+        self._row("addons", bool(self.addon_buttons))
+        part = self.partial.get(g["id"]) if g and not running and g["id"] in self.pkg_data else None
+        self.partial_label.configure(text=part[1] if part else "")
+        self._row("partial", bool(part))
 
     def show_activity(self, text, progress=None, hide_after=None, detail=None):
         """the status line (and the progress bar when progress is a number; "busy": a bar that only
-        moves, for an import, which has no percentages) above the buttons, a smaller detail text under
+        moves, for an import, which has no percentages) under the buttons, a smaller detail text under
         them; hide_after: seconds until it goes away by itself"""
         if self._activity_after:
             self.root.after_cancel(self._activity_after)
@@ -1819,8 +2177,7 @@ class App:
                 self.imp_detail.pack(side="top", anchor="w", fill="x", pady=(4, 0))
         else:
             self.imp_detail.pack_forget()
-        if not self.activity.winfo_ismapped():
-            self.activity.pack(side="bottom", fill="x", before=self.d_area)
+        self._row("activity", True)
         if hide_after:
             self._activity_after = self.root.after(int(hide_after * 1000), self.hide_activity)
 
@@ -1828,7 +2185,7 @@ class App:
         if self._activity_after:
             self.root.after_cancel(self._activity_after)
             self._activity_after = None
-        self.activity.pack_forget()
+        self._row("activity", False)
 
     def run_helper(self, op):
         """install, remove (with remove-data after it when the game has imported data installed) or
@@ -1843,10 +2200,15 @@ class App:
                 return
             if data:
                 ops.append("remove-data")
+        elif op == "remove-data":
+            question, data = remove_data_question(g, self.info)
+            if not data or not messagebox.askyesno("Remove data", question, parent=self.root):
+                return
         self.busy = (g["id"], op)
         self.retry.pop(g["id"], None)
         self.partial.pop(g["id"], None)
         self.show_activity({"install": "Installing %s...", "remove": "Removing %s...",
+                            "remove-data": "Removing the game data of %s...",
                             "install-repo-data": "Installing the game data of %s from Walnut licensed..."}[op]
                            % g["title"], progress=0)
         self.update_buttons()
@@ -1993,7 +2355,8 @@ class App:
         top.bind("<Return>", lambda e: (top.focus_get().invoke() if hasattr(top.focus_get(), "invoke") else None,
                                         "break")[1])
         top.bind("<Escape>", lambda e: cancel.invoke())
-        top.after(50, lambda: order[0].focus_set() if top.winfo_exists() else None)
+        top.after(50, lambda: (order[0].focus_set(), self.pad_warp() if self.pad_recent() else None)
+                  if top.winfo_exists() else None)
         self.chooser_sources = sources      # what was offered (the tests look)
 
     def import_paths(self):
@@ -2165,6 +2528,11 @@ class App:
         self.update_buttons()
 
     def _poll(self):
+        self._hand_off_n += 1
+        if self.hand_off_path and self._hand_off_n % 5 == 0 and os.path.exists(self.hand_off_path):
+            gid = take_hand_off(self.hand_off_path)
+            if gid is not None:
+                self.open_game(gid)
         try:
             while True:
                 ev = self.events.get_nowait()
@@ -2177,7 +2545,8 @@ class App:
                     _, gid, op, rc, tail = ev
                     self.busy = None
                     self.refresh_installed()
-                    ok = {"install": "installed", "remove": "removed", "install-repo-data": "data installed"}.get(op, "done")
+                    ok = {"install": "installed", "remove": "removed", "install-repo-data": "data installed",
+                          "remove-data": "data removed"}.get(op, "done")
                     self.check_repo()       # what the sources offer beyond what is installed changed
                     title = self.by_id.get(gid, {"title": gid})["title"]
                     # a success fades after a few seconds; a failure stays until the next action
@@ -2186,7 +2555,8 @@ class App:
                                        hide_after=6 if rc == 0 else None)
                     if rc != 0:
                         messagebox.showerror("Walnut Games", "%s %s failed:\n\n%s" % (
-                            {"install": "Installing", "remove": "Removing"}.get(op, "Installing the data of"), title,
+                            {"install": "Installing", "remove": "Removing", "remove-data": "Removing the data of"}.get(
+                                op, "Installing the data of"), title,
                             "\n".join(tail) or "no details"), parent=self.root)
                     self.apply_filters_keep()
                 elif ev[0] == "played":
@@ -2212,17 +2582,20 @@ class App:
                 elif ev[0] == "catalog":
                     self.on_catalog(*ev[1:])
                 elif ev[0] == "thumb":
-                    self._fetching.discard(("thumb", ev[1]))
+                    self._fetching.discard(tuple(ev[:3]))
                     if ev[3]:
                         self.thumbs.pop(ev[1], None)
                         self.layout()
                 elif ev[0] == "shot":
+                    self._fetching.discard(tuple(ev[:3]))
                     if self.g and self.g["id"] == ev[1] and ev[3]:
-                        shots = screenshots(self.g)
-                        if shots and shots[self.shot_i % len(shots)][1] == ev[2]:
-                            self.set_shot(ev[3])
-                    elif self.g and self.g["id"] == ev[1]:
-                        self.d_shot.configure(image="", text="Screenshot not available offline.")
+                        self.show_thumbs()
+                elif ev[0] == "sizes":
+                    self.sizes.update(ev[1])
+                    if self.g:
+                        self.show_glance()
+                elif ev[0] == "pad":
+                    self.on_pad(ev[1])
         except queue.Empty:
             pass
         self.root.after(100, self._poll)
@@ -2245,13 +2618,18 @@ class App:
             self.launch(g, cmds[0][1], cmds[0][2])
             return
         m = tk.Menu(self.root, tearoff=0, bg=PANEL, fg=TEXT, activebackground=ACCENT, activeforeground=PANEL,
-                    bd=1, relief="solid", font=self.f["base"])
+                    bd=1, relief="solid", font=self.f["big"])
         for label, argv, cwd in cmds:
             m.add_command(label=label, command=lambda a=argv, c=cwd: self.launch(g, a, c))
-        b = self.b_play
+        b = self.b_main
+        self.menu = m
+        m.bind("<Unmap>", lambda e: setattr(self, "menu", None) if self.menu is m else None)
         # no grab_release after it: on X11 tk_popup returns at once, and the menu's grab is what
         # closes it on a click outside
         m.tk_popup(b.winfo_rootx(), b.winfo_rooty() + b.winfo_height())
+        if self.pad_recent():       # the d-pad goes on in the menu: its first line under the pointer
+            m.activate(0)
+            self.root.after(50, self.pad_warp)
 
     def launch(self, g, argv, cwd):
         """start the game (through ps3-game: game mode); its output goes to a log under
@@ -2284,10 +2662,392 @@ class App:
         webbrowser.open(web_url(self.g["id"] if getattr(self, "g", None) else None))
 
     def open_technical(self):
-        webbrowser.open(web_url(self.g["id"] if getattr(self, "g", None) else None, technical=True))
+        """the game's Technical tab in Details; the website's page when the app's copy can't show it"""
+        g = getattr(self, "g", None)
+        tech = [t for t in (details_tabs(self.pages, g["id"]) if g else []) if t.endswith("technical/index.html")]
+        if not (tech and self.open_details(page=tech[0], quiet=True)):
+            webbrowser.open(web_url(g["id"] if g else None, technical=True))
+
+    def open_home(self):
+        if getattr(self, "g", None) and self.g.get("homepage"):
+            webbrowser.open(self.g["homepage"])
+
+    # -- the main button and the pages' walnut:// links: one code path
+    def main_pressed(self):
+        if self.main_kind and self.g:
+            self.dispatch(self.main_kind, self.g["id"])
+
+    def dispatch(self, action, gid, launcher=None):
+        """what the main button and the pages' walnut:// links do: install (the helper), add-data (the
+        chooser), play (the launcher named, else Play, a menu when there are several). The game is selected
+        first, so the pane shows the progress. False when it can't be done now (the status line says why
+        when it isn't plain from the pane)"""
+        g = self.by_id.get(gid)
+        if g is None or action not in WALNUT_ACTIONS:
+            return False
+        if self.g is not g:
+            self.select(gid)
+            self._see_card(gid)
+        inst = is_installed(g, self.have)
+        enabled = str(self.b_main["state"]) != "disabled"
+        if action == "install":
+            if inst:
+                self.show_activity("%s is installed." % g["title"], hide_after=4)
+                return False
+            if self.main_kind != "install" or not enabled:
+                return False
+            self.run_helper("install")
+            return True
+        if action == "add-data":
+            if gid not in self.pkg_data:
+                return False
+            self.open_chooser(g)
+            return self.chooser is not None
+        if not inst:
+            self.show_activity("Install %s first." % g["title"], hide_after=6)
+            return False
+        if self.main_kind == "add-data":
+            self.show_activity("%s needs its game files first: %s" % (g["title"], DATA_LABEL), hide_after=6)
+            return False
+        if self.main_kind != "play" or not enabled:
+            return False
+        if launcher:
+            for label, argv, cwd in self.play_cmds:
+                if label.split(" · ")[0] == launcher:
+                    self.launch(g, argv, cwd)
+                    return True
+        self.play()
+        return True
+
+    # -- Details: the app's copy of the game's pages (tools/gamedb/build.sh --app) in Tkhtml (tkinterweb)
+    def open_details(self, gid=None, shot=None, page=None, quiet=False):
+        """the game's pages, full window, in place of the list (Back, Escape or Circle comes back): the
+        Overview, or page, or a screenshot (shot: its path in the game's folder) with the Overview under it.
+        tkinterweb is imported here, at the first open, so the app starts as small as before; without it,
+        or without the game in the app's copy (a game only on the website), the website's page opens in the
+        browser (quiet: say nothing and return False, the caller has its own fallback)"""
+        g = self.by_id.get(gid) if gid else getattr(self, "g", None)
+        if g is None or self.dv is not None:
+            return False
+        tabs = details_tabs(self.pages, g["id"])
+        html, why = None, ""
+        if tabs:
+            try:
+                import tkinterweb
+            except Exception as e:      # not installed, or its Tkhtml doesn't load
+                tkinterweb, why = None, str(e)
+        f = None
+        if tabs and tkinterweb is not None:
+            self.bar.pack_forget()
+            self.body.pack_forget()
+            s = self.scale
+            f = ttk.Frame(self.root, style="Panel.TFrame")
+            f.pack(fill="both", expand=True)
+            head = ttk.Frame(f, style="Panel.TFrame", padding=(round(12 * s), round(8 * s)))
+            head.pack(fill="x")
+            back = ttk.Button(head, text="◀  Back", command=self.back)
+            back.pack(side="left")
+            ttk.Label(head, text=g["title"], font=self.f["big"], background=PANEL).pack(side="left", padx=16)
+            ttk.Label(head, text="L1 / R1: tabs      Circle: back", style="Muted.TLabel",
+                      background=PANEL).pack(side="right")
+            try:
+                html = tkinterweb.HtmlFrame(f, messages_enabled=False, on_link_click=self.details_link, zoom=s,
+                                            forms_enabled=False, objects_enabled=False, javascript_enabled=False,
+                                            caret_browsing_enabled=False, horizontal_scrollbar=False)
+                html.pack(fill="both", expand=True)
+            except Exception as e:
+                why = str(e)
+                html = None
+        if html is None:
+            if f is not None:
+                f.destroy()
+                self.bar.pack(fill="x")
+                self.body.pack(fill="both", expand=True)
+            if why:
+                print("walnut-games: Details in the browser: %s" % why, file=sys.stderr)
+            if quiet:
+                return False
+            webbrowser.open(web_url(g["id"]))
+            self.show_activity("The details opened on the website%s." % (
+                "" if not tabs else " (python3-tkinterweb shows them here)"), hide_after=8)
+            return False
+        self.dv = {"g": g, "frame": f, "html": html, "back": back, "url": None, "history": []}
+        self.details_load(page or tabs[0])
+        if shot:
+            p = os.path.join(self.pages, "games", g["id"], shot)
+            for alt in (p, os.path.join(self.data, "games", g["id"], shot), self.cache_path(g["id"], shot)):
+                if os.path.exists(alt):
+                    self.details_load(alt, push=True)
+                    break
+        back.focus_set()
+        return True
+
+    def details_load(self, path_or_url, push=False):
+        dv = self.dv
+        url = path_or_url if "://" in path_or_url else "file://" + path_or_url
+        if push and dv["url"]:
+            dv["history"].append(dv["url"])
+        dv["url"] = url
+        dv["html"].load_url(url)
+
+    def details_link(self, url):
+        """a link clicked in Details (tkinterweb's on_link_click: nothing is navigated by itself): walnut://
+        runs the action (Details closes, the pane shows its progress), the app's copy loads in place, the
+        website and other sites open in the browser, an unknown walnut:// link is ignored"""
+        kind, val = link_target(url, self.pages)
+        if kind == "walnut":
+            self.close_details()
+            self.dispatch(*val)
+        elif kind == "page":
+            dv = self.dv
+            if dv and val.split("#")[0] == (dv["url"] or "").split("#")[0]:
+                dv["url"] = val
+                dv["html"].load_url(val)          # an anchor on the same page
+            elif dv:
+                self.details_load(val, push=True)
+        elif kind == "web":
+            webbrowser.open(val)
+        elif kind == "close":
+            self.close_details()
+        else:
+            print("walnut-games: link ignored: %s" % url, file=sys.stderr)
+
+    def details_tab(self, d):
+        """L1 / R1 (and left / right): the tab before or after; a tab replaces the page (Back leaves Details)"""
+        dv = self.dv
+        if not dv or not dv["url"]:
+            return
+        import urllib.parse
+        nxt = tab_step(self.pages, urllib.parse.unquote(urllib.parse.urlsplit(dv["url"]).path), d)
+        if nxt:
+            dv["history"].clear()
+            self.details_load(nxt)
+
+    def _details_scroll(self, n, what):
+        if self.dv:
+            try:
+                self.dv["html"].yview_scroll(n, what)
+            except tk.TclError:
+                pass
+            return "break"
+
+    def close_details(self):
+        """back to the list: the HTML frame is destroyed, so its pages and pictures are freed"""
+        dv, self.dv = self.dv, None
+        if not dv:
+            return
+        for w in (dv["html"], dv["frame"]):
+            try:
+                w.destroy()
+            except Exception:
+                pass
+        dv.clear()
+        import gc
+        gc.collect()
+        self.bar.pack(fill="x")
+        self.body.pack(fill="both", expand=True)
+        self.root.after_idle(self._focus_after_details)
+
+    def _focus_after_details(self):
+        target = self.b_details if self.b_details.winfo_ismapped() else self.canvas
+        target.focus_set()
+        if self.pad_recent():
+            self.root.after(50, self.pad_warp)
+
+    def back(self):
+        """Escape, Circle (the pointer's right click) and Back: Play's menu or the chooser closes; in Details,
+        the page before (a link followed), else Details itself"""
+        if self.menu is not None:
+            try:
+                self.menu.unpost()
+                self.root.tk.call("grab", "release", str(self.menu))
+            except tk.TclError:
+                pass
+            self.menu = None
+            return "break"
+        if self.chooser is not None:
+            try:
+                self.chooser.destroy()
+            except tk.TclError:
+                pass
+            self.chooser = None
+            return "break"
+        if self.dv is not None:
+            if self.dv["history"]:
+                self.dv["url"] = self.dv["history"].pop()
+                self.dv["html"].load_url(self.dv["url"])
+            else:
+                self.close_details()
+            return "break"
+        return None
+
+    # -- moving the focus: the arrow keys and the pad's d-pad
+    def _focus_path(self):
+        try:
+            return str(self.root.tk.call("focus"))
+        except tk.TclError:
+            return ""
+
+    def _rect(self, path, card=True):
+        """a widget's rectangle on the screen; the cards' is the selected card's (card: moving from it)"""
+        t = self.root.tk.call
+        if card and path == str(self.canvas) and self.selected in self.cards:
+            x, y = self.cards[self.selected]
+            return (self.canvas.winfo_rootx() + x - self.canvas.canvasx(0),
+                    self.canvas.winfo_rooty() + y - self.canvas.canvasy(0), CARD_W, self.card_h)
+        return (int(t("winfo", "rootx", path)), int(t("winfo", "rooty", path)),
+                int(t("winfo", "width", path)), int(t("winfo", "height", path)))
+
+    def _focusables(self, top):
+        """[(path, rectangle)] of the controls in the window top the focus can go to: shown and not off"""
+        t, out = self.root.tk.call, []
+
+        def walk(p):
+            for c in self.root.tk.splitlist(t("winfo", "children", p)):
+                c = str(c)
+                if str(t("winfo", "toplevel", c)) != top or not int(t("winfo", "viewable", c)):
+                    continue
+                cls = str(t("winfo", "class", c))
+                if cls in FOCUS_CLASSES or c == str(self.canvas):
+                    try:
+                        off = int(t(c, "instate", "disabled")) if cls.startswith("T") else \
+                            (str(t(c, "cget", "-state")) == "disabled" if cls != "Canvas" else False)
+                    except tk.TclError:
+                        off = False
+                    if not off:
+                        out.append((c, self._rect(c, card=False)))
+                walk(c)
+        walk(top)
+        return out
+
+    def _key_nav(self, e, key):
+        """an arrow key (or the d-pad): in Details, up and down scroll and left and right change the tab;
+        elsewhere the focus goes to the nearest control that way (nav_pick); from the cards' right edge to
+        the main button. Lists, menus and a text field's left and right keep their own keys."""
+        if self.dv is not None:
+            if key in ("Up", "Down"):
+                return self._details_scroll(-4 if key == "Up" else 4, "units")
+            self.details_tab(-1 if key == "Left" else 1)
+            return "break"
+        path = self._focus_path()
+        if not path:
+            return None
+        t = self.root.tk.call
+        cls = str(t("winfo", "class", path))
+        if cls in ("Listbox", "Menu", "Text") or (cls in ("TEntry", "Entry") and key in ("Left", "Right")):
+            return None
+        if path == str(self.canvas) and key == "Right" and str(self.b_main["state"]) != "disabled" and \
+                self.b_main.winfo_ismapped():
+            self.b_main.focus_set()
+            return "break"
+        top = str(t("winfo", "toplevel", path))
+        others = [(p, r) for p, r in self._focusables(top) if p != path]
+        i = nav_pick(self._rect(path), [r for _, r in others], key.lower())
+        if i is not None:
+            target = others[i][0]
+            t("focus", target)
+            if target == str(self.canvas) and self.selected not in self.cards and self.shown:
+                self.select(self.shown[0]["id"])
+            self._mark_selected()
+        return "break"
+
+    def _key_press(self, e):
+        """Enter: the focused button is pressed; on the cards, the focus goes to the main button"""
+        path = self._focus_path()
+        if not path:
+            return None
+        cls = str(self.root.tk.call("winfo", "class", path))
+        if cls in ("TButton", "TCheckbutton", "Button", "Checkbutton", "Radiobutton"):
+            self.root.tk.call(path, "invoke")
+            return "break"
+        if path == str(self.canvas) and self.g is not None and self.b_main.winfo_ismapped():
+            self.b_main.focus_set()
+            return "break"
+        return None
+
+    def _click_focus(self, e):
+        """a click (the pad's Cross) on a button gives it the focus too, so the d-pad goes on from there"""
+        w = e.widget
+        try:
+            if w.winfo_class() in ("TButton", "TCheckbutton", "TCombobox") and w.instate(["!disabled"]):
+                w.focus_set()
+        except (AttributeError, tk.TclError):
+            pass
+
+    # -- the pad's free buttons (PadReader): the d-pad, L1, R1, Square
+    def pad_recent(self):
+        return time.monotonic() - getattr(self, "pad_t", -1e9) < 60
+
+    def on_pad(self, name):
+        """a pad button: only while the app has the focus (a game or the browser on top has it otherwise).
+        The d-pad is the arrow keys, then the pointer goes onto the focus (Cross, the pointer's click, presses
+        it); L1 / R1 change Details' tab; Square opens Details. Circle is the pointer's right click (back)."""
+        path = self._focus_path()
+        if not path:
+            return
+        self.pad_t = time.monotonic()
+        if name in ("up", "down", "left", "right"):
+            try:
+                self.root.tk.call("event", "generate", path, "<KeyPress-%s>" % name.capitalize())
+            except tk.TclError:
+                return
+            self.root.after_idle(self.pad_warp)
+        elif name in ("l1", "r1"):
+            self.details_tab(-1 if name == "l1" else 1)
+        elif name == "square" and self.dv is None and self.chooser is None and self.menu is None and self.g:
+            self.open_details()
+
+    def pad_warp(self):
+        """the pointer onto what has the focus (a list's or a menu's active line, the selected card), so
+        that Cross, the pointer's left click, presses the focused control"""
+        path = self._focus_path()
+        if not path:
+            return
+        t = self.root.tk.call
+        try:
+            cls = str(t("winfo", "class", path))
+            w, h = int(t("winfo", "width", path)), int(t("winfo", "height", path))
+            x, y = w // 2, h // 2
+            if cls == "Listbox":
+                bb = self.root.tk.splitlist(t(path, "bbox", "active"))
+                if bb:
+                    bx, by, bw, bh = (int(v) for v in bb)
+                    x, y = bx + bw // 2, by + bh // 2
+            elif cls == "Menu":
+                i = str(t(path, "index", "active"))
+                if i != "none":
+                    y0 = int(t(path, "yposition", i))
+                    last = int(t(path, "index", "end"))
+                    y1 = int(t(path, "yposition", int(i) + 1)) if int(i) < last else h
+                    y = (y0 + y1) // 2
+            elif path == str(self.canvas) and self.selected in self.cards:
+                cx, cy = self.cards[self.selected]
+                x = int(cx + CARD_W / 2 - self.canvas.canvasx(0))
+                y = int(cy + self.card_h / 2 - self.canvas.canvasy(0))
+            t("event", "generate", path, "<Motion>", "-warp", 1, "-x", x, "-y", y)
+        except (tk.TclError, ValueError):
+            pass
+
 
 
 def main(argv):
+    """walnut-games [walnut://game/<id>]: the app, on that game when a link is given (the website's "Open in
+    Walnut Games"); with Walnut Games already running, the link is handed to it and this start ends"""
+    gid = None
+    if len(argv) > 1:
+        gid = external_game(argv[1])
+        if gid is None:
+            print("walnut-games: not a link Walnut Games opens: %r (walnut://game/<id> only)" % argv[1][:200],
+                  file=sys.stderr)
+            return 2
+    lock, hand = instance_paths()
+    if claim_instance(lock) is None:
+        try:
+            hand_off(hand, gid)
+            return 0
+        except OSError as e:
+            print("walnut-games: can't reach the running Walnut Games: %s" % e, file=sys.stderr)
+            return 1
     if tk is None:
         print("walnut-games: python3-tk is not installed", file=sys.stderr)
         return 1
@@ -2297,7 +3057,11 @@ def main(argv):
         print("walnut-games: no display: %s" % e, file=sys.stderr)
         return 1
     try:
-        App(root)
+        os.remove(hand)       # a hand-off left from before this start
+    except OSError:
+        pass
+    try:
+        App(root, pad=True, hand_off_path=hand, start_game=gid)
     except (OSError, ValueError, KeyError) as e:
         print("walnut-games: the catalog can't be read: %s" % e, file=sys.stderr)
         return 1

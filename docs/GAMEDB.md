@@ -6,8 +6,8 @@ scripted runs (the harness for measuring game and GPU-driver optimizations) and 
 rating: no crash-free hours, no checklist answers, no frame-rate numbers. It is two things over one catalog:
 
 - **the website**, https://walnut.nanobyte.dev/gamedb/: a card for every game with its medal,
-  filters (category, medal, tags) and search; each game has four tabs, Overview (the verdict, the
-  screenshots, the `sudo apt install` line), Test runs, Technical and Guides ([The website](#the-website));
+  filters (category, medal, tags) and search; each game has four tabs, Overview (the rating, the
+  screenshots, the installation), Test runs, Technical and Guides ([The website](#the-website));
 - **the desktop app** on Walnut (`walnut-games`): the same cards, with Install, Remove and Play.
 
 Status (2026-10-26): the catalog, the scoring, the site, the session recorder and the app (P4) exist,
@@ -423,16 +423,38 @@ Built by `tools/gamedb/build.sh` (Hugo, website/gamedb/) from the catalog and te
 publishes it on every push that changes it (.github/workflows/walnut-site.yml). One design serves the
 browser, NetSurf and the app's HTML view (the user, 2026-10-28):
 
-- **A game's tabs are pages**: `games/<id>/` Overview (the verdict: medal, score and the aspects behind it;
-  the screenshots; what you need and how to get it, with the game data's steps; how to play it; known
-  issues and the notes of index.md), `games/<id>/test-runs/` (the played sessions, which make the rating,
-  and the rating on each version; then the scripted benchmarks in a section of their own, "Not rated:
-  tests of driver and game changes"), `games/<id>/technical/` (technical.md, the build, the played test's
-  setup, the investigations) and `games/<id>/guides/` (the bundle's `guides/*.md`: how-tos, tips,
-  recommended settings; a game without any still has the tab, with a line saying so). The tab bar is a
-  list of links with the current one marked; no JavaScript is needed anywhere (the filters and the Copy
-  buttons are extras that show only where they work). An engine's page (`engines/<e>/`) has no tabs: it
-  has no rating, sessions or guides, only technical content, so it stays one page in the same style.
+- **A game's tabs are pages**: `games/<id>/` Overview (the rating: medal, score and the aspects behind it, an
+  aspect without a score saying "not tested" in its row, then one line, "Rated from N sessions, M minutes of
+  play on <game version>", linking Test runs; the screenshots; the installation, only the easy way: Walnut
+  Games' Install and Add game files..., with the copies that work, the apt line, and "More ways" on the Guides;
+  the known issues), `games/<id>/test-runs/` (the played sessions, which make the rating, each with a page of
+  its own, `test-runs/<session>/`: the session rated on its own, every aspect's score and measurement, the
+  sound dropouts, the builds, the form's answers and notes, the picture review, the screenshots; all of them
+  as a CSV download, a `data:` link, since the site server takes no .csv; the rating on each version; then
+  the scripted benchmarks in a section of their own, "Not rated: tests of driver and game changes", a table
+  per batch with what was tested: the variant, the conditions it adds (its ENV, the stall recorder or a
+  profiler alongside), the Mesa and kernel build, the recipe's resolution, the run length, fps, steady fps,
+  1% low, stalls, the other metrics, then the batch's purpose and observations, always shown; rows that
+  gamedb/benchmarks/caveats.toml names are marked invalid or not comparable), `games/<id>/technical/` (the
+  index.md text, technical.md, the build, the played test's setup, the investigations) and
+  `games/<id>/guides/` (the bundle's `guides/*.md`: how-tos, tips, recommended settings; a game without any
+  still has the tab, with a line saying so). The tab bar is a list of links with the current one marked; no
+  JavaScript is needed anywhere (the filters and the Copy buttons are extras that show only where they
+  work). An engine's page (`engines/<e>/`) has no tabs: it has no rating, sessions or guides, only technical
+  content, so it stays one page in the same style.
+- **Builds of a session**: the game's package as installed, then a fixed list of the platform Walnut patches
+  for every game (kernel, Mesa, ps3rsx, libspeq, OpenAL Soft, FluidSynth, SDL3; `tools/gamedb/sessions.py`
+  STACK), read from the session's `raw/versions.xz`. Not each game's dependency closure: that needs Debian's
+  ppc64 package index, which the site build doesn't have. The desktop and the release metapackage stay out.
+- **How a game is tested**: the Test runs tab says testing is done with the rating tool (`walnut-rate`,
+  planned) and links `ratingDocs` (hugo.toml params; for now the about page's "How a game is tested"),
+  the one place to point at the tool's own documentation when it exists.
+- **"Open in Walnut Games"**: the Overview's head has a `walnut://game/<id>` link for a visitor on a
+  Walnut console, with no script: the site's CSS hides `.walnut-os-only`, and ps3-desktop installs NetSurf's
+  user stylesheet, `/usr/share/netsurf/user.css` (NetSurf 3.11 reads `resource:user.css` from its resource
+  path: `~/.config/netsurf/` first, then `/usr/share/netsurf/`), which shows it. NetSurf hands a scheme it
+  can't fetch to the desktop's default handler for `x-scheme-handler/walnut` (tested in a container with a
+  dummy handler set by `xdg-mime`); the app registers it. The app's own copy (`--app`) leaves the link out.
 - **Styles**: `assets/gamedb.scss`, compiled by Hugo's libsass (css.Sass) to CSS 2.1: the palette is SCSS
   variables (no `var()` in the output), sizes are px, and flex or grid only ever comes after a float or
   inline-block fallback (the `row` and `card-grid` mixins), so NetSurf and Tkhtml lay the pages out
@@ -449,14 +471,51 @@ browser, NetSurf and the app's HTML view (the user, 2026-10-28):
 
 ## The desktop app
 
-`walnut-games` (package `walnut-games`, Tk, mouse and keyboard) shows the catalog as cards: a
+`walnut-games` (package `walnut-games`, Tk; the DualShock, mouse and keyboard) shows the catalog as cards: a
 thumbnail, the medal with its score, the name and categories, an "Installed" mark. The top bar
-has search, category, medal and sort, and "installed only". A click opens the
-details: medal and overall score, the aspect scores as bars, hours played and crashes, one screenshot at a
-time (PS3 first, then the PC's, with prev/next), known issues, the measurements, the patch list, and the
-buttons Install, Remove, Play and "Open on the web". The window follows the Walnut palette
-(`walnut_games.py` has the colours).
+has search, category, medal and sort, and "installed only". A card opens the game in the right-hand
+pane (PLAN 5.11): its name, medal and score with the hours played, then the actions, then a quick glance.
+The window follows the Walnut palette (`walnut_games.py` has the colours).
 
+- **One main button follows the state** (`main_action`): Install; installed with its required data
+  missing, Add game files...; then Play (with several launchers a menu of them, each with its medal);
+  Importing... while an import of this game runs; off while the helper or an import runs, for a game
+  only on the website, or without a launcher. Under it the smaller ones (`side_actions`): Add game
+  files... when it isn't the main one (optional data, the full game in place of a free edition, or the
+  data before the game is installed), Install from Walnut licensed, Try again with download, Remove and
+  Remove data (only with data installed: the helper's `remove-data`, the game stays). The REQUIRED: or
+  OPTIONAL: line is one line under the Add game files... button it concerns. The import's and the
+  helper's progress, errors, the "Also add" buttons and a partial import's notice are under them.
+- **The glance**: up to 3 key numbers (the median frame rate, the smoothness score, the installed size
+  from `apt-cache show`), the controller and the installed data's edition, up to 4 screenshot thumbnails
+  (a click opens it in Details), Details, Technical notes, Open on the web and the game's home page.
+  The aspects, the launchers' ratings, known issues, the data steps and the patches are in Details.
+- **Details** is the site's pages for the app (`tools/gamedb/build.sh --app`, packaged in
+  `/usr/share/walnut-games/pages/`, docs/PACKAGING.md "Walnut Games' catalog and pages") in
+  `tkinterweb.HtmlFrame`, full window in place of the list, zoomed like the app's text. tkinterweb is
+  imported at the first open, so the app starts as small as before, and the frame is destroyed on Back.
+  The tabs (Overview, Test runs, Technical, Guides) are links between the pages; L1 / R1 (and left /
+  right) step through them. Every clicked link comes to the app (`link_target`): `walnut://install|add-data|play/<id>`
+  (play may name a launcher, `?launcher=NAME`) closes Details and runs the same code as the main button;
+  a page or picture of the app's copy loads in place (Back returns to it); the website's pages the copy
+  doesn't carry and other sites open in the system browser (`webbrowser`, xdg-open); anything else is
+  ignored. Without python3-tkinterweb (a Recommends), or for a game the copy doesn't have, Details opens
+  the website in the browser.
+- **The pad and the TV.** The text and the pane scale with the screen (1.5x at 1080 lines;
+  `WALNUT_GAMES_SCALE` overrides) and the window fills it. The DualShock is the X pointer outside games
+  (ps3-desktop's `40-joystick-pointer.conf`: the sticks move it, Cross is a left click, Circle a right
+  click); the app reads the buttons the pointer leaves free from the pad's event device (no grab;
+  presses queued while game mode froze the app are dropped): the d-pad moves the focus between the
+  controls (the nearest one that way, `nav_pick`; the cards' arrows move between cards and leave at the
+  grid's edge) and puts the pointer on it, so Cross presses the focused control; Square opens Details,
+  L1 / R1 change its tab, Circle (a right click) and Escape go back (Play's menu, the chooser, Details'
+  page before, Details). The keyboard does the same with the arrows, Enter and Escape. The focused
+  control has a light border. `WALNUT_GAMES_PAD=off` stops the pad reading.
+- **walnut://game/<id>** (the website's "Open in Walnut Games"): the .desktop file is the handler of
+  `x-scheme-handler/walnut` (Exec `walnut-games %u`). Only that form is taken from outside; install,
+  add-data and play links are never accepted on the command line. One app runs at a time: it holds
+  `$XDG_RUNTIME_DIR/walnut-games/lock`; a second start writes the id to `$XDG_RUNTIME_DIR/walnut-games/open`
+  and ends, and the running app (which looks every half second) comes forward on that game's Details.
 - **The catalog is the packaged one**, `/usr/share/walnut-games/` (made by `make gamedb-catalog`:
   `catalog.json`, thumbnails and the screenshots the catalog lists, from the Git LFS files; a checkout
   without the LFS objects fails the pack, and CI checks out with `lfs: true` for this package). It is
@@ -548,8 +607,9 @@ buttons Install, Remove, Play and "Open on the web". The window follows the Waln
   package it writes, the lock, remove-data, install-repo-data, and walnut-data with a stubbed gdp.
   `packages/walnut/apps/walnut-games/tests/test_walnut_games.py` (make test ONLY=walnut-games): the helper's validation,
   catalog mapping, cascade refusal (with a fake `apt-get -s`), install arguments and status relay (a fake
-  apt-get writes to the status descriptor), Exec parsing, filters, and a window smoke test on a private
-  Xvfb/Xvnc (skipped when neither exists).
+  apt-get writes to the status descriptor), Exec parsing, filters, the main button in every state, the
+  walnut:// links and the hand-off, the pad's buttons, and window smoke tests on a private Xvfb/Xvnc
+  (skipped when neither exists): the pane's states, Details with and without (a fake) tkinterweb.
 
 **The HTML view** (Details, PLAN 5.11) is Tkhtml 3.0 through TkinterWeb: packages `tk-html3` and
 `python3-tkinterweb` (packages/repackaged/; neither is in Debian, and PyPI's wheels carry Tkhtml for x86

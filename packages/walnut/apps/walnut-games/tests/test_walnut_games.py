@@ -16,8 +16,19 @@ walnut-games).
   lines, the error messages, the import lock; and a window test: the chooser lists the fake home's
   sources and an import through a fake walnut-data ends in "needs its official patch files" with Try
   again with download, which runs it again with -p (WALNUT_SHOT=file.png: a picture of the chooser).
+- The pane (PLAN 5.11): the main button in every state (Install, Add game files..., Importing, Play with
+  a menu of launchers, off while the helper runs or for a web-only game), the smaller buttons, Remove
+  data's question, the glance's numbers and apt-cache's sizes; walnut:// links (install, add-data, play
+  with a launcher, anything else ignored), walnut://game/<id> the only link taken from outside, the
+  single instance's lock and hand-off, the .desktop file's scheme handler; Details' tabs and where a
+  clicked link goes; the d-pad's focus moves (nav_pick), the text scale, the pad's buttons and the reader
+  (old presses dropped).
 - A smoke test that builds the window on a private X server (Xvfb or Xvnc, started here on its own
-  display); skipped when neither is installed. It never uses the DISPLAY of the person running it.
+  display); skipped when neither is installed. It never uses the DISPLAY of the person running it. It
+  goes through the pane's states, the walnut:// dispatch, Details without tkinterweb (the website opens)
+  and with a fake tkinterweb (tabs by L1/R1 and the arrows, links, Back, five opens leaving nothing
+  behind, Install from a page through a fake helper), the arrows between the cards and the pane, and a
+  hand-off from a second start (WALNUT_SHOT=file.png: a picture of the pane).
 """
 import contextlib
 import importlib.machinery
@@ -31,6 +42,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from pathlib import Path
@@ -709,7 +721,7 @@ class DataSetup(unittest.TestCase):
         demo_only = dict(QS, data_setup=dict(QS["data_setup"], required=["quake-shareware"]))
         self.assertEqual(A(demo_only, {"quake-shareware"}, set()), [])                 # no full edition to add
         self.assertEqual(app.data_note(QS, True, True)[0], "OPTIONAL:")
-        self.assertIn("full game from the original Quake release", app.data_note(QS, True, True)[1])
+        self.assertIn("full game from the original Quake", app.data_note(QS, True, True)[1])
         self.assertEqual(A(QS, {"quake-licensed-data"}, set()), [])                    # the licensed build counts
         self.assertEqual(A(QS, set(), {"quake-licensed-data"}), ["repo", "setup"])     # the repository has it
         self.assertEqual(A(QS, set(), set(), importing="quakespasm"), ["importing"])
@@ -720,7 +732,7 @@ class DataSetup(unittest.TestCase):
         self.assertEqual(app.data_title(QS), "Quake")
         self.assertEqual(app.data_title({"title": "Zed", "data_setup": {"gdp": "zed"}}), "Zed")
         self.assertEqual(app.data_note(QS, True)[0], "REQUIRED:")
-        self.assertIn("original Quake release", app.data_note(QS, True)[1])
+        self.assertEqual(app.data_note(QS, True)[1], "the files from your copy of the original Quake")
         self.assertEqual(app.data_note(TTD, False), ("OPTIONAL:", "the original Transport Tycoon Deluxe graphics and sound"))
 
     def test_apt_policy(self):
@@ -897,6 +909,236 @@ class DataSetup(unittest.TestCase):
             self.assertIsNone(app.import_lock_state(path))
 
 
+class PaneActions(unittest.TestCase):
+    """the pane's main button and the smaller ones, the glance's numbers (PLAN 5.11)"""
+
+    def test_main_button_in_every_state(self):
+        M = app.main_action
+        self.assertIsNone(M(None, False, True, [], 0, True, None))
+        self.assertEqual(M(QS, False, True, ["setup"], 0, True, False), ("install", "Install", True))
+        self.assertEqual(M(QS, False, False, [], 0, True, None), ("install", "Install", False))   # web-only game
+        self.assertEqual(M(QS, False, True, [], 0, False, None), ("install", "Install", False))   # helper busy
+        self.assertEqual(M(QS, True, True, ["setup"], 1, True, False), ("add-data", "Add game files\u2026", True))
+        self.assertEqual(M(QS, True, True, ["repo", "setup"], 1, False, False)[:2], ("add-data", "Add game files\u2026"))
+        self.assertFalse(M(QS, True, True, ["setup"], 1, False, False)[2])
+        self.assertEqual(M(QS, True, True, ["importing"], 1, False, False), ("importing", "Importing\u2026", False))
+        self.assertEqual(M(QS, True, True, [], 1, True, True), ("play", "Play", True))
+        self.assertEqual(M(QS, True, True, ["full"], 2, True, True), ("play", "Play \u25be", True))  # a menu
+        self.assertEqual(M(TTD, True, True, ["add"], 1, True, None), ("play", "Play", True))   # optional data only
+        self.assertEqual(M(QS, True, True, [], 0, True, True), ("play", "Play", False))        # no launcher found
+        self.assertEqual(M(QS, True, True, [], 1, True, False), ("play", "Play", False))       # data missing
+        self.assertEqual(M(QS, True, True, [], 1, False, True), ("play", "Play", False))       # helper busy
+
+    def test_smaller_buttons(self):
+        S = app.side_actions
+        self.assertEqual(S(False, [], "install", []), [])
+        self.assertEqual(S(False, ["repo", "setup"], "install", []), ["add-data", "repo"])     # data before the game
+        self.assertEqual(S(True, ["repo", "setup"], "add-data", []), ["repo", "remove"])      # the main one adds it
+        self.assertEqual(S(True, ["add"], "play", ["x"]), ["add-data", "remove", "remove-data"])
+        self.assertEqual(S(True, ["full"], "play", ["quake-shareware"], retry=True),
+                         ["add-data", "retry", "remove", "remove-data"])
+        self.assertEqual(S(True, [], "play", []), ["remove"])
+        self.assertEqual(S(False, [], "install", ["quake-registered"]), ["remove-data"])      # data, no game
+
+    def test_remove_data_question(self):
+        info = {"quake-registered": ("full", 20480), "quake-music": ("music", 1024)}
+        q, names = app.remove_data_question(QS, info)
+        self.assertEqual(names, ["quake-registered", "quake-music"])
+        self.assertIn("QuakeSpasm (quake-registered, quake-music: 21 MB)", q)
+        self.assertIn("The game stays installed", q)
+
+    def test_glance_numbers(self):
+        r = {"aspects": {"frame": {"score": 5, "detail": "median 24 fps, 1% low 5"},
+                         "smooth": {"score": 58.4, "detail": "1.2 s of stutter"}}}
+        self.assertEqual(app.glance_numbers(r, 650 * 1024), [("24 fps", "median frame rate"), ("58/100", "smoothness"),
+                                                            ("650 MB", "installed size")])
+        self.assertEqual(app.glance_numbers({"aspects": {"frame": {"score": 40, "detail": "?"}}}),
+                         [("40/100", "frame rate")])
+        self.assertEqual(app.glance_numbers({"medal": "Untested", "aspects": {}}), [])
+
+    def test_apt_sizes(self):
+        out = ("Package: openarena\nVersion: 1\nInstalled-Size: 2048\n\nPackage: openarena-data\n"
+               "Installed-Size: 409600\nDescription: x\n\nPackage: odd\nInstalled-Size: lots\n")
+        self.assertEqual(app.parse_apt_sizes(out), {"openarena": 2048, "openarena-data": 409600})
+        seen = []
+        self.assertEqual(app.package_sizes({"b", "a"}, runner=lambda c: seen.append(c) or out)["openarena"], 2048)
+        self.assertEqual(seen[0][1:], ["show", "--no-all-versions", "a", "b"])
+        self.assertEqual(app.package_sizes(set()), {})
+
+
+class Links(unittest.TestCase):
+    """walnut:// links of the Details pages, the one walnut:// link taken from outside, the tabs"""
+
+    def test_walnut_links(self):
+        P = app.parse_walnut_link
+        self.assertEqual(P("walnut://install/openarena"), ("install", "openarena", None))
+        self.assertEqual(P("walnut://add-data/quakespasm"), ("add-data", "quakespasm", None))
+        self.assertEqual(P("walnut://play/openarena"), ("play", "openarena", None))
+        self.assertEqual(P("walnut://play/openarena?launcher=OpenArena%20(GL%201.2)"),
+                         ("play", "openarena", "OpenArena (GL 1.2)"))
+        self.assertEqual(P("walnut://install/openarena?launcher=x"), ("install", "openarena", None))
+        for bad in ("walnut://remove/openarena", "walnut://install/", "walnut://install/../x", "walnut://install/A",
+                    "walnut://install/a/b", "walnut://game/openarena", "http://install/openarena", "walnut:install/x",
+                    "", "walnut://[bad"):
+            self.assertIsNone(P(bad), bad)
+
+    def test_only_game_links_from_outside(self):
+        E = app.external_game
+        self.assertEqual(E("walnut://game/openarena"), "openarena")
+        self.assertEqual(E("walnut://game/openarena/"), "openarena")
+        for bad in ("walnut://install/openarena", "walnut://play/openarena", "walnut://add-data/doom",
+                    "walnut://game/", "walnut://game/../../etc", "walnut://game/Open", "walnut://game/a?x=1",
+                    "walnut://game/a#b", "https://walnut.nanobyte.dev/gamedb/games/openarena/", "walnut://game/a/b",
+                    "--help", "/etc/passwd"):
+            self.assertIsNone(E(bad), bad)
+
+    def test_single_instance_hand_off(self):
+        with tempfile.TemporaryDirectory() as d:
+            lock, hand = app.instance_paths(d)
+            self.assertEqual(os.path.dirname(lock), os.path.join(d, "walnut-games"))
+            fd = app.claim_instance(lock)
+            self.assertIsNotNone(fd)
+            self.assertEqual(stat.S_IMODE(os.stat(os.path.dirname(lock)).st_mode), 0o700)
+            # a second start: the lock is held (flock on another open file description), it hands off
+            r = subprocess.run([sys.executable, "-I", "-c", "import sys; sys.path.insert(0, %r); import walnut_games as w; "
+                                "print(w.claim_instance(%r))" % (str(PKG / "files/lib"), lock)],
+                               capture_output=True, text=True)
+            self.assertEqual(r.stdout.strip(), "None", r.stderr)
+            self.assertIsNone(app.take_hand_off(hand))
+            app.hand_off(hand, "openarena")
+            self.assertEqual(app.take_hand_off(hand), "openarena")
+            self.assertIsNone(app.take_hand_off(hand))          # read once
+            app.hand_off(hand, None)
+            self.assertEqual(app.take_hand_off(hand), "")       # just come forward
+            Path(hand).write_text("../../x\n")
+            self.assertEqual(app.take_hand_off(hand), "")
+            os.close(fd)
+            # main: a bad link is refused before anything starts; a good one is handed to the running app
+            env = dict(os.environ, XDG_RUNTIME_DIR=d, DISPLAY="")
+            prog = "import sys; sys.path.insert(0, %r); import walnut_games as w; sys.exit(w.main(sys.argv))" % \
+                str(PKG / "files/lib")
+            r = subprocess.run([sys.executable, "-I", "-c", prog, "walnut://install/openarena"], env=env,
+                               capture_output=True, text=True)
+            self.assertEqual(r.returncode, 2)
+            self.assertIn("walnut://game/<id> only", r.stderr)
+            fd = app.claim_instance(lock)
+            r = subprocess.run([sys.executable, "-I", "-c", prog, "walnut://game/openarena"], env=env,
+                               capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertEqual(app.take_hand_off(hand), "openarena")
+            os.close(fd)
+
+    def test_desktop_file_handles_the_scheme(self):
+        text = (PKG / "files/applications/walnut-games.desktop").read_text()
+        self.assertIn("\nMimeType=x-scheme-handler/walnut;\n", text)
+        self.assertIn("\nExec=walnut-games %u\n", text)
+
+    def test_tabs_and_link_targets(self):
+        with tempfile.TemporaryDirectory() as d:
+            pages = Path(d, "pages")
+            g = pages / "games/openarena"
+            for t in ("index.html", "test-runs/index.html", "technical/index.html"):
+                (g / t).parent.mkdir(parents=True, exist_ok=True)
+                (g / t).write_text("x")
+            (g / "rating/sessions/s/shots").mkdir(parents=True)
+            (g / "rating/sessions/s/shots/ps3-60s.jpg").write_text("j")
+            (g / "test-runs/s").mkdir()
+            (g / "test-runs/s/index.html").write_text("x")
+            (pages / "index.html").write_text("home")
+            tabs = app.details_tabs(str(pages), "openarena")
+            self.assertEqual([os.path.relpath(t, g) for t in tabs], ["index.html", "test-runs/index.html",
+                                                                     "technical/index.html"])   # no guides
+            self.assertEqual(app.details_tabs(str(pages), "nothere"), [])
+            S = lambda cur, d: (lambda r: r and os.path.relpath(r, g))(app.tab_step(str(pages), str(g / cur), d))
+            self.assertEqual(S("index.html", 1), "test-runs/index.html")
+            self.assertEqual(S("test-runs/index.html", 1), "technical/index.html")
+            self.assertIsNone(S("technical/index.html", 1))                  # the last tab
+            self.assertIsNone(S("index.html", -1))
+            self.assertEqual(S("test-runs/s/index.html", 1), "technical/index.html")    # a session's page
+            self.assertEqual(S("rating/sessions/s/shots/ps3-60s.jpg", 1), "test-runs/index.html")   # a picture
+            self.assertIsNone(app.tab_step(str(pages), str(pages / "index.html"), 1))
+            T = lambda u: app.link_target(u, str(pages))
+            f = "file://" + str(g)
+            self.assertEqual(T("walnut://install/openarena"), ("walnut", ("install", "openarena", None)))
+            self.assertEqual(T("walnut://format/disk"), ("ignore", "walnut://format/disk"))
+            self.assertEqual(T(f + "/technical/index.html"), ("page", f + "/technical/index.html"))
+            self.assertEqual(T(f + "/rating/sessions/s/shots/ps3-60s.jpg")[0], "page")
+            self.assertEqual(T(f + "/index.html#known"), ("page", f + "/index.html#known"))
+            self.assertEqual(T("file://" + str(pages) + "/index.html"), ("close", None))
+            self.assertEqual(T("file://" + str(pages) + "/about/index.html#rules-2"),
+                             ("web", app.WEB + "about/#rules-2"))                 # not in the app's copy
+            self.assertEqual(T(f + "/guides/index.html"), ("web", app.WEB + "games/openarena/guides/"))
+            self.assertEqual(T("https://openarena.ws/"), ("web", "https://openarena.ws/"))
+            self.assertEqual(T("file:///etc/passwd"), ("ignore", "file:///etc/passwd"))
+            self.assertEqual(T("file://" + str(pages) + "/../secret"), ("ignore", "file://" + str(pages) + "/../secret"))
+            self.assertEqual(T("mailto:x@y"), ("ignore", "mailto:x@y"))
+
+
+class PadAndFocus(unittest.TestCase):
+    def test_nav_pick(self):
+        cur = (100, 100, 50, 20)
+        cands = [(200, 100, 50, 20), (300, 100, 50, 20), (100, 200, 50, 20), (160, 140, 60, 20), (0, 100, 50, 20),
+                 (100, 0, 50, 20)]
+        self.assertEqual(app.nav_pick(cur, cands, "right"), 0)      # the nearest in the same row
+        self.assertEqual(app.nav_pick(cur, cands, "down"), 3)       # below, overlapping columns win
+        self.assertEqual(app.nav_pick(cur, cands, "left"), 4)
+        self.assertEqual(app.nav_pick(cur, cands, "up"), 5)
+        self.assertIsNone(app.nav_pick(cur, [(0, 0, 10, 10)], "right"))
+        self.assertIsNone(app.nav_pick(cur, [], "up"))
+        # a wide button under two narrow ones is "down" from either
+        self.assertEqual(app.nav_pick((0, 0, 40, 20), [(0, 30, 200, 20)], "down"), 0)
+        self.assertEqual(app.nav_pick((150, 0, 40, 20), [(0, 30, 200, 20)], "down"), 0)
+
+    def test_scale(self):
+        self.assertEqual(app.ui_scale(1080, env=""), 1.5)
+        self.assertEqual(app.ui_scale(720, env=""), 1.0)
+        self.assertEqual(app.ui_scale(600, env=""), 1.0)
+        self.assertEqual(app.ui_scale(2160, env=""), 2.0)
+        self.assertEqual(app.ui_scale(1080, env="1.2"), 1.2)
+        self.assertEqual(app.ui_scale(1080, env="9"), 3.0)
+        self.assertEqual(app.ui_scale(1080, env="x"), 1.5)
+
+    def test_pad_devices_and_buttons(self):
+        text = ("I: Bus=0003 Vendor=054c Product=0268\nN: Name=\"Sony PLAYSTATION(R)3 Controller Motion Sensors\"\n"
+                "H: Handlers=event4 \n\nN: Name=\"Sony PLAYSTATION(R)3 Controller\"\nH: Handlers=event5 js0 \n\n"
+                "N: Name=\"keyboard\"\nH: Handlers=sysrq kbd event0 leds\n\nH: Handlers=js1 event12 eventx\n")
+        self.assertEqual(app.pad_devices(text), ["/dev/input/event5", "/dev/input/event12"])
+        self.assertEqual(app.pad_press(1, 310, 1), "l1")
+        self.assertEqual(app.pad_press(1, 311, 1), "r1")
+        self.assertEqual(app.pad_press(1, 308, 1), "square")
+        self.assertEqual(app.pad_press(1, 544, 1), "up")
+        self.assertEqual(app.pad_press(1, 547, 1), "right")
+        self.assertIsNone(app.pad_press(1, 310, 0))           # a release
+        self.assertIsNone(app.pad_press(1, 310, 2))           # autorepeat
+        self.assertIsNone(app.pad_press(1, 304, 1))           # Cross: the pointer's click, not ours
+        self.assertIsNone(app.pad_press(1, 305, 1))           # Circle: the pointer's right click
+        self.assertEqual(app.pad_press(3, 17, -1), "up")      # a hat d-pad (other pads)
+        self.assertIsNone(app.pad_press(3, 17, 0))
+        self.assertIsNone(app.pad_press(3, 0, 1))             # a stick
+
+    def test_pad_reader_reads_presses_and_drops_old_ones(self):
+        import struct
+        ev = struct.Struct("@llHHi")
+        got = []
+        with tempfile.TemporaryDirectory() as d:
+            r, w = os.pipe()
+            reader = app.PadReader(got.append, devices=os.path.join(d, "none"))
+            reader.fds["/dev/input/event99"] = r
+            now = time.time()
+            sec, usec = int(now), int((now % 1) * 1e6)
+            os.write(w, ev.pack(sec, usec, 1, 310, 1) + ev.pack(sec, usec, 0, 0, 0) +
+                     ev.pack(sec - 30, usec, 1, 311, 1) + ev.pack(sec, usec, 1, 308, 1))
+            os.close(w)
+            t = threading.Thread(target=reader.run, daemon=True)
+            t.start()
+            deadline = time.time() + 5
+            while len(got) < 2 and time.time() < deadline:
+                time.sleep(0.05)
+            time.sleep(0.2)
+            self.assertEqual(got, ["l1", "square"])          # the 30 s old R1 was queued while frozen: dropped
+            self.assertNotIn("/dev/input/event99", reader.fds)   # the device went away (EOF): closed
+
+
 def x_server():
     """(process, display) of a private Xvfb or Xvnc, or None"""
     for name, extra in (("Xvfb", ["-screen", "0", "1400x900x24"]), ("Xvnc", [])):
@@ -997,38 +1239,142 @@ class Freshness(unittest.TestCase):
 
 
 SMOKE = """
-import sys, os, json
+import sys, os, json, time
 sys.path.insert(0, sys.argv[1])
 import tkinter as tk
 import walnut_games as w
 root = tk.Tk()
-app = w.App(root, data=sys.argv[2], runtime_dir=None, online=False)
-root.update()
-assert len(app.shown) == 2, app.shown
-app.select("alpha"); root.update()
-assert str(app.b_install["state"]) == "normal" and str(app.b_remove["state"]) == "disabled"
-def buttons(wd):
-    out = [wd.cget("text")] if isinstance(wd, w.ttk.Button) else []
-    for c in wd.winfo_children():
-        out += buttons(c)
-    return out
-assert "Open on the web" in buttons(root) and "Technical notes" in buttons(root), buttons(root)
-opened = []
+opened, launched = [], []
 w.webbrowser.open = opened.append
-app.open_technical(); app.open_web()
-assert opened == [w.WEB + "games/alpha/technical/", w.WEB + "games/alpha/"], opened
-notes = app.d_notes.get("1.0", "end")
-assert "Setting up the game data" in notes and "1. Download it." in notes and "2. Run sudo apt install ./x.deb" in notes, notes
-assert "code" in app.d_notes.tag_names() and app.d_notes.tag_ranges("code")
-assert str(app.b_play["state"]) == "disabled"
-app.v_text.set("beta"); root.update()
-assert [g["id"] for g in app.shown] == ["beta"]
-app.v_text.set("zzz"); root.update()
-assert app.shown == []
-app.v_text.set(""); app.v_medal.set("Gold"); app.apply_filters(); root.update()
-assert [g["id"] for g in app.shown] == ["alpha"]
+hand = os.path.join(sys.argv[3], "open")
+app = w.App(root, data=sys.argv[2], runtime_dir=None, online=False, hand_off_path=hand)
+app.launch = lambda g, argv, cwd: launched.append(argv)
+root.update()
+def mapped(x):
+    return bool(x.winfo_ismapped())
+def texts(wd, cls=w.ttk.Label):
+    out = [wd.cget("text")] if isinstance(wd, cls) else []
+    for c in wd.winfo_children():
+        out += texts(c, cls)
+    return out
+assert len(app.shown) == 2, app.shown
+assert not mapped(app.b_main) and app.d_title["text"] == "Walnut Games"          # nothing picked yet
+# not installed: Install, nothing smaller, the glance
+app.select("alpha"); root.update()
+assert app.main_kind == "install" and app.b_main["text"] == "Install" and str(app.b_main["state"]) == "normal"
+assert not mapped(app.b_remove) and not mapped(app.b_remove_data) and not mapped(app.side_row)
+assert mapped(app.b_details) and "Technical notes" in texts(app.links, w.ttk.Button) and mapped(app.b_home)
+assert "Open on the web" in texts(app.links, w.ttk.Button) and "Home page" in texts(app.links, w.ttk.Button)
+assert texts(app.d_numbers)[:2] == ["60 fps", "median frame rate"], texts(app.d_numbers)
+assert "Controller: full" in app.d_info["text"], app.d_info["text"]
+assert "1.5 h played, 0 crashes" in [app.d_medal.itemcget(i, "text") for i in app.d_medal.find_all() if app.d_medal.type(i) == "text"]
+assert len(app.glance_imgs) == int(sys.argv[4]), app.glance_imgs     # the screenshot, when Pillow is here
+app.sizes = {"alpha": 2048, "alpha-data": 10240}; app.show_glance(); root.update()
+assert "12 MB" in texts(app.d_numbers), texts(app.d_numbers)
+# installed, two launchers: Play with its menu; Remove under it
+w.play_commands = lambda g, rt, files=None: [("Alpha", ["alpha"], None), ("Alpha GL1", ["alpha", "-gl1"], None)]
+app.have = {"alpha", "alpha-data"}; app.update_buttons(); root.update()
+assert app.main_kind == "play" and app.b_main["text"] == "Play \\u25be" and str(app.b_main["state"]) == "normal"
+assert mapped(app.b_remove) and not mapped(app.b_remove_data)
+assert app.dispatch("play", "alpha", "Alpha GL1") and launched[-1] == ["alpha", "-gl1"], launched
+assert app.dispatch("play", "alpha") and app.menu is not None          # several: the menu
+app.back(); root.update()
+assert app.menu is None
+assert not app.dispatch("install", "alpha") and "Alpha is installed." in app.d_status["text"]
+assert not app.dispatch("frobnicate", "alpha") and not app.dispatch("play", "nothere")
+app.busy = ("alpha", "install"); app.update_buttons()
+assert str(app.b_main["state"]) == "disabled" and str(app.b_refresh["state"]) == "disabled"
+assert not app.dispatch("play", "alpha")
+app.busy = None; app.update_buttons()
+# Details without tkinterweb: the website instead
+sys.modules["tkinterweb"] = None
+assert app.open_details() is False and app.dv is None and opened[-1] == w.WEB + "games/alpha/", opened
+assert mapped(app.bar) and "python3-tkinterweb" in app.d_status["text"]
+del sys.modules["tkinterweb"]
+sys.path.insert(0, sys.argv[3])            # the fake tkinterweb
+import tkinterweb as fake
+# a game the app's copy doesn't have: the website too
+app.select("beta"); root.update()
+assert app.open_details() is False and opened[-1] == w.WEB + "games/beta/"
+assert app.b_main["text"] == "Install" and not mapped(app.b_home)
+# Details: the pages in the HTML frame, tabs, links, back
+app.select("alpha"); root.update()
+kids = len(root.winfo_children())
+pages = os.path.join(sys.argv[2], "pages", "games", "alpha")
+root.focus_force(); root.update()
+assert app.open_details() is True and app.dv is not None; root.update()
+assert not mapped(app.body) and not mapped(app.bar) and fake.LOADS[-1] == "file://" + pages + "/index.html"
+assert fake.FRAMES[-1].kw["zoom"] == app.scale and not fake.FRAMES[-1].kw["javascript_enabled"]
+html = fake.FRAMES[-1]
+app.on_pad("r1"); root.update()
+assert fake.LOADS[-1].endswith("/test-runs/index.html"), fake.LOADS[-1]
+app.details_tab(1); app.details_tab(1)
+assert fake.LOADS[-1].endswith("/technical/index.html") and len([u for u in fake.LOADS if "technical" in u]) == 1
+app.on_pad("l1"); root.update()
+assert fake.LOADS[-1].endswith("/test-runs/index.html")
+app._key_nav(None, "Right")
+assert fake.LOADS[-1].endswith("/technical/index.html")
+app._key_nav(None, "Down")
+assert html.scrolled[-1] == (4, "units")
+html.click("file://" + pages + "/rating/sessions/a/ps3-1.jpg")          # the copy has it: in place
+assert fake.LOADS[-1].endswith("ps3-1.jpg") and app.dv["history"]
+html.click("file://" + pages + "/../../about/index.html#rules-2")        # the copy doesn't: the website
+assert opened[-1] == w.WEB + "about/#rules-2", opened[-1]
+html.click("https://example.org/")
+assert opened[-1] == "https://example.org/"
+html.click("walnut://format/alpha")                                      # unknown: ignored
+assert app.dv is not None
+app.on_pad("square")                                                     # Details is open already
+app.back(); root.update()                                                # the page before
+assert app.dv is not None and fake.LOADS[-1].endswith("/technical/index.html")
+html.click("walnut://install/alpha"); root.update()                     # Details closes, the action runs
+assert app.dv is None and mapped(app.bar) and fake.LOADS[-1] == "destroyed"
+assert "Alpha is installed." in app.d_status["text"]
+for n in range(5):                                                       # nothing left behind
+    app.on_pad("square"); root.update()
+    assert app.dv is not None, n
+    app.back(); root.update()
+    assert app.dv is None
+assert len(root.winfo_children()) == kids, (kids, root.winfo_children())
+if int(sys.argv[4]):                                                     # a thumbnail opens its picture
+    app.open_details(shot="rating/sessions/a/ps3-1.jpg"); root.update()
+    assert fake.LOADS[-2].endswith("/index.html") and fake.LOADS[-1].endswith("ps3-1.jpg")
+    app.back(); app.back(); root.update()
+    assert app.dv is None
+# Install from a page: the helper (a fake) runs
+app.have = set(); app.update_buttons()
+app.open_details(); root.update()
+fake.FRAMES[-1].click("walnut://install/alpha"); root.update()
+assert app.dv is None and app.busy == ("alpha", "install"), app.busy
+t = time.time()
+while app.busy and time.time() - t < 20:
+    root.update(); time.sleep(0.05)
+assert "Alpha" in app.d_status["text"], app.d_status["text"]
+# the arrows: from the cards to the main button, then on
+app.canvas.focus_set(); root.update()
+app._key_nav(None, "Right"); root.update()
+assert root.focus_get() is app.b_main, root.focus_get()
+app._key_nav(None, "Down"); root.update()
+f = root.focus_get()
+assert f is not app.b_main and f.winfo_class() == "TButton", f
+app._key_nav(None, "Left"); root.update()
+assert root.focus_get() is app.canvas, root.focus_get()
+app._key_nav(None, "Up"); root.update()
+assert root.focus_get().winfo_class() in ("TEntry", "TCombobox", "TCheckbutton", "TButton"), root.focus_get()
+# another start's walnut://game/<id>: the window comes to that game
+w.hand_off(hand, "beta")
+t = time.time()
+while app.selected != "beta" and time.time() - t < 5:
+    root.update(); time.sleep(0.05)
+assert app.selected == "beta"
+w.hand_off(hand, "no-such-game")
+t = time.time()
+while os.path.exists(hand) and time.time() - t < 5:
+    root.update(); time.sleep(0.05)
+assert app.selected == "beta" and not os.path.exists(hand)
+# a newer catalog keeps the selection; a game only on the website can't be installed yet
 import copy
-app.v_medal.set("All"); app.apply_filters(); app.select("alpha"); app.shot_i = 0; root.update()
+app.select("alpha")
 new = copy.deepcopy(app.cat)
 new["content_date"] = "2099-01-01"
 new["games"][0]["title"] = "Alpha 2"
@@ -1038,18 +1384,41 @@ app.on_catalog(new, json.dumps(new).encode(), True, None)
 root.update()
 assert app.v_text.get() == "a" and app.selected == "alpha" and app.g["title"] == "Alpha 2"
 assert "gamma" in app.by_id and not app.refreshing
-assert str(app.b_install["state"]) == "normal"             # alpha is in the package
 app.select("gamma"); root.update()
-assert str(app.b_install["state"]) == "disabled" and "next Walnut Games update" in app.d_reason["text"]
-app.on_catalog(None, None, True, OSError("down")); root.update()
-assert "gamma" in app.by_id and app.selected == "gamma"     # a failed fetch changes nothing
-app.v_text.set("")
-app.busy = ("alpha", "install"); app.update_buttons()
-assert str(app.b_refresh["state"]) == "disabled"
-app.select("alpha"); app.update_buttons()
-assert str(app.b_play["state"]) == "disabled" and str(app.b_install["state"]) == "disabled"
+assert str(app.b_main["state"]) == "disabled" and "next Walnut Games update" in app.d_reason["text"]
+assert mapped(app.d_reason)
+app.v_text.set("beta"); root.update()
+assert [g["id"] for g in app.shown] == ["beta"]
+app.v_text.set(""); app.v_medal.set("Gold"); app.apply_filters(); root.update()
+assert [g["id"] for g in app.shown] == ["alpha"]
+if len(sys.argv) > 5:      # pictures of the pane
+    app.v_medal.set("All"); app.apply_filters(); app.select("alpha"); root.update(); time.sleep(0.3); root.update()
+    import subprocess
+    subprocess.run(["magick", "import", "-window", "root", sys.argv[5]])
 root.destroy()
 print("smoke ok")
+"""
+FAKE_TKINTERWEB = """
+from tkinter import ttk
+LOADS, FRAMES = [], []
+class HtmlFrame(ttk.Frame):
+    def __init__(self, master, **kw):
+        super().__init__(master)
+        self.kw, self.scrolled = kw, []
+        FRAMES.append(self)
+    def load_url(self, url):
+        LOADS.append(url)
+    def yview_scroll(self, n, what):
+        self.scrolled.append((n, what))
+    def click(self, url):
+        self.kw["on_link_click"](url)
+    def destroy(self):
+        LOADS.append("destroyed")
+        super().destroy()
+"""
+FAKE_HELPER = """#!/bin/sh
+echo "progress 50 Installing"
+echo "progress 100 Done"
 """
 
 
@@ -1098,27 +1467,52 @@ class Window(unittest.TestCase):
         proc, display = srv
         try:
             with tempfile.TemporaryDirectory() as d:
+                shots = []
+                try:
+                    from PIL import Image
+                    p = Path(d, "games/alpha/rating/sessions/a/ps3-1.jpg")
+                    p.parent.mkdir(parents=True)
+                    Image.new("RGB", (800, 450), (200, 120, 40)).save(p)
+                    shots = ["rating/sessions/a/ps3-1.jpg"]
+                except ImportError:
+                    pass
                 games = [dict(GAMES["alpha"], summary="s", categories=["racing"], tags=[], patched=True, patches=[],
-                              needs_data=True, data_guide="https://example.org/guide",
+                              needs_data=True, data_guide="https://example.org/guide", homepage="https://example.org/",
                               data_steps=["Download it.", "Run `sudo apt install ./x.deb`."],
-                              controller="keyboard", known_issues=["slow"], tests=[],
+                              controller="keyboard", known_issues=["slow"],
+                              tests=[{"date": "2026-10-20", "ps3": shots}] if shots else [],
                               rating={"medal": "Gold", "score": 85, "capped": False, "reason": None, "hours": 1.5,
                                       "crashes": 0, "provisional": False, "graded_by": "session",
                                       "order": ["frame", "sound", "controls"], "rules_label": "rules 2.0 (2026-10-26)",
                                       "basis": {"tests": 1, "kind": "session", "minutes": 9}, "controller": "full",
-                                      "defects": [{"name": "a missing element", "points": 25, "what": "the HUD",
-                                                   "origin": "PS3/Walnut only"}],
                                       "aspects": {"frame": {"name": "Frame rate", "score": 90, "detail": "median 60 fps"},
-                                                  "sound": {"name": "Sound", "score": None, "detail": None},
-                                                  "controls": {"name": "Controls", "score": None, "detail": None}}}),
+                                                  "smooth": {"name": "Smoothness", "score": 70, "detail": "x"},
+                                                  "sound": {"name": "Sound", "score": None, "detail": None}}}),
                          dict(GAMES["beta"], summary="s", categories=["puzzle"], tags=[], patched=False, patches=[],
                               needs_data=False, controller="unknown", tests=[],
                               rating={"medal": "Untested", "score": None, "aspects": {}})]
                 Path(d, "catalog.json").write_text(json.dumps({"games": games}))
+                pages = Path(d, "pages/games/alpha")
+                for t in ("index.html", "test-runs/index.html", "technical/index.html"):
+                    (pages / t).parent.mkdir(parents=True, exist_ok=True)
+                    (pages / t).write_text("<p>x</p>")
+                if shots:
+                    (pages / "rating/sessions/a").mkdir(parents=True)
+                    os.symlink(Path(d, "games/alpha", shots[0]), pages / shots[0])
+                aux = Path(d, "aux")
+                aux.mkdir()
+                (aux / "tkinterweb.py").write_text(FAKE_TKINTERWEB)
+                helper = aux / "helper"
+                helper.write_text(FAKE_HELPER)
+                helper.chmod(0o755)
                 env = {k: v for k, v in os.environ.items() if k not in ("WAYLAND_DISPLAY", "XDG_RUNTIME_DIR")}
-                env.update(DISPLAY=display, XDG_CACHE_HOME=d, PATH="/nonexistent")   # no dpkg-query: nothing installed
-                r = subprocess.run([sys.executable, "-c", SMOKE, str(PKG / "files/lib"), d], env=env,
-                                   capture_output=True, text=True, timeout=120)
+                # no dpkg-query (nothing installed); sudo -n runs the fake helper through a stub
+                (aux / "sudo").write_text('#!/bin/sh\nshift; shift; exec %s "$@"\n' % helper)
+                (aux / "sudo").chmod(0o755)
+                env.update(DISPLAY=display, XDG_CACHE_HOME=d, PATH=str(aux) + ":/nonexistent")
+                extra = [os.environ["WALNUT_SHOT"]] if os.environ.get("WALNUT_SHOT") else []
+                r = subprocess.run([sys.executable, "-c", SMOKE, str(PKG / "files/lib"), d, str(aux),
+                                    str(len(shots))] + extra, env=env, capture_output=True, text=True, timeout=180)
                 self.assertEqual(r.returncode, 0, r.stderr)
                 self.assertIn("smoke ok", r.stdout)
         finally:
@@ -1140,10 +1534,24 @@ def mapped(b):
     return bool(b.winfo_ismapped())
 app.select("quakespasm"); root.update()
 assert mapped(app.b_data) and app.b_data["text"] == "Add game files\\u2026" and not mapped(app.b_repo)
-assert app.note_tag["text"] == "REQUIRED:" and "original Quake release" in app.note_text["text"]
+assert app.note_tag["text"] == "REQUIRED:" and "original Quake" in app.note_text["text"]
+assert mapped(app.b_note) and app.main_kind == "install", "the note by Add game files..., the main button installs"
 old_have = app.have
 app.have = set(old_have) | {"quakespasm"}; app.update_buttons(); root.update()
-assert str(app.b_play["state"]) == "disabled", "Play waits for the required data"
+assert app.main_kind == "add-data" and app.b_main["text"] == "Add game files\\u2026", "Play waits for the required data"
+assert str(app.b_main["state"]) == "normal" and not mapped(app.b_data) and mapped(app.b_note) and mapped(app.b_remove)
+assert int(app.b_note.grid_info()["row"]) == int(app.b_main.grid_info()["row"]) + 1, "the note under the main button"
+app.repo = {"quake-licensed-data"}; app.update_buttons(); root.update()
+assert mapped(app.b_repo) and not mapped(app.b_data), "licensed next to the main button"
+app.repo = set()
+app.main_pressed(); root.update()
+assert app.chooser is not None, "the main button opens the chooser"
+app.back(); root.update()
+assert app.chooser is None, "Circle closes it"
+app.have = set(old_have) | {"quakespasm", "quake-registered"}; app.info = {"quake-registered": ("full", 2048)}
+app.update_buttons(); root.update()
+assert app.main_kind == "play" and mapped(app.b_remove_data) and not mapped(app.b_note), "data installed"
+app.info = {}
 app.have = old_have; app.update_buttons()
 assert str(app.b_data["state"]) == "normal"
 app.repo = {"quake-licensed-data"}; app.update_buttons(); root.update()
