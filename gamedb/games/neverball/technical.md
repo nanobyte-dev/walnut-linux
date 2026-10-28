@@ -14,6 +14,7 @@ replacing Debian's.
 | [0001](packages/neverball/patches/0001-Benchmark-mode-NEVERBALL_BENCH-prints-the-frames-and.patch) | bench mode: a replay prints its frames, seconds, fps and longest frame at its end and the game quits | `NEVERBALL_BENCH=1` |
 | [0002](packages/neverball/patches/0002-Benchmark-mode-NEVERBALL_BENCH_LOOPS-N-plays-the-rep.patch) | the replay played N times, one line per pass | `NEVERBALL_BENCH_LOOPS=N` |
 | [0003](packages/neverball/patches/0003-Fewer-GL-calls-and-draws-a-frame-shared-mesh-buffers.patch) | fewer GL calls and draws: one vertex and element buffer per solid file and one for the five item files, items drawn in a row, the background billboards transformed on the CPU and drawn per material run (76 to 13 draws), no depth toggles around empty passes, one texture unit where one is used | `NEVERBALL_GL_MESH`, `_ITEMS`, `_BACK`, `_STATE`; `NEVERBALL_GL=0` all off |
+| [0004](packages/neverball/patches/0004-config-fullscreen-by-default-Walnut-is-a-console-on-.patch) | fullscreen by default (a fresh `neverballrc` started Neverball and Neverputt in an 800x600 window); fullscreen already takes the desktop's mode (1920x1080 on the PS3); the Options menu and a saved `neverballrc` still decide. Built 2026-10-28, pending its PS3 test | the Options menu |
 
 On llvmpipe at GL 2.1 with a fixed 33 ms clock, 0003 took `gui/demo1.nbr` from 2154 to 844 calls and 137
 to 74 draws a frame (demo2 2916 to 1285; the level intros greed 6289 to 1915 and mover 8205 to 2463;

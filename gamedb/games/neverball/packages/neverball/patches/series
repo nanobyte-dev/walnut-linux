@@ -1,3 +1,4 @@
 0001-Benchmark-mode-NEVERBALL_BENCH-prints-the-frames-and.patch
 0002-Benchmark-mode-NEVERBALL_BENCH_LOOPS-N-plays-the-rep.patch
 0003-Fewer-GL-calls-and-draws-a-frame-shared-mesh-buffers.patch
+0004-config-fullscreen-by-default-Walnut-is-a-console-on-.patch

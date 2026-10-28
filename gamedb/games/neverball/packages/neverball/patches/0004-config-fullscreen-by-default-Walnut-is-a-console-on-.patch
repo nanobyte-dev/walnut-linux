@@ -1,0 +1,24 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Wed, 28 Oct 2026 22:42:17 +0200
+Subject: config: fullscreen by default (Walnut is a console on a TV)
+
+A fresh neverballrc started Neverball and Neverputt in an 800x600 window.
+Fullscreen already takes the desktop's mode (SDL_WINDOW_FULLSCREEN_DESKTOP,
+1920x1080 on the PS3), so only the default changes. The Options menu and
+a saved neverballrc still change it.
+
+Forwarded: not-needed
+
+diff --git a/share/config.c b/share/config.c
+--- a/share/config.c
++++ b/share/config.c
+@@ -129,7 +129,7 @@ static struct
+     const int   def;
+     int         cur;
+ } option_d[] = {
+-    { &CONFIG_FULLSCREEN,   "fullscreen",   0 },
++    { &CONFIG_FULLSCREEN,   "fullscreen",   1 },  /* Walnut: a console on a TV */
+     { &CONFIG_DISPLAY,      "display",      0 },
+     { &CONFIG_WIDTH,        "width",        800 },
+     { &CONFIG_HEIGHT,       "height",       600 },
