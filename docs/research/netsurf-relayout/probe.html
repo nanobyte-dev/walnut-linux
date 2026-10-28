@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html><head><title>relayout probe</title>
+<style>
+body { font-family: sans-serif; font-size: 20px; }
+.box { width: 300px; height: 60px; }
+.red { background: #d00; }
+.green { background: #0a0; }
+.gone { display: none; }
+[hidden] { display: none; }
+li { margin: 4px; }
+</style></head>
+<body>
+<h1 id="h">Before</h1>
+<div id="a" class="box red">box</div>
+<ul id="list">
+<li id="i1">one (stays)</li>
+<li id="i2">two (hidden attribute)</li>
+<li id="i3">three (style attribute display:none)</li>
+<li id="i4">four (classList.add gone)</li>
+<li id="i5">five (removeChild)</li>
+</ul>
+<p id="status">status: waiting</p>
+<script>
+setTimeout(function () {
+  document.getElementById("h").textContent = "After";
+  document.getElementById("a").className = "box green";
+  document.getElementById("i2").setAttribute("hidden", "");
+  document.getElementById("i3").setAttribute("style", "display:none");
+  document.getElementById("i4").classList.add("gone");
+  var l = document.getElementById("list");
+  l.removeChild(document.getElementById("i5"));
+  var n = document.createElement("li");
+  n.textContent = "six (appendChild)";
+  l.appendChild(n);
+  document.getElementById("status").textContent = "status: changed at 2 s";
+}, 2000);
+</script>
+</body></html>

@@ -2,48 +2,57 @@
 
 Walnut ships NetSurf 3.11 with JavaScript off. The user finds a browser without JavaScript of little use.
 This note looks at what could run JavaScript on Debian sid ppc64 (big-endian, debian-ports) with 256 MB of
-XDR, the in-order Cell PPE and a GL 2.1 GPU. Ladybird was ruled out earlier (Skia has no big-endian
+XDR, the in-order Cell PPE and a GL 2.1 GPU, and at the two ways to make one fit: teach NetSurf to redraw
+pages that scripts change, or slim WebKitGTK. Ladybird was ruled out earlier (Skia has no big-endian
 support, Qt 6, memory) and is not repeated here.
 
 Nothing was run on the PS3. The package facts come from the debian-ports and Debian indexes and buildd pages
-of 2026-10-28. The memory numbers were measured on the PC: amd64, Debian sid in a container, Xvfb at
-1280x1024, Mesa llvmpipe for GL. They are a guide to the order of magnitude, not PS3 numbers: ppc64 ELFv1
-code is larger (libwebkit2gtk is 131 MB installed on ppc64 against 101 MB on s390x), while the PS3 has no
-LLVM in its GL driver (llvmpipe's libLLVM accounted for 20-30 MB of PSS in the browsers below).
+of 2026-10-28. The memory numbers were measured on the PC: amd64, Debian sid in a container, Xvfb, Mesa
+llvmpipe for GL. They are a guide to the order of magnitude, not PS3 numbers: ppc64 ELFv1 code is larger
+(libwebkit2gtk is 131 MB installed on ppc64 against 101 MB on s390x), while the PS3 has no LLVM in its GL
+driver, so the tables give totals with and without llvmpipe's mappings.
 
 ## Verdict
 
-**Test WebKitGTK through surf on the PS3. It is the only engine with modern JavaScript that is built and
-installable for ppc64 today, and the GameDB filter works in it.** Whether it fits is open: on the PC, surf
-on the GameDB home took 352 MB PSS, of which perhaps 200-250 MB would remain on the PS3 once llvmpipe and
-x86/Skia differences are taken out (a guess). With the desktop up that is more than the free RAM, so the
-VRAM swap and zram would carry part of it. Only the PS3 can say whether that is usable or a swap storm.
+**Two paths, both worth a PS3 test, for different jobs.**
 
-Keep NetSurf as the default browser for the static pages it renders well. Its JavaScript is not an answer:
-3.11 runs scripts, timers and click handlers, but changes to the page after it is laid out never reach the
-screen (tested below), and there has been no NetSurf release or JavaScript work since 2023.
+| Path | What it gets us | Memory (PC, GameDB home) | Effort | Main risk |
+|---|---|---|---|---|
+| **A. surf or a small shell on Debian's WebKitGTK, tuned at run time** | The real web: modern JavaScript, CSS grid, everything | 241 MB PSS, 200 MB without llvmpipe; 69 MB of it anonymous | **2-3 days**: a one-line surf patch (`+ps3.N`) or a 200-line shell, plus the PS3 test | Whether ~70 MB of anonymous memory plus the library working set is usable beside the desktop; CLoop speed on the PPE |
+| **B. NetSurf with DOM-driven relayout, minimal version** (prototype below, works on the PC) | Our own pages and simple ES5 scripts: filters, tabs, menus | 84-90 MB PSS with JavaScript on | **1-2 weeks** to ship as `netsurf 3.11-4+ps3.N` with the polyfills our site needs | ES5 only (Duktape): most of today's web still fails; a whole rebuild per change costs seconds on big pages on the PPE |
+| B2. NetSurf with incremental restyle and relayout | B, fast on big pages | as B | **2-4 months**, high risk | It is the dynamic layout engine NetSurf has planned since 2013 and never built |
+| C. Our own slimmed WebKitGTK build | A, minus a few MB and ~100 MB of disk | a few MB below A | **1-2 weeks** to set up, then every security release forever | Build time and disk (below); we would own a browser engine's security updates |
+| D. WPE + cog with an X11 platform | A without GTK in the UI process | not measured; perhaps 30-60 MB below A | **1 week** (rebuild cog) | Same engine; no window manager integration |
 
-Firefox is out for now: no ppc64 build is installable on current sid, and with every memory pref we know it
-took 474 MB PSS on the PC for the GameDB home. Chromium has no big-endian port in Debian and no upstream
-support. WPE with cog is a possible later step if WebKitGTK nearly fits, since it drops GTK.
+Do A first: it is cheap and answers the question that decides everything else, whether WebKit at about
+200 MB is usable on the PS3 at all. The big lever turned out to be a run-time setting, not a rebuild:
+`hardware-acceleration-policy` NEVER cut the web process from 218 MB to 90 MB on the PC (section 3), and
+surf never sets it. Do B if A is too heavy or too slow, or in any case for our own pages, which we control
+and can keep ES5: the prototype already runs the GameDB filter (tag boxes, search, Clear) in NetSurf. C is
+not worth it for memory, since nearly all the saving comes from settings an unmodified build has. B2 is
+not a project for us.
+
+Firefox is out: no ppc64 build is installable on current sid, and with every memory pref we know it took
+474 MB PSS on the PC. Chromium has no big-endian port in Debian and no upstream support.
 
 ## The comparison
 
-Memory: PSS of all the browser's processes, summed from `/proc/<pid>/smaps_rollup`, about 20-40 s after the
-load, on the PC (amd64, see above). "Home" is our GameDB home page (23 cards with screenshots), "busy" is
-the English Wikipedia article on the PlayStation 3.
+Memory: PSS of all the browser's processes, summed from `/proc/<pid>/smaps_rollup` about 30-40 s after
+the load. "Home" is our GameDB home page (23 cards with screenshots), "busy" the English Wikipedia
+article on the PlayStation 3.
 
-| Option | ppc64 BE in debian-ports (2026-10-28) | JavaScript | Memory, home / busy (PC) | Rendering | Effort | Main risks |
-|---|---|---|---|---|---|---|
-| **WebKitGTK + surf** | libwebkit2gtk-4.1-0 2.52.6-1 and libwebkitgtk-6.0-4 2.52.6-1, installable; sid has 2.54.2, which is BD-Uninstallable on ppc64. surf 2.1+git20250419-2, vimb 4.0.0-2 (GTK 4), epiphany-browser 51.1-1 | Full modern JS on JavaScriptCore's C++ interpreter (CLoop): no JIT, no WebAssembly on big-endian | 352 / 418 MB with `JSC_useJIT=0` | Cairo on big-endian (Skia is off by default there), GL compositing optional | S to install, M for a trimmed shell | Memory; CLoop speed on the PPE; ports lag a release behind; upstream means to drop Cairo, the only big-endian renderer |
-| **NetSurf 3.11** (what we ship) | netsurf-gtk 3.11-4, current | Duktape 2.7 (ES5.1), built in, off by default; DOM changes after layout are not drawn | 107 / 150 MB (JS off) | Own engine, CSS 2.1 plus flexbox, no grid | none | It is the ceiling: no dynamic pages |
-| **Firefox ESR / Firefox** | firefox-esr 128.4.0esr-1, firefox 133.0-1, and 146.0.1-1+quickjs in `unreleased`: all three need libvpx9 or libvpx11, and ppc64 has only libvpx12, so none installs. 153.6.0esr and 158.0.1 are BD-Uninstallable (nodejs) | SpiderMonkey interpreters only in Debian builds; an out-of-tree big-endian JIT exists for 153+ (below) | 474 / 556 MB with the low-memory profile below, JIT off | Software WebRender (our GL 2.1 is below the hardware path's GL 3 / GLES 3) | XL: our own build of a 20 GB-link package | Memory alone rules it out; 133.0 is reported to segfault at start on big-endian |
-| **Chromium, QtWebEngine** | Not built: Debian's chromium is amd64, arm64, armhf, i386, loong64, ppc64el; qt6-webengine is x86/ARM only | V8 | not measured; 267 MB for one tab on a Pi 4 (LinuxLinks) | Skia, patched | XL+: a 69-patch out-of-tree port | No upstream big-endian support; memory |
-| **WPE WebKit + cog** | libwpewebkit-2.0-1 2.50.6-1 and cog 0.18.5-1, installable, but Debian's cog has only the drm, headless and wl platforms (no X11) | As WebKitGTK | not measured; expect WebKitGTK minus GTK | As WebKitGTK | M: rebuild cog with its X11 platform, or run it in a Wayland compositor | Same engine risks; no window manager integration |
-| **Pale Moon (UXP)** | Not packaged; community big-endian ppc64 builds exist (forum, 2026) | Old SpiderMonkey, interpreter only on ppc64 | not measured; single-process by design | Own Gecko fork | L: our own build | Community builds that do not start for everyone; old web compatibility |
-| **elinks 0.19** | 0.19.1-2.1+b1, built without any ECMAScript engine | none in Debian's build (upstream can use QuickJS, MuJS or SpiderMonkey) | small | Text | M to rebuild with QuickJS | Terminal only; partial DOM |
-| **Dillo 3.3** | 3.3.0-3 | none | small (58 MB of disk beyond the desktop) | Own engine | none | No JavaScript at all |
-| **Servo** | Not packaged | SpiderMonkey | not measured | WebRender (GL 3-class GPU, or software) | XL | No big-endian story, heavier than WebKit |
+| Option | ppc64 BE in debian-ports (2026-10-28) | JavaScript | Memory, home / busy (PC) | Rendering | Main risks |
+|---|---|---|---|---|---|
+| **WebKitGTK + surf** | libwebkit2gtk-4.1-0 2.52.6-1 and libwebkitgtk-6.0-4 2.52.6-1, installable; sid has 2.54.2, which is BD-Uninstallable on ppc64. surf 2.1+git20250419-2, vimb 4.0.0-2 (GTK 4), epiphany-browser 51.1-1 | Full modern JS on JavaScriptCore's C++ interpreter (CLoop): no JIT, no WebAssembly on big-endian | stock surf 351 / 422 MB; tuned shell 241 / 313 MB (200 / 272 without llvmpipe) | Cairo on big-endian (Skia is off there), GL compositing optional | Memory; CLoop speed on the PPE; ports lag a release behind; upstream means to drop Cairo, the only big-endian renderer |
+| **NetSurf 3.11** (what we ship) | netsurf-gtk 3.11-4, current | Duktape 2.7 (ES5.1), built in, off by default; DOM changes after layout are not drawn (section 5) | 107 / 150 MB (JS off) | Own engine, CSS 2.1 plus flexbox, no grid | It is the ceiling: no dynamic pages |
+| **NetSurf 3.11 + relayout patch** | our prototype | as above, and changes are drawn | 84-90 MB on home (JS on, 1000x740 window) | as above | Full rebuild per change; ES5 only |
+| **Firefox ESR / Firefox** | firefox-esr 128.4.0esr-1, firefox 133.0-1, and 146.0.1-1+quickjs in `unreleased`: all three need libvpx9 or libvpx11, and ppc64 has only libvpx12, so none installs. 153.6.0esr and 158.0.1 are BD-Uninstallable (nodejs) | SpiderMonkey interpreters only in Debian builds; an out-of-tree big-endian JIT exists for 153+ | 474 / 556 MB with the low-memory profile below, JIT off | Software WebRender (our GL 2.1 is below the hardware path's GL 3 / GLES 3) | Memory alone rules it out; 133.0 is reported to segfault at start on big-endian |
+| **Chromium, QtWebEngine** | Not built: Debian's chromium is amd64, arm64, armhf, i386, loong64, ppc64el; qt6-webengine is x86/ARM only | V8 | not measured; 267 MB for one tab on a Pi 4 (LinuxLinks) | Skia, patched | No upstream big-endian support; memory |
+| **WPE WebKit + cog** | libwpewebkit-2.0-1 2.50.6-1 and cog 0.18.5-1, installable, but Debian's cog has only the drm, headless and wl platforms (no X11) | As WebKitGTK | not measured | As WebKitGTK | Same engine risks; no window manager integration |
+| **Pale Moon (UXP)** | Not packaged; community big-endian ppc64 builds exist (forum, 2026) | Old SpiderMonkey, interpreter only on ppc64 | not measured; single-process by design | Own Gecko fork | Community builds that do not start for everyone; old web compatibility |
+| **elinks 0.19** | 0.19.1-2.1+b1, built without any ECMAScript engine | none in Debian's build (upstream can use QuickJS, MuJS or SpiderMonkey) | small | Text | Terminal only; partial DOM |
+| **Dillo 3.3** | 3.3.0-3 | none | small (58 MB of disk beyond the desktop) | Own engine | No JavaScript at all |
+| **Servo** | Not packaged | SpiderMonkey | not measured | WebRender (GL 3-class GPU, or software) | No big-endian story, heavier than WebKit |
 
 Disk beyond what the desktop already has (dependency closure from the ppc64 index): surf about 184 MB in
 39 packages (WebKit, GStreamer, ICU), vimb 180 MB, epiphany 205 MB, cog with WPE 142 MB, Firefox 260 MB.
@@ -134,57 +143,161 @@ API); sid has moved to 2.54.2-2, which is BD-Uninstallable on ppc64 and s390x fo
 release behind. Shells on ppc64: surf (GTK 3, 4.1 API), vimb (GTK 4), epiphany-browser 51.1 (GTK 4 and
 libadwaita). luakit 2.3 is stuck on the removed 4.0 API and does not install. badwolf is not packaged.
 
-**How it is built on big-endian.** From WebKit's own cmake at the 2.52.6 tag: `OptionsGTK.cmake` and
+**How it is built on big-endian.** From WebKit's cmake at the webkitgtk-2.52.6 tag: `OptionsGTK.cmake` and
 `OptionsWPE.cmake` turn Skia on only when `CMAKE_CXX_BYTE_ORDER` is little-endian, so ppc64 keeps the
-Cairo renderer (the change came with 2.46, [bug 274032](https://bugs.webkit.org/show_bug.cgi?id=274032));
+Cairo renderer (since 2.46, [bug 274032](https://bugs.webkit.org/show_bug.cgi?id=274032));
 `WebKitFeatures.cmake` gives every CPU other than x86-64, ARM64, ARMv7 Thumb-2 and RISC-V 64 the C_LOOP
-interpreter with JIT off, the system malloc and no WebAssembly. Debian's rules add nothing for ppc64
-beyond that. The big-endian non-Skia build breaks now and then and gets fixed: Epiphany's tests on s390x
-needed 2D canvas acceleration off ([bug 279220](https://bugs.webkit.org/show_bug.cgi?id=279220)), and
-2.52.2 failed to build without Skia ([bug 312160](https://bugs.webkit.org/show_bug.cgi?id=312160)).
-The CLoop has its own history of big-endian bugs, found on s390x, the only big-endian machine WebKit tests
+interpreter with JIT and FTL off, `USE_SYSTEM_MALLOC` on (so bmalloc and libpas are compiled but not used),
+no sampling profiler and no WebAssembly. Debian's
+[rules](https://sources.debian.org/data/main/w/webkit2gtk/2.52.6-1/debian/rules) add nothing for ppc64: a
+Release build with `-g1`, no LTO, `USE_LIBBACKTRACE=OFF`, `--reduce-memory-overheads` for the link, the GTK 3
+flavour without documentation, and bubblewrap on wherever libseccomp exists. The big-endian non-Skia build
+breaks now and then and gets fixed: Epiphany's tests on s390x needed 2D canvas acceleration off
+([bug 279220](https://bugs.webkit.org/show_bug.cgi?id=279220)), and 2.52.2 failed to build without Skia
+([bug 312160](https://bugs.webkit.org/show_bug.cgi?id=312160)). The CLoop has its own history of
+big-endian bugs, found on s390x, the only big-endian machine WebKit tests
 ([bug 238956](https://bugs.webkit.org/show_bug.cgi?id=238956),
 [bug 213307](https://bugs.webkit.org/show_bug.cgi?id=213307)). Upstream says Cairo is to be removed
 "in the near future" ([Igalia](https://blogs.igalia.com/carlosgc/?p=1029)); when that happens big-endian
 WebKit loses its renderer unless someone ports Skia.
 
-**Memory knobs.** `WEBKIT_DISABLE_COMPOSITING_MODE=1` still exists (a crash with it was fixed in February
-2026, [bug 306993](https://bugs.webkit.org/show_bug.cgi?id=306993)); the settings API has
-`hardware-acceleration-policy` `NEVER` ([docs](https://webkitgtk.org/reference/webkit2gtk/stable/enum.HardwareAccelerationPolicy.html)).
-`WebKitMemoryPressureSettings` (since 2.34) sets a memory limit, conservative and strict thresholds, a
-kill threshold and the poll interval for web processes, and separately for the network process
-([docs](https://webkitgtk.org/reference/webkit2gtk/stable/struct.MemoryPressureSettings.html)); a shell has
-to set it, surf does not. The cache model `WEBKIT_CACHE_MODEL_DOCUMENT_VIEWER` drops the memory cache; surf
-picks it when its `DiskCache` setting is off. Media, WebAudio and WebGL are settings too (`enable-media`,
-`enable-webaudio`, `enable-webgl`). `JSC_useJIT=0` changes nothing on ppc64, where there is no JIT. A
-web process per tab is the model since 2.26; one tab means one web process, plus the network process and
-the UI. Since WebKit links GStreamer, media stays loadable unless the shell turns it off.
+**Process model.** Three processes at least: the UI (the shell), one WebKitWebProcess per tab (the only
+model since 2.26: `webkit_web_context_set_process_model` is a no-op, see `WebKitWebContext.cpp` at the
+tag) and one WebKitNetworkProcess, which cannot be folded in. `WEBKIT_USE_SINGLE_WEB_PROCESS` was a
+temporary switch of 2.25.92 ([release notes](https://webkitgtk.org/2019/09/03/webkitgtk2.25.92-released.html))
+that shared one web process between views; it is gone from 2.54 (not in the library's strings, and setting
+it changed nothing). There is no single-process WebKit any more. `ENABLE_GPU_PROCESS` is on in the
+default build (it needs `USE_GBM`); no GPU process appeared in the PC runs.
 
-**Measured on the PC** (WebKitGTK 2.54.2 amd64, so Skia and llvmpipe, `JSC_useJIT=0`,
-`WEBKIT_DISABLE_COMPOSITING_MODE=1`, stock surf): GameDB home 352 MB PSS (UI 106, network 34, web process
-221), a game page 340 MB, Wikipedia 418 MB. The web process on the home page held 58 MB of heap, 40 MB of
-other anonymous memory, 43 MB of libwebkit2gtk, 31 MB of libLLVM and 11 MB of JavaScriptCore; the UI held 19
-MB of libLLVM. Taking llvmpipe out and adding ppc64's larger code gives the 200-250 MB guess above. We
-found no published figure for WebKitGTK on 512 MB boards; a Pi user asking why WebKitWebProcess uses so
-much memory gives none either ([Pimoroni forum](https://forums.pimoroni.com/t/browser-requirements/1483)).
+### Measured on the PC: what run-time settings save
 
-**The GameDB filter in surf works**: `index.html#q=doom` showed "6 of 23 games" with the filter bar
-visible.
+WebKitGTK 2.54.2-2 amd64 (so Skia, where the PS3 build has Cairo), Xvfb 1280x1024, surf from Debian and a
+46-line GTK 3 shell (one `WebKitWebView`, settings switched by environment), `JSC_useJIT=0` and
+`WEBKIT_DISABLE_COMPOSITING_MODE=1` in every run. "Tuned" is the shell with all of the following:
+`webkit_settings_set_hardware_acceleration_policy(NEVER)`; `WebKitMemoryPressureSettings` with a 100 MB
+limit, conservative 0.33, strict 0.5, kill threshold off, poll every 5 s, set with the static
+`webkit_website_data_manager_set_memory_pressure_settings` (2.54 has no construct property on the web
+context); `WEBKIT_CACHE_MODEL_DOCUMENT_VIEWER`; an ephemeral website data manager (no disk cache); page
+cache, media, WebAudio, WebGL, media stream, MSE, EME and developer extras off.
 
-**GL.** With compositing on, WebKitGTK draws layers through EGL and GLES 2 class calls (TextureMapper),
-which our nv30 driver should manage (EGL works, [DRIVER.md](../DRIVER.md)), but it is a GL client the
-validator has never seen. The first PS3 runs keep compositing off; turning it on is a separate step, with
-VRAM use watched since VRAM is the swap's first tier.
+| Run | Page | Total MB | UI / network / web | Anonymous (all processes) | Total without llvmpipe |
+|---|---|---:|---|---:|---:|
+| stock surf | home | 351 | 95 / 39 / 218 | 162 | 287 |
+| stock surf | Wikipedia | 422 | 97 / 51 / 275 | 219 | 356 |
+| shell, nothing set | home | 396 | 100 / 38 / 257 | 196 | 330 |
+| shell, tuned | home | 241 | 115 / 36 / 90 | 69 | 200 |
+| shell, tuned | Wikipedia | 313 | 115 / 46 / 152 | 130 | 272 |
+| tuned + `WEBKIT_DISABLE_DMABUF_RENDERER=1` | home | 217 | 93 / 35 / 89 | 52 | 182 |
+| tuned + `WEBKIT_DISABLE_DMABUF_RENDERER=1` | Wikipedia | 287 | 90 / 45 / 151 | 114 | 254 |
+
+A bisect on the home page puts nearly all of the gain on one setting. The acceleration policy alone gave
+238 MB (web process 89 MB, its anonymous memory down from 144 to 19 MB); memory pressure settings with the
+cache model alone gave 384 MB, the feature switches alone 386 MB. With the policy at NEVER the web process
+maps no Mesa at all; its biggest mappings are then libwebkit2gtk (41 MB), JavaScriptCore (11 MB), 8 MB of
+anonymous memory and a 7.5 MB `WebKitSharedMemory` buffer. `WEBKIT_DISABLE_COMPOSITING_MODE=1` did not
+achieve this on 2.54: the web process still created a GL context. Our reading is that on amd64 Skia
+rasterises on the GPU (here llvmpipe) unless the policy says NEVER. The PS3's Cairo build rasterises on the
+CPU anyway, so part of this saving is already there on ppc64; the policy still guarantees that no GL
+context is made. The GameDB filter worked in every tuned run (`#q=doom` showed "6 of 23 games").
+
+What did not matter at these sizes: the memory pressure limit (the web process never reached it), the
+cache model and the ephemeral manager (on a 217 MB machine WebKit's `CacheModel.cpp` already sizes the
+memory cache at 8 MB and the back/forward cache at 0 for every model; the model mostly changes the disk
+cache), `JSC_useConcurrentGC=0` and `JSC_gcMaxHeapSize=33554432` (within 1 MB). The UI process kept about
+40 MB of libLLVM and gallium whatever we tried (`LIBGL_ALWAYS_SOFTWARE`, `GDK_DEBUG=gl-disable`; softpipe
+made it 100 MB larger); that part does not exist on the PS3.
+
+surf cannot be told any of this: it sets only the cache model (DOCUMENT_VIEWER when its `DiskCache` is off)
+and leaves the acceleration policy at its default
+([surf.c](https://git.suckless.org/surf/tree/surf.c)). Path A therefore needs a small patch to surf, or our
+own shell.
+
+**What that predicts for the PS3.** Tuned, the GameDB home needs about 70 MB of anonymous memory plus
+whatever part of 110-150 MB of library code it touches (libwebkit2gtk, JavaScriptCore, GTK, ICU: shared,
+file-backed, read back from the SSD when evicted rather than swapped). Wikipedia needs about 130 MB of
+anonymous memory. With the desktop up there is about 100-130 MB free, so the home page might fit and a
+busy page will lean on the swap tiers. Only the PS3 can say whether that is a usable browser.
+
+### Run-time knobs, for the shell
+
+From the source at webkitgtk-2.52.6 (`Source/WTF/wtf/MemoryPressureHandler.cpp`, `RAMSize.cpp`,
+`Source/WebKit/Shared/CacheModel.cpp`, `Source/JavaScriptCore/runtime/OptionsList.h`):
+
+- `WebKitMemoryPressureSettings` (since 2.34): the default limit is the RAM size (capped at 3 GB), read
+  with `sysinfo()`, so about 217 MB on the PS3; conservative 0.33 and strict 0.5 of it, kill threshold
+  unset, polled every 30 s. Linux has no pressure source in this code (no PSI, no cgroup): only the
+  process's own footprint is polled, so a lower limit (60-80 MB) and a shorter poll are the levers. The
+  network process takes its own copy through the website data manager.
+- JSC options read from `JSC_<name>` in release builds: `gcMaxHeapSize` (0, unlimited), `forceRAMSize`,
+  `smallHeapRAMFraction` 0.25, `largeHeapSize` 32 MB, `useConcurrentGC` and `useGenerationalGC` (true),
+  `numberOfGCMarkers`, `maxPerThreadStackUsage` 5 MB, `criticalGCMemoryThreshold` 0.80. Heap sizing is
+  derived from the RAM size, so on 217 MB JSC is already in its small-heap mode; whether `gcMaxHeapSize`
+  helps on a script-heavy page is untested.
+- `hardware-acceleration-policy` NEVER (the measured win), `WEBKIT_DISABLE_DMABUF_RENDERER=1` (another 24 MB
+  on the PC, mostly in the UI), `enable-page-cache` off (no effect at a capacity of 0, harmless).
+- Fonts: not measured; fontconfig's cache is shared, mapped files.
+
+### The sandbox
+
+WebKitGTK's bubblewrap sandbox is opt-in in the GTK 3 API: `m_sandboxEnabled` starts false and only a shell
+that calls `webkit_web_context_set_sandbox_enabled(TRUE)` gets it (Epiphany does; surf and our shell do not,
+and no bwrap or xdg-dbus-proxy process appeared). The GTK 4 API turns it on at context creation. Where it is
+on, there is no fallback: `ProcessLauncherGLib.cpp` spawns the web process through bwrap, which needs user,
+PID, IPC, UTS and (often) network namespaces; in the container `WEBKIT_FORCE_SANDBOX=1` died at once with
+"bwrap: Creating new namespace failed: Operation not permitted" and "Connection: failed to receive
+credentials". So on our kernel the rule is simple: stay on the GTK 3 API and do not enable the sandbox, or
+set `WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1` for a GTK 4 shell. Debian's package still depends on
+bubblewrap and xdg-dbus-proxy (disk only).
+
+### Build options, and building it ourselves
+
+Every WebKit option is an ordinary cmake cache variable; "private" ones are only hidden from the GUI, so
+`-DENABLE_WEBGL=OFF` works without patches. The ones that change memory at run time are few, because shared
+libraries are paged in on use:
+
+- `ENABLE_WEBGL=OFF` also drops ANGLE and turns hardware acceleration off for good
+  (`HardwareAccelerationManager.cpp`: `#if !ENABLE(WEBGL)`), the build-time twin of the policy setting.
+- `USE_GSTREAMER=OFF` (takes `ENABLE_VIDEO`, `ENABLE_WEB_AUDIO`, WebCodecs and speech synthesis with it)
+  is the only way to keep the GStreamer libraries out of the processes and out of the image.
+- The rest mostly saves disk: `ENABLE_SPELLCHECK`, `ENABLE_INTROSPECTION`/`ENABLE_DOCUMENTATION`,
+  `ENABLE_JOURNALD_LOG`, `ENABLE_GAMEPAD`, `ENABLE_WEBDRIVER`, `ENABLE_MINIBROWSER`, `ENABLE_PDFJS`,
+  `ENABLE_SPEECH_SYNTHESIS`/`USE_FLITE`, `USE_LCMS`, `USE_JPEGXL`, `USE_AVIF`, `USE_WOFF2`,
+  `USE_LIBHYPHEN`, `ENABLE_MEDIA_STREAM`, `ENABLE_GEOLOCATION`. GTK has no switch for accessibility
+  (`USE_ATSPI` is hard-wired on); it costs nothing until an assistive tool connects.
+- `ENABLE_RESOURCE_USAGE` and `ENABLE_PERIODIC_MEMORY_MONITOR` are small; keep the latter, it drives the
+  memory pressure handler. WebAssembly and the JIT are already off on ppc64.
+- `CMAKE_BUILD_TYPE=MinSizeRel` is what meta-webkit's `reduce-size` PACKAGECONFIG does
+  ([meta-webkit](https://github.com/Igalia/meta-webkit)); smaller text, slower code, and CLoop speed is
+  already a worry. Buildroot's [wpewebkit.mk](https://github.com/buildroot/buildroot/blob/master/package/wpewebkit/wpewebkit.mk)
+  is the closest published minimal configuration (documentation, introspection, MiniBrowser, WebRTC and
+  ATK off; media, WebDriver, AVIF, JPEG XL and the like by option); its Config.in says big-endian PowerPC is
+  "pending runtime testing".
+
+So a slimmed build would save a few MB of mapped GStreamer and ANGLE and roughly 100 MB of disk (the
+GStreamer closure and friends), not a different class of memory. The cost is real: Debian's ppc64 buildd
+took 3 h 19 min to 4 h 56 min for 2.52.x on POWER hardware, with 14 GB of disk, for both GTK flavours
+([build logs](https://buildd.debian.org/status/logs.php?pkg=webkit2gtk&arch=ppc64)). Our native builds run
+in a ppc64 chroot under qemu-user (Mesa: 25 minutes cold); WebKit there would take most of a day per
+build. A cross build (our `gcc-16-powerpc64-linux-gnu`, the chroot as sysroot, cmake's toolchain file) would
+take one to two hours on the 24-core PC, but it is a new kind of build for us and two to four days to set
+up and package. Either way the tree (7-10 GB for one flavour, plus ccache) belongs in the overflow area
+`/mnt/data_linux/Temp/ps3`, since /home is 80% full. And a browser engine of our own means following
+WebKitGTK's security releases (about monthly) for as long as we ship it. Not worth it unless the PS3 test
+shows that the few MB matter.
 
 ## 4. WPE WebKit and cog
 
-WPE is WebKit's embedded port (no GTK). libwpewebkit-2.0-1 2.50.6-1 and cog 0.18.5-1 install on ppc64, but
-Debian's cog ships only the `drm`, `headless` and `wl` platform modules. `drm` would take the display from
-X; `wl` needs a Wayland compositor (cage or weston nested in X: more memory). Cog's upstream X11 platform is
-not built by Debian. So WPE on our desktop means rebuilding cog with its X11 platform (M effort: a small
-package). It saves GTK in the UI process; the web and network processes are the same engine, so the gain
-is probably tens of MB, not a different class. Igalia publishes no Pi Zero-class numbers we could find
-([Igalia WPE](https://igalia.com/wpe)). Worth it only if surf measures close to fitting.
+WPE is WebKit's embedded port (no GTK), aimed at set-top boxes. libwpewebkit-2.0-1 2.50.6-1 and cog
+0.18.5-1 install on ppc64, but Debian's cog ships only the `drm`, `headless` and `wl` platform modules.
+`drm` would take the display from X; `wl` needs a Wayland compositor (cage or weston nested in X: more
+memory). Cog's upstream X11 platform is not built by Debian, so WPE on our desktop means rebuilding cog
+with it (about a week with testing). The web and network processes are the same engine as WebKitGTK; what
+WPE saves is the UI process, which was 93-115 MB PSS in the tuned GTK runs (36 MB anonymous, 40 MB of it
+llvmpipe that the PS3 does not have). Igalia and wpewebkit.org publish no memory figures; the slides say
+"low memory and storage footprint" without a number
+([Igalia slides](https://www.igalia.com/downloads/slides/MarioSanchezPrada-UnlockingtheFullPotentialofWPE.pdf)).
+WPE's defaults differ little from GTK's (GPU process on, MiniBrowser only in developer mode). Worth it only
+if path A nearly fits.
 
 ## 5. NetSurf's JavaScript
 
@@ -194,39 +307,144 @@ bindings generate on big-endian. `desktop/options.h` declares `enable_javascript
 switched on in `~/.config/netsurf/Choices` with `enable_javascript:1`, or in the GUI's preferences.
 
 **What 3.11 implements** (Duktape 2.7, ES5.1, with an `Array.from` polyfill; read from the `.bnd`
-bindings and checked with a probe page in netsurf-gtk 3.11-4 on the PC): `getElementById`,
-`getElementsByTagName`, `createElement`, `appendChild` and the other Node methods, `textContent`,
-`innerHTML`, `className`, `classList`, `style`, `addEventListener`, `setTimeout`/`setInterval`, `location`,
-`document.write`, `console`, cookies, canvas image data. Not implemented (missing, or a stub that returns
-`undefined`): `querySelector`/`querySelectorAll`, `dataset`, the `hidden` property, `history`, `Promise`,
-`fetch`, `XMLHttpRequest`, `localStorage`, `navigator.clipboard`, `scrollIntoView`; `closest`,
-`execCommand` and `URLSearchParams` exist only as stubs (`new URLSearchParams("a=1")` throws "Bad
-constructor"). ES2015 syntax (`let`, arrow functions) is a SyntaxError.
+bindings and checked with probe pages): `getElementById`, `getElementsByTagName`, `createElement`,
+`appendChild` and the other Node methods, `textContent`, `className`, `classList`, `setAttribute`,
+`addEventListener`, `setTimeout`/`setInterval`, `location` (with `search`, `hash`, `pathname`),
+`document.write`, `console`, cookies, canvas image data. Stubs that return `undefined` or throw:
+`querySelector`/`querySelectorAll` (the stub on `Element.prototype` is non-writable), `innerHTML` (the
+getter returns ""), `element.style` (an empty object: setting `style.display` does nothing),
+`closest`, `URLSearchParams` ("Bad constructor"), `execCommand`. Missing: `dataset`, the `hidden`
+property, `history`, `Promise`, `fetch`, `XMLHttpRequest`, `localStorage`, `scrollIntoView`. ES2015
+syntax (`let`, arrow functions) is a SyntaxError. Of the DOM events, NetSurf itself fires only `load` and
+`click`: no `input` or `change` from its form controls.
 
-**The decisive test.** Scripts run while the page parses (a `textContent` change before layout shows), and
-timers and click handlers fire (they changed `location.href`, which the URL bar showed). But the text and
-class changes those same handlers made were never drawn: after load, the page on screen stays as first laid
-out. Any filter, tab or menu that changes the page after load cannot work in 3.11, whatever we polyfill.
+**Why changes are never drawn** (netsurf 3.11 source):
 
-**Development.** No release after 3.11 (2023-12-28); the newest commits under
-`content/handlers/javascript` are warning fixes of 2024, the last feature work (DOMTokenList) is from
-November 2022 ([GitHub mirror](https://github.com/netsurf-browser/netsurf/commits/master/content/handlers/javascript)).
+- `html_finish_conversion()` (html.c) builds the box tree once, from the whole DOM, after parsing; its own
+  comment says "NetSurf has no concept of dynamically changing documents, so this would break badly" and
+  it ignores a second call ("Ignoring style change: NS layout is static").
+- `box_construct.c` (`dom_to_box`, `convert_xml_to_box`) walks the DOM in steps of ten elements, selects
+  each element's style with libcss (`box_get_style`, which parses the `style` attribute as an inline sheet
+  each time), creates the boxes, starts image fetches (`html_fetch_object`) and form gadgets, and stores
+  the box on the DOM node as user data. Nothing ever rebuilds it.
+- libdom does fire mutation events: `setAttribute` dispatches DOMAttrModified and DOMSubtreeModified,
+  text changes DOMCharacterDataModified, insertions and removals DOMNodeInserted/DOMNodeRemoved plus
+  DOMSubtreeModified on the parent. NetSurf's `dom_event.c` uses them only for side effects: a `<base>`,
+  `<img>` (prefetch), `<link>`, `<meta refresh>`, `<style>` or `<script>` inserted, a `<title>` changed, an
+  `<input>`'s gadget resynced. None of them touches the box tree.
+- libcss keeps per-node data (a Bloom filter of ancestors and the computed style, for style sharing) on
+  the DOM node, and NetSurf's `set_libcss_node_data` asserts the slot is empty, so a node cannot simply be
+  selected a second time. libdom also has a bug of its own: its cached class list is rebuilt only when a
+  `class` attribute is created, so changing an existing one (`el.className = "x"`) is invisible to CSS
+  selectors.
+- Relayout exists and is cheap to call: `html_reformat()` (layout.c's `layout_document` over the existing
+  box tree), reached through `content__reformat()`, which broadcasts `CONTENT_MSG_REFORMAT`; the browser
+  window then updates its extent and redraws, keeping the scroll position. Images use this path when they
+  arrive. Layout itself has no dirty tracking: it always lays out from the root.
 
-**The GameDB filter in NetSurf.** With JavaScript on, the home and game pages look exactly as with it off
-(the home screenshots are pixel-identical) and the log has `Uncaught error in JS: SyntaxError: parse error
-(line 1)`. The cause is Hugo's minifier: it rewrites `catch (e) {}` in `assets/gamedb.js` to `catch{}`
-(ES2019 optional catch binding), which no ES5 engine parses. Had it parsed, line 1's
-`document.querySelectorAll` would throw a TypeError, and the `URLSearchParams`/`history.replaceState` guard
-keeps the bar hidden anyway. So turning JavaScript on gains nothing on our site and costs parse time on
-others; it stays off. (Hugo's JS minifier targets ES2022 unless told otherwise; `[minify.tdewolff.js]
-version = 2015` in hugo.toml should stop the `catch{}` rewrite if we ever target an ES5 engine. Not needed
-for NetSurf.)
+**Prior attempts.** None found. The NetSurf 3.0 release (2013) called libdom "a foundation that paves the
+way for NetSurf to implement a fully dynamic layout engine in the future"; the 3.10 release news (2020)
+still said there was no mechanism to update the affected parts of the box tree after a script change
+([Iconbar](https://www.iconbar.co.uk/NetSurf_reaches_version_3.10/news1571.html)). The git history has a
+test page for it from 2019 (`test/js/event-onclick-insert.html`, "Add simple JS test for dynamic
+layout") and no code. NetSurf is not dead: master has 331 commits since 3.11 (2023-12-28), the newest on
+2026-10-27, a Qt 6 frontend among them, but no release and nothing on dynamic layout.
 
-## 6. The rest, in a line each
+### The prototype: rebuild the whole box tree on any change
 
-- **elinks 0.19.1**: Debian builds it without an ECMAScript engine (no QuickJS, MuJS or SpiderMonkey in
-  `debian/rules` or the dependencies); a QuickJS rebuild would give a terminal browser partial DOM
-  scripting, not the web.
+Written and tested on the PC in a Debian sid container against Debian's 3.11-4 source; the patch is
+[netsurf-relayout/netsurf-3.11-dom-relayout.patch](netsurf-relayout/netsurf-3.11-dom-relayout.patch)
+(about 470 added lines in 17 files of netsurf and libdom). It took most of a day, including the bugs below.
+
+- Any DOMSubtreeModified after the first layout (attributes, class, `style`, text, children) calls
+  `html__dom_changed()`, which schedules one rebuild 10 ms later, so a script that changes fifty nodes
+  costs one rebuild. It waits while a drag is running, the content is locked or a conversion is in
+  progress, and it skips documents with frames or iframes.
+- The rebuild clears each element's box pointer and libcss node data (`nscss_dom_node_restyle()`, through
+  libcss's own `CSS_NODE_DELETED` path), builds a new tree synchronously into a new talloc context with
+  `dom_to_box_sync()` while the old tree stays drawable, then frees the old one and calls
+  `content__reformat()`. Scroll position is kept by the browser window's normal reformat path.
+- What points into the old tree is moved over: images and background images are taken over by the new box
+  for the same node and URL instead of being fetched again (the first version re-fetched them and lost
+  every picture on the page); form gadgets keep their state, text fields keep their text and caret, the
+  focused field stays focused; `<select>` options are not added twice; inputs outside a `<form>` keep their
+  gadget through node user data.
+- Fixed on the way: libdom's class cache (above), so `className` changes restyle.
+- Added so the GameDB filter can be driven: `[hidden] { display: none }` in the UA sheet and a `hidden`
+  property; `change` events from checkboxes, radio buttons and selects, `input` events from text fields.
+
+Results (screenshots looked at for each step):
+
+- The [probe page](netsurf-relayout/probe.html) (a timer changes `className`, sets `hidden`, a `style`
+  attribute, `classList.add`, removes one item and appends another, changes text): stock 3.11 shows the
+  page as first laid out; the patched build shows every change.
+- The GameDB home, built unminified (Hugo's `catch{}` does not parse in Duktape) with a test-only shim for
+  what NetSurf lacks ([gamedb-test-shim.js](netsurf-relayout/gamedb-test-shim.js): `querySelectorAll` for
+  simple selectors, `URLSearchParams`, `history.replaceState`): `?q=doom` opens with "6 of 23 games";
+  Clear shows 23 of 23; ticking "horror" gives 4 of 23; typing "quake" in the search box narrows to 1 of
+  23 (QuakeSpasm, with its screenshot), with the page scrolled halfway down and the scroll kept through
+  each keystroke's rebuild.
+- Cost per change on the PC: GameDB 2-4 ms to rebuild and 2-12 ms to reflow; Wikipedia's PlayStation 3
+  article, styled, with a script toggling `<body>`'s class: 105-115 ms rebuild plus 168-173 ms reflow,
+  steady over 20 changes, pictures kept. Our guess is that the PPE is 10-20 times slower per thread than this PC
+  for such pointer-chasing code, which would give 0.1-0.3 s per change on GameDB and 3-6 s on a Wikipedia-sized page.
+- Memory: 84-90 MB PSS on the GameDB pages (JS on, 1000x740); on Wikipedia, PSS grew by about 80 KB per
+  rebuild (146.4 to 147.9 MB over 20), a leak or fragmentation not yet chased.
+
+What (1) still needs to ship, as `netsurf 3.11-4+ps3.N` (`packages/patched/`): the leak; the failure path
+(a rebuild that runs out of memory hands objects back badly); selection and search highlights, which are
+dropped on rebuild; frames and iframes (skipped now); stylesheets added by script (ignored, as before); a
+PS3 measurement of the rebuild cost. For scripts beyond our own: real `querySelector`/`querySelectorAll`
+(a small selector matcher in C or the bindings' polyfill, 1-2 days), `element.style` backed by the `style`
+attribute (1-2 days), `URLSearchParams`, `history.replaceState` and `dataset` (a day). That is one to two
+weeks with testing. Our site would also need its minifier told to target ES5 (`[minify.tdewolff.js]
+version = 2015` in hugo.toml stops the `catch{}` rewrite) and its filter to fall back from
+`querySelectorAll`, or the polyfills shipped in NetSurf.
+
+What it will not do: ES2015 and later. Duktape is ES5.1, and most sites now ship ES2015+ bundles. A modern
+engine (QuickJS) under NetSurf's bindings would be a separate project of weeks, since nsgenbind generates
+Duktape-specific code.
+
+### (2) Incremental restyle and relayout
+
+The proper version restyles only the elements a change can affect, patches the box tree in place and
+reflows only what moved. In NetSurf each part is missing, not just switched off:
+
+- Restyle: libcss has no invalidation data, so a class change on an element must restyle its subtree and,
+  with sibling combinators, its following siblings and their subtrees; the node data and style sharing
+  have to be invalidated along the same lines.
+- Box tree: boxes are built in one pass with anonymous inline containers, float wrappers, list markers,
+  generated content and table normalisation (`box_normalise.c`); replacing one element's boxes means
+  undoing and redoing those around it.
+- Layout: `layout.c` (5,470 lines) and `layout_flex.c` lay out from the root with cached min/max widths and
+  no dirty bits; tables, floats and shrink-to-fit widths depend on their children.
+
+On the PC numbers the rebuild is 40% of the cost on Wikipedia and the reflow 60%, so incremental box
+construction alone would not help much; dirty-bit layout is what pays, and it is the hardest part. This is
+the dynamic layout engine NetSurf's developers have planned since 2013. Two to four months for someone who
+knows the code, with a long tail of layout bugs; not a project for us. A cheaper middle step, rebuilding
+only the box subtree under the nearest block ancestor of the changes and then reflowing everything, would
+save part of the 40%.
+
+## 6. The PS3's own browser, as a reference point
+
+GameOS's browser moved from NetFront to a WebKit-based engine with firmware 4.10 in February 2012, with
+better speed, layout and some HTML5
+([Wikipedia](https://en.wikipedia.org/wiki/PlayStation_3_system_software),
+[Engadget](https://www.engadget.com/2012-02-08-ps3-firmware-update-speeds-up-web-browsing.html)). Nothing
+public gives its memory budget, its process model or its JavaScript engine (psdevwiki was not reachable);
+what is known are user reports of "There is not enough memory" errors that blank the page on heavy sites
+([Audioholics thread](https://forums.audioholics.com/forums/threads/ps3-webpage-error-not-enough-memory.42391/latest),
+[HardForum](https://www.hardforum.com/threads/low-memory-message-comes-up-while-web-brwsing-on-ps3.1241268/)).
+How Sony fitted it beside the XMB is undocumented; WebKit ports of 2012 commonly ran in one process (the
+WebKit1 model), and this one still ran out of memory on the heavy pages of its day. Today's WebKitGTK
+cannot be made single-process, and today's pages are heavier. The reference says a WebKit browser on this machine is
+possible; it does not say today's one will be comfortable.
+
+## 7. The rest, in a line each
+
+- **elinks 0.19.1**: Debian builds it without an ECMAScript engine; a QuickJS rebuild would give a terminal
+  browser partial DOM scripting, not the web.
 - **Dillo 3.3.0**: installable, no JavaScript by design; lighter than NetSurf, no gain for this question.
 - **links2, w3m, lynx**: installable, no JavaScript.
 - **Servo**: not in Debian; draws through WebRender (GL 3-class, or software); no big-endian work known.
@@ -240,58 +458,62 @@ The rules: not while the user plays or a benchmark or another agent's batch runs
 queue; check nobody is at the console first). The desktop is up, since a browser lives there. Nothing else
 runs: no game, no deploy, no ssh scans during a measured load. Swap empty at the start (`swapoff -a; swapon
 -a`, as in the measurement protocol), the same boot for every candidate, one candidate at a time, and each
-run checked by an `xwd` screenshot read by eye (a black or half-drawn page is not a result). Packages go on
-with apt from debian-ports; nothing is changed in our packages until a result says so.
+run checked by an `xwd` screenshot read by eye (a black or half-drawn page is not a result).
 
 **Candidates, in order.**
 
 1. NetSurf 3.11 (baseline, JavaScript off), already installed.
-2. surf on WebKitGTK 2.52.6: `apt install surf` (pulls libwebkit2gtk-4.1-0 and GStreamer). Runs: (a)
-   `WEBKIT_DISABLE_COMPOSITING_MODE=1`, stock surf; (b) the same with GStreamer's media off if surf allows,
-   else noted; (c) compositing on, only if (a) is usable, watching `dmesg` for ps3rsx validator rejections
-   and the VRAM census. If bubblewrap cannot create its namespaces under our kernel, note it and run once
-   with `WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1` to get the numbers.
-3. Only if surf nearly fits: a trimmed shell (surf's `config.h`: DiskCache off for the document-viewer
-   cache model, media, WebGL and accelerated canvas off, plus `WebKitMemoryPressureSettings` with a
-   limit), or cog with its X11 platform. Firefox is not tested: no package installs, and its PC floor is
-   twice the RAM.
+2. WebKitGTK 2.52.6 from debian-ports through a tuned shell: surf with a patch that sets
+   `hardware-acceleration-policy` NEVER, a memory pressure limit of 80 MB and `DiskCache` off, or the
+   46-line test shell of section 3 (built in the ppc64 chroot). Runs: (a) tuned; (b) stock surf for
+   comparison; (c) tuned with `WEBKIT_DISABLE_DMABUF_RENDERER=1`. No sandbox (none is enabled in the GTK 3
+   API). Watch for a WebKitGPUProcess in `ps`.
+3. NetSurf with the relayout patch, JavaScript on, the GameDB home built for ES5 with the test shim: the
+   rebuild time per change (from the log: "box tree rebuilt in N ms, reflowed in M ms") on GameDB and on
+   the Wikipedia article with a class toggler.
+4. Only if 2 nearly fits: cog with its X11 platform.
 
-**Pages.** The GameDB home (`https://walnut.nanobyte.dev/gamedb/`, and the same page with `#q=doom`), one
-game page (OpenArena), and a busy site (the English Wikipedia article "PlayStation 3"). If surf survives
+**Pages.** The GameDB home (`https://walnut.nanobyte.dev/gamedb/`, and the same page with `?q=doom`), one
+game page (OpenArena), and a busy site (the English Wikipedia article "PlayStation 3"). If WebKit survives
 those, one script-heavy site the user cares about.
 
 **What to record per candidate and page.**
 
-- Memory: RSS and PSS of every process of the browser (`/proc/<pid>/smaps_rollup`, summed; for WebKit the
-  UI, WebKitWebProcess and WebKitNetworkProcess), plus `MemAvailable`, swap used per tier (zram, VRAM swap,
-  USB) before and 30 s after each load.
+- Memory: PSS and anonymous memory of every process of the browser (`/proc/<pid>/smaps_rollup`, summed; for
+  WebKit the UI, WebKitWebProcess and WebKitNetworkProcess), plus `MemAvailable` and swap used per tier
+  (zram, VRAM swap, USB) before and 30 s after each load.
 - Swap traffic: `pswpin`/`pswpout` from `/proc/vmstat` over the load and for 60 s after; major faults of the
-  web process.
+  web process (library pages read back count here too).
 - Time to load: from the command to the page drawn and the web process idle (CPU under 5% for 3 s), with an
   `xwd` every 2 s to see when the page is complete. NetSurf's status bar gives its own "Done (x s)".
 - Scrolling the busy page by keyboard for 30 s: responsive or not, and stalls seen.
-- The GameDB filter: bar visible, typing a word narrows the cards, the count changes, a category select
-  works, the hash link `#q=doom` opens filtered.
+- The GameDB filter: bar visible, typing a word narrows the cards, the count changes, a tag box works, the
+  link `?q=doom` opens filtered, and how long each change takes to show.
 - The desktop afterwards: closing the browser gives memory back (`MemAvailable` within a few MB of the
   start), panel and file manager answer at once.
 
-**Reading the result.** surf is a candidate to ship if the GameDB pages load in seconds, not tens of
+**Reading the result.** WebKit is a candidate to ship if the GameDB pages load in seconds, not tens of
 seconds, the busy page scrolls without multi-second stalls, and the swap traffic settles once the page is
-up. If it only works with the desktop frozen, it is not a desktop browser. Then the next step is cog with
-X11 (no GTK) or living with NetSurf.
+up. If it only works with the desktop frozen, it is not a desktop browser; then the patched NetSurf is the
+browser for our own pages and simple sites, and the web at large stays out of reach on this machine.
 
 ## Sources
 
 Indexes and builds: [debian-ports ppc64 Packages](https://deb.debian.org/debian-ports/dists/sid/main/binary-ppc64/),
 [unreleased](https://deb.debian.org/debian-ports/dists/unreleased/main/binary-ppc64/),
-buildd status for [webkit2gtk](https://buildd.debian.org/status/package.php?p=webkit2gtk&suite=sid),
+buildd status for [webkit2gtk](https://buildd.debian.org/status/package.php?p=webkit2gtk&suite=sid) and
+its [ppc64 build logs](https://buildd.debian.org/status/logs.php?pkg=webkit2gtk&arch=ppc64),
 [wpewebkit](https://buildd.debian.org/status/package.php?p=wpewebkit&suite=sid),
 [firefox-esr](https://buildd.debian.org/status/package.php?p=firefox-esr&suite=sid),
 [firefox](https://buildd.debian.org/status/package.php?p=firefox&suite=sid),
 [netsurf](https://buildd.debian.org/status/package.php?p=netsurf&suite=sid); Debian's
-[webkit2gtk rules](https://salsa.debian.org/webkit-team/webkit/-/blob/debian/unstable/debian/rules);
-WebKit's [WebKitFeatures.cmake](https://github.com/WebKit/WebKit/blob/webkitgtk-2.52.6/Source/cmake/WebKitFeatures.cmake)
-and [OptionsGTK.cmake](https://github.com/WebKit/WebKit/blob/webkitgtk-2.52.6/Source/cmake/OptionsGTK.cmake)
-at webkitgtk-2.52.6; the netsurf 3.11 source and Debian packaging from deb.debian.org. Everything else is
-linked where it is used. The PC measurements and NetSurf probes were run in a scratch container and
-deleted; the probe pages and the `user.js` are described above.
+[webkit2gtk rules](https://sources.debian.org/data/main/w/webkit2gtk/2.52.6-1/debian/rules);
+WebKit at the [webkitgtk-2.52.6](https://github.com/WebKit/WebKit/tree/webkitgtk-2.52.6) tag:
+`Source/cmake/WebKitFeatures.cmake`, `OptionsGTK.cmake`, `OptionsWPE.cmake`, `OptionsCommon.cmake`,
+`Source/WTF/wtf/MemoryPressureHandler.cpp` and `RAMSize.cpp`, `Source/WebKit/Shared/CacheModel.cpp`,
+`Source/WebKit/UIProcess/API/glib/WebKitWebContext.cpp` and `WebKitMemoryPressureSettings.cpp`,
+`Source/WebKit/UIProcess/Launcher/glib/ProcessLauncherGLib.cpp` and `BubblewrapLauncher.cpp`,
+`Source/JavaScriptCore/runtime/OptionsList.h`; NetSurf: Debian's netsurf 3.11-4 source and the
+[git history](https://github.com/netsurf-browser/netsurf) to 2026-10-27. Everything else is linked where
+it is used. The PC measurements, the NetSurf builds and the probes were run in scratch containers and
+deleted; the patch, the probe page and the shim are kept in [netsurf-relayout/](netsurf-relayout/).

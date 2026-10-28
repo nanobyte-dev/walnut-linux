@@ -232,7 +232,7 @@ responsiveness. The `dcbz` memcpy trap is [graphics.md](graphics.md#the-dcbz-mem
 
 - **Effort:** M. **Needs:** PS3. **Status:** never measured.
 - **Source:** PLAN 4.14.
-- **A browser with JavaScript:** [research/BROWSERS.md](../research/BROWSERS.md) (2026-10-28): surf on WebKitGTK 2.52 is the only installable candidate; its PS3 test plan is there.
+- **A browser with JavaScript:** [research/BROWSERS.md](../research/BROWSERS.md) (2026-10-28): (A) WebKitGTK 2.52 through a tuned shell (hardware acceleration NEVER: 241 MB on the PC against 351 for stock surf), 2-3 days; (B) NetSurf with DOM-driven relayout, prototype working on the PC (GameDB filter), 1-2 weeks to ship, ES5 only. The PS3 test plan is there.
 
 ### GameOS auto-mount at boot
 
