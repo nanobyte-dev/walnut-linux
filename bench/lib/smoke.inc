@@ -53,3 +53,35 @@ smoke_xkeys() {
 	sleep "$wait"
 	python3 "$BENCH_LIB/xkeys.py" "$title" "$@"
 }
+# smoke_pad EVENT...: a virtual DualShock 3 for the whole run, to try a game's pad scheme without a
+# player (ds3.evemu: the DS3 as the kernel's hid-sony shows it, written by hand; SDL calls it "PS3
+# Controller"). Call it from setup(): most games open their pad at start-up, so it has to exist before
+# the game, and the events are timed from this call, in order. EVENT: a button, pressed and released
+# 0.3 s later (cross circle square triangle l1 r1 l2 r2 select start ps l3 r3 up down left right); +N waits N
+# seconds; lx=V, ly=V, rx=V or ry=V puts a stick at V (0-255, 128 the middle: ly=0 pushes the left
+# stick forward). The pad stays until the run ends. evemu-play plays them from a recording through its
+# own uinput device: SDL never saw events written to a device's event node, smoke_keys' way (checked
+# on the PC, 2026-10-29). It runs as "evemu-device-pad" (a link to evemu-play, argv[0] evemu-play)
+# so ps3-intfwatch takes the device for the bench's own, as it does evemu-device's.
+smoke_pad() {
+	local e rec=${BENCH_DIR:-$D}/.smoke-pad
+	{ cat "$BENCH_LIB/ds3.evemu"
+	  printf '%s\n' "$@" | awk -v end=$((DURATION + 60)) '
+		BEGIN { split("cross 304 circle 305 triangle 307 square 308 l1 310 r1 311 l2 312 r2 313 select 314 start 315 ps 316 l3 317 r3 318 up 544 down 545 left 546 right 547", a, " ")	# BTN_SOUTH.. BTN_THUMBR, BTN_DPAD_*: decimal (mawk has no strtonum)
+			for (i = 1; i in a; i += 2) b[a[i]] = a[i + 1]
+			x["lx"] = 0; x["ly"] = 1; x["rx"] = 3; x["ry"] = 4; t = 0
+			printf "E: 0.000000 0003 0000 0128\nE: 0.000000 0000 0000 0000\nE: 0.100000 0003 0000 0128\nE: 0.100000 0000 0000 0000\n" }	# the left stick centred, twice: two anchors: evemu-play skips the wait before its second event
+		function ev(s, ty, c, v) { printf "E: %.6f %04x %04x %04d\nE: %.6f 0000 0000 0000\n", s, ty, c, v, s }
+		/^\+/ { t += substr($0, 2); next }
+		/=/ { split($0, kv, "="); if (!(kv[1] in x)) { print "smoke_pad: no stick " kv[1] > "/dev/stderr"; next }
+		      ev(t, 3, x[kv[1]], kv[2]); next }
+		{ if (!($0 in b)) { print "smoke_pad: no button " $0 > "/dev/stderr"; next }
+		  ev(t, 1, b[$0], 1); t += 0.3; ev(t, 1, b[$0], 0) }
+		END { printf "E: %.6f 0000 0000 0000\n", (end > t + 1 ? end : t + 1) }'
+	} > "$rec"
+	mkdir -p "$rec.bin" && ln -sf "$(command -v evemu-play)" "$rec.bin/evemu-device-pad"
+	sudo -n timeout $((DURATION + 30)) bash -c 'exec -a evemu-play "$0" "$1" < /dev/null' \
+		"$rec.bin/evemu-device-pad" "$rec" > "$rec.log" 2>&1 &
+	sleep 1	# the device is up well within that (its log line comes late: evemu-play's stdout is buffered)
+	echo "virtual pad started at $EPOCHREALTIME (its events count from 1 s before: the call; the device: .smoke-pad.log)"
+}

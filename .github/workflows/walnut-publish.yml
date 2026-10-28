@@ -16,6 +16,7 @@ on:
       - "pkg: badwolf"
       - "pkg: bomberclone"
       - "pkg: boost-context"
+      - "pkg: bzflag"
       - "pkg: chromium-bsu"
       - "pkg: classicube"
       - "pkg: crawl-walnut"

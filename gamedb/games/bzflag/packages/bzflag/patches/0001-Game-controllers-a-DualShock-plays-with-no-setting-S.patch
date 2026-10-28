@@ -1,0 +1,387 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Thu, 29 Oct 2026 00:13:02 +0200
+Subject: Game controllers: a DualShock plays with no setting (SDL game
+ controller API)
+
+Walnut is a console: the pad should drive the tank as it comes, while
+BZFlag opens no joystick until one is picked under Options > Input, and
+binds none of its buttons.
+
+- joystickname defaults to "auto": the first SDL game controller, else
+  the first joystick, else none without an error message.
+- A game controller (a DualShock 3 is "PS3 Controller") is opened through
+  SDL's game controller API, so its buttons and left stick are read by
+  their place on the pad, whatever numbers the driver gives them:
+  getJoyButtons() returns them in BzfJoystick::GameControllerButton order
+  (the triggers count as pressed past half way), getJoy() the left stick,
+  and the D-pad is in the buttons, not a hat. A plain joystick is read as
+  before.
+- Default bindings for those places (N = place + 1): Cross and R2 fire,
+  Square and L2 jump, Circle drops the flag, Triangle identifies and
+  starts (as I does: identify on press, restart on release), L1 the
+  binoculars, Select the score. The left stick drives (the input switches
+  to the joystick when it moves, as before).
+- Where the buttons become key events (playing.cxx), on a game controller
+  Start is Escape (the menu), the D-pad the arrow keys, and while a menu is
+  up Cross is Return and Circle Escape. A release goes out as the event its
+  press did. The "Press ... to start" line names the button Triangle
+  (and no joystick button without a game controller).
+
+The keyboard and mouse are unchanged; a saved configuration keeps its own
+joystick and bindings.
+
+Forwarded: not-needed
+
+diff --git a/include/BzfJoystick.h b/include/BzfJoystick.h
+--- a/include/BzfJoystick.h
++++ b/include/BzfJoystick.h
+@@ -33,6 +33,13 @@ public:
+     virtual int  getNumHats();
+     virtual void    getJoyHat(int hat, float &hatX, float &hatY);
+     virtual unsigned long getJoyButtons();
++    /** True when the device is a game controller (SDL's game controller API): its buttons then come
++     ** from getJoyButtons() by their place on the pad, the order of GameControllerButton below. **/
++    virtual bool    gameController() const;
++    enum GameControllerButton { GC_A, GC_B, GC_X, GC_Y, GC_Back, GC_Guide, GC_Start, GC_LeftStick,
++                                GC_RightStick, GC_LeftShoulder, GC_RightShoulder, GC_Up, GC_Down, GC_Left,
++                                GC_Right, GC_LeftTrigger, GC_RightTrigger, GC_Count
++                              };
+     virtual void    getJoyDevices(std::vector<std::string> &list) const;
+ 
+     /** Return a list of axes belonging to the joystick.  The first and second
+diff --git a/src/bzflag/ActionBinding.cxx b/src/bzflag/ActionBinding.cxx
+--- a/src/bzflag/ActionBinding.cxx
++++ b/src/bzflag/ActionBinding.cxx
+@@ -90,6 +90,20 @@ ActionBinding::ActionBinding()
+     wayToBindActions.insert(std::make_pair(std::string("messagepanel misc"), press));
+ 
+     defaultBinding.insert(BindingTable::value_type("F12", "quit"));
++    // Walnut: a game controller (a DualShock) plays with no binding by hand. Its buttons by place
++    // (BzfJoystick::GameControllerButton, N = the place + 1): Cross and R2 fire, Square and L2 jump,
++    // Circle drops the flag, Triangle identifies and starts (as I), L1 zooms, Select shows the
++    // score. The left stick drives (the input switches to the joystick when it moves); Start (the
++    // menu) and the D-pad (the arrow keys) are handled where the buttons are read (playing.cxx).
++    defaultBinding.insert(BindingTable::value_type("Joystick Button 1", "fire"));
++    defaultBinding.insert(BindingTable::value_type("Joystick Button 17", "fire"));
++    defaultBinding.insert(BindingTable::value_type("Joystick Button 2", "drop"));
++    defaultBinding.insert(BindingTable::value_type("Joystick Button 3", "jump"));
++    defaultBinding.insert(BindingTable::value_type("Joystick Button 16", "jump"));
++    defaultBinding.insert(BindingTable::value_type("Joystick Button 4", "identify"));
++    defaultBinding.insert(BindingTable::value_type("Joystick Button 4", "restart"));    // as "I"
++    defaultBinding.insert(BindingTable::value_type("Joystick Button 5", "toggle displayScore"));
++    defaultBinding.insert(BindingTable::value_type("Joystick Button 10", "viewZoom toggle"));
+     defaultBinding.insert(BindingTable::value_type("Left Mouse", "fire"));
+     defaultBinding.insert(BindingTable::value_type("Enter", "fire"));
+     defaultBinding.insert(BindingTable::value_type("Middle Mouse", "drop"));
+diff --git a/src/bzflag/defaultBZDB.cxx b/src/bzflag/defaultBZDB.cxx
+--- a/src/bzflag/defaultBZDB.cxx
++++ b/src/bzflag/defaultBZDB.cxx
+@@ -47,6 +47,8 @@ DefaultDBItem defaultDBItems[] =
+     { "mouseClamp",       "0",            true,   StateDatabase::ReadWrite,   NULL },
+     { "jsInvertAxes",       "0",            true,   StateDatabase::ReadWrite,   NULL },
+     { "jsRangeMax",       "100",            true,   StateDatabase::ReadWrite,   NULL },
++    // Walnut: the first game controller, or none without a word (SDLJoystick::initJoystick)
++    { "joystickname",     "auto",         true,   StateDatabase::ReadWrite,   NULL },
+     { "jsRangeMin",       "5",            true,   StateDatabase::ReadWrite,   NULL },
+     { "jsStretchCorners",       "1",            true,   StateDatabase::ReadWrite,   NULL },
+     { "jsRampType",       "linear",            true,   StateDatabase::ReadWrite,   NULL },
+diff --git a/src/bzflag/playing.cxx b/src/bzflag/playing.cxx
+--- a/src/bzflag/playing.cxx
++++ b/src/bzflag/playing.cxx
+@@ -1472,6 +1472,17 @@ void            notifyBzfKeyMapChanged()
+             std::cerr << "There does not appear to be any key bound to enter the game" << std::endl;
+     }
+ 
++    // Walnut: with a game controller its button by its name on a DualShock (ActionBinding.cxx binds
++    // Triangle), without one no joystick buttons at all
++    const bool pad = mainWindow && mainWindow->getJoystick()->gameController();
++    for (auto k = keys.begin(); k != keys.end(); )
++        if (*k == "Joystick Button 4" && pad)
++            *k++ = "Triangle";
++        else if (!pad && k->compare(0, 16, "Joystick Button ") == 0)
++            k = keys.erase(k);
++        else
++            ++k;
++
+     if (keys.size() >= 1)
+     {
+         // display single letter keys as a quoted lowercase letter
+@@ -7107,18 +7118,66 @@ static void     playingLoop()
+             };
+ 
+             static unsigned long old_buttons = 0;
++            // Walnut: on a game controller (BzfJoystick::gameController(), a DualShock) Start is
++            // Escape (the menu), the D-pad the arrow keys, and in a menu Cross is Return and Circle
++            // Escape; the other buttons stay "Joystick Button N" for the bindings (ActionBinding.cxx
++            // has defaults for them). A release goes out as the event its press did.
++            static BzfKeyEvent sent[bzcountof(button_map)];
++            const bool pad = mainWindow->getJoystick()->gameController();
+             const int button_count = bzcountof(button_map);
+             unsigned long new_buttons = mainWindow->getJoyButtonSet();
+             if (old_buttons != new_buttons)
+                 for (int j = 0; j < button_count; j++)
+                 {
+-                    if ((old_buttons & (1<<j)) != (new_buttons & (1<<j)))
++                    if ((old_buttons & (1ul<<j)) != (new_buttons & (1ul<<j)))
+                     {
++                        const bool down = (new_buttons & (1ul<<j)) != 0;
+                         BzfKeyEvent ev;
+                         ev.button = button_map[j];
+                         ev.ascii = 0;
+                         ev.shift = 0;
+-                        doKey(ev, (new_buttons & (1<<j)) != 0);
++                        if (down && pad)
++                        {
++                            const bool menu = HUDDialogStack::get()->isActive();
++                            switch (j)
++                            {
++                            case BzfJoystick::GC_Start:
++                                ev.button = BzfKeyEvent::NoButton;
++                                ev.ascii = 27;
++                                break;
++                            case BzfJoystick::GC_Up:
++                                ev.button = BzfKeyEvent::Up;
++                                break;
++                            case BzfJoystick::GC_Down:
++                                ev.button = BzfKeyEvent::Down;
++                                break;
++                            case BzfJoystick::GC_Left:
++                                ev.button = BzfKeyEvent::Left;
++                                break;
++                            case BzfJoystick::GC_Right:
++                                ev.button = BzfKeyEvent::Right;
++                                break;
++                            case BzfJoystick::GC_A:
++                                if (menu)
++                                {
++                                    ev.button = BzfKeyEvent::NoButton;
++                                    ev.ascii = 13;
++                                }
++                                break;
++                            case BzfJoystick::GC_B:
++                                if (menu)
++                                {
++                                    ev.button = BzfKeyEvent::NoButton;
++                                    ev.ascii = 27;
++                                }
++                                break;
++                            }
++                        }
++                        if (down)
++                            sent[j] = ev;
++                        else if (pad)
++                            ev = sent[j];
++                        doKey(ev, down);
+                     }
+                 }
+             old_buttons = new_buttons;
+diff --git a/src/platform/BzfJoystick.cxx b/src/platform/BzfJoystick.cxx
+--- a/src/platform/BzfJoystick.cxx
++++ b/src/platform/BzfJoystick.cxx
+@@ -59,6 +59,11 @@ bool            BzfJoystick::joystick() const
+     return false;
+ }
+ 
++bool            BzfJoystick::gameController() const
++{
++    return false;
++}
++
+ void            BzfJoystick::getJoy(float& x, float& y)
+ {
+     x = y = 0.0f;
+diff --git a/src/platform/SDLJoystick.cxx b/src/platform/SDLJoystick.cxx
+--- a/src/platform/SDLJoystick.cxx
++++ b/src/platform/SDLJoystick.cxx
+@@ -27,7 +27,7 @@
+ #include "TextUtils.h"
+ #include "bzfSDL.h"
+ 
+-SDLJoystick::SDLJoystick() : joystickID(nullptr), joystickButtons(0), numHats(0),
++SDLJoystick::SDLJoystick() : joystickID(nullptr), controller(nullptr), joystickButtons(0), numHats(0),
+     xAxis(0), yAxis(1), hasRumble(false)
+ {
+     SDL_SetHint(SDL_HINT_ACCELEROMETER_AS_JOYSTICK, "0");
+@@ -37,7 +37,7 @@ SDLJoystick::SDLJoystick() : joystickID(nullptr), joystickButtons(0), numHats(0)
+ #endif
+     SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_STEAM, "1");
+ 
+-    if (SDL_InitSubSystem(SDL_INIT_JOYSTICK) == -1)
++    if (SDL_InitSubSystem(SDL_INIT_JOYSTICK | SDL_INIT_GAMECONTROLLER) == -1)
+     {
+         std::vector<std::string> args;
+         args.push_back(SDL_GetError());
+@@ -48,45 +48,68 @@ SDLJoystick::SDLJoystick() : joystickID(nullptr), joystickButtons(0), numHats(0)
+ SDLJoystick::~SDLJoystick()
+ {
+     // Close the joystick device, if opened
+-    if (joystickID != nullptr)
++    if (controller != nullptr)
++        SDL_GameControllerClose(controller);
++    else if (joystickID != nullptr)
+         SDL_JoystickClose(joystickID);
+ 
+-    SDL_QuitSubSystem(SDL_INIT_JOYSTICK);
++    SDL_QuitSubSystem(SDL_INIT_JOYSTICK | SDL_INIT_GAMECONTROLLER);
+ }
+ 
+ void            SDLJoystick::initJoystick(const char* joystickName)
+ {
+-    // If the joystick is set to off or undefined, check if we had opened a joystick or haptic device and close them
++    // Close a device opened before
++    if (controller != nullptr)
++        SDL_GameControllerClose(controller);
++    else if (joystickID != nullptr)
++        SDL_JoystickClose(joystickID);
++    controller = nullptr;
++    joystickID = nullptr;
++
++    // If the joystick is set to off or undefined, that's all
+     if (!strcasecmp(joystickName, "off") || !strcmp(joystickName, ""))
+-    {
+-        if (joystickID != nullptr)
+-        {
+-            SDL_JoystickClose(joystickID);
+-            joystickID = nullptr;
+-        }
+         return;
+-    }
+-
+-    char num = joystickName[0];
+-    int  i   = (int)num - '0';
+ 
+-    // If the requested joystick doesn't exist, bail out
+-    if (!isdigit(num) || i >= SDL_NumJoysticks())
++    int i;
++    if (!strcasecmp(joystickName, "auto"))
+     {
+-        printError("No supported SDL joysticks were found.");
+-        joystickID = nullptr;
+-        return;
++        // Walnut (the default there): the first game controller (a DualShock), else the first
++        // joystick, else none without a word, so a pad works with no setting and a keyboard
++        // player sees nothing
++        const int n = SDL_NumJoysticks();
++        for (i = 0; i < n && !SDL_IsGameController(i); i++)
++            ;
++        if (i == n)
++            i = 0;
++        if (i >= n)
++            return;
+     }
++    else
++    {
++        char num = joystickName[0];
++        i = (int)num - '0';
+ 
+-    // Attempt to open the joystick
+-    joystickID = SDL_JoystickOpen(i);
++        // If the requested joystick doesn't exist, bail out
++        if (!isdigit(num) || i >= SDL_NumJoysticks())
++        {
++            printError("No supported SDL joysticks were found.");
++            return;
++        }
++    }
++
++    // Attempt to open the joystick: a game controller's buttons and stick are then read by their
++    // place on the pad, however its driver numbers them (gameController(), GameControllerButton)
++    if (SDL_IsGameController(i) && (controller = SDL_GameControllerOpen(i)) != nullptr)
++        joystickID = SDL_GameControllerGetJoystick(controller);
++    else
++        joystickID = SDL_JoystickOpen(i);
+ 
+     // If opening the joystick failed, bail out
+     if (joystickID == nullptr)
+         return;
+ 
+     // If the joystick has less than two axes, close the device and bail out
+-    if (SDL_JoystickNumAxes(joystickID) < 2)
++    if (controller == nullptr && SDL_JoystickNumAxes(joystickID) < 2)
+     {
+         SDL_JoystickClose(joystickID);
+         printError("Joystick has less then 2 axes:\n");
+@@ -109,6 +132,11 @@ bool            SDLJoystick::joystick() const
+     return joystickID != nullptr;
+ }
+ 
++bool            SDLJoystick::gameController() const
++{
++    return controller != nullptr;
++}
++
+ void            SDLJoystick::getJoy(float& x, float& y)
+ {
+     x = y = 0.0f;
+@@ -117,6 +145,12 @@ void            SDLJoystick::getJoy(float& x, float& y)
+         return;
+ 
+     SDL_JoystickUpdate();
++    if (controller != nullptr)    // the left stick
++    {
++        x = float(SDL_GameControllerGetAxis(controller, SDL_CONTROLLER_AXIS_LEFTX)) / 32768.0f;
++        y = float(SDL_GameControllerGetAxis(controller, SDL_CONTROLLER_AXIS_LEFTY)) / 32768.0f;
++        return;
++    }
+     x = float(SDL_JoystickGetAxis(joystickID, xAxis)) / 32768.0f;
+     y = float(SDL_JoystickGetAxis(joystickID, yAxis)) / 32768.0f;
+ }
+@@ -129,6 +163,29 @@ unsigned long       SDLJoystick::getJoyButtons()
+         return 0;
+ 
+     SDL_JoystickUpdate();
++    if (controller != nullptr)
++    {
++        // by place, in the order of BzfJoystick::GameControllerButton; a trigger counts as pressed
++        // past half way
++        static const SDL_GameControllerButton order[] =
++        {
++            SDL_CONTROLLER_BUTTON_A, SDL_CONTROLLER_BUTTON_B, SDL_CONTROLLER_BUTTON_X,
++            SDL_CONTROLLER_BUTTON_Y, SDL_CONTROLLER_BUTTON_BACK, SDL_CONTROLLER_BUTTON_GUIDE,
++            SDL_CONTROLLER_BUTTON_START, SDL_CONTROLLER_BUTTON_LEFTSTICK,
++            SDL_CONTROLLER_BUTTON_RIGHTSTICK, SDL_CONTROLLER_BUTTON_LEFTSHOULDER,
++            SDL_CONTROLLER_BUTTON_RIGHTSHOULDER, SDL_CONTROLLER_BUTTON_DPAD_UP,
++            SDL_CONTROLLER_BUTTON_DPAD_DOWN, SDL_CONTROLLER_BUTTON_DPAD_LEFT,
++            SDL_CONTROLLER_BUTTON_DPAD_RIGHT
++        };
++        for (int i = 0; i < (int)(sizeof(order) / sizeof(order[0])); i++)
++            if (SDL_GameControllerGetButton(controller, order[i]))
++                buttons |= 1ul << i;
++        if (SDL_GameControllerGetAxis(controller, SDL_CONTROLLER_AXIS_TRIGGERLEFT) > 16384)
++            buttons |= 1ul << GC_LeftTrigger;
++        if (SDL_GameControllerGetAxis(controller, SDL_CONTROLLER_AXIS_TRIGGERRIGHT) > 16384)
++            buttons |= 1ul << GC_RightTrigger;
++        return buttons;
++    }
+     for (int i = 0; i < joystickButtons; i++)
+         buttons |= SDL_JoystickGetButton(joystickID, i) << i;
+ 
+@@ -137,7 +194,7 @@ unsigned long       SDLJoystick::getJoyButtons()
+ 
+ int      SDLJoystick::getNumHats()
+ {
+-    if (!joystickID)
++    if (!joystickID || controller != nullptr)    // a controller's D-pad is in its buttons
+         return 0;
+ 
+     return numHats;
+diff --git a/src/platform/SDLJoystick.h b/src/platform/SDLJoystick.h
+--- a/src/platform/SDLJoystick.h
++++ b/src/platform/SDLJoystick.h
+@@ -30,6 +30,7 @@ public:
+     bool    joystick() const;
+     void    getJoy(float& x, float& y);
+     unsigned long getJoyButtons();
++    bool    gameController() const;
+     int     getNumHats();
+     void    getJoyHat(int hat, float &hatX, float &hatY);
+     void    getJoyDevices(std::vector<std::string> &list) const;
+@@ -42,6 +43,7 @@ public:
+ 
+ private:
+     SDL_Joystick *joystickID;
++    SDL_GameController *controller;   // set when joystickID is a game controller (owns joystickID then)
+     int     joystickButtons;
+     int     numHats;
+     int     xAxis;

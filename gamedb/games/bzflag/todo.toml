@@ -16,9 +16,9 @@ Input Settings. The smoke run gave 59 fps steady with three robots."""
 [[item]]
 kind = "package"
 added = 2026-10-28
-source = "games night 2026-10-28 (smoke)"
+source = "games night 2026-10-28"
 text = """\
-A built-in pad scheme as in our other games (gamedb:armagetronad 0002): the first SDL game controller \
-drives the tank (left stick), Cross fires, Square jumps, Circle drops the flag, Triangle spawns \
-(identify), Start the menu; today the joystick is off until named in Options and bound by hand. A \
-`bzflag` package of ours (`2.4.30-4+ps3.N`)."""
+The built-in pad scheme is in our package (bzflag 0001, technical.md \"Our package\"), pending its \
+PS3 test: the smoke recipe on it (keyboard path unchanged, no joystick error without a pad), then the \
+pad in a played session (Cross fires, the left stick drives, Start opens the menu, the D-pad and \
+Cross work it)."""

@@ -24,8 +24,22 @@ presses `i` (spawn) and Up 10 s after the window. The client is fullscreen unles
 the screen's resolution, so no console default needs a patch.
 
 Controls: the mouse steers by default (`allowInputChange` switches to the keyboard or a joystick when one is
-used). The DualShock 3 works only once Options > Input Settings names it (`joystickname`, default off) and
-its buttons are bound by hand: no auto-mapped scheme yet (todo.toml).
+used). Debian's build opens no joystick until Options > Input Settings names one (`joystickname`, unset) and
+binds none of its buttons.
+
+## Our package: the pad as it comes
+
+`bzflag` 2.4.30-4+ps3.N ([packages/bzflag](packages/bzflag/)), 0001: a DualShock plays with no setting.
+`joystickname` defaults to `auto` (the first SDL game controller, else the first joystick, else none and no
+error message). A game controller is opened through SDL's game controller API, so its buttons and left
+stick are read by their place on the pad, whatever the driver numbers them, and get default bindings:
+Cross and R2 fire, Square and L2 jump, Circle drops the flag, Triangle identifies, L1 the binoculars,
+Select the score; the left stick drives (the input switches to the joystick when it moves). Where the
+buttons become key events, Start is Escape (the menu), the D-pad the arrow keys, and in a menu Cross is
+Return and Circle Escape. The keyboard and mouse are unchanged; a saved configuration keeps its own
+joystick and bindings. Built on the PC for amd64 first (compiles clean); state: pending its PS3 test (the
+smoke recipe for the keyboard path and no error without a pad; the pad itself needs a player or a
+virtual pad).
 
 ## Research
 
