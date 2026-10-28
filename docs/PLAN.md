@@ -193,6 +193,7 @@ The console itself, its safety margin, and the parts of the system a desktop use
 | 4.12 | The USB disk: a SMART watch and its write load. The internal-disk question is answered by the SSD image (1.14); a reformatted Linux region stays research | PS3 | [GAMEOS-HDD.md](GAMEOS-HDD.md), [research/HDD-REGION.md](research/HDD-REGION.md) |
 | 4.13 | Note for the user docs: the escape keys kill the game, unsaved progress is lost (goes into 5.5) | host | [DESKTOP.md](DESKTOP.md) |
 | 4.14 | Desktop application quality: the browser, video in mpv, responsiveness, the `dcbz` memcpy trap | PS3 | [backlog/platform.md](backlog/platform.md) |
+| 4.16 | Walnut's browser on WebKitGTK (the user, 2026-10-28): the `badwolf` shell is packaged (one web process for all tabs, hardware acceleration off, JavaScript on, the Walnut User-Agent the GameDB site reads); Debian's WebKitGTK 2.52.6 aborts on nearly every page on the PS3 (big-endian CompactVariant, WebKit bug 300442) and 2.54 has no big-endian build. Our own WebKitGTK 2.52 build with a fix, or NetSurf with relayout, or neither | user decision | [research/BROWSERS.md](research/BROWSERS.md#where-it-stands), [DESKTOP.md](DESKTOP.md#the-browser) |
 | 4.15 | Dev loop: does a Petitboot-only reboot clear a wedged RSX, can the CPU read VRAM after a graph exception, kexec from our Linux | user | [backlog/platform.md](backlog/platform.md) |
 
 ### Stage 5: preparing for release

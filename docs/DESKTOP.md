@@ -47,6 +47,22 @@ The menu has Shut down and Reboot entries. The user D-Bus runs under systemd (`d
 
 `ps3-desktop` holds the session, autologin, game mode (with the real-time limit for the audio group), the Openbox/tint2/GTK/PCManFM defaults in `/etc/xdg/ps3`, the default applications and the X configuration. `ps3-apps` is the everyday applications, all light GTK programs that suit 256 MB of RAM: Mousepad, GPicView, zathura, Xarchiver, Galculator, LXTask, scrot (on the Print key) and mpv. PCManFM opens files with them by default, and removing `ps3-apps` removes them. No game comes with the desktop: players install them from Walnut Games ([GAMEDB.md](GAMEDB.md)), and `ps3-games-integration` adds each installed game's menu entry, settings and diversions ([PACKAGING.md](PACKAGING.md#no-game-metapackages)); [games/README.md](games/README.md) has how they run.
 
+### The browser
+
+NetSurf 3.11 (`netsurf-gtk`, in the image's base layer) is the browser: the default for web links (`ps3-desktop`'s
+`mimeapps.list`) and in the menu. It runs no JavaScript.
+
+The user picked WebKitGTK as Walnut's browser on 2026-10-28. Its shell is packaged: `badwolf` (Badwolf 1.4.0 with
+our patches, `packages/patched/desktop/badwolf/`): tabs, a location bar that also searches, back, forward, reload,
+a start page, downloads, the usual shortcuts, every tab in one web process, hardware acceleration off, JavaScript
+on, "Walnut" in the User-Agent, walnut:// links to the desktop. It is not the default and not in the image. On the
+PS3, Debian's WebKitGTK 2.52.6 crashes on nearly every page: its web process aborts in WebKit's CompactVariant
+code, which does not work on big-endian (WebKit bug 300442, open since 2.50), and WebKitGTK 2.54 dropped the Cairo
+renderer, the only one that builds on big-endian. The ways on are in
+[research/BROWSERS.md](research/BROWSERS.md#what-happened-on-the-ps3); they wait for the user. The desktop's side is ready for
+the switch: ps3-game-detect never takes `badwolf` for a game, and switching is `mimeapps.list`, a tint2 launcher
+and the image list.
+
 ### The X setup
 
 Xorg runs the `modesetting` driver on `ps3rsx` with `glamor` (GL-accelerated 2D through Mesa nv30). `files/xorg/20-ps3rsx.conf` sets `kmsdev /dev/dri/card0`, `AccelMethod glamor`, `ShadowFB true`, and turns off `AutoAddGPU`. ps3rsx is an ordinary module (`/lib/modules/<ver>/extra`) loaded at boot from `modules-load.d`, and the patched Mesa is found without environment variables: `ld.so.conf.d/00-ps3mesa.conf` comes ahead of Debian's, and our build has its driver paths compiled in. The text consoles (Ctrl+Alt+F1 to F6) work, because ps3rsx owns the RSX only while a DRM master (X) is in front or clients without X are submitting; otherwise ps3fb gets it back and draws the console. After a VT switch X's GL clients pause until it returns. The console also comes back when X exits, and at boot.

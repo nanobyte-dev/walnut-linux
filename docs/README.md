@@ -83,7 +83,7 @@ layout and the build commands are in [LAYOUT.md](LAYOUT.md).
 | [research/EMULATORS.md](research/EMULATORS.md) | MAME, RetroArch cores and standalone emulators on ppc64 (2026-10-19); parked behind games new on the PS3 |
 | [research/DARLING-PPC.md](research/DARLING-PPC.md) | A PowerPC port of Darling for Mac OS X games (2026-10-19): not worth it, the game-facing frameworks are stubs even on x86 |
 | [research/CLASSIC-MACOS.md](research/CLASSIC-MACOS.md) | SheepShaver's native PowerPC mode and Basilisk II on the PS3 (2026-10-19); waits for the user's ROM and Mac OS CD |
-| [research/BROWSERS.md](research/BROWSERS.md) | A browser with JavaScript on ppc64 big-endian (2026-10-28): Firefox, Chromium, WebKitGTK (run-time tuning measured: 351 to 241 MB on the PC, a rebuild buys little), WPE, NetSurf with a DOM-relayout prototype (patch in research/netsurf-relayout/), the GameOS browser; effort per path and the PS3 test plan |
+| [research/BROWSERS.md](research/BROWSERS.md) | A browser with JavaScript on ppc64 big-endian (2026-10-28): Firefox, Chromium, WebKitGTK (run-time tuning measured: 351 to 241 MB on the PC, a rebuild buys little), WPE, NetSurf with a DOM-relayout prototype (patch in research/netsurf-relayout/), the GameOS browser; the Badwolf shell we package; on the PS3 Debian's WebKitGTK 2.52 aborts on nearly every page (big-endian CompactVariant, WebKit bug 300442) and 2.54 has no big-endian build: the choices wait for the user |
 | [research/gl3-census/G-driver.md](research/gl3-census/G-driver.md) | Part G of the GL 3 census: a driver-level GL 3.x subset in Mesa nv30, its feature table and the verdict (2026-10-19): not now |
 
 The surveys of game candidates are GameDB's, in gamedb/research/; each game they name has a bundle

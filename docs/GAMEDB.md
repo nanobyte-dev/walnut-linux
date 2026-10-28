@@ -460,7 +460,10 @@ browser, NetSurf and the app's HTML view (the user, 2026-10-28):
   before; the state is the query string (`?tags=fps,local-multiplayer&medal=gold&q=...`), so a filtered
   view can be linked. Without the script (NetSurf) the panel stays hidden and the tag links are the way in.
 - **"Open in Walnut Games"**: the Overview's head has a `walnut://game/<id>` link for a visitor on a
-  Walnut console, with no script: the site's CSS hides `.walnut-os-only`, and walnut-games' postinst puts the rule that shows it
+  Walnut console. The site's CSS hides `.walnut-os-only`; two things show it. A browser with "Walnut" in its
+  User-Agent (our Badwolf, [DESKTOP.md](DESKTOP.md#the-browser), not the default yet) gets `walnut-os` on `<html>`
+  from a one-line script in baseof.html's head before the page is drawn (`.walnut-os .walnut-os-only` is
+  shown); Badwolf hands the walnut:// link to the desktop's handler. NetSurf runs no script here, so for it walnut-games' postinst puts the rule that shows the link
   into NetSurf's system user stylesheet, `/usr/share/netsurf/user.css` (NetSurf 3.11 reads `resource:user.css`
   from its resource path: `~/.config/netsurf/` first, then `/usr/share/netsurf/`, so a user's own
   `~/.config/netsurf/user.css` takes precedence and hides the link again). The rule (the package's
