@@ -82,8 +82,10 @@ in `/var/tmp/ps3-bench/luanti` (the player's `~/.minetest` untouched); `viewing_
 
 - Starts in a window instead of fullscreen, and the options menu is broken (the played session). Both
   fixed on 2026-10-28: the menu by luajit 0002 (checked on the PS3 with the dev build: the Settings
-  dialog opens from the main menu's gear), the window by luanti 0008; the luanti build with 0008 and
-  0009 still has to be seen on the PS3 before the known issues go.
+  dialog opens from the main menu's gear), the window by luanti 0008; luanti ps3.1025 (0008, 0009) on an
+  empty configuration starts fullscreen at 1920x1080 with the Settings dialog working (`run.sh smoke luanti
+  freshmenu`, 2026-10-28). Irrlicht's "Could not create window and context!" ERROR line before that is its
+  fallback from the GL profiles nv30 lacks (GLXBadFBConfig), not a failure.
 - The stutter in play: map generation and meshing on the PPE, with the RAM at its floor.
 - Log noise from minetest_game itself: `Maximum lag peaked`, `active block modifiers took Nms`, `Field
   "image" on TileDef is deprecated`.

@@ -214,3 +214,5 @@ variant_menu() {
 		sleep 15; [ ${#LU_CLICKS[@]} = 0 ] || python3 "$BENCH_LIB/xkeys.py" Luanti "${LU_CLICKS[@]}"; shot_mark
 	}
 }
+# the main menu on an empty configuration: the package's own defaults (0008 fullscreen, 0009 viewing range 60)
+variant_freshmenu() { variant_menu; mkdir -p "$LU_DIR"; setup() { : > "$LU_CONF"; }; }

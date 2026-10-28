@@ -20,8 +20,10 @@ text = """\
 A package patch for the two known issues (index.md): it starts in a window instead of fullscreen, \
 and the options menu is broken. Done in the packages on 2026-10-28 (luajit 0002 fixes the menu, \
 checked on the PS3 with the dev build; luanti 0008 fullscreen, 0009 viewing range 60, \
-gamedb:luanti/settings-menu-string-lower). Left: a fresh start of the built luanti on the PS3 \
-(fullscreen, the Settings dialog, the view), then the known issues go."""
+gamedb:luanti/settings-menu-string-lower). Checked on the PS3 on 2026-10-28 with luanti \
+ps3.1025 and the luajit dev build: an empty configuration starts fullscreen 1920x1080 and the \
+Settings dialog opens (run.sh smoke luanti freshmenu). Left: the known issues go once the stable \
+suite has luanti ps3.1025 or later and a luajit with 0002."""
 
 [[item]]
 kind = "benchmark"
