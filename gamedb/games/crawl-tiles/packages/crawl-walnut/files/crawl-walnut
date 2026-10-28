@@ -1,0 +1,13 @@
+#!/bin/sh
+# Dungeon Crawl Stone Soup (tiles) on Walnut: Debian's crawl-tiles, fullscreen at the desktop's
+# resolution (its own default, "auto", is a window on a screen above 1200x800; a player's rc file
+# still decides, -extra-opt-first comes before it). The vault and database caches a first start would
+# spend minutes making on the PS3 come from /usr/share/crawl-walnut, made from the same crawl-common:
+# copied into ~/.crawl/saves where a file is missing, never over one (crawl checks each against its
+# source file and remakes a stale one itself).
+CACHE=/usr/share/crawl-walnut/saves
+SAVES=$HOME/.crawl/saves
+if [ -d "$CACHE" ] && mkdir -p "$SAVES"; then
+	cp -R --update=none "$CACHE/." "$SAVES/" 2>/dev/null || true
+fi
+exec /usr/games/crawl-tiles -extra-opt-first tile_full_screen=true "$@"

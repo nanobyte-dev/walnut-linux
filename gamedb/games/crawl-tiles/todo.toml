@@ -8,3 +8,12 @@ source = "TESTS.md Next (smoke re-runs)"
 text = """\
 Smoke re-run of 300 s (the load takes longer than 120 s), then the fullscreen check; ending with \
 SIGTERM prints Crawl's \"crash\" report, which is the harness."""
+
+[[item]]
+kind = "package"
+added = 2026-10-28
+source = "games night 2026-10-28 (fixer)"
+text = """\
+crawl-walnut (prebuilt vault and database caches, fullscreen start; technical.md \"The first \
+start\"): pending its PS3 test. `run.sh smoke crawl-tiles` with an empty ~/.crawl and CMD through \
+/usr/games/crawl-walnut: the time to the first screen (minutes before), fullscreen 1920x1080."""

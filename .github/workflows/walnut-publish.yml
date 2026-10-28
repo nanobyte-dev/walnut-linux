@@ -18,6 +18,7 @@ on:
       - "pkg: boost-context"
       - "pkg: chromium-bsu"
       - "pkg: classicube"
+      - "pkg: crawl-walnut"
       - "pkg: cube2"
       - "pkg: darkplaces-gl2"
       - "pkg: ddnet"

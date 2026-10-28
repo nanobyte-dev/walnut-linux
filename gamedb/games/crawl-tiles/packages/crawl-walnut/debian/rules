@@ -1,0 +1,23 @@
+#!/usr/bin/make -f
+P := debian/crawl-walnut
+H := $(CURDIR)/debian/home
+
+%:
+	dh $@
+
+# Debian's console crawl writes ~/.crawl/saves/des (the compiled vaults) and db (the text database)
+# exactly as crawl-tiles would on its first start (the same files: crawl-tiles then rewrites none).
+override_dh_auto_build:
+	rm -rf $(H); mkdir -p $(H)
+	HOME=$(H) /usr/games/crawl -builddb
+	test $$(ls $(H)/.crawl/saves/des/*.idx | wc -l) -ge 140
+	test -n "$$(ls $(H)/.crawl/saves/db)"
+
+override_dh_auto_install:
+	install -D -m 755 files/crawl-walnut $(P)/usr/games/crawl-walnut
+	mkdir -p $(P)/usr/share/crawl-walnut/saves
+	cp -R $(H)/.crawl/saves/des $(H)/.crawl/saves/db $(P)/usr/share/crawl-walnut/saves/
+	chmod -R u=rwX,go=rX $(P)/usr/share/crawl-walnut
+
+override_dh_auto_clean:
+	rm -rf $(H)

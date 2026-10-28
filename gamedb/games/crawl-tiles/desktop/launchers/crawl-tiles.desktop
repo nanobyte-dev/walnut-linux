@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Dungeon Crawl Stone Soup
+GenericName=Roguelike dungeon exploration game
+Comment=A roguelike in the grand tradition of Rogue, Hack and Moria (tiles)
+Exec=ps3-game crawl-walnut
+Icon=org.develz.Crawl_tiles
+Terminal=false
+Categories=Game;AdventureGame;RolePlaying;

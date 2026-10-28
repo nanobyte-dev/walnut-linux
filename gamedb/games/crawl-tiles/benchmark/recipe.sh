@@ -22,9 +22,13 @@ COMM=crawl-tiles
 DURATION=${SMOKE_SECS:-300}
 CR_RC=$HOME/.crawl/ps3-smoke.rc
 BACKUP=("$CR_RC")
+CR_COLD=0	# 1: remove the vault and database caches first (they are only caches: the saves stay)
+CR_OPTS=("tile_full_screen = true" "tile_window_width = 1920" "tile_window_height = 1080")
 setup() {
 	mkdir -p "${CR_RC%/*}"
-	printf '%s\n' "tile_full_screen = true" "tile_window_width = 1920" "tile_window_height = 1080" > "$CR_RC"
+	printf '%s\n' "${CR_OPTS[@]}" > "$CR_RC"
+	[ "$CR_COLD" = 1 ] && rm -rf "$HOME/.crawl/saves/des" "$HOME/.crawl/saves/db"
+	return 0
 }
 CMD=(/usr/games/crawl-tiles -rc "$CR_RC" -name Smoke -species Hu -background Be -seed 1)
 CR_EXPLORE=0
@@ -33,3 +37,8 @@ SHOT_FROM=mark	# the screenshots after the keys (the load's end in the variants 
 variant_explore() { CR_EXPLORE=1; }
 variant_sprint() { CMD+=(-sprint); }
 variant_menu() { CMD=(/usr/games/crawl-tiles -rc "$CR_RC"); SHOT_STATIC=1; }
+# The first start (technical.md "The first start"): cold is Debian's crawl-tiles on a home without the
+# caches (minutes of "Loading maps..."); walnut is our crawl-walnut on the same, which copies its prebuilt
+# caches in and starts fullscreen by itself (an empty rc: no fullscreen line of ours)
+variant_cold() { CR_COLD=1; }
+variant_walnut() { CR_COLD=1; CR_OPTS=("# empty: crawl-walnut's defaults"); CMD=(/usr/games/crawl-walnut "${CMD[@]:1}"); }

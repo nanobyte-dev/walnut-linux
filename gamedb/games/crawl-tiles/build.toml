@@ -1,0 +1,6 @@
+# How Dungeon Crawl Stone Soup is built, installed and integrated (gamedb/README.md "build.toml").
+# Debian's crawl-tiles, started by our crawl-walnut (fullscreen, the vault and database caches made at
+# build time: packages/crawl-walnut).
+packages = ["crawl-tiles", "crawl-walnut"]
+desktop = ["crawl-tiles.desktop"]
+divert = ["/usr/share/applications/org.develz.Crawl_tiles.desktop"]

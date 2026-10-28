@@ -1,0 +1,24 @@
+Source: crawl-walnut
+Section: games
+Priority: optional
+Maintainer: Tiberiu Chibici <chibicitiberiu@gmail.com>
+# the cache is valid only for the exact crawl-common it was made from (each .des file's mtime and the
+# save version are in it): the same version here and in Depends
+Build-Depends: debhelper-compat (= 13), crawl (= 2:0.34.1-2), crawl-common (= 2:0.34.1-2)
+Standards-Version: 4.7.2
+Rules-Requires-Root: no
+Homepage: https://crawl.develz.org/
+
+Package: crawl-walnut
+Architecture: all
+Depends: ${misc:Depends}, crawl-tiles, crawl-common (= 2:0.34.1-2)
+Description: Dungeon Crawl Stone Soup (tiles), Walnut's start with prebuilt caches
+ Dungeon Crawl Stone Soup is a roguelike adventure through dungeons filled with
+ monsters in a quest to find the mystifying Orb of Zot. This package adds
+ /usr/games/crawl-walnut, which starts Debian's crawl-tiles fullscreen at the
+ desktop's resolution (the game's own setting, or a player's rc file, still wins).
+ .
+ On first start Crawl compiles its 143 vault files and its text database into
+ caches in ~/.crawl/saves, which took minutes on the PS3. The caches are made
+ when this package is built, from the same crawl-common, and copied into the
+ home on start where they are missing, so the first game starts like any other.
