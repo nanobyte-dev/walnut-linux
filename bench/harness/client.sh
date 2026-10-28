@@ -457,6 +457,23 @@ if [ -n "${BENCH_JSIMD:-}" ]; then
 	esac
 	LIBENV+=("JSIMD=$BENCH_JSIMD")
 fi
+# RTPRIO=N (run.sh's ENVS token, BENCH_RTPRIO): the game's real-time priority limit (RLIMIT_RTPRIO, soft
+# and hard) for this run, so a library that asks for a real-time thread gets it up to priority N or is
+# refused (0): OpenAL Soft's mixer asks for SCHED_RR 1 (docs/SPU-AUDIO.md "Real-time mixer"). Lower than
+# the session's with ulimit, higher with sudo -n prlimit on this shell. bench.txt always gets rtprio=
+# (the limit the game started with: 0 in Walnut's session), libenv RTPRIO=N, report.py base@rtprioN.
+if [ -n "${BENCH_RTPRIO:-}" ]; then
+	[[ $BENCH_RTPRIO =~ ^[0-9]+$ ]] && [ "$BENCH_RTPRIO" -le 99 ] || { echo "!! BENCH_RTPRIO=$BENCH_RTPRIO: 0 to 99"; exit 2; }
+	h=$(ulimit -Hr)
+	if [ "$h" = unlimited ] || [ "$BENCH_RTPRIO" -le "$h" ]; then
+		ulimit -r "$BENCH_RTPRIO" 2>/dev/null
+	else
+		sudo -n prlimit --pid $$ --rtprio="$BENCH_RTPRIO:$BENCH_RTPRIO" 2>/dev/null
+	fi
+	[ "$(ulimit -r)" = "$BENCH_RTPRIO" ] || { echo "!! BENCH_RTPRIO=$BENCH_RTPRIO: the limit can't be set (ulimit -r $(ulimit -r), hard $h, sudo -n prlimit)"; exit 2; }
+	LIBENV+=("RTPRIO=$BENCH_RTPRIO")
+fi
+RTPRIO_USED=$(ulimit -r)
 # Sound dropouts (docs/games/SUITE.md "Sound dropouts"), on unless BENCH_XRUNLOG=0 (run.sh's ENVS token
 # XRUNLOG=0): ps3-gpu-tools' ps3-xrunlog.so, an ALSA plugin, in front of the game's default sound device
 # for this run only. The game's ALSA_CONFIG_PATH is alsa.conf (or the recipe's or the caller's list) and
@@ -790,8 +807,17 @@ if [ "$SESSION" = 1 ] && [ "${BENCH_INPUTLOG:-1}" = 1 ] && command -v python3 > 
 	nice -n 19 python3 -I "$here/inputlog.py" "$t0" "$gp" "$D/.mark-req" > "$D/input.tsv" 2> "$D/input.err" &
 	[ -n "$SHOT_DIR" ] && declare -F mark_watch > /dev/null && { mark_watch > /dev/null 2>&1 & helpers+=($!); }
 fi
+# At SOUND_AT (before the warm-up ends: outside the window) also the game's window and the screen
+# (geom.py, as after a screenshot, at nice 19) unless BENCH_GEOM=0: bench.txt's geom=WxH+X+Y fs=0|1
+# screen=WxH (fs=1: fullscreen or covering the screen), the row in $D/geometry.tsv, so a run that came up
+# windowed (a config left at 640x480) is seen and not counted
 (sleep "$SOUND_AT"; cat /proc/asound/card*/pcm*p/sub*/status 2>/dev/null |
-	awk '$1 == "state:" { s = s (s ? "," : "") $2 } END { print s ? s : "none" }' > "$D/.sound") \
+	awk '$1 == "state:" { s = s (s ? "," : "") $2 } END { print s ? s : "none" }' > "$D/.sound"
+	if [ "${BENCH_GEOM:-1}" = 1 ] && command -v xwininfo > /dev/null && command -v python3 > /dev/null; then
+		nice -n 19 python3 -I "$here/geom.py" "$gp" "$SOUND_AT" "$D/geometry.tsv" > /dev/null 2>&1
+		awk -F'\t' 'NR > 1 { g = $4 "x" $5 "+" $2 "+" $3 " fs=" $6 " screen=" $7 "x" $8 } END { print g ? g : "none" }' \
+			"$D/geometry.tsv" > "$D/.geom" 2>/dev/null
+	fi) \
 	> /dev/null 2>&1 & helpers+=($!)
 
 ended=exit; load=; t_load=; l=; part=
@@ -1084,6 +1110,7 @@ secs measured "$measured"
   [ -n "$OAL_TOKEN" ] && echo "oal=$OAL_TOKEN"
   [ ${#LIBENV[@]} -gt 0 ] && echo "libenv=${LIBENV[*]}"
   echo "zlib=$ZLIB_USED"
+  echo "rtprio=$RTPRIO_USED"
   [ ${#KPARAM[@]} -gt 0 ] && echo "kparam=${KPARAM[*]}"
   [ -n "$GPF" ] && echo "gprefetch=$GPF"
   [ -n "$SC" ] && { echo "shadercache=$SC"; echo "shadercache_kb=${SC_KB:--} $(sc_kb || echo -)"; }
@@ -1105,6 +1132,7 @@ secs measured "$measured"
 	fi
   fi
   echo "hud_skip=$HUD_SKIP"; echo "hwm=$(cat "$D/.hwm" 2>/dev/null)"; echo "sound=$(cat "$D/.sound" 2>/dev/null)"
+  [ -s "$D/.geom" ] && echo "geom=$(cat "$D/.geom")"
   if [ ${#PERF_FD[@]} -gt 0 ]; then
 	echo "perf_win=${PERF_WIN[*]}"; echo "perf_ack=$PERF_ACKS"
 	awk -v t="$PERF_TICKS" 'BEGIN { printf "perf_cpu=%.2f\n", t / 100 }'	# USER_HZ
@@ -1143,7 +1171,7 @@ secs measured "$measured"
   fi
   shot_lines
   parse; } > "$D/bench.txt"
-rm -f "$D/.shot-mark" "$D/.cwd" "$D/.hwm" "$D/.pid" "$D/.sound" "$D/.malloc.fifo" "$D/.gate" "$D/.launch.pid"
+rm -f "$D/.shot-mark" "$D/.cwd" "$D/.hwm" "$D/.pid" "$D/.sound" "$D/.geom" "$D/.malloc.fifo" "$D/.gate" "$D/.launch.pid"
 sed 's/^/bench: /' "$D/bench.txt"
 exit 0
 }

@@ -104,7 +104,7 @@ against order bias. What a token can set:
   settings by `openal.inc`'s names on any variant of any game; `FLUIDFX=off|norev|nocho|cho1|on`
   FluidSynth's reverb and chorus whatever the game asks for; zlib-ng's `libz.so.1` in front (package
   `libz-ng-compat`) by default as in `ps3-game`, `ZLIB=stock` without it (bench.txt `zlib=`); `LDPATH=DIR` a directory in front of the game's `LD_LIBRARY_PATH` (copies of
-  the libraries a package of ours replaced, for a same-boot A/B against the old version); `BINDNOW=1` (`LD_BIND_NOW`); `JSIMD=none|altivec` libjpeg-turbo's SIMD.
+  the libraries a package of ours replaced, for a same-boot A/B against the old version); `BINDNOW=1` (`LD_BIND_NOW`); `JSIMD=none|altivec` libjpeg-turbo's SIMD; `RTPRIO=N` the game's real-time priority limit (`0` keeps OpenAL's mixer off SCHED_RR; [SPU-AUDIO.md, "Real-time mixer"](../SPU-AUDIO.md#real-time-mixer)).
   A switch the installed library can't honour stops the run.
 
 report.py shows each run's switches after its variant (`base@rec10`, `base@wkkick10`,
@@ -116,6 +116,13 @@ with plain runs.
 a VT switch, a device, an SSH login or command. run.sh warns after it, report.py marks it and leaves
 it out of the medians, matrix.py skips it; `RERUN_INTERFERED=1` runs it once more at once (both
 directories stay; the clean one counts).
+
+**The picture's size.** At `SOUND_AT` (15 s by default, before the warm-up ends) client.sh also records
+the game's window and the screen (`geom.py`, at nice 19; `GEOM=0` turns it off): bench.txt
+`geom=1920x1080+0+0 fs=1 screen=1920x1080` and a row in `geometry.tsv`. A run whose window isn't the
+whole screen measured something else and doesn't count. (A player config left at `r_mode 3` ran
+OpenArena at 640x480 in a window on 2026-10-28; its recipe now sets `r_mode -2` and `r_fullscreen 1`
+itself.)
 
 ## Recipes
 

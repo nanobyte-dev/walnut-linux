@@ -4,7 +4,7 @@ games = ["openarena", "quake-3-arena"]
 driver_patches = []
 game_patches = ["ioquake3/0031"]
 sessions = []
-batches = []
+batches = ["2026-10-28-rtprio-openal"]
 +++
 
 # SIGTERM hangs ioquake3; OpenAL's "mmap commit error" (2026-10-28)
@@ -82,9 +82,13 @@ limit OpenAL puts it on SCHED_RR by itself, and Quake III's dropouts were gone i
 OpenArena's heavier map still had 3, against 21 in the run after it, so priority is most of it, not all
 (page faults and kernel work can't be outranked).
 
-**Not changed here.** The lever is the session's RLIMIT_RTPRIO (a `LimitRTPRIO=` for the user manager,
-or `/etc/security/limits.d`), which is system-wide: every OpenAL game would put its mixer on SCHED_RR,
-and SDL's audio threads could ask for it too. That wants a decision and a suite measurement (the 5-10
-game rule, played sessions judged by ear), so it is a proposal in [technical.md](../technical.md), not a
-shipped change. OpenAL's 32 ms buffer is the other lever (`period_size`/`periods`); dmix fixes the
+**Measured again, not shipped.** The lever is the session's RLIMIT_RTPRIO, which has to come from
+pam_limits (`/etc/security/limits.d`): the games run in scopes that inherit the login shell's limits, so
+a `LimitRTPRIO=` for the user manager would not reach them. The same day's suite measurement
+(docs/SPU-AUDIO.md "Real-time mixer", `gamedb:batch/2026-10-28-rtprio-openal`) ran this setup again with
+the limit as the only difference: 3 OpenArena and 7 Quake III pairs of 200 s with 5 bots, fullscreen,
+the mixer SCHED_RR with the limit and SCHED_OTHER without, and no audible dropout in any of the 20
+runs (one inaudible 17 ms gap without the limit), nor in 18 timedemo runs of OpenArena, Yamagi Quake II
+and Luanti. The dropouts above did not come back, the limit cost 0.4-2% fps in two of the timedemos,
+so it is not shipped. OpenAL's 32 ms buffer is the other lever (`period_size`/`periods`); dmix fixes the
 period and a starved thread misses 100-400 ms, more than a few extra periods would cover.

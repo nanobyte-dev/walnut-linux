@@ -20,7 +20,9 @@ setup() {
 	# the variant's cvars (OA_X) as set lines: the engine runs autoexec.cfg at start, before the
 	# renderer comes up, like q3config.cfg
 	local i
-	: > "$OA_AUTOEXEC"
+	# fullscreen at the desktop's resolution whatever the player's q3config.cfg says (a config left
+	# at r_mode 3 ran the batch of 2026-10-28 windowed at 640x480; client.sh's geom= shows it)
+	printf '%s\n' 'set r_mode "-2"' 'set r_fullscreen "1"' > "$OA_AUTOEXEC"
 	for ((i = 0; i + 2 < ${#OA_X[@]} + 1; i += 3)); do
 		[ "${OA_X[i]}" = +set ] && printf 'set %s "%s"\n' "${OA_X[i+1]}" "${OA_X[i+2]}" >> "$OA_AUTOEXEC"
 	done

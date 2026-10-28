@@ -149,7 +149,9 @@ commit error of a 2026-10-28 test at 80-440 ms of silence with sound on both sid
 OpenArena with bots, 1-21 in 150 s). With a real-time limit for the game (`LimitRTPRIO=10`; OpenAL then
 puts its mixer on SCHED_RR by itself; the session has none and no RTKit) Quake III had none in 3 runs
 and OpenArena 3 against 21 ([the investigation](../../gamedb/engines/ioquake3/investigations/2026-10-28-sigterm-hang-and-openal-xruns.md)).
-An RT limit for the session is the candidate fix, not made yet: it is system-wide.
+The same day's suite measurement (SPU-AUDIO.md "Real-time mixer") found no audible dropout with the
+limit or without it in 38 runs, so the RT limit is not shipped; it stays the fix to try when the
+dropouts come back.
 
 Fix: kernel patch `packages/patched/kernel/linux/patches/local/0047-snd-ps3-dma-watchdog.patch`. While playing, a timer checks
 every `snd_ps3.dma_watchdog_ms` (default 200, 0 off, read at stream start;

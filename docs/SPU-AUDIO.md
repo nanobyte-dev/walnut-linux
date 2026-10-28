@@ -107,6 +107,51 @@ item 1). Kernel patch local/0047 (not on the PS3 yet) adds a watchdog for that:
 came for that long while playing, and `/sys/module/snd_ps3/parameters/dma_stats` counts the
 interrupts by kind and the restarts.
 
+### Real-time mixer
+
+OpenAL Soft's mixer thread asks for `SCHED_RR|SCHED_RESET_ON_FORK` at priority 1 (`rt-prio`, default 1,
+capped at half the RR range) when it starts, and falls back to RTKit when that fails. On Walnut both
+fail: the session's `RLIMIT_RTPRIO` is 0 and there is no RTKit, so the mixer runs at normal priority
+beside the game's main thread and Mesa on the PPE's two hardware threads. When it misses its 32 ms
+buffer the output drops out: `mmap commit error: Broken pipe` in the log, an 80-440 ms gap in
+ps3-xrunlog's record (the [ioquake3 investigation](../gamedb/engines/ioquake3/investigations/2026-10-28-sigterm-hang-and-openal-xruns.md)).
+With a real-time limit OpenAL takes SCHED_RR by itself; nothing else has to change.
+
+**Where the limit would go.** Not a `LimitRTPRIO=` drop-in for `user@.service`. The desktop and every
+game run as `systemd-run --user --scope` units started from the tty1 login shell (`ps3-session`,
+`ps3-game`), and a scope's processes keep the rlimits of the process that started them, not the user
+manager's. The limit has to come from PAM: one line in `/etc/security/limits.d/` (`@audio - rtprio 10`,
+from ps3-desktop), which pam_limits applies to the tty1 login, the user manager (systemd-user) and
+SSH. The new value counts from the next login. The desktop user is in `audio` (walnut-firstboot).
+A limit of 10 admits OpenAL's priority 1 and refuses what asks for more: FluidSynth's 60, SDL's
+realtime hint (SDL's audio threads ask for nice levels, not RT, and stayed SCHED_OTHER under the limit),
+JACK. The kernel's RT throttling stays at its default (`sched_rt_runtime_us` 950000 of 1000000): a
+runaway RT thread can take 95% of each second, never all of it. `RLIMIT_RTTIME` was left alone:
+pam_limits can't set it, and its soft limit kills the game with SIGXCPU.
+
+**Measured (2026-10-28, kernel .874, same boot, nothing shipped).** `RTPRIO=0` against `RTPRIO=10` (the
+harness's ENVS token: the game's limit for the run), interleaved with the order alternating, every
+run checked fullscreen at 1920x1080 (`geom=`) and by a screenshot:
+
+| Runs | Arm | Audible dropouts | Logged (inaudible) | fps / steady | 1% low | Stalls |
+|---|---|---|---|---|---|---|
+| OpenArena timedemo x3 | 0 / 10 | 0 / 0 | 0 / 0 | 68.55 / 68.3 | 37.5 / 36.6 | 21 / 25 |
+| Yamagi Quake II timedemo x3 | 0 / 10 | 0 / 0 | 1 (67 ms) / 1 (7 ms) | 86.8 / 86.3 | 44.5 / 44.2 | 15 / 15 |
+| Luanti flight x3 (no sound plays) | 0 / 10 | 0 / 0 | 3 (34-102 ms) / 0 | 46 / 45 (HUD) | 19.8 / 20.9 | 10 / 8 |
+| OpenArena oa_dm4, 5 bots, live x3 | 0 / 10 | 0 / 0 | 1 (17 ms) / 0 | 58.9 / 59.1 | 32.4 / 39.0 | 0 / 1 |
+| Quake III q3dm7, 5 bots, live x7 | 0 / 10 | 0 / 0 | 0 / 0 | 59.9 / 59.5 | 46.6 / 42.6 | 2 / 2 |
+
+The mixer thread was SCHED_RR in every live run with the limit and SCHED_OTHER without it. Not one
+audible dropout in 38 runs either way. The test of the morning (1-21 a run in the same live setup)
+did not reproduce, so the limit had nothing to fix here. The cost is small and mostly within the
+noise: steady fps 0.4-0.6% lower in the two timedemos (Yamagi's three runs don't overlap: 86.8-87.1
+against 86.1-86.4) and Luanti's HUD median 45 against 46-47, while its 1% low and stall time came out
+better. Quake III's live 1% low swings between about 28 and 48 from run to run in both arms (7 pairs:
+three low runs with the limit, three without). **Not shipped:** no measured gain, a small fps cost. The
+limits.d line above is the change to make if the dropouts come back in a measurement (`RTPRIO=10`
+against `RTPRIO=0` again, on the run that shows them). Batch `gamedb:batch/2026-10-28-rtprio-openal`,
+docs/TESTS.md `rtprio`.
+
 ## Vorbis decoding on the PPE
 
 libvorbis decodes the Ogg Vorbis of [OpenArena](../gamedb/games/openarena/) ([ioquake3](../gamedb/engines/ioquake3/)'s music and voices), [SuperTuxKart](../gamedb/games/supertuxkart/) (every

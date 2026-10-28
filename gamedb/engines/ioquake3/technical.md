@@ -83,8 +83,9 @@ OpenAL Soft's `[ALSOFT] (EE) mmap commit error: Broken pipe` (and `available upd
 pipe`) is an audible dropout, 80-440 ms each: OpenAL's mixer thread starved past its 32 ms buffer and
 recovered. It runs at normal priority (no RT limit in the session, no RTKit). 150 s with 5 bots: Quake
 III 1-2 dropouts a run, OpenArena 1-17; with `LimitRTPRIO=10` (OpenAL takes SCHED_RR by itself) Quake
-III had none in 3 runs and OpenArena 3. Proposal, not shipped: an RT limit for the user's session
-(system-wide, so every OpenAL game; it needs a suite measurement and the user's ears first).
+III had none in 3 runs and OpenArena 3. The suite measurement the same day (docs/SPU-AUDIO.md
+"Real-time mixer") found no audible dropout in 20 live runs with bots and 18 timedemo runs, with the
+limit or without, and a 0.4-2% fps cost, so the RT limit is not shipped.
 
 ## Log noise
 

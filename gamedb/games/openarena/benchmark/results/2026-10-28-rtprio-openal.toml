@@ -1,0 +1,28 @@
+# openarena's numbers in batch 2026-10-28-rtprio-openal (gamedb/benchmarks/README.md)
+batch = "2026-10-28-rtprio-openal"
+
+[variant."base@rtprio0"]
+fps = 62.5
+cpu = 143.8
+underruns = 0
+fps_steady = 68.5
+low1 = 37.5
+stalls = 21
+longest_ms = 645.7
+stalls_play = 0
+stall_play_s = 0.0
+low1_play = 40.4
+longest_play_ms = 39.6
+
+[variant."base@rtprio10"]
+fps = 62.5
+cpu = 156.6
+underruns = 0
+fps_steady = 68.3
+low1 = 36.6
+stalls = 25
+longest_ms = 700.8
+stalls_play = 0
+stall_play_s = 0.0
+low1_play = 40.1
+longest_play_ms = 43.5

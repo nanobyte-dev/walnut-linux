@@ -1127,6 +1127,16 @@ observations = "same boot (2026-10-20 06:53-08:11Z), 18 runs rotated, DUMPON=1, 
 source = "bench/results row 104"
 
 [[batch]]
+name = "2026-10-28-rtprio-openal"
+order = 105
+kind = "run"
+title = "RT mixer: RTPRIO=10 against RTPRIO=0 (OpenAL's mixer on SCHED_RR) on OpenArena, Yamagi Quake II and Luanti base x3 (kernel .874)"
+date = 2026-10-28
+runs = 18
+observations = "same boot (2026-10-28 00:19-01:23Z), 18 runs, rounds alternating the order, none interfered; every run fullscreen at 1920x1080 (geom=) and a screenshot 40 s after the load (OpenArena's mostly the demo's map load screen, Yamagi's demo, Luanti's flight). No audible dropout in either arm; inaudible gaps 4 without the limit (Luanti 3, up to 102 ms; Yamagi 1, 67 ms), 1 with it (Yamagi, 7 ms). OpenArena steady 68.55 against 68.3, 1% low 37.5 against 36.6; Yamagi steady 86.8 against 86.3 (ranges not overlapping); Luanti HUD 46 against 45, 1% low 19.8 against 20.9, stall time 4.1 against 2.6 s. With the 20 live runs (OpenArena and Quake III with bots, outside the harness: docs/SPU-AUDIO.md \"Real-time mixer\"): no gain, a small fps cost, not shipped. Extreme Tux Racer and Armagetron left out: their base recipes need evemu-device, which is not installed (the runs sat in menus), and neither plays through OpenAL"
+source = "bench/analysis/matrix.py"
+
+[[batch]]
 name = "suite-summary-2026-10"
 kind = "summary"
 title = "The suite's numbers, 2026-10: the rules-1 calibration"

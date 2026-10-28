@@ -1,0 +1,28 @@
+# yquake2's numbers in batch 2026-10-28-rtprio-openal (gamedb/benchmarks/README.md)
+batch = "2026-10-28-rtprio-openal"
+
+[variant."base@rtprio0"]
+fps = 85.4
+cpu = 172.9
+underruns = 0
+fps_steady = 86.8
+low1 = 44.5
+stalls = 15
+longest_ms = 301.9
+stalls_play = 15
+stall_play_s = 3.8
+low1_play = 44.5
+longest_play_ms = 301.9
+
+[variant."base@rtprio10"]
+fps = 84.9
+cpu = 172.8
+underruns = 0
+fps_steady = 86.3
+low1 = 44.2
+stalls = 15
+longest_ms = 320.1
+stalls_play = 15
+stall_play_s = 3.9
+low1_play = 44.2
+longest_play_ms = 320.1

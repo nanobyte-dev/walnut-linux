@@ -788,7 +788,14 @@ def client_libenv(tmp):
     p, d, b, gl = run(8)
     check("libenv: zlib-ng by default: zlib=ng, its dir in LD_LIBRARY_PATH, no libenv, variant base",
           p.returncode == 0 and b.get("zlib") == "ng" and "env LD_LIBRARY_PATH=%s" % zdir in gl and
-          not b.get("libenv") and report.run(d).get("variant") == "base", (b.get("zlib"), b.get("libenv"), gl[:400]))
+          not b.get("libenv") and report.run(d).get("variant") == "base" and b.get("rtprio", "").isdigit(),
+          (b.get("zlib"), b.get("libenv"), b.get("rtprio"), gl[:400]))
+    p, d, b, gl = run(10, BENCH_RTPRIO="0")
+    check("libenv: RTPRIO=0: rtprio=0, libenv RTPRIO=0, tag rtprio0",
+          p.returncode == 0 and b.get("rtprio") == "0" and b.get("libenv") == "RTPRIO=0" and
+          report.run(d).get("variant") == "base@rtprio0", (p.returncode, b.get("rtprio"), b.get("libenv"), p.stdout[-300:]))
+    p, d, b, gl = run(11, BENCH_RTPRIO="high")
+    check("libenv: RTPRIO=high: refused", p.returncode == 2 and "0 to 99" in p.stdout, p.stdout[-300:])
     p, d, b, gl = run(9, BENCH_ZLIB="stock")
     check("libenv: ZLIB=stock: zlib=stock, PS3_ZLIB=stock, no zlib-ng dir, tag zstock",
           p.returncode == 0 and b.get("zlib") == "stock" and "env PS3_ZLIB=stock" in gl and str(zdir) not in gl and
