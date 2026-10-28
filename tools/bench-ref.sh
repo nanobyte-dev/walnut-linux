@@ -22,7 +22,7 @@ set -euo pipefail
 
 if [ "${1:-}" = --inside ]; then	# in the container: Xvfb, then client.sh as on the PS3
 	G=$2; V=$3; DUR=$4
-	mkdir -p "$HOME" /out/run
+	mkdir -p "$HOME" "$HOME/.local/share" "$HOME/.config" /out/run	# XDG dirs a fresh home lacks (Widelands won't start without ~/.local/share)
 	Xvfb :99 -screen 0 1920x1080x24 -nolisten tcp > /out/xvfb.log 2>&1 &
 	for i in $(seq 100); do [ -e /tmp/.X11-unix/X99 ] && break; sleep 0.1; done
 	export DISPLAY=:99 LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe MESA_GL_VERSION_OVERRIDE=2.1 \
