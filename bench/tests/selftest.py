@@ -405,6 +405,9 @@ RECIPES = {
 variant_nostop() { WINDOW_STOP=0; DURATION=6; }""",
     "fakepass": """CMD=("$FAKE" --fake-game passes); FPS_RE='^pass: [0-9]+ frames [0-9.]+ seconds ([0-9.]+) fps'
 MAXMS_RE='^pass: .* max ([0-9]+) ms'; PASSES=1; WARMUP=3; MEASURE=4; DURATION=25""",
+    "fakeneeds": """CMD=("$FAKE" --fake-game hudwin); NEEDS=(no-such-tool-xyz); DURATION=6
+during() { :; }
+variant_ok() { NEEDS=(sh); }""",
     "fakewedge": """CMD=("$FAKE" --fake-game wedge); COMM=python3; DURATION=6; WARMUP=1; MEASURE=2""",
     "fakecrash": """CMD=("$FAKE" --fake-game crash); COMM=python3; DURATION=8; WARMUP=1; MEASURE=2""",
     "fakeown": """CMD=("$FAKE" --fake-game own); STEADY_RE='^own: steady [0-9]+ frames in [0-9]+ ms: ([0-9.]+) fps'
@@ -431,6 +434,18 @@ def client(tmp):
         p = subprocess.run(["bash", str(HARNESS / "client.sh"), g, v], env=env, capture_output=True, text=True)
         runs[(g, v)] = (d, report.kv(d / "bench.txt"), time.monotonic() - t)
         check("client %s %s: exit 0" % (g, v), p.returncode == 0, p.stdout[-800:] + p.stderr[-800:])
+
+    # NEEDS: a missing command stops the run before it starts (exit 2, the message names it, no game output);
+    # one that exists lets it through
+    d = tmp / "ps3-bench-20261018T010098Z-fakeneeds-base"
+    env["BENCH_DIR"] = str(d)
+    p = subprocess.run(["bash", str(HARNESS / "client.sh"), "fakeneeds", "base"], env=env, capture_output=True, text=True)
+    check("NEEDS: a missing tool stops the run, exit 2, named", p.returncode == 2 and "no-such-tool-xyz" in p.stdout
+          and not (d / "bench.txt").exists(), (p.returncode, p.stdout[-300:]))
+    d = tmp / "ps3-bench-20261018T010097Z-fakeneeds-ok"
+    env["BENCH_DIR"] = str(d)
+    p = subprocess.run(["bash", str(HARNESS / "client.sh"), "fakeneeds", "ok"], env=env, capture_output=True, text=True)
+    check("NEEDS: tools that exist let the run through", "the recipe needs" not in p.stdout and (d / "bench.txt").exists(), (p.returncode, p.stdout[-300:]))
 
     # the gamedb layout (games.sh): BENCH_GAMES/<id>/benchmark/recipe.sh with its assets/ and lib/, named
     # by an old recipe name its analysis.toml lists ([legacy] recipe_names)

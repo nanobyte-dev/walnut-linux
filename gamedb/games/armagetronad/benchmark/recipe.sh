@@ -24,6 +24,7 @@ AA_CFG=$HOME/.armagetronad/var/user.cfg
 BACKUP=("$AA_CFG")
 AA_REC=$ASSETS/armagetronad-bench.aarec
 AA_KBD_WAIT=25	# seconds from the window's mapping to the keys (load, splash screen of up to 6 s, then the menu waits)
+NEEDS=(evemu-device evemu-play)	# the keys to the local game (live variants)
 AA_LIVE=1	# the raised match limits (not for playback and record: a recording replays only with the settings it was made with)
 setup() {
 	mkdir -p "$(dirname "$AA_CFG")"; touch "$AA_CFG"
@@ -60,10 +61,10 @@ HUD_SKIP=10
 # seconds: <X> fps." line never comes, the recording has no end). Frames for 54-77 s from the first
 # one, so a short window: 10 s warm-up, 40 s measured. Identical every run
 FPS_RE='[0-9]+ frames in [0-9.]+ seconds: ([0-9.]+) fps'
-variant_playback() { AA_LIVE=0; CMD=(/usr/games/armagetronad --playback "$AA_REC" --benchmark); WARMUP=10; MEASURE=40; DURATION=120; }
+variant_playback() { AA_LIVE=0; NEEDS=(); CMD=(/usr/games/armagetronad --playback "$AA_REC" --benchmark); WARMUP=10; MEASURE=40; DURATION=120; }
 # make a recording (quit from the menu before DURATION, so its playback ends there), then copy
 # /var/tmp/armagetronad-bench.aarec into assets/ (the asset of 2026-10-17 is a 90 s one, cut)
-variant_record() { AA_LIVE=0; CMD=(/usr/games/armagetronad --record /var/tmp/armagetronad-bench.aarec); DURATION=240; WINDOW_STOP=0; }
+variant_record() { AA_LIVE=0; NEEDS=(); CMD=(/usr/games/armagetronad --record /var/tmp/armagetronad-bench.aarec); DURATION=240; WINDOW_STOP=0; }
 # the live game for 45 s, no window (the old smoke test)
 variant_live() { DURATION=45; HUD_SKIP=15; WINDOW_STOP=0; }
 # Mesa 0020 off (texture caches invalidated on every draw, as before ps3.262): bisects its cost

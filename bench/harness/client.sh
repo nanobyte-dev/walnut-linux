@@ -111,7 +111,7 @@ _id=$(bench_id "$GAME") || { echo "!! $GAME: no recipe (run.sh list)"; exit 2; }
 GAME=$_id; bench_use "$GAME"
 
 # recipe interface (gamedb/README.md "benchmark/recipe.sh"): the recipe sets these, a variant_<name> function changes them
-CMD=(); ENV=(); BACKUP=(); DATA_DIRS=(); GAMEMODE=0; HUD=1; COMM=; WM=openbox; PLAY_MARK=
+CMD=(); ENV=(); BACKUP=(); DATA_DIRS=(); NEEDS=(); GAMEMODE=0; HUD=1; COMM=; WM=openbox; PLAY_MARK=
 # DURATION: a safety cap (load + 60 s warm-up + 120 s measured + margin); recipes set their own
 END_RE=; DURATION=270; HUD_SKIP=12; WARMUP=60; MEASURE=120; PASSES=0; WINDOW_STOP=0; STEADY_RE=
 STEADY_MAXMS_RE=; WIN_ON_RE=; WIN_OFF_RE=; FPS_RE=; MAXMS_RE=; LOAD_RE=; LOAD_MARK=; RESULT_FILE=; SOUND_AT=15
@@ -297,6 +297,16 @@ restore() {
 	done < "$B/.saved"
 	rm -rf "$B"
 }
+# NEEDS=(cmd...): the commands the recipe's during() and helpers call (evemu-device, ...). One missing
+# stops the run before anything is touched (exit 2, no bench.txt): the game would otherwise sit at a menu
+# for the whole window. Not checked for a played session (no during()).
+if declare -F during >/dev/null; then
+	_miss=(); for _c in "${NEEDS[@]}"; do command -v "$_c" >/dev/null 2>&1 || _miss+=("$_c"); done
+	if [ ${#_miss[@]} -gt 0 ]; then
+		echo "!! $GAME ($VARIANT): the recipe needs ${_miss[*]}, not installed (ps3-gpu-tools Recommends it: sudo apt install ps3-gpu-tools); the run is invalid"
+		exit 2
+	fi
+fi
 restore
 mkdir -p "$B"
 for f in "${BACKUP[@]}"; do

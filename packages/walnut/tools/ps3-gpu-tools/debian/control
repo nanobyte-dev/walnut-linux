@@ -9,6 +9,7 @@ Rules-Requires-Root: no
 Package: ps3-gpu-tools
 Architecture: ppc64
 Depends: ${shlibs:Depends}, ${misc:Depends}
+Recommends: evemu-tools, x11-apps, x11-utils, x11-xserver-utils, xinput, openbox, alsa-utils, linux-perf
 Description: PS3 RSX probes, driver tests and GL tests
  Raw RSX probes and ps3rsx driver tests (rsx-*, rsxdrm-smoke), offscreen EGL/GL tests compared
  with softpipe (egl-*, gl-*), the bench's recorders (ps3-stallrec, ps3-waker) and its

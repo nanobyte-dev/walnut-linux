@@ -363,6 +363,7 @@ recording without its events) and `"$BENCH_LIB/xkeys.py"` (keys through XTEST).
 |---|---|
 | `CMD=(...)` | the game command, absolute path |
 | `ENV=(...)` | `NAME=value` for the game's environment |
+| `NEEDS=(...)` | commands the recipe's `during()` calls (`evemu-device`, ...): one missing stops the run at once (client.sh, exit 2), nothing measured |
 | `SUITE=1` | part of `run.sh suite` |
 | `COMM` | the game's process name (ps3rsx per-client VRAM, peak RSS) |
 | `BACKUP=(...)` | files the game rewrites (configs): restored after every run |

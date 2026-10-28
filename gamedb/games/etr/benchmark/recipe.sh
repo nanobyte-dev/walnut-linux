@@ -22,6 +22,7 @@ COMM=etr
 ETR_KBD=/dev/input/event0	# the Logitech receiver's keyboard on the PS3
 ETR_REC=$ASSETS/etr-race.evemu
 CMD=(/usr/games/etr)
+NEEDS=(evemu-device evemu-play)
 DURATION=270	# a safety cap: the window ends the run at ~185 s
 WINDOW_STOP=1
 HUD_SKIP=15
@@ -70,7 +71,7 @@ during() {
 		sleep 5; pkill -x etr
 	fi
 }
-variant_record() { ETR_MODE=record; DURATION=600; WINDOW_STOP=0; }
+variant_record() { ETR_MODE=record; NEEDS=(evemu-record); DURATION=600; WINDOW_STOP=0; }
 # Our extremetuxracer (gamedb/games/etr/packages/etr/): fewer, larger GL submissions, each with an environment variable
 # (src/glfast.h in the package). base has them all on, gloff is ETR_GL=0 (the game as Debian
 # draws it), a no* variant is base with one change off.
