@@ -359,7 +359,7 @@ def fake_game(mode):
             f.write("%.6f\n" % time.time())
     for k in sorted(os.environ):
         if k.startswith(("NV30_", "MESA_SHADER_CACHE", "LD_DEBUG", "ALSOFT_CONF", "FLUIDSYNTH_", "JSIMD_",
-                         "LD_BIND_NOW", "LD_LIBRARY_PATH", "PS3_ZLIB")):
+                         "LD_BIND_NOW", "LD_LIBRARY_PATH", "PS3_ZLIB", "SDL_THREAD_FORCE_REALTIME_TIME_CRITICAL")):
             say("env %s=%s" % (k, os.environ[k]))   # the switches the game got (client.sh's genv, libenv, shadercache)
     ft = open(os.path.join(hud, "frametime_(ms)"), "a", buffering=1) if hud else None
     fp = open(os.path.join(hud, "fps"), "a", buffering=1) if hud else None
@@ -811,6 +811,14 @@ def client_libenv(tmp):
           report.run(d).get("variant") == "base@rtprio0", (p.returncode, b.get("rtprio"), b.get("libenv"), p.stdout[-300:]))
     p, d, b, gl = run(11, BENCH_RTPRIO="high")
     check("libenv: RTPRIO=high: refused", p.returncode == 2 and "0 to 99" in p.stdout, p.stdout[-300:])
+    p, d, b, gl = run(12, BENCH_NICELIM="0", BENCH_SDLRT="1")
+    check("libenv: NICELIM=0 and SDLRT=1: nicelim=0, SDL's hint in the env, tag nicelim0+sdlrt",
+          p.returncode == 0 and b.get("nicelim") == "0" and "SDL_THREAD_FORCE_REALTIME_TIME_CRITICAL=1" in gl and
+          report.run(d).get("variant") == "base@nicelim0+sdlrt", (p.returncode, b.get("nicelim"), gl[:400], p.stdout[-300:]))
+    p, d, b, gl = run(13, BENCH_NICELIM="41")
+    check("libenv: NICELIM=41: refused", p.returncode == 2 and "0 to 40" in p.stdout, p.stdout[-300:])
+    p, d, b, gl = run(14, BENCH_RTTHREAD="audio", BENCH_RTTHREAD_PRIO="0")
+    check("libenv: RTTHREAD with priority 0: refused", p.returncode == 2 and "1 to 99" in p.stdout, p.stdout[-300:])
     p, d, b, gl = run(9, BENCH_ZLIB="stock")
     check("libenv: ZLIB=stock: zlib=stock, PS3_ZLIB=stock, no zlib-ng dir, tag zstock",
           p.returncode == 0 and b.get("zlib") == "stock" and "env PS3_ZLIB=stock" in gl and str(zdir) not in gl and

@@ -64,8 +64,9 @@
 # FLUIDSYNTH_SETTINGS), ZLIB=ng|stock zlib-ng's libz.so.1 (libz-ng-compat, the default) or zlib1g's, LDPATH=DIR copies of replaced
 # libraries in front (a same-boot A/B against a package's previous version), BINDNOW=1 LD_BIND_NOW,
 # JSIMD=none|altivec libjpeg-turbo's SIMD, RTPRIO=N the game's real-time priority limit (0 refuses
-# OpenAL's SCHED_RR mixer; docs/SPU-AUDIO.md "Real-time mixer"); report.py base@oalb16, @fxoff, @zng,
-# @bindnow, @jsimdnone, @rtprio10.
+# OpenAL's SCHED_RR mixer; docs/SPU-AUDIO.md "Real-time mixer"), NICELIM=N its nice limit (40: SDL's
+# audio thread at nice -20), SDLRT=1 SDL's realtime hint, RTTHREAD=GLOB SCHED_RR set on those threads from
+# outside (with RTPRIO=N); report.py base@oalb16, @fxoff, @zng, @bindnow, @jsimdnone, @rtprio10, @nicelim40.
 # DUMPON=1: a failure dump for investigation runs, never for measured ones (client.sh header,
 # docs/games/LOG-FINDINGS.md "Catching failures"): the first "Wait timeout", "mmap commit error", "out of
 # GART", "out of VRAM" or "no memory to back the GART" line (DUMPON_RE another regex, DUMPON_MAX captures,

@@ -109,48 +109,91 @@ interrupts by kind and the restarts.
 
 ### Real-time mixer
 
-OpenAL Soft's mixer thread asks for `SCHED_RR|SCHED_RESET_ON_FORK` at priority 1 (`rt-prio`, default 1,
-capped at half the RR range) when it starts, and falls back to RTKit when that fails. On Walnut both
-fail: the session's `RLIMIT_RTPRIO` is 0 and there is no RTKit, so the mixer runs at normal priority
-beside the game's main thread and Mesa on the PPE's two hardware threads. When it misses its 32 ms
-buffer the output drops out: `mmap commit error: Broken pipe` in the log, an 80-440 ms gap in
-ps3-xrunlog's record (the [ioquake3 investigation](../gamedb/engines/ioquake3/investigations/2026-10-28-sigterm-hang-and-openal-xruns.md)).
-With a real-time limit OpenAL takes SCHED_RR by itself; nothing else has to change.
+A game's sound drops out when its mixing thread misses the buffer: ALSA reports an underrun, and
+ps3-xrunlog counts the gap as audible when it is 20 ms or longer and the sound around it is louder
+than -50 dBFS. On Walnut every audio thread runs at normal priority beside the game's main thread
+and Mesa on the PPE's two hardware threads, so a game that keeps the CPU busy starves its own
+sound. The user's rule (2026-10-28): where the system struggles, glitchy audio is worse than slower
+graphics.
 
-**Where the limit would go.** Not a `LimitRTPRIO=` drop-in for `user@.service`. The desktop and every
-game run as `systemd-run --user --scope` units started from the tty1 login shell (`ps3-session`,
-`ps3-game`), and a scope's processes keep the rlimits of the process that started them, not the user
-manager's. The limit has to come from PAM: one line in `/etc/security/limits.d/` (`@audio - rtprio 10`,
-from ps3-desktop), which pam_limits applies to the tty1 login, the user manager (systemd-user) and
-SSH. The new value counts from the next login. The desktop user is in `audio` (walnut-firstboot).
-A limit of 10 admits OpenAL's priority 1 and refuses what asks for more: FluidSynth's 60, SDL's
-realtime hint (SDL's audio threads ask for nice levels, not RT, and stayed SCHED_OTHER under the limit),
-JACK. The kernel's RT throttling stays at its default (`sched_rt_runtime_us` 950000 of 1000000): a
-runaway RT thread can take 95% of each second, never all of it. `RLIMIT_RTTIME` was left alone:
-pam_limits can't set it, and its soft limit kills the game with SIGXCPU.
+**What each audio path does with a real-time limit.** Walnut's session has `RLIMIT_RTPRIO` 0,
+`RLIMIT_NICE` 0 and no RTKit, and no PulseAudio or PipeWire server runs (SDL3 and miniaudio try them,
+fail, and open ALSA directly), so the game's own thread is the only one that matters.
 
-**Measured (2026-10-28, kernel .874, same boot, nothing shipped).** `RTPRIO=0` against `RTPRIO=10` (the
-harness's ENVS token: the game's limit for the run), interleaved with the order alternating, every
-run checked fullscreen at 1920x1080 (`geom=`) and by a screenshot:
+| Audio path | Games | What it asks for | With a limit |
+|---|---|---|---|
+| OpenAL Soft 1.25 | ioquake3, Yamagi, SuperTuxKart, Luanti | `SCHED_RR` 1 for its mixer, RTKit if that fails | gets SCHED_RR under `RLIMIT_RTPRIO` 1 or more |
+| SDL3 (SDL2 games through sdl2-compat, SDL2_mixer) | dsda-doom, OpenTTD, Neverball, Sauerbraten, X-Moto | nice -20 for `SDLAudioP<n>` (`SDL_THREAD_PRIORITY_TIME_CRITICAL`) | nice -20 under `RLIMIT_NICE` 40; SCHED_RR never |
+| SFML 3 (miniaudio) | Extreme Tux Racer | nothing (its scheduling attributes don't apply without `PTHREAD_EXPLICIT_SCHED`) | nothing; an unnamed thread called like the game |
+| FluidSynth's own audio driver | not these two: dsda-doom and OpenTTD synthesize in SDL's thread | `SCHED_FIFO` 60 | refused under a limit of 10 |
 
-| Runs | Arm | Audible dropouts | Logged (inaudible) | fps / steady | 1% low | Stalls |
-|---|---|---|---|---|---|---|
-| OpenArena timedemo x3 | 0 / 10 | 0 / 0 | 0 / 0 | 68.55 / 68.3 | 37.5 / 36.6 | 21 / 25 |
-| Yamagi Quake II timedemo x3 | 0 / 10 | 0 / 0 | 1 (67 ms) / 1 (7 ms) | 86.8 / 86.3 | 44.5 / 44.2 | 15 / 15 |
-| Luanti flight x3 (no sound plays) | 0 / 10 | 0 / 0 | 3 (34-102 ms) / 0 | 46 / 45 (HUD) | 19.8 / 20.9 | 10 / 8 |
-| OpenArena oa_dm4, 5 bots, live x3 | 0 / 10 | 0 / 0 | 1 (17 ms) / 0 | 58.9 / 59.1 | 32.4 / 39.0 | 0 / 1 |
-| Quake III q3dm7, 5 bots, live x7 | 0 / 10 | 0 / 0 | 0 / 0 | 59.9 / 59.5 | 46.6 / 42.6 | 2 / 2 |
+SDL's realtime hint (`SDL_THREAD_FORCE_REALTIME_TIME_CRITICAL=1`) does nothing here: SDL 3.4's Linux
+code asks only RTKit for SCHED_RR (`SDL_SetLinuxThreadPriorityAndPolicy`, src/core/linux/SDL_threadprio.c),
+never `sched_setscheduler` itself, and the thread stayed SCHED_OTHER with the hint and a limit of 99.
+So SCHED_RR for an SDL or SFML game has to be set from outside: `chrt -r -p 1` on the thread, which
+the kernel allows the same user up to the target's own `RLIMIT_RTPRIO`.
 
-The mixer thread was SCHED_RR in every live run with the limit and SCHED_OTHER without it. Not one
-audible dropout in 38 runs either way. The test of the morning (1-21 a run in the same live setup)
-did not reproduce, so the limit had nothing to fix here. The cost is small and mostly within the
-noise: steady fps 0.4-0.6% lower in the two timedemos (Yamagi's three runs don't overlap: 86.8-87.1
-against 86.1-86.4) and Luanti's HUD median 45 against 46-47, while its 1% low and stall time came out
-better. Quake III's live 1% low swings between about 28 and 48 from run to run in both arms (7 pairs:
-three low runs with the limit, three without). **Not shipped:** no measured gain, a small fps cost. The
-limits.d line above is the change to make if the dropouts come back in a measurement (`RTPRIO=10`
-against `RTPRIO=0` again, on the run that shows them). Batch `gamedb:batch/2026-10-28-rtprio-openal`,
-docs/TESTS.md `rtprio`.
+**Where a limit would come from.** The desktop and every game are `systemd-run --user --scope` units
+started from the tty1 login shell (`ps3-session`, `ps3-game`), and a scope keeps the rlimits of the
+process that started it, not the user manager's, so a `LimitRTPRIO=` drop-in never reaches them. The
+limit comes from PAM: a line in `/etc/security/limits.d/` (ps3-desktop), applied to the tty1 login, the
+user manager and SSH from the next login; the desktop user is in `audio` (walnut-firstboot). For a
+per-game choice the line would set only the hard limit (`@audio hard rtprio 10`), the soft one staying
+0, so nothing runs real-time unless ps3-game raises its own soft limit (no privilege needed up to the
+hard one) for a flagged game and sets that game's audio thread. A limit of 10 refuses what asks for
+more (FluidSynth's 60, JACK). The kernel's RT throttling stays at its default
+(`sched_rt_runtime_us` 950000 of 1000000): a runaway RT thread gets 95% of a hardware thread at most.
+`RLIMIT_RTTIME` is left alone: pam_limits can't set it, and its soft limit kills the game with SIGXCPU.
+
+**Measured, games with dropouts (2026-10-28 12:40-15:04, kernel .874, same boot, nothing shipped).**
+The candidates came from the played sessions and the suite runs, ranked by audible dropouts a minute:
+dsda-doom's software session (35.9 a minute), SuperTuxKart at 7 fps (9.5), Extreme Tux Racer (7.6),
+dsda-doom's GL session (7.5), OpenTTD (6.6), Sauerbraten (6.3). dsda-doom runs its `owncfg` variant: the
+software renderer at 960x540 scaled to the screen (the menu's "DSDA-Doom (software)"; at a native
+1920x1080 the PPE draws about 5 fps), the timedemo flat out, FluidSynth music with the voice DSP on the
+SPEs, on a config of the run's own. Arms through the harness's tokens: none (`RTPRIO=0`), nice -20
+for SDL's thread (`NICELIM=40`), SCHED_RR 1 from outside 15 s after the start (`RTPRIO=10+RTTHREAD=...`,
+the thread name in bench.txt `sched=`). Order rotated each round, a screenshot 40 s in (gameplay in
+every counted run), fullscreen 1920x1080 by `geom=`. Counts are per run of about 200 s:
+
+| Game, audio path | Arm | Runs | Audible dropouts | Audible time | Underruns logged | Steady fps | 1% low | Stalls |
+|---|---|---|---|---|---|---|---|---|
+| dsda-doom software, SDL3 + FluidSynth | none | 3 | 19 (13-28) | 320-816 ms | 4217 | 40.3 | 21.3 | 0 |
+| | nice -20 | 4 | 10.5 (6-24) | 160-594 ms | 3888 | 39.7 | 19.3 | 1 |
+| | SCHED_RR 1 | 3 | **2 (1-3)** | 30-158 ms | 3487 | 40.1 | 21.1 | 1 |
+| Extreme Tux Racer, SFML/miniaudio | none | 3 | 24 (20-31) | 599-884 ms | 192 | 59 (HUD) | 29.9 | 1 |
+| | SCHED_RR 1 | 4 | **3.5 (3-5)** | 90-186 ms | 171 | 59 | 28.6 | 1.5 |
+| OpenTTD, SDL3 + FluidSynth | none | 2 | 2 (2-2) | 57-88 ms | 2019 | 42 (HUD) | 15.4 | 1 |
+| | nice -20 | 5 | 1 (0-6) | 0-157 ms | 1095 | 43 | 15.4 | 0 |
+
+- **SCHED_RR fixes the CPU-bound case.** dsda-doom 19 to 2 and Extreme Tux Racer 24 to 3.5 audible
+  dropouts a run, the ranges apart, with no fps cost beyond the noise (steady 40.1 against 40.3, 59
+  against 59; 1% lows within the run-to-run spread). The audio thread is light (ETR's about 9% of a
+  hardware thread at its menu), so taking its share first costs the game little.
+- **Nice -20 is the weaker half.** dsda-doom 19 to 10.5 with the ranges overlapping, and it cost
+  2% steady fps and two points of 1% low; OpenTTD's logged underruns halved (2019 to 1095) but its
+  audible count was low either way.
+- **Load from outside is what the priority protects against.** Another agent's SSH logins landed in
+  14 of these runs (left out). Under them OpenTTD without the priority had 14-28 audible dropouts a
+  run (6 runs) and with nice -20 had 1-5 (3 runs); ETR without it 28-35, with SCHED_RR 5.
+
+**OpenAL games (the night before, 01:24-04:49, same kernel).** `RTPRIO=0` against `RTPRIO=10` on
+OpenArena, Yamagi Quake II and Luanti timedemos (x3 each) and live OpenArena and Quake III with 5 bots
+(x3, x7): the mixer was SCHED_RR in every run with the limit, and 0 audible dropouts in all 38 runs
+either way. Steady fps 0.4-0.6% lower with the limit (Yamagi's ranges didn't overlap: 86.8-87.1 against
+86.1-86.4), Luanti's HUD 45 against 46. Nothing to fix there (batch
+`gamedb:batch/2026-10-28-rtprio-openal`).
+
+**Recommendation: per-game opt-in, SCHED_RR 1 for the audio thread; not shipped yet.** The numbers
+clearly support it for dsda-doom's software renderer and Extreme Tux Racer: a flag in their build.toml
+(the thread's name: `SDLAudio*`, `etr`) with which ps3-game raises its soft `RLIMIT_RTPRIO` to 1 and
+sets the thread once it exists, under the hard-limit-only limits.d line above. That line is a system
+change (ps3-desktop), so it waits for the user's go. Not system-wide: the OpenAL games gained nothing
+and paid 0.5%, OpenTTD has too few dropouts to show a gain in a quiet run, and nobody measured
+SCHED_RR on every game's audio thread. Not nice -20: weaker and dearer. SuperTuxKart (OpenAL, so a
+limit alone would do) and Sauerbraten are the next to measure, once their recipes can run on a home
+of their own (SuperTuxKart's writes the player's config.xml and restores it). Batch
+`gamedb:batch/2026-10-28-rt-audio-thread`, docs/TESTS.md `rt-audio`.
 
 ## Vorbis decoding on the PPE
 

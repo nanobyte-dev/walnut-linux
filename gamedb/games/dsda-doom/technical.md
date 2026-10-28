@@ -50,7 +50,8 @@ memory snapshots start. Base is the software renderer at 960x540 scaled by SDL;
 the bench row of the suite is `gl`. Freedoom 0.13's own demos desync (freedoom issue #1532), which
 doesn't matter for a timedemo: the same tics play every run. Variants include `play` (the demo at normal
 speed with GL, 60 s, for the sound), `playnomusic`, `tuned` (OPL music, 48 kHz, a 2048 buffer, 60 fps
-cap), `playopl`, `playspu`, `playppe`, `playoff` and the batching switches.
+cap), `playopl`, `playspu`, `playppe`, `playoff`, the batching switches and `owncfg` (base on a config
+of the run's own, `-config` in the run directory: dsda-doom's defaults, the player's file untouched).
 
 ## Known problems
 

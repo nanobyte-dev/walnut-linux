@@ -1,0 +1,32 @@
+# etr's numbers in batch 2026-10-28-rt-audio-thread (gamedb/benchmarks/README.md)
+batch = "2026-10-28-rt-audio-thread"
+
+[variant."base@rtprio0"]
+fps = 59
+cpu = 127.6
+underruns = 0
+ram_free = 47.1
+vram = 58.1
+fps_steady = 59
+low1 = 29.9
+stalls = 1
+longest_ms = 114.2
+stalls_play = 1
+stall_play_s = 0.1
+low1_play = 29.9
+longest_play_ms = 114.2
+
+[variant."base@rtprio10+rtthread"]
+fps = 59.0
+cpu = 126.8
+underruns = 0.0
+ram_free = 45.8
+vram = 58.0
+fps_steady = 59.0
+low1 = 28.6
+stalls = 1.5
+longest_ms = 172.4
+stalls_play = 1.5
+stall_play_s = 0.2
+low1_play = 28.6
+longest_play_ms = 172.4

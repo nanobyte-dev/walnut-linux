@@ -35,6 +35,11 @@ FPS_RE='Timed [0-9]+ gametics in [0-9]+ realtics = ([0-9.]+) frames per second'
 # so the window, PERF=1 and MEM=1 never started; "Playing demo:" comes right before the first pass
 LOAD_MARK='^(R_Init|S_Init|HU_Init|ST_Init|Playing demo:)'
 variant_gl() { DD_MODE=gl DD_W=1920 DD_H=1080; dd_cmd; }
+# base (the software renderer, 960x540 scaled to the screen: the menu's "DSDA-Doom (software)") on a
+# config of the run's own: -config in the run directory, nonexistent at the start, so dsda-doom's
+# defaults (FluidSynth music, 44.1 kHz) and nothing of the player's dsda-doom.cfg read or written;
+# the CPU-bound case of the real-time audio tests (docs/SPU-AUDIO.md "Real-time mixer")
+variant_owncfg() { CMD+=(-config "${D:-/tmp}/dsda-doom.cfg"); }
 variant_sw1080() { DD_W=1920 DD_H=1080; dd_cmd; }
 # SDL's GLES2 renderer instead of its desktop-GL one (the software frame goes to the screen through
 # an SDL texture): the 960x540 software run was green-tinted

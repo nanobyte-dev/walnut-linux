@@ -1137,6 +1137,16 @@ observations = "same boot (2026-10-28 00:19-01:23Z), 18 runs, rounds alternating
 source = "bench/analysis/matrix.py"
 
 [[batch]]
+name = "2026-10-28-rt-audio-thread"
+order = 106
+kind = "run"
+title = "RT audio thread: SCHED_RR 1 from outside (RTPRIO=10+RTTHREAD) and nice -20 (NICELIM=40) against none on dsda-doom software (owncfg), Extreme Tux Racer and OpenTTD (kernel .874)"
+date = 2026-10-28
+runs = 24
+observations = "same boot (2026-10-28 10:40-13:04Z), 38 runs in four rounds, order rotated, 14 interfered (another agent's SSH logins; left out). Every counted run fullscreen at 1920x1080 (geom=) and in gameplay at its 40 s screenshot. Audible dropouts a run (about 200 s), median: dsda-doom software 19 none, 10.5 nice -20, 2 SCHED_RR; Extreme Tux Racer 24 none, 3.5 SCHED_RR; OpenTTD 2 none (2 clean runs), 1 nice -20 (logged underruns 2019 to 1095). No fps cost from SCHED_RR beyond the noise (dsda-doom steady 40.1 against 40.3, ETR 59 against 59); nice -20 cost dsda-doom 2% steady and two points of 1% low. SDL's realtime hint does nothing without RTKit (thread stayed SCHED_OTHER). docs/SPU-AUDIO.md \"Real-time mixer\": per-game opt-in recommended, not shipped"
+source = "bench/analysis/matrix.py"
+
+[[batch]]
 name = "suite-summary-2026-10"
 kind = "summary"
 title = "The suite's numbers, 2026-10: the rules-1 calibration"

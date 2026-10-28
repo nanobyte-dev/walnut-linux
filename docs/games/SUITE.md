@@ -104,12 +104,12 @@ against order bias. What a token can set:
   settings by `openal.inc`'s names on any variant of any game; `FLUIDFX=off|norev|nocho|cho1|on`
   FluidSynth's reverb and chorus whatever the game asks for; zlib-ng's `libz.so.1` in front (package
   `libz-ng-compat`) by default as in `ps3-game`, `ZLIB=stock` without it (bench.txt `zlib=`); `LDPATH=DIR` a directory in front of the game's `LD_LIBRARY_PATH` (copies of
-  the libraries a package of ours replaced, for a same-boot A/B against the old version); `BINDNOW=1` (`LD_BIND_NOW`); `JSIMD=none|altivec` libjpeg-turbo's SIMD; `RTPRIO=N` the game's real-time priority limit (`0` keeps OpenAL's mixer off SCHED_RR; [SPU-AUDIO.md, "Real-time mixer"](../SPU-AUDIO.md#real-time-mixer)).
+  the libraries a package of ours replaced, for a same-boot A/B against the old version); `BINDNOW=1` (`LD_BIND_NOW`); `JSIMD=none|altivec` libjpeg-turbo's SIMD; `RTPRIO=N` the game's real-time priority limit (`0` keeps OpenAL's mixer off SCHED_RR; [SPU-AUDIO.md, "Real-time mixer"](../SPU-AUDIO.md#real-time-mixer)); `NICELIM=N` its nice limit (`40` lets SDL's audio thread take the nice -20 it asks for); `SDLRT=1` SDL's `SDL_THREAD_FORCE_REALTIME_TIME_CRITICAL` (asks RTKit, which Walnut lacks: no effect); `RTTHREAD=GLOB` SCHED_RR (`RTTHREAD_PRIO`, default 1) set from outside at `SOUND_AT` on the game's threads of that name, never its main thread, within the `RTPRIO` limit (`SDLAudio*`; `etr` for miniaudio's unnamed worker). Every run's bench.txt has `nicelim=` and `sched=` (the game's threads off SCHED_OTHER nice 0 at `SOUND_AT`; all of them in threads.tsv), `rtthread=` what the chrt did.
   A switch the installed library can't honour stops the run.
 
 report.py shows each run's switches after its variant (`base@rec10`, `base@wkkick10`,
 `base@translate_lut0`, `base@mtune`, `base@oalb16`, `base@fxoff`, `base@zng`, `base@gpffetch`, `base@sccold`, `base@gdssd+swssd`,
-`base@rsx_name<V>`, `base@shot` for a run with a screenshot inside its window), so they never group
+`base@rsx_name<V>`, `base@rtprio10+rtthread`, `base@nicelim40`, `base@shot` for a run with a screenshot inside its window), so they never group
 with plain runs.
 
 **Interference.** `ps3-bench.sh`'s detector (`ps3-intfwatch`) flags a run somebody disturbed: input,
@@ -169,7 +169,7 @@ started, parsed and what its variants do is in its technical notes.
 | [Armagetron Advanced](../../gamedb/games/armagetronad/technical.md) | `/usr/games/armagetronad` | the window (`WINDOW_STOP`) | the Gallium HUD | [9](../../gamedb/games/armagetronad/benchmark/recipe.sh) |
 | [BananaBread](../../gamedb/games/bananabread/technical.md) | set in `setup()` | the game quits | the game's steady line (`STEADY_RE`) | [42](../../gamedb/games/bananabread/benchmark/recipe.sh) |
 | [ClassiCube](../../gamedb/games/classicube/technical.md) | `/usr/games/classicube "$CC_DIR/maps/bench.cw"` | passes (the game repeats its demo) | the game's own line (`FPS_RE`) | [25](../../gamedb/games/classicube/benchmark/recipe.sh) |
-| [dsda-doom](../../gamedb/games/dsda-doom/technical.md) | set in `setup()` | passes (the game repeats its demo) | the game's own line (`FPS_RE`) | [20](../../gamedb/games/dsda-doom/benchmark/recipe.sh) |
+| [dsda-doom](../../gamedb/games/dsda-doom/technical.md) | set in `setup()` | passes (the game repeats its demo) | the game's own line (`FPS_RE`) | [21](../../gamedb/games/dsda-doom/benchmark/recipe.sh) |
 | [Extreme Tux Racer](../../gamedb/games/etr/technical.md) | `/usr/games/etr` | the window (`WINDOW_STOP`) | the Gallium HUD | [13](../../gamedb/games/etr/benchmark/recipe.sh) |
 | [Luanti](../../gamedb/games/luanti/technical.md) | `/usr/games/luanti --go --world "$LU_WORLD" --config "$LU_CONF"` | its own last line (`END_RE`) | the Gallium HUD | [44](../../gamedb/games/luanti/benchmark/recipe.sh) |
 | [Neverball](../../gamedb/games/neverball/technical.md) | `/usr/games/neverball --replay /usr/share/games/neverball/gui/demo1.nbr` | passes (the game repeats its demo) | the game's own line (`FPS_RE`) | [7](../../gamedb/games/neverball/benchmark/recipe.sh) |

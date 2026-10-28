@@ -484,6 +484,60 @@ if [ -n "${BENCH_RTPRIO:-}" ]; then
 	LIBENV+=("RTPRIO=$BENCH_RTPRIO")
 fi
 RTPRIO_USED=$(ulimit -r)
+# NICELIM=N (BENCH_NICELIM): the game's nice limit (RLIMIT_NICE, soft and hard, 0 to 40: the lowest nice
+# it may take is 20-N), set like RTPRIO. SDL's audio thread asks for nice -20 (SDL_THREAD_PRIORITY_
+# TIME_CRITICAL; its SCHED_RR path is RTKit only, which Walnut lacks), so NICELIM=40 gives it that.
+# SDLRT=1: SDL_THREAD_FORCE_REALTIME_TIME_CRITICAL=1 (SDL asks RTKit for SCHED_RR instead). RTTHREAD=GLOB
+# (BENCH_RTTHREAD, BENCH_RTTHREAD_PRIO default 1): at SOUND_AT the game's threads whose name matches the
+# glob (SDLAudio*; etr: miniaudio's unnamed worker), never the main thread, get SCHED_RR from outside (chrt as the player: allowed up to the game's RLIMIT_RTPRIO, so with
+# RTPRIO=N). bench.txt nicelim=, rtthread=<name/tid:ok|refused ...>, and in every run sched= (the game's
+# threads not at SCHED_OTHER nice 0 at SOUND_AT, name:policy/prio or name:nice; threads.tsv all of them).
+# docs/SPU-AUDIO.md "Real-time mixer"; report.py base@nicelim40, @sdlrt, @rtthread
+if [ -n "${BENCH_NICELIM:-}" ]; then
+	[[ $BENCH_NICELIM =~ ^[0-9]+$ ]] && [ "$BENCH_NICELIM" -le 40 ] || { echo "!! BENCH_NICELIM=$BENCH_NICELIM: 0 to 40"; exit 2; }
+	h=$(ulimit -He)
+	if [ "$h" = unlimited ] || [ "$BENCH_NICELIM" -le "$h" ]; then
+		ulimit -e "$BENCH_NICELIM" 2>/dev/null
+	else
+		sudo -n prlimit --pid $$ --nice="$BENCH_NICELIM:$BENCH_NICELIM" 2>/dev/null
+	fi
+	[ "$(ulimit -e)" = "$BENCH_NICELIM" ] || { echo "!! BENCH_NICELIM=$BENCH_NICELIM: the limit can't be set (ulimit -e $(ulimit -e), hard $h, sudo -n prlimit)"; exit 2; }
+	LIBENV+=("NICELIM=$BENCH_NICELIM")
+fi
+NICELIM_USED=$(ulimit -e)
+if [ -n "${BENCH_SDLRT:-}" ]; then
+	[ "$BENCH_SDLRT" = 1 ] || { echo "!! BENCH_SDLRT=$BENCH_SDLRT: 1"; exit 2; }
+	env_add SDL_THREAD_FORCE_REALTIME_TIME_CRITICAL 1; LIBENV+=("SDLRT=1")
+fi
+RTTHREAD=${BENCH_RTTHREAD:-}; RTTHREAD_PRIO=${BENCH_RTTHREAD_PRIO:-1}
+if [ -n "$RTTHREAD" ]; then
+	[[ $RTTHREAD_PRIO =~ ^[0-9]+$ ]] && [ "$RTTHREAD_PRIO" -ge 1 ] && [ "$RTTHREAD_PRIO" -le 99 ] || { echo "!! BENCH_RTTHREAD_PRIO=$RTTHREAD_PRIO: 1 to 99"; exit 2; }
+	command -v chrt > /dev/null || { echo "!! BENCH_RTTHREAD: no chrt"; exit 2; }
+	LIBENV+=("RTTHREAD=$RTTHREAD")
+fi
+# sched_probe PID: threads.tsv (tid name policy rtprio nice), RTTHREAD's chrt first; .sched, .rtthread
+sched_probe() {
+	local p=$1 t r n s rt=()
+	if [ -n "$RTTHREAD" ]; then
+		for t in /proc/"$p"/task/*; do
+			read -r n < "$t/comm" 2>/dev/null || continue
+			[[ $n == $RTTHREAD ]] && [ "${t##*/}" != "$p" ] || continue
+			if chrt -r -p "$RTTHREAD_PRIO" "${t##*/}" > /dev/null 2>&1; then r=ok; else r=refused; fi
+			rt+=("$n/${t##*/}:$r")
+		done
+		echo "${rt[*]:-none}" > "$D/.rtthread"
+	fi
+	printf 'tid\tname\tpolicy\trtprio\tnice\n' > "$D/threads.tsv"
+	for t in /proc/"$p"/task/*; do
+		read -r n < "$t/comm" 2>/dev/null || continue
+		read -r s < "$t/stat" 2>/dev/null || continue
+		s=${s##*) }; set -- $s	# fields from 3 (state): nice is 19, rt_priority 40, policy 41
+		printf '%s\t%s\t%s\t%s\t%s\n' "${t##*/}" "$n" "${39:-}" "${38:-}" "${17:-}" >> "$D/threads.tsv"
+	done
+	awk -F'\t' 'NR > 1 && ($3 != 0 || $5 != 0) { pol = $3 == 1 ? "FIFO" : $3 == 2 ? "RR" : $3 == 3 ? "BATCH" : $3 == 5 ? "IDLE" : $3;
+		x = ($3 == 1 || $3 == 2) ? $2 ":" pol "/" $4 : $2 ":" ($3 == 0 ? "" : pol) "nice" $5; s = s (s ? " " : "") x }
+		END { print s ? s : "none" }' "$D/threads.tsv" > "$D/.sched"
+}
 # Sound dropouts (docs/games/SUITE.md "Sound dropouts"), on unless BENCH_XRUNLOG=0 (run.sh's ENVS token
 # XRUNLOG=0): ps3-gpu-tools' ps3-xrunlog.so, an ALSA plugin, in front of the game's default sound device
 # for this run only. The game's ALSA_CONFIG_PATH is alsa.conf (or the recipe's or the caller's list) and
@@ -823,6 +877,7 @@ fi
 # windowed (a config left at 640x480) is seen and not counted
 (sleep "$SOUND_AT"; cat /proc/asound/card*/pcm*p/sub*/status 2>/dev/null |
 	awk '$1 == "state:" { s = s (s ? "," : "") $2 } END { print s ? s : "none" }' > "$D/.sound"
+	[ -s "$D/.pid" ] && sched_probe "$(cat "$D/.pid")"
 	if [ "${BENCH_GEOM:-1}" = 1 ] && command -v xwininfo > /dev/null && command -v python3 > /dev/null; then
 		nice -n 19 python3 -I "$here/geom.py" "$gp" "$SOUND_AT" "$D/geometry.tsv" > /dev/null 2>&1
 		awk -F'\t' 'NR > 1 { g = $4 "x" $5 "+" $2 "+" $3 " fs=" $6 " screen=" $7 "x" $8 } END { print g ? g : "none" }' \
@@ -1120,7 +1175,9 @@ secs measured "$measured"
   [ -n "$OAL_TOKEN" ] && echo "oal=$OAL_TOKEN"
   [ ${#LIBENV[@]} -gt 0 ] && echo "libenv=${LIBENV[*]}"
   echo "zlib=$ZLIB_USED"
-  echo "rtprio=$RTPRIO_USED"
+  echo "rtprio=$RTPRIO_USED"; echo "nicelim=$NICELIM_USED"
+  [ -s "$D/.sched" ] && echo "sched=$(cat "$D/.sched")"
+  [ -s "$D/.rtthread" ] && echo "rtthread=$(cat "$D/.rtthread")"
   [ ${#KPARAM[@]} -gt 0 ] && echo "kparam=${KPARAM[*]}"
   [ -n "$GPF" ] && echo "gprefetch=$GPF"
   [ -n "$SC" ] && { echo "shadercache=$SC"; echo "shadercache_kb=${SC_KB:--} $(sc_kb || echo -)"; }
