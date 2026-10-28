@@ -37,7 +37,7 @@ TAG=ps3-play-pc:$( (cat build-containers/Dockerfile.playpc; echo "$BID $SNAPSHOT
 if [ "${PLAY_PC_DRY:-0}" != 1 ] && ! docker image inspect "$TAG" > /dev/null 2>&1; then
 	echo ">> building $TAG (base $BASE, packages: ${APT_PKGS:-from the base image})"
 	docker build -q -t "$TAG" -f build-containers/Dockerfile.playpc --build-arg BASE="$BASE" --build-arg SNAPSHOT="$SNAPSHOT" \
-		--build-arg PKGS="$APT_PKGS" docker > /dev/null
+		--build-arg PKGS="$APT_PKGS" build-containers > /dev/null
 fi
 
 home=build/pc-play/$G

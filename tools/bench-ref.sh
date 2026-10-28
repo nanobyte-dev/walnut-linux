@@ -59,7 +59,7 @@ TAG=ps3-bench-ref:$( (cat build-containers/Dockerfile.benchref; echo "$BID $SNAP
 if ! docker image inspect "$TAG" > /dev/null 2>&1; then
 	echo ">> building $TAG (base $BASE, packages: ${REF_PKGS:-none})"
 	docker build -q -t "$TAG" -f build-containers/Dockerfile.benchref --build-arg BASE="$BASE" --build-arg SNAPSHOT="$SNAPSHOT" \
-		--build-arg PKGS="$REF_PKGS" docker > /dev/null
+		--build-arg PKGS="$REF_PKGS" build-containers > /dev/null
 fi
 OUT=build/bench-ref; N=$G-$V; W=$OUT/.new-$N
 mkdir -p "$OUT"; rm -rf "$W"; mkdir -p "$W"
