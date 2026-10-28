@@ -1,0 +1,5 @@
+# Scorched 3D: the played test (gamedb/README.md "games/<id>/rating/"). Data, never run: the session
+# harness reads it through bench/harness/playdef.py.
+process = 'scorched3dc'
+# its settings, set aside for a session on fresh defaults
+home = ['.scorched3d']

@@ -44,6 +44,7 @@ they came from.
 | [Red Eclipse](../../gamedb/games/redeclipse/todo.toml) | 1 | 1 fix | 3.8 |
 | [Return to Castle Wolfenstein (iortcw)](../../gamedb/games/return-to-castle-wolfenstein/todo.toml) | 1 | 1 benchmark |  |
 | [Sauerbraten](../../gamedb/games/sauerbraten/todo.toml) | 2 | 1 package, 1 session |  |
+| [Scorched3D](../../gamedb/games/scorched3d/todo.toml) | 1 | 1 fix |  |
 | [ScummVM](../../gamedb/games/scummvm/todo.toml) | 1 | 1 benchmark |  |
 | [SimCity (Micropolis)](../../gamedb/games/simcity/todo.toml) | 1 | 1 package |  |
 | [Simutrans](../../gamedb/games/simutrans/todo.toml) | 1 | 1 benchmark |  |

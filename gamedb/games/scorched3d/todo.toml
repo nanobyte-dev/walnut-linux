@@ -1,0 +1,13 @@
+# Scorched 3D: the backlog (gamedb/README.md, "games/<id>/todo.toml"): [[item]] with kind, text, added, source;
+# a session item's order is its place in the played-session queue (docs/TESTS.md's generated block).
+
+[[item]]
+kind = "fix"
+added = 2026-10-28
+source = "games night 2026-10-28 (smoke)"
+text = """\
+Memory: on its default display settings the client was OOM-killed while making the land (VRAM swap \
+off), and on the fastest preset with the VRAM swap on it plays at 17 fps with 19 s of stalls in 90 s. \
+A `MEM=1 PERF=1` run of the fastest variant first (what holds the 121 MB: the landscape's height maps, \
+textures, the in-process server), then the levers: a smaller MaxLandscapeSize in the game settings, \
+texture size, and a package default display.xml (the fastest preset) so the menu's launcher starts on it."""

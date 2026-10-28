@@ -1,1 +1,2 @@
-packages = ["scorched3d"]
+# How Scorched 3D is built, installed and integrated (gamedb/README.md "build.toml").
+packages = ["scorched3d", "scorched3d-data"]
