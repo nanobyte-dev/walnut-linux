@@ -1,0 +1,24 @@
+# BZFlag: the backlog (gamedb/README.md, "games/<id>/todo.toml"): [[item]] with kind, text, added, source;
+# a session item's order is its place in the played-session queue (docs/TESTS.md's generated block).
+
+[[item]]
+kind = "session"
+order = 15
+launcher = "BZFlag"
+pc = "ready"
+added = 2026-10-28
+source = "games night 2026-10-28 (smoke)"
+text = """\
+First played session: from the menu, Start Server (bzfs with robots, or join an online server), a match \
+of 10 minutes; the sound by ear, the mouse and keyboard, the DualShock 3 after naming it in Options > \
+Input Settings. The smoke run gave 59 fps steady with three robots."""
+
+[[item]]
+kind = "package"
+added = 2026-10-28
+source = "games night 2026-10-28 (smoke)"
+text = """\
+A built-in pad scheme as in our other games (gamedb:armagetronad 0002): the first SDL game controller \
+drives the tank (left stick), Cross fires, Square jumps, Circle drops the flag, Triangle spawns \
+(identify), Start the menu; today the joystick is off until named in Options and bound by hand. A \
+`bzflag` package of ours (`2.4.30-4+ps3.N`)."""

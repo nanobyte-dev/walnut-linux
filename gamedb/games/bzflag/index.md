@@ -2,6 +2,6 @@
 id = "bzflag"
 title = "BZFlag"
 draft = true
-status = "candidate"
-status_note = "Tier A in the 2026-10-16 survey (fixed function, small), in Debian ppc64; not picked for the suite (no benchmark mode). Never started on the PS3."
+status = "tried"
+status_note = "Smoke run on the PS3 on 2026-10-28: Debian's 2.4.30 joins a local bzfs with three robot tanks, fullscreen 1920x1080, 59 fps steady (1% low 30), the robots fight, the tank spawns and drives (technical.md); no played session yet."
 +++
