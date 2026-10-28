@@ -819,6 +819,24 @@ def client_libenv(tmp):
     check("libenv: NICELIM=41: refused", p.returncode == 2 and "0 to 40" in p.stdout, p.stdout[-300:])
     p, d, b, gl = run(14, BENCH_RTTHREAD="audio", BENCH_RTTHREAD_PRIO="0")
     check("libenv: RTTHREAD with priority 0: refused", p.returncode == 2 and "1 to 99" in p.stdout, p.stdout[-300:])
+    ra = tmp / "fake-rt-audio"   # stands in for ps3-desktop's ps3-rt-audio: logs what the real one logs
+    ra.write_text('#!/bin/sh\n[ "$1" = watch ] && [ -n "$3" ] || exit 2\n'
+                  'echo "ps3-rt-audio: SCHED_RR 1: SDLAudioP1/42 of fakehud/$3 (named)" >&2\n'
+                  'echo "ps3-rt-audio: SCHED_RR 1 refused for fakehud/43 of fakehud/$3 (waits on the sound device): x" >&2\n'
+                  'echo "ps3-rt-audio: demoted 42 of fakehud/$3 to SCHED_OTHER: 90% of a hardware thread over 5 s" >&2\n'
+                  'sleep 600\n')
+    ra.chmod(0o755)
+    rec = tmp / "recipes" / "fakehud.sh"   # COMM, so client.sh finds the game's pid (.pid) for the watcher
+    rec0 = rec.read_text()
+    rec.write_text(rec0 + "\nCOMM=%s\n" % Path(sys.executable).name[:15])
+    p, d, b, gl = run(15, BENCH_RTAUDIO="1", BENCH_RTAUDIO_BIN=str(ra))
+    rec.write_text(rec0)
+    check("libenv: RTAUDIO=1: the watcher on the game's pid, rtaudio= what it logged, tag rtaudio",
+          p.returncode == 0 and b.get("rtaudio") == "SDLAudioP1/42:rr fakehud/43:refused 42:demoted" and
+          report.run(d).get("variant") == "base@rtaudio" and not (d / ".rtaudio").exists(),
+          (p.returncode, b.get("rtaudio"), b.get("libenv"), p.stdout[-300:]))
+    p, d, b, gl = run(16, BENCH_RTAUDIO="1", BENCH_RTAUDIO_BIN=str(tmp / "nowhere"))
+    check("libenv: RTAUDIO=1 without ps3-rt-audio: refused", p.returncode == 2 and "no " in p.stdout, p.stdout[-300:])
     p, d, b, gl = run(9, BENCH_ZLIB="stock")
     check("libenv: ZLIB=stock: zlib=stock, PS3_ZLIB=stock, no zlib-ng dir, tag zstock",
           p.returncode == 0 and b.get("zlib") == "stock" and "env PS3_ZLIB=stock" in gl and str(zdir) not in gl and

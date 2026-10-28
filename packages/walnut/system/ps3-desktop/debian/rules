@@ -23,6 +23,8 @@ override_dh_auto_install:
 		$(P)/usr/lib/systemd/system-generators/ps3-desktop-autologin
 	install -D -m 644 files/profile.d/ps3-desktop.sh $(P)/etc/profile.d/ps3-desktop.sh
 	install -D -m 440 debian/sudoers $(P)/etc/sudoers.d/ps3-desktop
+	# real-time audio for games: the audio group's RLIMIT_RTPRIO (ps3-rt-audio sets the threads)
+	install -D -m 644 files/limits/ps3-rt-audio.conf $(P)/etc/security/limits.d/ps3-rt-audio.conf
 	# discs in the PS3's drive mount from the desktop like any removable medium (udisks + polkit)
 	install -D -m 644 files/udev/60-walnut-optical.rules $(P)/usr/lib/udev/rules.d/60-walnut-optical.rules
 	install -D -m 644 files/udev/61-walnut-loop.rules $(P)/usr/lib/udev/rules.d/61-walnut-loop.rules

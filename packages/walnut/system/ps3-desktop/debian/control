@@ -21,7 +21,9 @@ Description: PS3 desktop (Openbox on the RSX, game mode)
  notification helpers. Game mode keeps a game and X resident; while it runs the rest of the
  desktop gets out of the way (frozen, its memory pushed out) and comes back intact when the last
  game exits, however it exits; the game's own files are read back at its start in one pass in disk
- order, from what it used the last time. It starts by itself for any fullscreen 3D program
+ order, from what it used the last time, and its audio thread runs real-time (SCHED_RR 1, under
+ the audio group's limit in /etc/security/limits.d) so the sound holds up when the game keeps the
+ CPU busy. It starts by itself for any fullscreen 3D program
  (ps3-game-detect; browsers and video players excepted) and with the menu's games (ps3-game);
  PS3_GAME_MODE=off in a program's environment, or system-wide, turns it off. Gamepads move the
  pointer outside games. Shut down and Reboot menu entries. The games' own menu entries and

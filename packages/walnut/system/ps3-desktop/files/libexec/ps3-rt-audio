@@ -1,0 +1,199 @@
+#!/bin/sh
+# ps3-rt-audio scan STATE PID... | watch STATE PID... (ps3-desktop): real-time audio for games.
+# A game's audio thread gets SCHED_RR priority 1, so a game that keeps the PPE busy doesn't starve
+# its own sound (docs/SPU-AUDIO.md "Real-time mixer": dsda-doom's software renderer 19 to 2 audible
+# dropouts a run, Extreme Tux Racer 24 to 3.5, no fps cost). ps3-game-guard runs `scan` for every
+# registered game while game mode is on; the bench harness runs `watch` (BENCH_RTAUDIO=1).
+#   scan   one pass over the games' threads
+#   watch  scans every 2 s for the first minute, then every 10 s, until no PID is left
+# PID: a game's process. When it runs in a scope of ps3-game.slice, every process of that scope
+# counts (a launcher script's children too); otherwise that process alone.
+# What counts as an audio thread (never a process's main thread, only threads at SCHED_OTHER):
+#   - named SDLAudioP*/SDLAudioC* (SDL2 through sdl2-compat and SDL3 name their device threads so;
+#     SDL asks only RTKit for real time, and Walnut has none)
+#   - or waiting on the sound device: in poll/ppoll with a /dev/snd/pcm* or /dev/snd/timer
+#     descriptor among its pollfds (dmix's wakeups come from the timer), or in an ioctl on one.
+#     That is miniaudio's (SFML: Extreme Tux Racer), FluidSynth's own driver thread, and any
+#     library that names nothing. Read from /proc/<tid>/syscall and /proc/<pid>/mem: the same
+#     user may (no Yama in our kernel).
+# OpenAL Soft sets SCHED_RR 1 on its mixer itself; it is skipped like every thread not at
+# SCHED_OTHER (Mesa's disk-cache thread is SCHED_BATCH, left alone).
+# The kernel allows the same user SCHED_RR up to the target's RLIMIT_RTPRIO (limits.d/ps3-rt-audio.conf:
+# @audio 10). Without the limit chrt is refused, logged once per thread, and nothing else happens.
+# Safety: priority 1 only, the kernel's RT throttling (95% of each hardware thread) stays, and a
+# thread we set that uses more than 80% of a hardware thread over 5 s goes back to SCHED_OTHER
+# for good (logged "demoted"). PS3_GAME_RT_AUDIO=off in a game's environment: none of its threads.
+# STATE: a directory of this tool's (t/<tid>-<start>: what it knows of a thread; p/: processes).
+# Log: stderr (the guard's journal).
+# Tests: PS3_RT_AUDIO_CHRT (default chrt), PS3_RT_AUDIO_FDS (the descriptors' targets, an ERE).
+CHRT=${PS3_RT_AUDIO_CHRT:-chrt}
+FDS=${PS3_RT_AUDIO_FDS:-'^/dev/snd/(pcmC[0-9]+D[0-9]+[pc]|timer)$'}
+PRIO=1
+log() { echo "ps3-rt-audio: $*" >&2; }
+
+# poll, ppoll, ioctl (the machine from /proc, without a fork)
+read -r ARCH 2>/dev/null < /proc/sys/kernel/arch || ARCH=$(uname -m)
+case $ARCH in
+ppc64*|ppc*) NR_POLL=167 NR_PPOLL=281 NR_IOCTL=54 ;;
+x86_64) NR_POLL=7 NR_PPOLL=271 NR_IOCTL=16 ;;
+aarch64) NR_POLL=- NR_PPOLL=73 NR_IOCTL=29 ;;
+*) NR_POLL=- NR_PPOLL=- NR_IOCTL=- ;;
+esac
+
+now_cs() {	# the uptime in hundredths of a second
+	read -r up _ < /proc/uptime; up=${up%.*}${up#*.}; up=${up#"${up%%[!0]*}"}; echo "${up:-0}"
+}
+
+# stat TASKDIR: ST_START (start time), ST_CPU (utime+stime, ticks), ST_POL (policy); 1 if gone
+stat_of() {
+	read -r _st 2>/dev/null < "$1/stat" || return 1
+	_st=${_st##*) }
+	# shellcheck disable=SC2086 # the fields
+	set -- $_st
+	ST_CPU=$(($12 + $13)) ST_START=${20} ST_POL=${39}
+}
+
+# audio_fds PID: the process's sound descriptors, " 12 13 " (empty: none)
+audio_fds() {
+	# shellcheck disable=SC2012 # ls -l prints the links' targets in one fork
+	ls -l "/proc/$1/fd" 2>/dev/null | awk -v re="$FDS" '$(NF-1) == "->" && $NF ~ re { s = s " " $(NF-2) }
+		END { if (s != "") print s " " }'
+}
+
+# on_sound PID TID FDS: the thread waits on one of FDS now (0), waits on something else (1), or
+# isn't waiting in poll or ioctl at this moment (2: look again next time)
+on_sound() {
+	read -r nr a0 a1 _ 2>/dev/null < "/proc/$1/task/$2/syscall" || return 2
+	case $nr in
+	"$NR_IOCTL")
+		case $3 in *" $((a0)) "*) return 0 ;; esac
+		return 1 ;;
+	"$NR_POLL"|"$NR_PPOLL")
+		n=$((a1))
+		[ "$n" -ge 1 ] && [ "$n" -le 16 ] || return 1
+		# struct pollfd: int fd, short events, short revents: every other int is a descriptor
+		for fd in $(dd if="/proc/$1/mem" bs=$((n * 8)) count=1 skip=$((a0)) iflag=skip_bytes 2>/dev/null |
+				od -An -v -td4 | awk '{ for (i = 1; i <= NF; i += 2) print $i }'); do
+			case $3 in *" $fd "*) return 0 ;; esac
+		done
+		return 1 ;;
+	esac
+	return 2
+}
+
+# watchdog STATE: our SCHED_RR threads that use more than 80% of a hardware thread over 5 s or more
+# go back to SCHED_OTHER
+watchdog() {
+	now=$(now_cs)
+	for f in "$1"/t/*; do
+		[ -e "$f" ] || continue
+		read -r what c0 t0 who < "$f" || continue
+		[ "$what" = rr ] || continue
+		k=${f##*/} tid=${k%-*} start=${k#*-}
+		pid=${who##* }
+		if ! stat_of "/proc/$pid/task/$tid" || [ "$ST_START" != "$start" ]; then rm -f "$f"; continue; fi
+		dt=$((now - t0))
+		[ "$dt" -ge 500 ] || continue
+		if [ "$ST_POL" = 2 ] && [ $(((ST_CPU - c0) * 100)) -gt $((dt * 80)) ]; then
+			"$CHRT" -o -p 0 "$tid" > /dev/null 2>&1
+			log "demoted $tid of ${who% *}/$pid to SCHED_OTHER: $(((ST_CPU - c0) * 100 / dt))% of a hardware thread over $((dt / 100)) s"
+			echo demoted > "$f"
+			continue
+		fi
+		echo "rr $ST_CPU $now $who" > "$f"
+	done
+}
+
+# procs PID: PROCS, the processes that count for PID (see the top)
+procs() {
+	PROCS=
+	read -r cg 2>/dev/null < "/proc/$1/cgroup" || return 0
+	cg=${cg#0::}
+	case $cg in
+	*/ps3-game.slice/*.scope)
+		while read -r q; do PROCS="$PROCS $q"; done 2>/dev/null < "/sys/fs/cgroup$cg/cgroup.procs" ;;
+	esac
+	[ -n "$PROCS" ] || PROCS=$1
+}
+
+scan_proc() {	# STATE PID
+	stat_of "/proc/$2" || return 0
+	pf=$1/p/$2-$ST_START
+	if [ ! -e "$pf" ]; then
+		if tr '\0' '\n' < "/proc/$2/environ" 2>/dev/null | grep -qx 'PS3_GAME_RT_AUDIO=off'; then
+			echo off > "$pf"; log "$(cat "/proc/$2/comm" 2>/dev/null)/$2: PS3_GAME_RT_AUDIO=off"
+		else
+			: > "$pf"
+		fi
+	fi
+	read -r v 2>/dev/null < "$pf"
+	[ "$v" != off ] || return 0
+	read -r pcomm 2>/dev/null < "/proc/$2/comm"
+	fds=-
+	for t in /proc/"$2"/task/*; do
+		tid=${t##*/}
+		[ "$tid" != "$2" ] || continue	# never the main thread
+		stat_of "$t" || continue
+		[ "$ST_POL" = 0 ] || continue	# OpenAL's own SCHED_RR, Mesa's SCHED_BATCH, ours
+		tf=$1/t/$tid-$ST_START
+		[ -e "$tf" ] && continue	# known: not audio, refused, demoted
+		read -r comm 2>/dev/null < "$t/comm"
+		why=
+		case $comm in
+		SDLAudioP*|SDLAudioC*) why=named ;;
+		*)	[ "$fds" = - ] && fds=$(audio_fds "$2")
+			[ -n "$fds" ] || continue
+			on_sound "$2" "$tid" "$fds"
+			case $? in
+			0) why="waits on the sound device" ;;
+			1) echo no > "$tf"; continue ;;
+			*) continue ;;
+			esac ;;
+		esac
+		if "$CHRT" -r -p "$PRIO" "$tid" > /dev/null 2>&1; then
+			echo "rr $ST_CPU $(now_cs) $pcomm $2" > "$tf"
+			log "SCHED_RR $PRIO: $comm/$tid of $pcomm/$2 ($why)"
+		else
+			echo refused > "$tf"
+			log "SCHED_RR $PRIO refused for $comm/$tid of $pcomm/$2 ($why): RLIMIT_RTPRIO $(awk '/Max realtime priority/ { print $4 "/" $5 }' "/proc/$2/limits" 2>/dev/null)"
+		fi
+	done
+}
+
+scan() {	# STATE PID...
+	st=$1; shift
+	[ -d "$st/p" ] || mkdir -p "$st/t" "$st/p" || return 1
+	watchdog "$st"
+	seen=" "
+	for p in "$@"; do
+		case $p in ''|*[!0-9]*) continue ;; esac
+		procs "$p"
+		for q in $PROCS; do
+			case $seen in *" $q "*) continue ;; esac
+			seen="$seen$q "
+			scan_proc "$st" "$q"
+		done
+	done
+	# forget processes that are gone
+	for f in "$st"/p/*; do
+		[ -e "$f" ] || continue
+		k=${f##*/}
+		stat_of "/proc/${k%-*}" && [ "$ST_START" = "${k#*-}" ] || rm -f "$f"
+	done
+}
+
+case ${1:-} in
+scan)	[ $# -ge 2 ] || exit 2
+	shift; scan "$@" ;;
+watch)	[ $# -ge 3 ] || exit 2
+	shift; st=$1; shift
+	i=0
+	while :; do
+		alive=
+		for p in "$@"; do [ -d "/proc/$p" ] && alive=1; done
+		[ -n "$alive" ] || exit 0
+		scan "$st" "$@"
+		if [ $i -lt 30 ]; then sleep 2; i=$((i + 1)); else sleep 10; fi
+	done ;;
+*) echo "usage: ps3-rt-audio scan STATE PID...|watch STATE PID..." >&2; exit 2 ;;
+esac

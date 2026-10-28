@@ -3,7 +3,8 @@
 # suite, result and seconds; exit 1 when any failed. Output of each suite: build/tmp/tests/<suite>.log
 # (shown for failures). A suite whose prerequisites are missing is "skip", not a failure.
 #   default  quick suites: bench-selftest (bench/tests/selftest.py), bench-launcher (bench/tests/test_launcher.py:
-#            launcher.py and session.sh's choice of a menu launcher), gprefetch, ps3rsx-shadow (and ps3rsx's clear_dcbz zeroing
+#            launcher.py and session.sh's choice of a menu launcher), gprefetch, rt-audio (ps3-rt-audio's choice of
+#            threads, a stand-in game: packages/walnut/system/ps3-desktop/tests/rt-audio-check.sh), ps3rsx-shadow (and ps3rsx's clear_dcbz zeroing
 #            and the validator's vertex format checks),
 #            ps3-spu, xmoto-glbatch,
 #            mesa-forcedxt (Mesa 0038's NV30_FORCE_DXT decision, packages/patched/graphics/mesa/tests), mesa-staging-pool
@@ -233,6 +234,7 @@ t_pointsmooth() {
 run bench-selftest python3 bench/tests/selftest.py
 run bench-launcher python3 -I bench/tests/test_launcher.py
 run gprefetch python3 packages/walnut/system/ps3-desktop/tests/gprefetch-check.py
+run rt-audio sh packages/walnut/system/ps3-desktop/tests/rt-audio-check.sh
 run ps3rsx-shadow bash -c "$(declare -f need t_ps3rsx); t_ps3rsx"
 run ps3-spu make -C packages/walnut/tools/ps3-spu test
 run game-menu sh packages/walnut/system/ps3-desktop/tests/game-menu-check.sh

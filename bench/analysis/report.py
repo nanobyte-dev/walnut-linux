@@ -173,7 +173,7 @@ def harness(d, b):
     tag: rec<ms> when there is a stalls.rec, perf when perf ran; gpf<mode> for client.sh's game prefetch
     (gprefetch=, BENCH_GAMEPREFETCH, docs/STALLS.md "Game prefetch"); gdssd and swssd for the SSD arms
     (gamedata=, swap=: docs/GAMEOS-HDD.md "Test drive, Phase A"); oal<settings> for client.sh's OpenAL token
-    (oal=, BENCH_OAL) and fx<mode>, zng, bindnow, jsimd<mode>, rtprio<N>, nicelim<N>, sdlrt, rtthread for its library switches (libenv=). The recorder changes the stalls it
+    (oal=, BENCH_OAL) and fx<mode>, zng, bindnow, jsimd<mode>, rtprio<N>, nicelim<N>, sdlrt, rtthread, rtaudio for its library switches (libenv=). The recorder changes the stalls it
     records (docs/STALLS.md "The recorder removes stalls"), so such runs are not the same variant"""
     m = ("m" + b["malloc"].replace(",", "_")) if b.get("malloc") else ""   # client.sh BENCH_MALLOC presets
     if b.get("genv"):   # client.sh's Mesa driver switches (BENCH_NV30_*): NV30_TRANSLATE_LUT=1 -> translate_lut1
@@ -197,7 +197,7 @@ def harness(d, b):
     for x in (b.get("libenv") or "").split():   # client.sh's library switches: FLUIDFX=off -> fxoff, ZLIB=ng -> zng,
         n, _, v = x.partition("=")              # BINDNOW=1 -> bindnow, JSIMD=none -> jsimdnone
         t = {"FLUIDFX": "fx" + v, "ZLIB": "z" + v, "BINDNOW": "bindnow", "JSIMD": "jsimd" + v, "RTPRIO": "rtprio" + v,
-             "NICELIM": "nicelim" + v, "SDLRT": "sdlrt", "RTTHREAD": "rtthread",
+             "NICELIM": "nicelim" + v, "SDLRT": "sdlrt", "RTTHREAD": "rtthread", "RTAUDIO": "rtaudio",
              "LDPATH": "ld" + v.rstrip("/").rsplit("/", 1)[-1]}.get(n, x.lower())   # LDPATH=/x/stock-openal -> ldstock-openal
         m = "+".join(y for y in (m, t) if y)
     if "shots" in b:   # client.sh's screenshots: one in the window costs frames

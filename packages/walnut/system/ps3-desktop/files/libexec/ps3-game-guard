@@ -60,6 +60,11 @@
 # record into its game's list (game-learn). Per game, from its environment:
 # PS3_GAME_PREFETCH_GAME=on|fetch|learn|off (default off: no gain measured), PS3_GAME_PREFETCH_MB, _RESERVE_MB, _IO, _DIR
 # (ps3_game_prefetch.py's header).
+# Real-time audio (docs/SPU-AUDIO.md "Real-time mixer"): while game mode is on (on or pads), the
+# games' audio threads get SCHED_RR 1 (ps3-rt-audio scan: every 2 s for the first minute, then
+# every 10 s), under the user's RLIMIT_RTPRIO (limits.d/ps3-rt-audio.conf). PS3_GAME_RT_AUDIO=off in
+# a game's environment: not its threads (in the environment of the game that starts game mode: no
+# game's).
 # Escape (docs/DESKTOP-PLAN.md): while game mode is on, ps3-pad-escape runs beside the guard
 # (PS3_GAME_PAD_ESCAPE=off: not): holding a gamepad's PS button for 3 s (PS3_GAME_PAD_HOLD_S) runs
 # ps3-game-escape, as Ctrl+Alt+Esc does (Openbox): the game closed, game mode left.
@@ -337,6 +342,7 @@ leave() {
 	rm -f "$S/root"
 	[ -n "$pf" ] && wait "$pf"
 	rm -f "$S/prefetch" "$S/entered" "$S/entering" "$S/leaving" "$S/prefetch-mode"
+	rm -rf "$S/rt"
 	log "left game mode"
 	# the games' records into their lists, with the desktop back (ps3-game-prefetch game-learn)
 	set -- "$S"/gp/*.seen
@@ -371,6 +377,21 @@ watch_stop() {
 	wait "$W" 2>/dev/null
 	kill "$k" 2>/dev/null
 	W=
+}
+
+# real-time audio (see the top): the registered games' pids to ps3-rt-audio, state in $S/rt
+RA=/usr/lib/ps3/desktop/ps3-rt-audio
+rt_audio() {
+	[ "${PS3_GAME_RT_AUDIO:-on}" != off ] && [ -x "$RA" ] || return 0
+	if [ "$T" -le 60 ]; then [ $((T % 2)) = 0 ] || return 0; else [ $((T % 10)) = 0 ] || return 0; fi
+	set --
+	for f in "$S"/games/*; do
+		case $f in *.new) continue ;; esac
+		[ -e "$f" ] || continue
+		while read -r p _; do [ -n "$p" ] && set -- "$@" "$p"; done < "$f"
+	done
+	[ $# -gt 0 ] && "$RA" scan "$S/rt" "$@" < /dev/null 9>&-
+	return 0
 }
 
 # the PS button's escape (see the top), from before entering (a game hanging while it starts)
@@ -412,6 +433,7 @@ run() {
 		flock -u 9
 		watch_check
 		freeze_retry
+		rt_audio
 	done
 }
 
@@ -435,7 +457,7 @@ start_guard() {	# MODE
 	env="--setenv=PS3_GAME_MODE=$1"
 	for v in DISPLAY XAUTHORITY XDG_CONFIG_DIRS XDG_DATA_DIRS GDK_GL PS3_GAME_PREFETCH PS3_GAME_KICK \
 		PS3_GAME_PREFETCH_GAME PS3_GAME_PREFETCH_DIR PS3_GAME_PREFETCH_SAMPLE_S \
-		PS3_GAME_PAD_ESCAPE PS3_GAME_PAD_HOLD_S PS3_GAME_PAD_DEVICES; do
+		PS3_GAME_PAD_ESCAPE PS3_GAME_PAD_HOLD_S PS3_GAME_PAD_DEVICES PS3_GAME_RT_AUDIO; do
 		eval "x=\${$v-}"; [ -n "$x" ] && env="$env --setenv=$v=$x"
 	done
 	# shellcheck disable=SC2086 # the values have no spaces

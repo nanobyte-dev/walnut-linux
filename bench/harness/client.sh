@@ -515,6 +515,16 @@ if [ -n "$RTTHREAD" ]; then
 	command -v chrt > /dev/null || { echo "!! BENCH_RTTHREAD: no chrt"; exit 2; }
 	LIBENV+=("RTTHREAD=$RTTHREAD")
 fi
+# RTAUDIO=1 (BENCH_RTAUDIO): the shipped real-time audio, ps3-desktop's ps3-rt-audio (BENCH_RTAUDIO_BIN), on
+# the game's process as game mode runs it (watch: every 2 s from the game's start, every 10 s after a minute):
+# SCHED_RR 1 on SDL's audio threads and on any thread waiting on the sound device, within the game's RLIMIT_RTPRIO
+# (Walnut's limits.d: 10; RTPRIO=0 is the arm without). Its log: rt-audio.log; bench.txt rtaudio=<name/tid:rr|refused|demoted ...>.
+RTAUDIO=${BENCH_RTAUDIO:-}; RTAUDIO_BIN=${BENCH_RTAUDIO_BIN:-/usr/lib/ps3/desktop/ps3-rt-audio}
+if [ -n "$RTAUDIO" ]; then
+	[ "$RTAUDIO" = 1 ] || { echo "!! BENCH_RTAUDIO=$RTAUDIO: 1"; exit 2; }
+	[ -x "$RTAUDIO_BIN" ] || { echo "!! BENCH_RTAUDIO: no $RTAUDIO_BIN (ps3-desktop)"; exit 2; }
+	LIBENV+=("RTAUDIO=1")
+fi
 # sched_probe PID: threads.tsv (tid name policy rtprio nice), RTTHREAD's chrt first; .sched, .rtthread
 sched_probe() {
 	local p=$1 t r n s rt=()
@@ -885,6 +895,13 @@ fi
 	fi) \
 	> /dev/null 2>&1 & helpers+=($!)
 
+# RTAUDIO: the watcher from the game's start (as soon as there is a pid) to its end
+if [ -n "$RTAUDIO" ]; then
+	(i=0; until [ -s "$D/.pid" ] || [ $i -ge 600 ]; do sleep 0.5; i=$((i + 1)); done
+	read -r p < "$D/.pid" 2>/dev/null && exec "$RTAUDIO_BIN" watch "$D/.rtaudio" "$p") \
+		> /dev/null 2> "$D/rt-audio.log" & helpers+=($!)
+fi
+
 ended=exit; load=; t_load=; l=; part=
 # time without forks (the client's CPU time counts them): us sets US to microseconds since the epoch
 us() { local t=${1:-$EPOCHREALTIME}; US=$(( ${t%.*} * 1000000 + 10#${t#*.} )); }
@@ -1178,6 +1195,9 @@ secs measured "$measured"
   echo "rtprio=$RTPRIO_USED"; echo "nicelim=$NICELIM_USED"
   [ -s "$D/.sched" ] && echo "sched=$(cat "$D/.sched")"
   [ -s "$D/.rtthread" ] && echo "rtthread=$(cat "$D/.rtthread")"
+  [ -n "$RTAUDIO" ] && echo "rtaudio=$(awk '/: SCHED_RR [0-9]+: / { s = s (s ? " " : "") $4 ":rr" }
+	/ refused for / { s = s (s ? " " : "") $6 ":refused" } /: demoted / { s = s (s ? " " : "") $3 ":demoted" }
+	END { print s ? s : "none" }' "$D/rt-audio.log" 2>/dev/null)"
   [ ${#KPARAM[@]} -gt 0 ] && echo "kparam=${KPARAM[*]}"
   [ -n "$GPF" ] && echo "gprefetch=$GPF"
   [ -n "$SC" ] && { echo "shadercache=$SC"; echo "shadercache_kb=${SC_KB:--} $(sc_kb || echo -)"; }
@@ -1238,6 +1258,7 @@ secs measured "$measured"
   fi
   shot_lines
   parse; } > "$D/bench.txt"
+rm -rf "$D/.rtaudio"
 rm -f "$D/.shot-mark" "$D/.cwd" "$D/.hwm" "$D/.pid" "$D/.sound" "$D/.geom" "$D/.malloc.fifo" "$D/.gate" "$D/.launch.pid"
 sed 's/^/bench: /' "$D/bench.txt"
 exit 0
