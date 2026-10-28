@@ -224,9 +224,12 @@ ul.tag-list li { margin: rem(0.1) 0; }
 }
 .tabs a:hover { color: $accent-light; background: $panel; }
 .tabs a.current { color: $text; background: $panel; border-color: $border; font-weight: 700; }
-// "Open in Walnut Games" (walnut://game/<id>): only on a Walnut console, whose NetSurf reads ps3-desktop's
-// user stylesheet (/usr/share/netsurf/user.css) and that shows it; hidden everywhere else, no script
+// "Open in Walnut Games" (walnut://game/<id>): only on a Walnut console. Its browser (Badwolf) has "Walnut"
+// in the User-Agent, and baseof.html's one-line script then adds .walnut-os to <html>; NetSurf runs no script
+// and shows it through the user stylesheet walnut-games' postinst writes (/usr/share/netsurf/user.css).
+// Hidden everywhere else
 .walnut-os-only { display: none; }
+.walnut-os .walnut-os-only { display: block; }
 a.open-app { display: inline-block; margin: rem(0.3) rem(0.8) rem(0.3) 0; padding: rem(0.4) rem(1); background: $accent-deep; color: #fff; text-decoration: none; border-radius: 6px; font-weight: 700; }
 a.open-app:hover { background: $accent; color: #fff; }
 .problems { margin: rem(0.6) 0; padding-left: rem(1.2); }

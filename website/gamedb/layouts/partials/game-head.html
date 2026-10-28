@@ -13,8 +13,9 @@
       {{ else }}{{ if and $r.launcher (gt (len $g.launchers) 1) }}<span>with {{ $r.launcher }}</span>{{ end }}
       <span class="muted">{{ printf "%.1f" $r.hours }} h played, {{ $r.crashes }} crash{{ if ne (int $r.crashes) 1 }}es{{ end }}</span>{{ end }}
     </p>
-    {{/* only on a Walnut console: hidden by the site's CSS, shown by the user stylesheet Walnut's NetSurf reads
-         (ps3-desktop's /usr/share/netsurf/user.css); never in the app's own copy, which is open already */}}
+    {{/* only on a Walnut console: hidden by the site's CSS, shown by .walnut-os (baseof.html: the browser's
+         User-Agent says Walnut) or by the user stylesheet Walnut's NetSurf reads (/usr/share/netsurf/user.css);
+         never in the app's own copy, which is open already */}}
     {{ if and (eq .tab "overview") (not site.Params.app) }}<p class="walnut-os-only"><a class="open-app" href="walnut://game/{{ $g.id }}">Open in Walnut Games</a> <span class="muted small">on your PS3</span></p>{{ end }}
     <p>{{ $g.summary }}</p>
     {{/* the badges the tags don't already say (no sound; keyboard only, for a game not made for keyboard and

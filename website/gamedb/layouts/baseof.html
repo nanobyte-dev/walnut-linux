@@ -8,6 +8,9 @@
 {{/* the styles: SCSS compiled to CSS 2.1 (assets/gamedb.scss says how) */}}
 {{ $css := resources.Get "gamedb.scss" | css.Sass (dict "transpiler" "libsass" "outputStyle" "compressed" "targetPath" "gamedb.css") | fingerprint }}
 <link rel="stylesheet" href="{{ $css.RelPermalink }}">
+{{/* Walnut's browser (Badwolf, +ps3 patched) says "Walnut" in its User-Agent: the class shows "Open in Walnut
+     Games" (.walnut-os-only) before the page is drawn. NetSurf runs no script here; its user stylesheet shows it */}}
+{{ if not site.Params.app }}<script>if (/\bWalnut\b/.test(navigator.userAgent)) document.documentElement.className += " walnut-os";</script>{{ end }}
 {{ if not site.Params.app }}{{ range .AlternativeOutputFormats }}<link rel="{{ .Rel }}" type="{{ .MediaType.Type }}" href="{{ .Permalink }}" title="{{ site.Title }}">{{ end }}{{ end }}
 </head>
 <body>
