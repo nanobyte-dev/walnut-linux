@@ -109,6 +109,9 @@ Design
         gdp's own error lines, so the app's "Try again with download" logic reads it
     "warning missing PKG: TEXT"           any other missing package (TEXT is gdp's last error line when it
         gave one, else "game-data-packager did not make it"); a missing optional package is only this
+  A plain import (no -p) is playable with any one required package: once one was made (or one is already
+  installed) the other required packages are not reported; with -p every package asked for is, and when
+  no required package was made they all are (needs-download stays, so the app can offer the download).
   A package in a data_setup `alternatives` group (any one member satisfies it) is not reported when
   another member of its group was made.
   Exit 0 when at least one required package was made (or, for a game with no required package, any
@@ -1311,8 +1314,14 @@ def report_missing(ds, pkgs, asked, debs, download, errors):
     made = {p for p, _ in debs}
     required = list(pkgs) if asked else [p for p in pkgs if p in names(ds, "required")] or list(pkgs)
     why = errors[-1] if errors else ""
+    # a plain import: any one required package makes the game playable, so once one was made (or is
+    # installed) the other required ones are not reported
+    real = names(ds, "required")
+    playable = not asked and any(p in made for p in real)
+    if not asked and not playable and real:
+        playable = bool(installed(real))
     for p in pkgs:
-        if p in made or covered(ds, p, made):
+        if p in made or covered(ds, p, made) or (playable and p in real):
             continue
         if p in names(ds, "downloads") and download == "--no-download":
             say("gdp", "error needs-download %s: its official patch files have to be downloaded" % p)

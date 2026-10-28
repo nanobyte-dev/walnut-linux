@@ -967,6 +967,18 @@ class DataImport(unittest.TestCase):
         helpers = [e["helper"][2] for e in self.log() if "helper" in e]
         self.assertEqual(helpers, ["a-data"])
 
+    def test_plain_import_any_required_made_no_noise(self):
+        self.partial_games()
+        self.games["openrct2"]["data_setup"].update(required=["a-data", "b-data"], downloads=["b-data"])
+        os.environ["FAKE_GDP_SKIP"] = "b-data"
+        rc, out = self.imp(self.t / "src", opts=("--no-download",))
+        self.assertEqual(rc, 0, out)
+        self.assertFalse(any("b-data" in l for l in out if l.startswith(("warning", "gdp error"))), out)
+        # -p given: still reported
+        rc, out = self.imp(self.t / "src", opts=("--no-download", "-p", "a-data", "-p", "b-data"))
+        self.assertEqual(rc, 0, out)
+        self.assertTrue(any(l.startswith("gdp error needs-download b-data: ") for l in out), out)
+
     def test_alternatives_group_member_not_reported(self):
         self.partial_games(present_any=[])
         self.games["openrct2"]["data_setup"].update(required=[], optional=["x-data", "x-music", "x-music-fm"],
