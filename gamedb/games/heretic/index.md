@@ -20,6 +20,6 @@ designed_for = "keyboard-mouse"
 
 Heretic runs on DSDA-Doom, the Doom port Walnut packages and patches for the PS3 (big-endian sound
 lumps, textures in formats the RSX has, batched GL draws). The engine is free; the game's data is not, so
-Walnut doesn't offer it: Walnut Games makes a package of it from your own copy (What you need, above). Nobody has played it on
+Walnut doesn't offer it: Walnut Games makes a package of it from your own copy (the Overview's Installation, and the Guides). Nobody has played it on
 Walnut yet. DSDA-Doom with Freedoom runs at about 56 frames a second on its OpenGL renderer; with this
 game's WAD it has not been tried.

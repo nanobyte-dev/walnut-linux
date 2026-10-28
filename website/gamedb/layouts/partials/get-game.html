@@ -1,32 +1,24 @@
-{{/* what a player needs and how to get it (a game's Overview): (dict "g" <catalog entry> "guides" <its guides,
-     technical.json>). On the site: the apt line, the game data's steps, the .deb files; in the app's copy
-     (site.Params.app) the same as walnut:// links the app handles: walnut://install/<id>,
-     walnut://add-data/<id>, walnut://play/<id> (docs/GAMEDB.md "The desktop app") */}}
+{{/* how to install a game (the Overview's Installation section): (dict "g" <catalog entry> "t" <its technical.json
+     entry>). The easy way only: Walnut Games' Install (and Add game files... for a game whose data the player
+     brings: data-easy.html, which links the Guides tab's game-data guide for the other ways), then the apt
+     line and the .deb files. In the app's copy (site.Params.app) the actions are walnut:// links the app
+     handles: walnut://install/<id>, walnut://add-data/<id>, walnut://play/<id> (docs/GAMEDB.md "The desktop app") */}}
 {{ $g := .g }}
 {{ if site.Params.app }}
 <p class="actions"><a href="walnut://install/{{ $g.id }}">Install</a>{{ if $g.needs_data }}<a href="walnut://add-data/{{ $g.id }}">Add game files...</a>{{ end }}<a href="walnut://play/{{ $g.id }}">Play</a></p>
-{{ else }}
-<p>The packages, from Walnut's apt repository:</p>
+{{ end }}
+{{ if or $g.needs_data .t.data_guide }}
+{{ partial "data-easy.html" (dict "g" $g "t" .t) }}
+{{ else if not site.Params.app }}
+<p>In <strong>Walnut Games</strong>, the desktop app: <strong>Install</strong>{{ if $g.needs_data }}, then <strong>Add game files...</strong> with your copy of the game{{ end }}. It is then in the desktop's Games menu too.</p>
+{{ end }}
+{{ if not site.Params.app }}
+<p>Or from a terminal, from Walnut's apt repository:</p>
 <div class="install">
   <code id="install-cmd">sudo apt install {{ delimit $g.packages " " }}</code>
   <button type="button" class="copy" data-copy-from="install-cmd" hidden>Copy</button>
 </div>
-<p class="muted">Walnut Games, the desktop app, installs it with one button.</p>
-{{ end }}
-{{ if $g.needs_data }}
-<div class="note data-setup">
-  <h3>Your copy of the game</h3>
-  <p>The game data is not part of the package, and Walnut does not offer it. {{ if $g.data_steps }}You make or fetch it once:{{ end }}</p>
-  {{ with $g.data_steps }}
-  <ol class="steps">
-    {{ range $n, $step := . }}
-    <li>{{ range $i, $part := split $step "\x60" }}{{ if mod $i 2 }}{{ if strings.Contains $part " " }}<span class="cmd"><code id="{{ printf "data-cmd-%d-%d" $n $i }}">{{ $part }}</code><button type="button" class="copy" data-copy-from="{{ printf "data-cmd-%d-%d" $n $i }}" hidden>Copy</button></span>{{ else }}<code>{{ $part }}</code>{{ end }}{{ else }}{{ $part }}{{ end }}{{ end }}</li>
-    {{ end }}
-  </ol>
-  {{ end }}
-  <p>{{ range where (.guides | default slice) "slug" "game-data" }}Which editions work, where their files go and what goes wrong: <a href="guides/#game-data">the guide</a>. {{ end }}{{ with $g.data_guide }}More: <a href="{{ . }}">{{ . }}</a>.{{ end }}</p>
-</div>
-{{ end }}
 {{ with $g.debs }}
-<p>Or download the .deb files for a manual install (ppc64, stable): {{ range $i, $d := . }}{{ if $i }}, {{ end }}<a href="{{ $d.url }}">{{ $d.package }}</a>{{ end }}.</p>
+<p class="muted">The .deb files for a manual install (ppc64, stable): {{ range $i, $d := . }}{{ if $i }}, {{ end }}<a href="{{ $d.url }}">{{ $d.package }}</a>{{ end }}.</p>
+{{ end }}
 {{ end }}

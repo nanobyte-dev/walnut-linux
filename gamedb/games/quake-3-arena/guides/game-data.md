@@ -1,7 +1,5 @@
 # Setting up the game data
 
-Walnut Games makes the data for you. Open Quake III Arena in the app and choose Add game files...; the chooser lists the disc in the drive, mounted discs and sticks, GOG and Steam folders, and the ISOs, MDF images, installers and archives in Downloads and your home folder. In a terminal it is `walnut-data import quake-3-arena /path/to/your/copy`. It runs Walnut's patched `game-data-packager`, which checks the files against the checksums of the releases it knows, and installs an ordinary package (quake3-data, and quake3-team-arena-data when the source has Team Arena) that Remove data takes away again.
-
 ## Which editions work
 
 - **A Quake III Arena CD** (or its ISO, or an MDF/MDS image of it): `baseq3/pak0.pk3`. The CD's release is older than 1.32, so the import downloads id's 1.32 point release (`linuxq3apoint-1.32b-3.x86.run`, 30 MB) for pak1 to pak8, the files ioquake3 needs.

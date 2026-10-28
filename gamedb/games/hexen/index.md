@@ -21,7 +21,7 @@ designed_for = "keyboard-mouse"
 
 Hexen: Beyond Heretic runs on DSDA-Doom, the Doom port Walnut packages and patches for the PS3 (big-endian sound
 lumps, textures in formats the RSX has, batched GL draws). The engine is free; the game's data is not, so
-Walnut doesn't offer it: Walnut Games makes a package of it from your own copy (What you need, above). Imported from GOG's
+Walnut doesn't offer it: Walnut Games makes a package of it from your own copy (the Overview's Installation, and the Guides). Imported from GOG's
 installer on the PS3, it reaches the title screen and plays its demo; nobody has played it on Walnut yet,
 and its speed hasn't been measured (DSDA-Doom with Freedoom runs at about 56 frames a second on its OpenGL
 renderer).

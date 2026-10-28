@@ -27,5 +27,5 @@ BananaBread, which runs on the same engine with different content: textures are 
 are skinned on the CPU (the RSX has no indirect constant addressing) and fewer GL calls are sent. The game's data
 has mixed licences, much of it Creative Commons non-commercial, so Walnut offers it only in its licensed repository
 (`sauerbraten-data`); otherwise you unpack the `data` and `packages` folders of the
-release from sauerbraten.org into `/usr/share/games/sauerbraten` (the steps under What you need). The menu entry starts it fullscreen at the desktop's resolution and keeps its settings
+release from sauerbraten.org into `/usr/share/games/sauerbraten` (the Guides). The menu entry starts it fullscreen at the desktop's resolution and keeps its settings
 in `~/.sauerbraten`.

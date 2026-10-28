@@ -188,7 +188,13 @@ main.wrap { padding-bottom: rem(3); }
 }
 .tabs a:hover { color: $accent-light; background: $panel; }
 .tabs a.current { color: $text; background: $panel; border-color: $border; font-weight: 700; }
+// "Open in Walnut Games" (walnut://game/<id>): only on a Walnut console, whose NetSurf reads ps3-desktop's
+// user stylesheet (/usr/share/netsurf/user.css) and that shows it; hidden everywhere else, no script
+.walnut-os-only { display: none; }
+a.open-app { display: inline-block; margin-right: rem(0.5); padding: rem(0.4) rem(1); background: $accent-deep; color: #fff; text-decoration: none; border-radius: 6px; font-weight: 700; }
+a.open-app:hover { background: $accent; color: #fff; }
 .problems { margin: rem(0.6) 0; padding-left: rem(1.2); }
+td.unscored { color: $warn; font-style: italic; white-space: nowrap; }
 .origin { font-size: rem(0.8); color: $muted; border: 1px solid $border; border-radius: 6px; padding: 0 0.4em; }
 .note { background: $panel; border-left: 3px solid $accent-deep; padding: rem(0.5) rem(0.9); border-radius: 0 6px 6px 0; }
 .note p:first-child, .note h3:first-child { margin-top: 0; }
@@ -256,6 +262,12 @@ details.older > summary { margin: rem(0.8) 0; }
 .batch h3 { margin-bottom: rem(0.2); color: $accent-light; }
 .batch p { margin: rem(0.2) 0 rem(0.5); }
 .unit { font-weight: 400; font-size: rem(0.75); }
+.batch .obs { margin-top: rem(0.5); }
+.caveat { border-left-color: $warn; }
+.flag { display: inline-block; font-size: rem(0.75); color: $warn; border: 1px solid $warn; border-radius: 6px; padding: 0 0.4em; white-space: nowrap; }
+tr.row-invalid td.num { text-decoration: line-through; color: $muted; }
+tr.row-not-comparable td.num { color: $muted; }
+td.builds { line-height: 1.35; }
 
 // a phone: one column, the thumbnail above the title
 @media (max-width: 640px) {
@@ -268,3 +280,21 @@ details.older > summary { margin: rem(0.8) 0; }
   table.tests, table.history { font-size: rem(0.85); }
   td.bar, th.bar { display: none; }
 }
+
+/* data guides */
+// the game-data guide on the Guides tab (partials/data-guide.html) and the Overview's easy way (data-easy.html)
+.guide h2 { margin-top: rem(1.2); }
+.data-guide h3 { color: $accent-light; font-size: rem(1.1); margin: rem(1.6) 0 rem(0.5); }
+.data-guide h4 { font-size: rem(0.95); margin: rem(1.2) 0 rem(0.3); }
+.data-guide pre { font-size: rem(0.85); }
+.data-notes { border-left: 3px solid $border; padding-left: rem(0.9); margin: rem(1) 0; }
+.data-notes h3 { color: $muted; font-size: rem(1); margin: rem(0.8) 0 rem(0.4); }
+table.data-pkgs, table.data-files { font-size: rem(0.85); margin: rem(0.4) 0 rem(0.8); }
+table.data-pkgs td code, table.data-files td code { white-space: nowrap; }
+table.data-pkgs td code.cmd { white-space: normal; }
+table.data-files th.num, table.data-files td.num { text-align: right; width: auto; }
+table.data-files tr.first td, table.data-files tr.alt td { border-bottom: 0; padding-bottom: 0; }
+table.data-files tr.alt td { padding-top: rem(0.2); }
+table.data-files tr.sum td { padding-top: rem(0.1); }
+code.sum { font-size: rem(0.8); background: transparent; padding: 0; }
+.data-easy p { margin: rem(0.5) 0; }

@@ -1,0 +1,26 @@
+{{/* the easy way to a game's data, for the Overview's Installation section: (dict "g" <catalog entry> "t" <its
+     technical.json entry>). From technical.json's data_guide (tools/gamedb/dataguide.py: the game's [data_setup]):
+     Walnut Games' Install, then Add game files... with what copy works, the free edition it can download and the
+     add-ons; then a link to the Guides tab's game-data guide for the other ways (a terminal, game-data-packager,
+     by hand). A game that needs data without a [data_setup] (Sauerbraten) gets the line and the link only;
+     a game with neither, nothing */}}
+{{ $g := .g }}{{ $dg := .t.data_guide }}
+{{ $more := `<a href="guides/#game-data">Guides</a>` | safeHTML }}
+{{ $app := cond site.Params.app "With the buttons above" "In <strong>Walnut Games</strong>, the desktop app" | safeHTML }}
+{{ if $dg }}
+<div class="data-easy">
+  {{ if $dg.needs_data }}
+  <p>{{ $app }}: <strong>Install</strong>, then <strong>Add game files...</strong> and pick your copy of {{ $dg.original }}: the disc in the drive, an ISO, BIN/CUE or MDF image, an installer or a folder. The game data is not part of the package, and Walnut does not offer it.</p>
+  {{ else }}
+  <p>{{ $app }}: <strong>Install</strong>. It plays with free data; if you own {{ $dg.original }}, <strong>Add game files...</strong> adds the original's files from your copy: the disc in the drive, an ISO, an installer or a folder.</p>
+  {{ end }}
+  {{ with $dg.hint }}<p><span class="muted">What works:</span> {{ . }}</p>{{ end }}
+  {{ range $dg.fetch }}<p>No copy? <strong>Download the free {{ .edition }}</strong> in the same chooser (it needs the network).</p>{{ end }}
+  {{ if and $dg.needs_data $dg.addons }}{{ $ed := slice }}{{ range $dg.packages }}{{ if and (eq .role "optional") (not .fetch) }}{{ $ed = $ed | append .edition }}{{ end }}{{ end }}
+  <p>Optional, from a copy that has them: {{ $seen := slice }}{{ range $ed }}{{ if not (in $seen .) }}{{ $seen = $seen | append . }}{{ end }}{{ end }}{{ range $i, $e := $seen }}{{ $c := len (where (where $dg.packages "role" "optional") "edition" $e) }}{{ if $i }}, {{ end }}{{ if eq $e "music" }}the CD's music{{ else if eq $e "expansion" }}{{ if gt $c 1 }}{{ $c }} expansions{{ else }}the expansion{{ end }}{{ else }}{{ $e }}{{ end }}{{ end }}: <strong>Also add</strong> in the app.</p>
+  {{ end }}
+  <p>More ways (a terminal, game-data-packager on any Debian system, copying the files by hand): {{ $more }}.</p>
+</div>
+{{ else if $g.needs_data }}
+<p>{{ $app }}: <strong>Install</strong>. The game data is not part of the package: {{ $more }} says how to get it.</p>
+{{ end }}

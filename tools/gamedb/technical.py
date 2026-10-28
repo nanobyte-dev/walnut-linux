@@ -18,6 +18,9 @@ Design
   same entry. A game's guides (guides/*.md: how-tos, tips, recommended settings) are its entry's guides[],
   {slug, title, body} in file name order, for its Guides tab (games/<id>/guides/): each one's first "# "
   heading is its title and its other headings move one level down, under that title on the page.
+  A game with a [data_setup] has a data_guide (tools/gamedb/dataguide.py: its three ways to the data, made from
+  the [data_setup], gdp-manifest.json and our game-data-packager patches) and always a game-data guide, first,
+  whose guides/game-data.md (when there is one) holds the hand-written notes under the generated part.
 - A game without a technical.md still gets its page: the data sections alone, and a line saying there
   are no notes yet. Nothing is made up to fill it.
 - Markdown is passed on for Hugo to render; its first "# " heading becomes the page title. Relative
@@ -49,6 +52,7 @@ sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(REPO / "bench" / "analysis"))
 import check          # noqa: E402
 import benchrecords   # noqa: E402
+import dataguide      # noqa: E402
 
 SCHEMA = 1
 # a file or directory of the repository on the public copy's main branch
@@ -250,14 +254,23 @@ def demote(md):
     return "\n".join(out)
 
 
-def guides(site, gdir):
+DATA_GUIDE = "game-data"
+DATA_GUIDE_TITLE = "Setting up the game data"
+
+
+def guides(site, gdir, data_guide=False):
     """a game's guides (guides/*.md), in file name order: [{slug, title, body}], the body's headings one level
-    down (the page puts each guide under its title)"""
+    down (the page puts each guide under its title). With data_guide (a game with a [data_setup]: its data
+    guide is generated, dataguide.py) the game-data guide comes first and exists even without a
+    guides/game-data.md, whose body is then the hand-written notes under the generated part"""
     url = "games/%s/guides/" % gdir.name
     out = []
     for f in sorted((gdir / "guides").glob("*.md")) if (gdir / "guides").is_dir() else []:
         title, _, body = markdown_page(site, f, url, f.stem)
         out.append({"slug": f.stem, "title": title, "body": demote(body)})
+    if data_guide:
+        mine = [g for g in out if g["slug"] == DATA_GUIDE] or [{"slug": DATA_GUIDE, "title": DATA_GUIDE_TITLE, "body": ""}]
+        out = mine + [g for g in out if g["slug"] != DATA_GUIDE]
     return out
 
 
@@ -293,10 +306,91 @@ def fmt(v):
     return "" if v is None else str(v)
 
 
-def bench_tables(gid, results, batches, metrics):
+# a harness suffix of a variant (report.py: "@" something alongside the game, "+" an ENVS switch): its words
+HARNESS_TOKENS = [(re.compile(r"rec(\d+)"), "stall recorder at %s ms"), (re.compile(r"wkkick(\d+)"), "waker kick at %s ms"),
+                  (re.compile(r"wksleep(\d+)"), "waker sleep at %s ms"), (re.compile(r"rtprio(\d+)"), "real-time priority %s"),
+                  (re.compile(r"perf"), "perf recording"), (re.compile(r"perfload"), "start-up profile"),
+                  (re.compile(r"shot"), "screenshots in the window")]
+# the steady-state window (gamedb/benchmarks/README.md): a row with fps_steady was measured this way
+STEADY_LENGTH = "warm-up + 120 s"
+
+
+def caveats(root):
+    """[[caveat]] of gamedb/benchmarks/caveats.toml (README.md "Caveats"), [] without the file"""
+    f = Path(root) / "benchmarks" / "caveats.toml"
+    return tomllib.loads(f.read_text()).get("caveat", []) if f.is_file() else []
+
+
+def caveat_of(cavs, batch, gid, variant):
+    """the caveat that covers a row: the most specific one (variant, then game, then batch), or None"""
+    best = None
+    for c in cavs:
+        if c.get("batch") != batch or c.get("game", gid) != gid or c.get("variant", variant) != variant:
+            continue
+        rank = ("game" in c) + ("variant" in c)
+        if best is None or rank > best[0]:
+            best = (rank, c)
+    return {"kind": best[1]["kind"], "why": best[1]["why"]} if best else None
+
+
+def recipe_env(gdir):
+    """({variant: [ENV tokens]}, the base ENV tokens, the resolution the recipe names or None) of the
+    game's benchmark/recipe.sh: a variant's tokens are its function's ENV+=(...) words"""
+    f = Path(gdir) / "benchmark" / "recipe.sh"
+    if not f.is_file():
+        return {}, [], None
+    text = f.read_text(errors="replace")
+    base = re.search(r"^ENV=\(([^)]*)\)", text, re.M)
+    out = {}
+    lines = text.split("\n")
+    for i, line in enumerate(lines):
+        m = VARIANT_RE.match(line)
+        if not m:
+            continue
+        body = [line]
+        if not line.rstrip().endswith("}"):     # a function over several lines: up to its closing brace
+            for nxt in lines[i + 1:]:
+                body.append(nxt)
+                if nxt.strip() == "}":
+                    break
+        out[m[1]] = [w for e in re.findall(r"ENV\+=\(([^)]*)\)", "\n".join(body)) for w in e.split()]
+    cmd = re.search(r"^CMD=\((.*?)\)\s*$", text, re.M | re.S)
+    res = re.search(r"(?<![0-9])([1-9][0-9]{2,3})x([1-9][0-9]{2,3})(?![0-9])", cmd[1]) if cmd else None
+    return out, base[1].split() if base else [], ("%sx%s" % (res[1], res[2]) if res else None)
+
+
+def conditions(variant, env, base_env):
+    """(the recipe's variant name, [condition words]) of a recorded variant such as base@rec10+rsx_shadow_fast1:
+    what the variant adds to the recipe (its ENV+= words; base adds nothing), then each harness suffix in words.
+    The recipe's own ENV (base_env) is today's, so it is shown once for the game, not on old rows"""
+    name = re.split(r"[@+]", variant, 1)[0]
+    words = list(env.get(name, []))
+    for tok in re.findall(r"[@+][^@+]+", variant):
+        t = tok[1:]
+        for rx, text in HARNESS_TOKENS:
+            m = rx.fullmatch(t)
+            if m:
+                words.append(text % m.groups() if m.groups() else text)
+                break
+        else:
+            words.append(("switch " if tok[0] == "+" else "") + t)
+    return name, words
+
+
+def sessions_of(gdir, repo):
+    """the game's played sessions in detail and as CSV (tools/gamedb/sessions.py), for its Test runs tab"""
+    import sessions
+    ss = sessions.game_sessions(gdir, repo)
+    return {"list": ss, "csv": sessions.to_csv(ss) if ss else None}
+
+
+def bench_tables(gid, results, batches, metrics, gdir=None, cavs=()):
     """the game's result tables: [{batch facts, columns, rows}], the summary batches first, then the run
-    batches newest first"""
+    batches newest first. A run batch's row also says what was tested: the variant, its conditions (the
+    recipe's ENV, the harness suffixes), the batch's Mesa and kernel build, the recipe's resolution, the run
+    length (steady state or the whole run), the main numbers, and the batch's caveat (caveats.toml)"""
     info = {b["name"]: b for b in batches}
+    env, base_env, res = recipe_env(gdir) if gdir else ({}, [], None)
     out = []
     for name, games in results.items():
         t = games.get(gid)
@@ -305,18 +399,35 @@ def bench_tables(gid, results, batches, metrics):
         b = info.get(name, {})
         variants = t.get("variant", {})
         cols = [m for m in metrics if any(m["name"] in e for e in variants.values())]
-        rows = [{"variant": v, "label": e.get("label"), "note": e.get("note"), "order": e.get("order", 0),
-                 "values": [fmt(e.get(m["name"])) for m in cols]} for v, e in variants.items()]
+        stack = b.get("stack", {})
+        build = ", ".join("%s %s" % (k.capitalize() if k in ("mesa", "kernel") else k, v)
+                          for k, v in stack.items() if k in ("mesa", "kernel", "ps3rsx"))
+        rows = []
+        for v, e in variants.items():
+            vname, words = conditions(v, env, base_env)
+            rows.append({"variant": v, "name": vname, "conditions": words, "label": e.get("label"), "note": e.get("note"),
+                         "order": e.get("order", 0), "build": build or None, "resolution": res,
+                         "length": STEADY_LENGTH if "fps_steady" in e else "whole run",
+                         "fps": fmt(e.get("fps")), "steady": fmt(e.get("fps_steady")),
+                         "low1": fmt(e.get("low1_play", e.get("low1"))),
+                         "stalls": fmt(e.get("stalls_play", e.get("stalls"))),
+                         "caveat": caveat_of(cavs, name, gid, v),
+                         "values": [fmt(e.get(m["name"])) for m in cols]})
         if b.get("kind") == "summary":
             rows.sort(key=lambda r: (r["order"], r["variant"]))
+        else:
+            rows.sort(key=lambda r: (r["name"] != "base", r["variant"]))
         for r in rows:
             del r["order"]
+        cav = caveat_of(cavs, name, gid, None) if all(r["caveat"] for r in rows) else None
+        main = {"fps", "fps_steady", "low1", "low1_play", "stalls", "stalls_play"}
         out.append({"batch": name, "kind": b.get("kind", "run"), "order": b.get("order", 0), "title": b.get("title"),
                     "date": str(b["date"]) if b.get("date") else None, "runs": b.get("runs"),
-                    "stack": [{"name": k, "version": str(v)} for k, v in b.get("stack", {}).items()],
+                    "stack": [{"name": k, "version": str(v)} for k, v in stack.items()],
                     "observations": b.get("observations"), "purpose": b.get("purpose"), "column": t.get("column"),
+                    "caveat": cav,
                     "columns": [{"name": m["name"], "unit": m.get("unit"), "better": m.get("better"),
-                                 "what": m.get("what")} for m in cols],
+                                 "what": m.get("what"), "main": m["name"] in main} for m in cols],
                     "rows": rows})
     out.sort(key=lambda x: (x["kind"] != "summary", -x["order"], x["batch"]))
     for x in out:
@@ -355,8 +466,9 @@ def recipe(gdir):
     return comment_text(head) or None, variants
 
 
-def game_page(site, gdir, g, results, batches, metrics, patch_subjects, package_dir):
+def game_page(site, gdir, g, results, batches, metrics, patch_subjects, package_dir, manifest=None):
     gid = gdir.name
+    dg = dataguide.build(gid, g["title"], g.get("data_setup"), manifest or {}, site.repo, patch_subjects, package_dir)
     url = "games/%s/technical/" % gid
     b = check.read_build(gdir)
     notes = None
@@ -390,9 +502,12 @@ def game_page(site, gdir, g, results, batches, metrics, patch_subjects, package_
         "patch_count": len(g.get("patches", [])),
         "test": test, "sessions": len(sessions), "tests": len(g["tests"]),
         "benchmark": {"header": header, "variants": variants, "recipes": recipes,
-                      "tables": bench_tables(gid, results, batches, metrics)},
+                      "tables": bench_tables(gid, results, batches, metrics, gdir, site.caveats),
+                      "resolution": recipe_env(gdir)[2], "env": recipe_env(gdir)[1]},
+        "played": sessions_of(gdir, site.repo),
         "investigations": [{k: i[k] for k in ("id", "title", "url", "date")} for i in invs],
-        "guides": guides(site, gdir),
+        "guides": guides(site, gdir, dg is not None),
+        "data_guide": dg,
     }, invs
 
 
@@ -437,10 +552,12 @@ def build(content, cat, repo=REPO, patch_subjects=None, package_dir=None):
     site.batch_games = {b: {g for g in t if g in site.published} for b, t in results.items()}
     batches = benchrecords.load_batches(root)
     metrics = benchrecords.load_metrics(root)
+    site.caveats = caveats(root)
+    manifest = dataguide.load_manifest(repo)
     games, invs = [], []
     for g in cat["games"]:
         gdir = content / g["id"]
-        page, gi = game_page(site, gdir, g, results, batches, metrics, patch_subjects, package_dir)
+        page, gi = game_page(site, gdir, g, results, batches, metrics, patch_subjects, package_dir, manifest)
         games.append(page)
         invs += gi
     engines = []

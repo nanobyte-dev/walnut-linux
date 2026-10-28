@@ -1,23 +1,46 @@
-{{/* one batch of a game's benchmark results (technical.json benchmark.tables[]): its facts, then a row
-     per variant and a column per metric, with the metric's unit */}}
+{{/* one batch of a game's benchmark results (technical.json benchmark.tables[], tools/gamedb/technical.py
+     bench_tables): its title, date, runs and purpose, a row per variant saying what was tested (the variant, the
+     conditions it adds, the Mesa and kernel build, the resolution, the run length) and the main numbers, then
+     the batch's other metrics, then its observations, always shown. A caveat (gamedb/benchmarks/caveats.toml)
+     marks the rows: "invalid" (not a frame rate of the picture shown) or "not comparable" (slowed by a profiler) */}}
 {{ $b := . }}
-<div class="batch" id="batch-{{ $b.batch }}">
+<div class="batch{{ with $b.caveat }} batch-{{ .kind }}{{ end }}" id="batch-{{ $b.batch }}">
   <h3>{{ if eq $b.kind "summary" }}Suite summary{{ else }}{{ with $b.title }}{{ . }}{{ else }}{{ $b.batch }}{{ end }}{{ end }}</h3>
-  <p class="muted small">{{ with $b.date }}{{ . }} · {{ end }}batch <code>{{ $b.batch }}</code>{{ with $b.runs }} · {{ . }} run{{ if ne (int .) 1 }}s{{ end }}{{ end }}
-    {{ with $b.stack }} · {{ range $i, $s := . }}{{ if $i }}, {{ end }}{{ $s.name }} {{ $s.version }}{{ end }}{{ end }}
+  <p class="muted small">{{ with $b.date }}{{ . }} · {{ end }}batch <code>{{ $b.batch }}</code>{{ with $b.runs }} · {{ . }} run{{ if ne (int .) 1 }}s{{ end }} in the batch (all games){{ end }}
     {{ with $b.column }} · recorded as <code>{{ . }}</code>{{ end }}</p>
-  {{ with $b.purpose }}<p class="small">{{ . }}</p>{{ end }}
+  {{ with $b.purpose }}<p class="small"><strong>Purpose:</strong> {{ . }}</p>{{ end }}
+  {{ with $b.caveat }}<p class="note caveat small"><strong>{{ if eq .kind "invalid" }}Invalid{{ else }}Not comparable{{ end }}:</strong> {{ .why }}.</p>{{ end }}
   <div class="table-wrap">
+  {{ if eq $b.kind "summary" }}
   <table class="bench">
-    <thead><tr><th>{{ if eq $b.kind "summary" }}Row{{ else }}Variant{{ end }}</th>
+    <thead><tr><th>Row</th>
       {{ range $b.columns }}<th class="num" title="{{ .what }} ({{ .better }} is better)">{{ .name }}{{ with .unit }}<br><span class="unit">{{ . }}</span>{{ end }}</th>{{ end }}
-      {{ if eq $b.kind "summary" }}<th>Picture, sound</th>{{ end }}</tr></thead>
+      <th>Picture, sound</th></tr></thead>
     <tbody>{{ range $b.rows }}{{ $r := . }}
       <tr><td>{{ with .label }}{{ . }} <span class="muted small">{{ $r.variant }}</span>{{ else }}<code>{{ .variant }}</code>{{ end }}</td>
       {{ range .values }}<td class="num">{{ with . }}{{ . }}{{ else }}<span class="muted">-</span>{{ end }}</td>{{ end }}
-      {{ if eq $b.kind "summary" }}<td class="small">{{ .note }}</td>{{ end }}</tr>
+      <td class="small">{{ .note }}</td></tr>
     {{ end }}</tbody>
   </table>
+  {{ else }}
+  {{ $other := where $b.columns "main" false }}
+  <table class="bench">
+    <thead><tr><th>Variant</th><th>Conditions</th><th>Build</th><th>Resolution</th><th>Length</th>
+      <th class="num">fps<br><span class="unit">whole run</span></th><th class="num">Steady fps<br><span class="unit">in the window</span></th>
+      <th class="num">1% low<br><span class="unit">fps</span></th><th class="num">Stalls<br><span class="unit">frames over 100 ms</span></th>
+      {{ range $other }}<th class="num" title="{{ .what }} ({{ .better }} is better)">{{ .name }}{{ with .unit }}<br><span class="unit">{{ . }}</span>{{ end }}</th>{{ end }}</tr></thead>
+    <tbody>{{ range $b.rows }}{{ $r := . }}
+      <tr{{ with .caveat }} class="row-{{ .kind }}"{{ end }}>
+      <td><code>{{ .name }}</code>{{ with .caveat }}<br><span class="flag">{{ if eq .kind "invalid" }}invalid{{ else }}not comparable{{ end }}</span>{{ end }}</td>
+      <td class="small">{{ with .conditions }}{{ range $i, $c := . }}{{ if $i }}<br>{{ end }}{{ $c }}{{ end }}{{ else }}<span class="muted">the recipe as it is</span>{{ end }}</td>
+      <td class="small nowrap">{{ with .build }}{{ . }}{{ else }}<span class="muted">-</span>{{ end }}</td>
+      <td class="small">{{ with .resolution }}{{ . }}{{ else }}<span class="muted">the game's</span>{{ end }}</td>
+      <td class="small">{{ .length }}</td>
+      {{ range slice .fps .steady .low1 .stalls }}<td class="num">{{ with . }}{{ . }}{{ else }}<span class="muted">-</span>{{ end }}</td>{{ end }}
+      {{ range $j, $c := $b.columns }}{{ if not $c.main }}<td class="num">{{ with index $r.values $j }}{{ . }}{{ else }}<span class="muted">-</span>{{ end }}</td>{{ end }}{{ end }}</tr>
+    {{ end }}</tbody>
+  </table>
+  {{ end }}
   </div>
-  {{ with $b.observations }}<details class="obs"><summary>Observations</summary><p class="small">{{ . }}</p></details>{{ end }}
+  {{ with $b.observations }}<p class="small obs"><strong>Observations:</strong> {{ . }}</p>{{ end }}
 </div>

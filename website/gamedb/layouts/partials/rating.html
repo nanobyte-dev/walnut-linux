@@ -1,7 +1,7 @@
-{{/* one launcher's rating (catalog.json: a game's rating, or one of its launchers' ratings): the cap or
-     scrap note, the aspects with what was measured, what it rests on, the rules it was rated under, the
-     version it was tested on; under rules 2 the defects and the failed checks, each labelled with where it
-     comes from */}}
+{{/* one launcher's rating (catalog.json: a game's rating, or one of its launchers' ratings), on the Overview:
+     the cap or scrap note, the aspects with what was measured (an aspect without a score says "not tested"
+     in its row), under rules 2 the defects and the failed checks, each labelled with where it comes from;
+     then one line: what it rests on and the version, linking the Test runs tab */}}
 {{ $r := . }}
 {{ $order := $r.order | default (slice "frame" "smooth" "sound" "picture" "stability" "display" "load") }}
 {{ if eq $r.medal "Scrap" }}{{ with $r.reason }}<p class="note">Scrap: {{ . }}.</p>{{ end }}
@@ -14,7 +14,7 @@
     {{ $a := index $r.aspects . }}
     <tr>
       <td>{{ $a.name }} <span class="muted">({{ $a.weight }})</span></td>
-      {{ if eq $a.score nil }}<td>-</td><td class="bar"></td><td class="muted">{{ if or (eq . "controls") (eq . "features") }}not tested{{ else }}not measured{{ end }}</td>
+      {{ if eq $a.score nil }}<td class="unscored">not tested</td><td class="bar"></td><td class="muted">{{ if or (eq . "controls") (eq . "features") }}not tested in play{{ else }}not measured{{ end }}: its weight goes to the other aspects</td>
       {{ else }}<td class="num">{{ $a.score }}<span class="muted">/100</span></td>
       <td class="bar"><span style="width: {{ $a.score }}%"></span></td>
       <td>{{ $a.detail }}</td>{{ end }}
@@ -22,7 +22,6 @@
   {{ end }}
   </tbody>
 </table>
-{{ if $r.unmeasured }}<p class="muted">Not measured or not tested: {{ delimit $r.unmeasured ", " }}. Their weight goes to the other aspects.</p>{{ end }}
 {{ if or $r.defects $r.controls_failed $r.features_failed }}
 <ul class="problems">
   {{ range $r.defects }}<li>Picture: {{ .name }}{{ with .what }} ({{ . }}){{ end }}, -{{ .points }}{{ with .origin }} <span class="origin">{{ . }}</span>{{ end }}</li>{{ end }}
@@ -30,6 +29,5 @@
   {{ range $r.features_failed }}<li>Broken: {{ .name }}{{ with .what }} ({{ . }}){{ end }}{{ with .origin }} <span class="origin">{{ . }}</span>{{ end }}</li>{{ end }}
 </ul>
 {{ end }}
-{{ with $r.tested }}<p class="tested">Tested on <strong>{{ partial "walnut.html" .walnut }}</strong>{{ with .version }} with {{ $r.tested.package }} <strong>{{ . }}</strong>{{ end }}, last on {{ .date }}.</p>{{ end }}
-<p class="muted">Rated from {{ if eq $r.graded_by "session" }}played sessions{{ else if eq $r.graded_by "demo" }}benchmark runs (no played session yet; the desktop was stopped and vsync off){{ else }}picture checks only (nobody has played it yet){{ end }}{{ with $r.basis }}{{ if and .tests (ne $r.graded_by "capture") }}: {{ .tests }} {{ if eq $r.graded_by "session" }}session{{ else }}run{{ end }}{{ if ne (int .tests) 1 }}s{{ end }}, {{ .minutes }} min of play{{ end }}{{ end }}{{ with $r.rules_label }}, under <a href="{{ site.Home.RelPermalink }}about/#{{ $r.rules_anchor }}">{{ . }}</a>{{ end }}.
-{{ if $r.provisional }}Stability is provisional until the game has an hour of play.{{ end }}</p>
+{{/* what it rests on, in one line; the sessions, the rules and the history are on Test runs */}}
+<p class="tested">Rated from {{ with $r.basis }}{{ if and .tests (ne $r.graded_by "capture") }}{{ .tests }} {{ if eq $r.graded_by "session" }}session{{ else }}benchmark run{{ end }}{{ if ne (int .tests) 1 }}s{{ end }}, {{ .minutes }} minute{{ if ne (int .minutes) 1 }}s{{ end }} of play{{ else }}picture checks only{{ end }}{{ end }}{{ with $r.tested }}{{ with .version }} on {{ $r.tested.package }} {{ . }}{{ end }} ({{ partial "walnut.html" .walnut }}){{ end }}. <a href="test-runs/">Details</a></p>

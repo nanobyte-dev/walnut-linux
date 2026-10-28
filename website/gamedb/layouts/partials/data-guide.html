@@ -1,0 +1,94 @@
+{{/* the generated part of a game's data guide (the Guides tab, #game-data): (dict "dg" <technical.json data_guide>
+     "title" <the game's title> "id" <its id> "notes" <the hand-written guides/game-data.md, rendered, or "">).
+     Made from the game's [data_setup] and tools/gamedb/gdp-manifest.json by tools/gamedb/dataguide.py: what works,
+     then three ways, each a section: 1. Walnut Games (the app, or walnut-data in a terminal), 2. game-data-packager
+     (Walnut's patched build: the command, the .deb, apt), 3. by hand (every file's path, size and checksum).
+     The hand-written notes (which copy, quirks) come after the first way. Plain tables: CSS 2.1, NetSurf */}}
+{{ $dg := .dg }}{{ $id := .id }}
+{{ $req := where $dg.packages "role" "required" }}{{ $opt := where $dg.packages "role" "optional" }}
+<div class="data-guide">
+{{ with $dg.hint }}<p><strong>What works:</strong> {{ . }}</p>{{ end }}
+<ul class="toc">
+  <li><a href="#data-walnut">With Walnut Games</a> (the easy way)</li>
+  <li><a href="#data-gdp">With game-data-packager</a> (a terminal, any Debian system)</li>
+  <li><a href="#data-manual">By hand</a> (the files, where they go, their checksums)</li>
+</ul>
+
+<h3 id="data-walnut">1. With Walnut Games</h3>
+<p>In Walnut Games, open {{ .title }}: <strong>Install</strong>, then <strong>Add game files...</strong> The chooser lists the disc in the drive, mounted discs and USB sticks, GOG and Steam folders, and the ISOs, installers and archives in Downloads and your home folder; you can also pick a file or folder yourself. It checks every file against the checksums below and installs an ordinary package{{ if $req }} ({{ range $i, $p := $req }}{{ if $i }}, {{ end }}<code>{{ $p.name }}</code>{{ end }}){{ end }}, which <strong>Remove data</strong> takes away again.</p>
+{{ range $dg.fetch }}<p>The free {{ .edition }} needs no copy: choose <strong>Download the free {{ .edition }}</strong> in the chooser (it needs the network).</p>{{ end }}
+<p>In a terminal, the same with <code>walnut-data</code> (part of Walnut Games):</p>
+<pre><code>{{ $dg.walnut_base }}</code></pre>
+<p class="small">A source is the disc in the drive (<code>/dev/sr0</code>), an ISO (<code>.iso</code>, <code>.img</code>), a BIN/CUE image (the <code>.cue</code>, or the <code>.bin</code> with its <code>.cue</code> next to it), an Alcohol 120% image (the <code>.mds</code>, or the <code>.mdf</code>), an installer or archive (GOG's <code>setup_*.exe</code>) or a folder (an installed copy, Steam's or GOG's). Images are opened read-only; nothing is copied out of them that the game doesn't need.</p>
+{{ with $dg.fetch }}<pre><code>{{ range $i, $p := . }}{{ if $i }}
+{{ end }}{{ $p.walnut }}{{ end }}</code></pre>
+<p class="small">The free {{ range $i, $p := . }}{{ if $i }} and {{ end }}{{ $p.edition }}{{ end }}: downloaded whole, no source.</p>{{ end }}
+{{ $addons := slice }}{{ range $opt }}{{ if not .fetch }}{{ $addons = $addons | append . }}{{ end }}{{ end }}
+{{ with $addons }}
+<p>{{ if $req }}Add-ons, each from a copy that has it (the app shows <strong>Also add</strong> for every one the source holds){{ else }}Each from a copy that has it{{ end }}:</p>
+<div class="table-wrap"><table class="data-pkgs">
+  <thead><tr><th>Package</th><th>What</th><th>Command</th></tr></thead>
+  <tbody>{{ range . }}<tr><td><code>{{ .name }}</code></td><td>{{ .edition }}</td><td><code class="cmd">{{ .walnut }}</code></td></tr>{{ end }}</tbody>
+</table></div>
+{{ end }}
+{{ range $dg.packages }}{{ $p := . }}{{ with .tracks }}
+<p class="small">The CD's music (<code>{{ $p.name }}</code>): from the disc in the drive game-data-packager rips audio tracks {{ .first }} to {{ .last }} with cdparanoia; from a BIN/CUE or MDF/MDS image of the CD walnut-data encodes them to Ogg Vorbis itself (oggenc, from vorbis-tools). Ripped audio has no checksum, so the tracks are checked more loosely: the exact names, at most {{ .max_size_h }} each, Ogg Vorbis only.</p>
+{{ end }}{{ end }}
+{{ range $dg.alternatives }}<p class="small">Any one of {{ range $i, $p := . }}{{ if $i }}, {{ end }}<code>{{ $p }}</code>{{ end }} is enough.</p>{{ end }}
+<p class="small">With Walnut's licensed suite as an apt source, the app offers <strong>Install from Walnut licensed</strong> instead (<code>walnut-data install-repo {{ $id }}</code>). <code>{{ $dg.walnut_remove }}</code> takes the data away again.</p>
+
+{{ with .notes }}<div class="data-notes">{{ . }}</div>{{ end }}
+
+<h3 id="data-gdp">2. With game-data-packager</h3>
+<p>walnut-data runs <a href="https://wiki.debian.org/Games/GameDataPackager">game-data-packager</a>, Debian's tool that makes a package out of game data: Walnut's build of it{{ with $dg.gdp_version }} (Debian's {{ . }}{{ end }} with our patches) comes with Walnut Games. Run it yourself to keep the <code>.deb</code>, or to make it on another computer. It writes <code>&lt;package&gt;_&lt;version&gt;_all.deb</code> into the folder after <code>-d</code> (<code>.</code> is the current one), one package per <code>-p</code>:</p>
+<div class="table-wrap"><table class="data-pkgs">
+  <thead><tr><th>Package</th><th>What</th><th>Command</th></tr></thead>
+  <tbody>{{ range $dg.packages }}<tr><td><code>{{ .name }}</code>{{ if eq .role "optional" }} <span class="muted small">optional</span>{{ end }}</td><td>{{ .edition }}</td><td><code class="cmd">{{ .gdp }}</code></td></tr>{{ end }}</tbody>
+</table></div>
+<p>Then install the file it made, from the same folder:</p>
+<pre><code>sudo apt install ./{{ $dg.install_deb }}</code></pre>
+<ul class="small">
+  <li><code>--no-download</code>: only your files are used. {{ $dl := where $dg.packages "download" true }}{{ with $dl }}Without it game-data-packager may download the official patch files it knows ({{ range $i, $p := . }}{{ if $i }}, {{ end }}<code>{{ $p.name }}</code>{{ end }}); the commands above leave it out for those.{{ end }}{{ with $dg.fetch }} {{ range $i, $p := . }}{{ if $i }} and {{ end }}<code>{{ $p.name }}</code>{{ end }} is downloaded whole.{{ end }}</li>
+  <li>It reads a folder, an installer or an archive; it doesn't open disc images. Mount an ISO first (open it in the file manager, or <code>udisksctl loop-setup -r -f FILE.iso</code>, then <code>udisksctl mount -b /dev/loopN</code>) and give it the mount point, or let walnut-data do it. BIN/CUE and MDF images: walnut-data only.</li>
+  {{ with $dg.patches }}<li>Walnut's patches that concern this game: {{ range $i, $p := . }}{{ if $i }}; {{ end }}<a href="{{ $p.url }}">{{ $p.subject }}</a>{{ end }}. Debian's own game-data-packager doesn't have them, so it may refuse some of the copies above{{ with $dg.ours }}, and it can't make {{ range $i, $p := . }}{{ if $i }}, {{ end }}<code>{{ $p }}</code>{{ end }} at all{{ end }}.</li>{{ end }}
+</ul>
+
+<h3 id="data-manual">3. By hand</h3>
+<p>Copy the files to the paths below as root (<code>sudo cp</code>), with the names exactly as written, upper and lower case included: Linux tells them apart. Where a file has several accepted versions, any one of them does. Check a copy with <code>sha256sum FILE</code> (<code>sha1sum</code> or <code>md5sum</code> where the table says so) and compare the sum. Files copied by hand belong to no package: Walnut Games goes by the packages, so it still shows the data as missing, and Remove data leaves them alone.</p>
+{{ range $dg.packages }}{{ $p := . }}
+<h4 id="data-{{ .name }}"><code>{{ .name }}</code> <span class="muted">({{ .edition }}{{ if eq .role "optional" }}, optional{{ end }})</span></h4>
+{{ if not .known }}<p class="muted">game-data-packager's file list doesn't have this package.</p>{{ end }}
+{{ with .dir }}<p>Into <code>{{ . }}</code>{{ with $p.size_h }}, {{ . }}{{ end }}.{{ with $p.replaces }} It replaces {{ range $i, $r := . }}{{ if $i }}, {{ end }}<code>{{ $r }}</code>{{ end }}: the two share the folder.{{ end }}</p>{{ end }}
+{{ with .folders }}
+<p>{{ $p.file_count }} files, too many to list here; per folder:</p>
+<div class="table-wrap"><table class="data-files">
+  <thead><tr><th>Folder</th><th class="num">Files</th><th class="num">Size</th></tr></thead>
+  <tbody>{{ range . }}<tr><td><code>{{ .dir }}</code></td><td class="num">{{ .count }}</td><td class="num">{{ .size_h }}</td></tr>{{ end }}</tbody>
+</table></div>
+<p class="small">Every file with its size and {{ delimit $p.checksum_algos ", " }} sum: the package's entry in <a href="{{ $dg.manifest_url }}">gdp-manifest.json</a>, the list walnut-data checks against.</p>
+{{ end }}
+{{ $list := .files }}{{ if not $list }}{{ $list = .key_files }}{{ with $list }}<p>The files of 1 MB and more:</p>{{ end }}{{ end }}
+{{ with $list }}
+<div class="table-wrap"><table class="data-files">
+  <thead><tr><th>File</th><th class="num">Size</th><th>Version</th></tr></thead>
+  {{ range . }}{{ $f := . }}<tbody>
+  {{ range $i, $a := .alts }}
+    <tr class="{{ if $i }}alt{{ else }}first{{ end }}"><td>{{ if eq $i 0 }}<code>{{ $f.path }}</code>{{ if not $f.required }} <span class="muted small">optional</span>{{ end }}{{ else }}<span class="muted small">or</span>{{ end }}</td>
+      <td class="num">{{ $a.size_h }}<br><span class="muted small">{{ $a.bytes }} bytes</span></td><td>{{ with $a.release }}{{ . }}{{ else }}<span class="muted">-</span>{{ end }}</td></tr>
+    <tr class="sum"><td colspan="3"><span class="muted small">{{ $a.algo }}</span> <code class="sum">{{ $a.sum }}</code></td></tr>
+  {{ end }}
+  </tbody>{{ end }}
+</table></div>
+{{ end }}
+{{ with .tracks }}
+<p>The CD's audio tracks {{ .first }} to {{ .last }} as Ogg Vorbis files, at most {{ .max_size_h }} each (no checksum: every rip differs):</p>
+<pre><code>{{ delimit .paths "\n" }}</code></pre>
+{{ end }}
+{{ with .symlinks }}
+<p>And {{ $p.symlink_count }} link{{ if ne $p.symlink_count 1 }}s{{ end }}, where the engine looks{{ if gt $p.symlink_count (len .) }} (the first {{ len . }}){{ end }}:</p>
+<pre><code>{{ range . }}sudo ln -s {{ .target }} {{ .path }}
+{{ end }}</code></pre>
+{{ end }}
+{{ with .doc_count }}<p class="muted small">game-data-packager also packs {{ . }} documentation file{{ if ne . 1 }}s{{ end }} (manuals, licences) into <code>/usr/share/doc/{{ $p.name }}</code>; the game doesn't need them.</p>{{ end }}
+{{ end }}
+</div>

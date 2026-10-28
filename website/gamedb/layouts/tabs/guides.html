@@ -1,13 +1,33 @@
 {{ define "main" }}
-{{/* a game's Guides tab: its guides/*.md (how-tos, tips, recommended settings), a section each, in file name
-     order; a game without guides still has the tab, with a line saying so */}}
+{{/* a game's Guides tab: its guides (technical.json guides[]: guides/*.md, how-tos, tips, recommended settings), a
+     section each. The game-data guide comes first: for a game with a [data_setup] its three ways are generated
+     (data-guide.html, from technical.json's data_guide), with the hand-written guides/game-data.md as notes under
+     the first; a game that needs data without one (Sauerbraten) shows its steps (index.md data_steps) above
+     its guide. A game without guides still has the tab, with a line saying so */}}
 {{ $g := index (where hugo.Data.catalog.games "id" .Params.gid) 0 }}
 {{ $t := index (where hugo.Data.technical.games "id" .Params.gid) 0 }}
 {{ partial "game-head.html" (dict "g" $g "tab" "guides") }}
 <article class="game prose">
   {{ with $t.guides }}
   {{ if gt (len .) 1 }}<ul class="toc">{{ range . }}<li><a href="#{{ .slug }}">{{ .title }}</a></li>{{ end }}</ul>{{ end }}
-  {{ $.Content }}
+  {{ range . }}
+  <section class="guide">
+    <h2 id="{{ .slug }}">{{ .title }}</h2>
+    {{ $body := cond (ne .body "") (.body | $.Page.RenderString) "" }}
+    {{ if and (eq .slug "game-data") $t.data_guide }}
+      {{ partial "data-guide.html" (dict "dg" $t.data_guide "title" $g.title "id" $g.id "notes" $body) }}
+    {{ else }}
+      {{ if and (eq .slug "game-data") $g.data_steps }}
+      <ol class="steps">
+        {{ range $n, $step := $g.data_steps }}
+        <li>{{ range $i, $part := split $step "\x60" }}{{ if mod $i 2 }}<code>{{ $part }}</code>{{ else }}{{ $part }}{{ end }}{{ end }}</li>
+        {{ end }}
+      </ol>
+      {{ end }}
+      {{ $body }}
+    {{ end }}
+  </section>
+  {{ end }}
   {{ else }}
   <p class="muted">No guides for this game yet. Installing it is on the <a href="../">Overview</a>; how it was tested is under <a href="../test-runs/">Test runs</a>.</p>
   {{ end }}

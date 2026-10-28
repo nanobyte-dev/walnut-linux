@@ -1,6 +1,7 @@
 {{ define "main" }}
-{{/* a game's Test runs tab: the played sessions, which make the rating, and the rating on each version; then the
-     scripted benchmarks in a section of their own, which never rate a game */}}
+{{/* a game's Test runs tab: the played sessions, which make the rating (a page each, test-runs/<session>/, and
+     all of them as CSV), and the rating on each version; then the scripted benchmarks in a section of their own,
+     which never rate a game: a table per batch, saying what was tested, with its observations */}}
 {{ $g := index (where hugo.Data.catalog.games "id" .Params.gid) 0 }}
 {{ $t := index (where hugo.Data.technical.games "id" .Params.gid) 0 }}
 {{ partial "game-head.html" (dict "g" $g "tab" "test-runs") }}
@@ -10,15 +11,16 @@
   <section>
     <h2 id="sessions">Played sessions</h2>
     {{ with $played }}
-    <p class="muted">The rating comes from these: someone played the game on a PS3 for about ten minutes, on the game's shipped settings, while a recorder measured it (<a href="{{ "about/" | relURL }}">how</a>).</p>
-    {{ partial "tests-table.html" . }}
+    <p class="muted">Testing is done with Walnut's rating tool (<code>walnut-rate</code>, planned): <a href="{{ site.Params.ratingDocs | relURL }}">how ratings are made and submitted</a>.</p>
+    {{ partial "tests-table.html" (dict "tests" . "sessions" $t.played.list) }}
+    {{ with $t.played.csv }}<p class="small"><a href="{{ printf "data:text/csv;base64,%s" (base64Encode .) | safeURL }}" download="{{ $g.id }}-sessions.csv">Download all sessions as CSV</a> <span class="muted">(one row per session, the aspects as columns)</span></p>{{ end }}
     {{ else }}
     <p>Nobody has played it on Walnut yet: no session, no medal.</p>
     {{ end }}
     {{ with $other }}
     <h3>Other recorded runs</h3>
     <p class="muted">Runs that aren't played sessions: picture checks (capture) and scripted runs (demo, script).</p>
-    {{ partial "tests-table.html" . }}
+    {{ partial "tests-table.html" (dict "tests" . "sessions" slice) }}
     {{ end }}
   </section>
 
@@ -40,7 +42,8 @@
     (the desktop stopped, vsync off) to compare two builds of the game or of the graphics driver. The numbers say which build is faster;
     they never feed the medal.</p>
     {{ $bm := $t.benchmark }}
-    {{ with $bm.header }}<details class="obs"><summary>How the script plays it</summary><p class="small">{{ . }}</p></details>{{ end }}
+    {{ with $bm.header }}<p class="small"><strong>How the script plays it:</strong> {{ . }}</p>{{ end }}
+    {{ if or $bm.env $bm.resolution }}<p class="small">The recipe today runs it {{ with $bm.resolution }}at {{ . }}{{ else }}at the game's own resolution{{ end }}{{ with $bm.env }}, with <code>{{ delimit . " " }}</code>{{ end }}{{ if in $bm.env "vblank_mode=0" }} (vsync off){{ end }}. Older batches ran the recipe as it was then: their titles and observations say what changed (a new game build, a driver change).</p>{{ end }}
     {{ if gt (len $bm.variants) 1 }}
     <details><summary>{{ len $bm.variants }} variants of the recipe</summary>
       <table class="facts">
@@ -49,15 +52,9 @@
     </details>
     {{ end }}
     {{ with $bm.tables }}
-      {{ $n := len . }}
-      {{ range $i, $b := . }}
-        {{ if lt $i 4 }}{{ partial "bench-table.html" $b }}{{ end }}
-      {{ end }}
-      {{ if gt $n 4 }}
-      <details class="older"><summary>{{ sub $n 4 }} older batch{{ if ne (sub $n 4) 1 }}es{{ end }}</summary>
-        {{ range $i, $b := . }}{{ if ge $i 4 }}{{ partial "bench-table.html" $b }}{{ end }}{{ end }}
-      </details>
-      {{ end }}
+    <p class="small muted">Conditions: what a variant adds to the recipe (its environment switches) and what ran alongside (the stall recorder, a profiler).
+    Length: "warm-up + 120 s" is a steady-state run, which leaves out a 60 s warm-up and measures 120 s or more; "whole run" counted everything from the start, the way runs before 2026-10-17 did. Rows marked invalid or not comparable say why.</p>
+      {{ range . }}{{ partial "bench-table.html" . }}{{ end }}
     {{ else }}
     <p class="muted">No benchmark results recorded for it yet.</p>
     {{ end }}

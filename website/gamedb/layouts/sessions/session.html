@@ -1,0 +1,66 @@
+{{ define "main" }}
+{{/* one played session (technical.json games[].played.list[], tools/gamedb/sessions.py): the session rated on its
+     own, every aspect with what was measured, the sound, the builds it ran on, the player's answers and notes, the
+     picture review and the screenshots */}}
+{{ $g := index (where hugo.Data.catalog.games "id" .Params.gid) 0 }}
+{{ $t := index (where hugo.Data.technical.games "id" .Params.gid) 0 }}
+{{ $s := index (where $t.played.list "id" .Params.sid) 0 }}
+{{ $game := site.GetPage (printf "/games/%s" $g.id) }}
+{{ partial "game-head.html" (dict "g" $g "tab" "test-runs") }}
+<article class="game session">
+  <p class="small"><a href="../">All test runs</a></p>
+  <h2>Session of {{ $s.date }}</h2>
+  <table class="facts">
+    <tbody>
+    <tr><th>Game</th><td>{{ with $s.version }}{{ $s.package }} {{ . }}{{ else }}-{{ end }} on {{ partial "walnut.html" $s.walnut }}{{ with $s.launcher }}, started as <strong>{{ . }}</strong>{{ end }}</td></tr>
+    <tr><th>Played</th><td>{{ $s.minutes }} min{{ with $s.render }} at {{ . }}{{ end }}; it ended: {{ $s.end }}{{ if $s.crashed }} (a crash){{ end }}</td></tr>
+    <tr><th>Rules</th><td><a href="{{ site.Home.RelPermalink }}about/#{{ $s.rules_anchor }}">{{ $s.rules_label }}</a></td></tr>
+    <tr><th>On its own</th><td>{{ partial "medal.html" $s }}{{ with $s.reason }} <span class="muted">({{ . }})</span>{{ end }} <span class="muted small">this session alone; the game's rating merges its sessions (<a href="{{ site.Params.ratingDocs | relURL }}">how</a>)</span></td></tr>
+    </tbody>
+  </table>
+
+  <h3>Aspects</h3>
+  <table class="aspects">
+    <thead><tr><th>Aspect</th><th>Score (of 100)</th><th class="bar"></th><th>What was measured</th></tr></thead>
+    <tbody>{{ range $s.aspects }}
+    <tr><td>{{ .name }} <span class="muted">({{ .weight }})</span></td>
+      {{ if eq .score nil }}<td class="unscored">not tested</td><td class="bar"></td><td class="muted">not measured in this session</td>
+      {{ else }}<td class="num">{{ .score }}<span class="muted">/100</span></td><td class="bar"><span style="width: {{ .score }}%"></span></td><td>{{ .detail }}</td>{{ end }}</tr>
+    {{ end }}</tbody>
+  </table>
+
+  {{ with $s.sound }}
+  <h3>Sound</h3>
+  <table class="facts"><tbody>
+    {{ if isset . "sound_dropouts" }}<tr><th>Audible dropouts</th><td>{{ .sound_dropouts }}{{ with $s.sound.sound_dropouts_per_min }} ({{ . }} a minute){{ end }}{{ with $s.sound.sound_dropouts_at_shots }}; {{ . }} more at the recorder's screenshots, left out{{ end }}</td></tr>{{ end }}
+    {{ with .xruns }}<tr><th>Buffer underruns</th><td>{{ . }} <span class="muted">(most are too short to hear; the audible ones are counted as dropouts)</span></td></tr>{{ end }}
+    {{ if and (not .xruns) .sound_faults }}<tr><th>Sound faults</th><td>{{ .sound_faults }}{{ with $s.sound.sound_faults_per_min }} ({{ . }} a minute){{ end }}</td></tr>{{ end }}
+  </tbody></table>
+  {{ end }}
+
+  <h3>Builds</h3>
+  <table class="facts"><tbody>
+    {{ range $s.builds }}<tr><th>{{ .name }}</th><td><code>{{ .version }}</code>{{ if .ours }} <span class="muted small">Walnut's build</span>{{ end }}</td></tr>{{ end }}
+  </tbody></table>
+
+  {{ if or $s.answers $s.notes }}
+  <h3>The player's answers</h3>
+  {{ with $s.answers }}<table class="facts"><tbody>{{ range . }}<tr><th>{{ .question }}</th><td>{{ .answer }}</td></tr>{{ end }}</tbody></table>{{ end }}
+  {{ with $s.notes }}<p><strong>Notes:</strong> {{ . }}</p>{{ end }}
+  {{ end }}
+
+  {{ if or $s.picture $s.review }}
+  <h3>Picture review</h3>
+  {{ with $s.picture }}<p>{{ . }}</p>{{ end }}
+  {{ with $s.review }}<table class="facts"><tbody>{{ range . }}<tr><th>{{ .what }}</th><td>{{ .answer }}</td></tr>{{ end }}</tbody></table>{{ end }}
+  {{ end }}
+
+  {{ with $s.shots }}
+  <h3>Screenshots</h3>
+  <div class="shots">
+  {{ range . }}{{ with $game.Resources.Get . }}{{ $img := . }}{{ if site.Params.app }}{{ $img = .Resize "352x" }}{{ end }}<a href="{{ .RelPermalink }}"><img src="{{ $img.RelPermalink }}" width="{{ $img.Width }}" height="{{ $img.Height }}" alt="{{ $g.title }} on the PS3" loading="lazy"></a>
+  {{ end }}{{ end }}
+  </div>
+  {{ end }}
+</article>
+{{ end }}

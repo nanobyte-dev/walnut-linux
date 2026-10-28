@@ -1,5 +1,5 @@
 {{/* the head of a game's four pages (docs/GAMEDB.md "The website"): the thumbnail, the title, the medal, the
-     summary and the badges, then the tab bar, a plain list of links with the current tab marked.
+     summary and the badges (on the Overview, for a Walnut console, an "Open in Walnut Games" link: walnut://game/<id>), then the tab bar, a plain list of links with the current tab marked.
      (dict "g" <the game's catalog entry> "tab" "overview" | "test-runs" | "technical" | "guides") */}}
 {{ $g := .g }}{{ $r := $g.rating }}
 {{ $game := site.GetPage (printf "/games/%s" $g.id) }}
@@ -13,6 +13,9 @@
       {{ else }}{{ if and $r.launcher (gt (len $g.launchers) 1) }}<span>with {{ $r.launcher }}</span>{{ end }}
       <span class="muted">{{ printf "%.1f" $r.hours }} h played, {{ $r.crashes }} crash{{ if ne (int $r.crashes) 1 }}es{{ end }}</span>{{ end }}
     </p>
+    {{/* only on a Walnut console: hidden by the site's CSS, shown by the user stylesheet Walnut's NetSurf reads
+         (ps3-desktop's /usr/share/netsurf/user.css); never in the app's own copy, which is open already */}}
+    {{ if and (eq .tab "overview") (not site.Params.app) }}<p class="walnut-os-only"><a class="open-app" href="walnut://game/{{ $g.id }}">Open in Walnut Games</a> <span class="muted small">on your PS3</span></p>{{ end }}
     <p>{{ $g.summary }}</p>
     <p class="badges">{{ range $g.badges }}<span class="badge badge-{{ . }}">{{ partial "badge-name.html" . }}</span> {{ end }}<span class="badge">{{ delimit $g.categories ", " }}</span> {{ range $g.tags }}<span class="badge badge-tag" data-tag="{{ . }}">{{ . }}</span> {{ end }}</p>
   </div>

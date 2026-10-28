@@ -195,6 +195,59 @@ class Pages(Fixture):
         self.assertIn("### Which editions", body)                     # one level down, under the guide's title
         self.assertIn("```\n## not a heading\n```", body)             # code is left as it is
 
+    def test_data_guide(self):
+        self.assertIsNone(self.build()["games"][0]["data_guide"])           # no [data_setup]: none
+        self.cat["games"][0]["data_setup"] = {
+            "gdp": "exg", "original": "Ex Original", "required": ["ex-full", "ex-demo"], "optional": ["ex-music", "ex-extra"],
+            "downloads": ["ex-full"], "fetch": ["ex-demo"], "hint": "its CD",
+            "editions": {"ex-full": "full", "ex-demo": "demo", "ex-music": "music", "ex-extra": "expansion"}}
+        files = {"usr/share/games/ex/a%02d.dat" % i: [{"size": 10, "md5": "aa"}] for i in range(30)}
+        files["usr/share/games/ex/big.pak"] = [{"size": 3 << 20, "sha256": "bb", "release": "1.1"}]
+        manifest = {"gdp_version": "89", "packages": {
+            "ex-full": {"edition": "full", "version": "89", "replaces": ["ex-demo"], "required": ["usr/share/games/ex/pak0.pak"],
+                        "files": {"usr/share/games/ex/pak0.pak": [{"size": 18689235, "sha256": "ab", "release": "106"},
+                                                                  {"size": 5, "md5": "cd"}],
+                                  "usr/share/doc/ex-full/manual.txt": [{"size": 1, "md5": "ef"}]},
+                        "symlinks": {"usr/lib/ex/pak0.pak": "../../share/games/ex/pak0.pak"}},
+            "ex-demo": {"required": sorted(files), "files": files},
+            "ex-music": {"required": [], "files": {}, "tracks": {"first": 2, "last": 3, "max_size": 64 << 20,
+                                                                  "source": "m/t%02d.ogg", "paths": ["usr/share/games/ex/m/t02.ogg"]}}}}
+        (self.repo / "tools" / "gamedb").mkdir(parents=True)
+        (self.repo / "tools" / "gamedb" / "gdp-manifest.json").write_text(json.dumps(manifest))
+        pd = self.repo / "packages" / "gdp" / "patches"
+        pd.mkdir(parents=True)
+        (pd / "0001-x.patch").write_text("Subject: Add ex-extra\n\ndiff --git a/data/exg.yaml b/data/exg.yaml\n"
+                                         "--- a/data/exg.yaml\n+++ b/data/exg.yaml\n@@ -1 +1,2 @@\n+  ex-extra:\n")
+        (pd / "0002-y.patch").write_text("Subject: general\n\n--- a/build.py\n+++ b/build.py\n")
+        (pd / "0003-z.patch").write_text("Subject: lha for Ex Original's CD\n\n--- a/build.py\n+++ b/build.py\n")
+        subjects = {"game-data-packager": [("0001-x.patch", "Add ex-extra"), ("0002-y.patch", "general"),
+                                           ("0003-z.patch", "lha for Ex Original's CD")]}
+        t = technical.build(self.content, self.cat, self.repo, patch_subjects=lambda n, r: subjects.get(n, []),
+                            package_dir=lambda r, n: {"game-data-packager": "packages/gdp"}.get(n))
+        g = t["games"][0]
+        self.assertEqual(g["guides"][0]["slug"], "game-data")              # the guide exists without a game-data.md
+        dg = g["data_guide"]
+        self.assertEqual([p["file"] for p in dg["patches"]], ["0001-x.patch", "0003-z.patch"])   # the game's own
+        self.assertEqual(dg["ours"], ["ex-extra"])
+        full, demo, music, extra = dg["packages"]
+        self.assertEqual(full["walnut"], "walnut-data import ex /path/to/your/copy")
+        self.assertEqual(full["gdp"], "game-data-packager -d . -p ex-full exg /path/to/your/copy")   # may download its patches
+        self.assertEqual(demo["walnut"], "walnut-data import -p ex-demo ex")                       # fetched whole: no source
+        self.assertEqual(demo["gdp"], "game-data-packager -d . -p ex-demo exg")
+        self.assertEqual(extra["gdp"], "game-data-packager -d . --no-download -p ex-extra exg /path/to/your/copy")
+        self.assertEqual(dg["install_deb"], "ex-full_*.deb")
+        self.assertEqual(full["dir"], "/usr/share/games/ex")
+        self.assertEqual(full["doc_count"], 1)
+        self.assertEqual([a["bytes"] for a in full["files"][0]["alts"]], ["18,689,235", "5"])
+        self.assertEqual(full["files"][0]["alts"][1]["algo"], "md5")
+        self.assertEqual(full["symlinks"], [{"path": "/usr/lib/ex/pak0.pak", "target": "../../share/games/ex/pak0.pak"}])
+        self.assertEqual(demo["files"], [])                                   # too many: a summary per folder
+        self.assertEqual(demo["folders"], [{"dir": "/usr/share/games/ex", "count": 31, "size_h": "3.0 MB"}])
+        self.assertEqual([f["name"] for f in demo["key_files"]], ["big.pak"])
+        self.assertEqual(music["tracks"]["paths"], ["/usr/share/games/ex/m/t02.ogg"])
+        self.assertFalse(extra["known"])                                     # not in the manifest
+        self.assertEqual(dg["addons"], ["ex-music", "ex-extra"])
+
     def test_benchmark(self):
         b = self.build()["games"][0]["benchmark"]
         self.assertEqual([x["batch"] for x in b["tables"]], ["sum", "b2", "b1"])   # the summary, then newest first
@@ -264,6 +317,36 @@ class Repository(unittest.TestCase):
         for i in t["investigations"]:
             self.assertNotIn(i["owner"], drafts)
         self.assertTrue(t["research"])
+
+
+class BenchRows(unittest.TestCase):
+    """what a benchmark row says it tested (technical.py conditions, caveat_of) and the sessions' CSV"""
+
+    def test_conditions(self):
+        env = {"stream": ["XMOTO_GL_STREAM=1"]}
+        self.assertEqual(technical.conditions("base", env, ["vblank_mode=0"]), ("base", []))
+        self.assertEqual(technical.conditions("stream@wkkick10", env, []),
+                         ("stream", ["XMOTO_GL_STREAM=1", "waker kick at 10 ms"]))
+        self.assertEqual(technical.conditions("base@rec10+rsx_shadow_fast1", env, [])[1],
+                         ["stall recorder at 10 ms", "switch rsx_shadow_fast1"])
+
+    def test_caveat_most_specific(self):
+        cavs = [{"batch": "b", "kind": "not-comparable", "why": "all"},
+                {"batch": "b", "game": "g", "kind": "invalid", "why": "g only"}]
+        self.assertEqual(technical.caveat_of(cavs, "b", "g", "base")["why"], "g only")
+        self.assertEqual(technical.caveat_of(cavs, "b", "h", "base")["why"], "all")
+        self.assertIsNone(technical.caveat_of(cavs, "c", "g", "base"))
+
+    def test_sessions_csv(self):
+        import sessions
+        s = {"id": "2026-10-24-session", "date": "2026-10-24", "walnut": "0.1", "package": "xmoto",
+             "version": "0.6.3", "launcher": "X-Moto", "rules": "1.0", "minutes": 26.2, "end": "quit",
+             "crashed": False, "medal": "Platinum", "score": 96, "numbers": {"median_fps": 60.3},
+             "aspects": [{"key": "frame", "name": "Frame rate", "score": 98},
+                         {"key": "display", "name": "Display", "score": None}]}
+        head, row = sessions.to_csv([s]).splitlines()
+        self.assertIn("Frame rate,Display,median_fps", head)
+        self.assertIn(",98,,60.3,", row)    # an aspect without a score is an empty cell
 
 
 if __name__ == "__main__":

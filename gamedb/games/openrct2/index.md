@@ -21,6 +21,6 @@ designed_for = "keyboard-mouse"
 
 OpenRCT2 0.5.6 with Walnut's big-endian port (upstream builds only for little-endian CPUs), on its software
 renderer: its OpenGL renderer needs OpenGL 3.3. The engine is free; RollerCoaster Tycoon 2's data is not, so
-Walnut doesn't offer it: Walnut Games makes a package of it from your own copy (below). Nobody has played it on Walnut
+Walnut doesn't offer it: Walnut Games makes a package of it from your own copy (the Overview's Installation, and the Guides). Nobody has played it on Walnut
 yet. In the first benchmark (Electric Fields at 960x540, scaled 2x) it drew 21 to 24 frames a second, with
 the console's memory nearly all in use.

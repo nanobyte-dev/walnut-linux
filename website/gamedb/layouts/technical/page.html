@@ -1,11 +1,14 @@
 {{ define "main" }}
-{{/* a published game's Technical tab (technical.json games[]): the notes (technical.md), then what the
+{{/* a published game's Technical tab (technical.json games[]): the game's index.md text, the notes (technical.md), then what the
      database knows: the build, the played test, the investigations (the benchmark tables are on Test runs) */}}
 {{ $t := index (where hugo.Data.technical.games "id" .Params.gid) 0 }}
 {{ $g := index (where hugo.Data.catalog.games "id" .Params.gid) 0 }}
 {{ partial "game-head.html" (dict "g" $g "tab" "technical") }}
 <article class="tech">
   <p class="muted">How it's built, patched and set up for its played test{{ with $t.engine }}; it runs on the <a href="{{ .url | relURL }}">{{ .title }}</a> engine{{ end }}. The numbers are under <a href="../test-runs/">Test runs</a>.</p>
+
+  {{/* the game's index.md text: its state on Walnut in a few sentences (it was the Overview's Notes) */}}
+  {{ with site.GetPage (printf "/games/%s" .Params.gid) }}{{ with .Content }}<section class="tech-summary prose">{{ . }}</section>{{ end }}{{ end }}
 
   <section class="tech-notes prose">
   {{ with .Content }}{{ . }}{{ else }}<p class="muted">No technical notes for this game yet. Everything below is read from the games database (its build.toml and its played test).</p>{{ end }}

@@ -1,0 +1,11 @@
+{{/* A page per played session (docs/GAMEDB.md "The website"), at games/<id>/test-runs/<session>/, from
+     technical.json's games[].played.list (tools/gamedb/sessions.py): the url, not the section, places it under
+     its game's Test runs tab */}}
+{{ range hugo.Data.technical.games }}
+  {{ $g := . }}
+  {{ range .played.list }}
+  {{ $.AddPage (dict "path" (printf "%s-%s" $g.id .id) "title" (printf "%s: session of %s" $g.title .date)
+      "url" (printf "/games/%s/test-runs/%s/" $g.id .id) "layout" "session"
+      "params" (dict "gid" $g.id "sid" .id "summary" (printf "A played session of %s on Walnut (%s): every aspect's score and measurement, the builds, the player's answers and the screenshots." $g.title .date))) }}
+  {{ end }}
+{{ end }}

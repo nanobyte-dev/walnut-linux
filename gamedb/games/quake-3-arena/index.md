@@ -24,7 +24,7 @@ known_issues = [
 
 Quake III Arena runs on Walnut's build of ioquake3, the engine OpenArena plays on at about 70 frames a
 second with its OpenGL 1 renderer. The engine is free; the game's data is not, so Walnut doesn't offer
-it: Walnut Games makes a package of it from your own copy (below). The game code is ioquake3's native
+it: Walnut Games makes a package of it from your own copy (the Overview's Installation, and the Guides). The game code is ioquake3's native
 build of id's GPL source, not the bytecode in the paks: ioquake3 has no PowerPC compiler for that
 bytecode any more, and the interpreter is slow on the PS3's processor. Quake III loads its first arena,
 q3dm1, with the right picture; nobody has played it on Walnut yet.

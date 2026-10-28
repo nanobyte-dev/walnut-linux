@@ -19,6 +19,9 @@ changefreq = "weekly"
 priority = 0.5
 
 [params]
+# where "how a game is tested and how a rating is made and submitted" is explained: the about page's section for
+# now; the rating tool's own documentation (walnut-rate, planned) when it exists. Relative to the site's root.
+ratingDocs = "about/#how-a-game-is-tested"
 description = "Games that run on Walnut, the open Linux for the PS3: each one played and measured on the console, compared with a PC, and rated."
 
 # The content: the site's own pages (content/), and the games from the database itself, gamedb/games/<id>/

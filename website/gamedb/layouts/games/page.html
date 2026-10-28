@@ -1,7 +1,7 @@
 {{ define "main" }}
-{{/* a game's Overview tab, games/<id>/: the verdict (medal, score and the aspects behind it), the screenshots,
-     what you need and how to get it, how to play it, the known issues and the notes (index.md). Its other
-     tabs: test-runs/ and guides/ (content/tabs/), technical/ (content/technical/) */}}
+{{/* a game's Overview tab, games/<id>/: the rating (medal, score and the aspects behind it), the screenshots,
+     the installation (the easy way; the others are in the Guides), the known issues. The index.md's text is on
+     the Technical tab. Its other tabs: test-runs/ and guides/ (content/tabs/), technical/ (content/technical/) */}}
 {{ $page := . }}
 {{ $g := index (where hugo.Data.catalog.games "id" .Params.id) 0 }}
 {{ $t := index (where hugo.Data.technical.games "id" .Params.id) 0 }}
@@ -9,7 +9,7 @@
 {{ partial "game-head.html" (dict "g" $g "tab" "overview") }}
 <article class="game">
   <section>
-    <h2>Verdict</h2>
+    <h2>Rating</h2>
     {{ if eq $r.medal "Untested" }}
     <p>{{ with $r.reason }}It was played, but it has no medal: {{ . }}.{{ else }}Nobody has played it on Walnut yet, so it has no medal.{{ end }}
     {{ with $t.benchmark.tables }}Scripted benchmarks have run it (<a href="test-runs/#benchmark">Test runs</a>), but they never rate a game.{{ end }}</p>
@@ -38,7 +38,6 @@
     {{ else }}
     {{ partial "rating.html" $r }}
     {{ end }}
-    <p class="muted">Every session behind it, and how the rating changed from version to version: <a href="test-runs/">Test runs</a>.</p>
     {{ end }}
   </section>
 
@@ -57,15 +56,8 @@
   {{ end }}
 
   <section>
-    <h2>What you need</h2>
-    {{ partial "get-game.html" (dict "g" $g "guides" $t.guides) }}
-  </section>
-
-  <section>
-    <h2>Play</h2>
-    {{ $named := slice }}{{ range $g.launchers }}{{ with .name }}{{ $named = $named | append . }}{{ end }}{{ end }}
-    <p>Walnut Games starts it with Play{{ if gt (len $named) 1 }}, which asks which launcher{{ end }}; it is in the desktop's Games menu too{{ with $named }}, as {{ range $i, $n := . }}{{ if $i }}{{ if eq $i (sub (len $named) 1) }} and {{ else }}, {{ end }}{{ end }}<strong>{{ $n }}</strong>{{ end }}{{ end }}.</p>
-    {{ with $t.guides }}<p>Tips, settings and how-tos: <a href="guides/">Guides</a>.</p>{{ end }}
+    <h2>Installation</h2>
+    {{ partial "get-game.html" (dict "g" $g "t" $t) }}
   </section>
 
   {{ with $g.known_issues }}
@@ -74,8 +66,6 @@
     <ul>{{ range . }}<li>{{ . }}</li>{{ end }}</ul>
   </section>
   {{ end }}
-
-  {{ with .Content }}<section class="notes prose"><h2>Notes</h2>{{ . }}</section>{{ end }}
 
   <p class="muted">The game's home page: <a href="{{ $g.homepage }}">{{ $g.homepage }}</a>. License: {{ $g.license }}.</p>
 </article>

@@ -26,6 +26,6 @@ known_issues = [
 
 Yamagi Quake II 8.70 runs on the gl1 renderer at about 70 frames a second on the Quake II demo
 level. The engine is free but the game data is not: the demo's data is a free download that Walnut Games fetches for you and the full game's
-comes from your own copy of Quake II (see below). Walnut's two patches byte-swap the 16-bit WAV sounds for the big-endian CPU and shrink the
+comes from your own copy of Quake II (the Overview's Installation, and the Guides). Walnut's two patches byte-swap the 16-bit WAV sounds for the big-endian CPU and shrink the
 engine's random number table from 32 MB to 64 KB, which cut the stalls from 22 s to 0.05 s in the
 benchmark and saved about 70 MB of memory.
