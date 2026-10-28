@@ -2,8 +2,7 @@
 id = "bananabread"
 title = "BananaBread"
 summary = "A first person shooter on the Cube 2 engine, with bots and an in-game map editor: the BananaBread content in Debian's cube2-data."
-categories = ["shooter"]
-tags = ["fps", "multiplayer", "bots", "3d", "map editor"]
+tags = ["fps", "online-multiplayer", "bots", "3d", "first-person", "map-editor"]
 license = "Zlib"
 homepage = "https://github.com/kripken/BananaBread"
 controller = "keyboard"

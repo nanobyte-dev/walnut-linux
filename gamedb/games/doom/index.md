@@ -2,8 +2,7 @@
 id = "doom"
 title = "Doom"
 summary = "id Software's 1993 first person shooter, The Ultimate Doom's four episodes, played with DSDA-Doom from your own copy."
-categories = ["shooter"]
-tags = ["fps", "classic", "doom", "single player"]
+tags = ["fps", "sci-fi", "horror", "single-player", "first-person", "doom-engine"]
 license = "GPL-2.0-or-later engine, commercial game data"
 homepage = "https://doomwiki.org/wiki/Doom"
 data_guide = "https://wiki.debian.org/Games/GameDataPackager"

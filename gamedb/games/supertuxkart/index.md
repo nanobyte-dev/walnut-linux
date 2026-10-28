@@ -2,8 +2,7 @@
 id = "supertuxkart"
 title = "SuperTuxKart"
 summary = "A 3D kart racer with items, many tracks and a family-friendly cast."
-categories = ["racing"]
-tags = ["kart", "3d", "multiplayer", "family"]
+tags = ["racing", "family", "single-player", "local-multiplayer", "online-multiplayer", "3d", "kart"]
 license = "GPL-3.0-or-later"
 homepage = "https://supertuxkart.net/"
 controller = "partial"

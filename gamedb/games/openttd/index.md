@@ -2,8 +2,7 @@
 id = "openttd"
 title = "OpenTTD"
 summary = "A transport simulation: build railways, roads, ships and airports and run a profitable company."
-categories = ["simulation", "strategy"]
-tags = ["transport", "management", "tycoon", "multiplayer"]
+tags = ["simulation", "management", "single-player", "online-multiplayer", "2d", "remake", "transport", "tycoon"]
 license = "GPL-2.0-only"
 homepage = "https://www.openttd.org/"
 controller = "keyboard"

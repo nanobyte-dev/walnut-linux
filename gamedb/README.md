@@ -40,6 +40,7 @@ is marked *planned*.
 ```
 gamedb/
   README.md                         this file: the schema
+  tags.toml                         every tag a game can have, in groups ("Tags" below)
   benchmarks/batches.toml           every benchmark batch once
   benchmarks/interfered.txt         runs found disturbed after the fact
   benchmarks/README.md              the results' format
@@ -81,8 +82,7 @@ The body is the notes on the game's Overview tab; a how-to (setting up the data,
 |---|---|---|
 | `id`, `title` | string | required |
 | `summary`, `license`, `homepage` | string | required for a published game |
-| `categories` | list | one to three of check.py's CATEGORIES |
-| `tags` | list | lower case words |
+| `tags` | list | tag ids of [tags.toml](tags.toml), at least one genre for a published game ([Tags](#tags)) |
 | `data_guide`, `data_steps` | string, list | how a player gets and sets up their own data: required when build.toml says `needs_data = true`, refused otherwise |
 | `controller`, `designed_for` | string | gamepad support; `pad` or a PC input |
 | `fps_cap`, `medal_note`, `known_issues` | number, string, list | |
@@ -106,6 +106,30 @@ out), Hugo (website/gamedb/hugo.toml mounts `games/` as `content/games/` with an
 `*/thumb.png`, `*/rating/sessions/*/shots/*.jpg`; nothing else of a bundle becomes a page or a resource:
 the technical pages come from `data/technical.json`, below),
 `import-run.py`, `tools/play-pc.sh`, `tools/play-test.sh`.
+
+### Tags
+
+[tags.toml](tags.toml) is the list of tags, in groups: Genre (with subgroups: shooter has first-person and
+arena, strategy has real-time and management), Theme, Players, Input, View, Content, Needs, Family and
+Keywords (folded in the site's filter panel). Each tag has an `id` (unique across the groups, the URL of its
+page, `tags/<id>/`), a `label` and optionally a `description`; a subgroup is a tag with `sub = [...]`.
+`index.md` lists ids, the most specific of a subgroup only (`"fps"`, which implies `shooter`); a
+published game has at least one genre. There is no `categories` key any more: the genres are tags.
+
+Some tags are **automatic** (`automatic = true`): catalog.py derives them and `check.py` refuses them in
+index.md. Input: `gamepad` ("supports gamepad") for a controller badge of full or partial (the game page
+adds "(partial)"), `keyboard-mouse` for `designed_for = "keyboard-mouse"`. Needs: `own-data` for
+build.toml `needs_data`, `free-download` for a `[data_setup]` `fetch` package (a shareware or demo the app
+downloads), `low-memory` for a rating whose played sessions left under 10 MB free.
+
+The catalog carries each game's `tags` (with the implied parents and the automatic ones, in tags.toml's
+order), `tag_notes` (`{"gamepad": "partial"}`) and, for the desktop app until it reads the tags,
+`categories`: the game's top-level genres. Its top level has `tag_groups` and `tags` (each tag's label,
+group, parent, subgroup, description and number of games). The website makes a page per tag with games
+(`tags/<id>/`), an index of them (`tags/`), the tags by group on a game's page and a filter panel on the
+home page.
+
+Read by: `check.py` (the file and every game's tags), `catalog.py`.
 
 ### games/<id>/build.toml (and engines/<e>/build.toml)
 

@@ -8,8 +8,16 @@ Design
   (never stored: change the scoring and every medal follows), a test summary per test, the badges
   and the "patched by Walnut" facts. The result:
     {"schema": 1, "generated": "<UTC>", "content_date", "revision", "games": [{"id", "title", ..., "rating": {...}, "tests": [...],
-      "patched": bool, "patches": [{source, subject, file, url}], "debs": [{"package", "url"}], "badges": [...]}]}
+      "patched": bool, "patches": [{source, subject, file, url}], "debs": [{"package", "url"}], "badges": [...],
+      "tags": [...], "tag_notes": {...}, "categories": [...]}],
+     "tag_groups": [{"id", "label", "description", "collapsed", "tags": [ids]}],
+     "tags": {id: {"id", "label", "description", "group", "group_label", "parent", "sub", "automatic", "games"}}}
   Scores are rounded to whole numbers here, the only place that rounds.
+- Tags (gamedb/tags.toml, check.taxonomy()): a game's "tags" are index.md's, the parents their subgroup tags
+  imply (fps: shooter) and the automatic ones (game_tags()), in the file's order; "tag_notes" a word shown beside
+  a tag ({"gamepad": "partial"}). "categories" is the game's top-level genres (fps, arena: shooter), for the
+  desktop app until it reads the tags (the former index.md key). The top level's "tag_groups" and "tags" are the
+  taxonomy, each tag with the number of published games that have it.
 - Patched by Walnut: a game whose bundle's packages/ or engine's packages/ (check.patched_by) holds a source
   package of ours with <dir>/patches/series. The patches are listed by the Subject: line of each patch file (linked to the file on the public repository's main branch), in series
   order. With --deb-index URL (the apt repository root, e.g. https://walnut.nanobyte.dev/apt) the
@@ -321,7 +329,25 @@ def rank(rating):
             rating["score"] or 0)
 
 
-def build_game(gdir, repo, debs):
+def game_tags(fm, controller, rating, tax):
+    """(the game's tags, their notes): index.md's tags with the parents they imply and the automatic ones
+    (check.AUTOMATIC_TAGS: from the controller support the badge shows, designed_for, needs_data, [data_setup]
+    fetch and the rating's low memory), in tags.toml's order"""
+    have = set(fm.get("tags", []))
+    have |= {tax["tags"][t]["parent"] for t in have if tax["tags"][t]["parent"]}
+    auto = {"gamepad": controller in ("full", "partial"),
+            "keyboard-mouse": fm.get("designed_for") == "keyboard-mouse",
+            "own-data": bool(fm.get("needs_data")),
+            "free-download": bool((fm.get("data_setup") or {}).get("fetch")),
+            "low-memory": bool(rating.get("low_memory"))}
+    assert set(auto) == set(check.AUTOMATIC_TAGS)
+    have |= {t for t, on in auto.items() if on}
+    notes = {"gamepad": "partial"} if controller == "partial" else {}
+    return [t for t in tax["tags"] if t in have], notes
+
+
+def build_game(gdir, repo, debs, tax=None):
+    tax = tax or check.taxonomy()
     fm, all_tests = read_game(gdir)
     # one rating per launcher (a game with two renderers has two menu entries); the game's medal is
     # its best launcher's, named with it
@@ -365,12 +391,15 @@ def build_game(gdir, repo, debs):
             "numbers": t.get("numbers", {}), "versions": t.get("versions", {}),
             **({"data": t["data"]} if t.get("data") else {}),     # the data packages (older tests: none)
             "ps3": ["%s/%s/%s" % (check.SESSIONS, t["id"], f) for f in t.get("shots", {}).get("ps3", [])]})
-    g = {k: fm[k] for k in ("id", "title", "summary", "categories", "tags", "license", "homepage", "packages",
+    tags, notes = game_tags(fm, controller, best["rating"], tax)
+    g = {k: fm[k] for k in ("id", "title", "summary", "license", "homepage", "packages",
                             "desktop", "needs_data", "controller", "former_packages") if k in fm}
     g.update({k: fm.get(k, v) for k, v in (("recipes", []), ("fps_cap", None), ("data_guide", None), ("data_steps", []),
                                            ("medal_note", None), ("known_issues", []))})
     if fm.get("data_setup"):
         g["data_setup"] = fm["data_setup"]   # only a game that has one: the others' entries stay as they were
+    g.update(tags=tags, tag_notes=notes,
+             categories=[t for t in tags if tax["tags"][t]["group"] == check.GENRE and not tax["tags"][t]["parent"]])
     g.update(thumb="games/%s/thumb.png" % fm["id"] if (gdir / "thumb.png").is_file() else None, patched=bool(patches), patches=patches, debs=links, badges=badges,
              rating=dict(best["rating"], launcher=best["name"]), launchers=launchers, tests=out_tests)
     return g
@@ -380,7 +409,11 @@ def build(content, repo=REPO, deb_url=None):
     debs = deb_index(deb_url) if deb_url else {}
     debs = {p: deb_url.rstrip("/") + "/" + f for p, f in debs.items()}
     # drafts (index.md draft = true) are not published: no catalog entry (Hugo skips their pages too)
-    games = [build_game(d, repo, debs) for d in sorted(Path(content).iterdir()) if d.is_dir() and not check.is_draft(d)]
+    tax = check.taxonomy()
+    games = [build_game(d, repo, debs, tax) for d in sorted(Path(content).iterdir()) if d.is_dir() and not check.is_draft(d)]
+    labels = {g["id"]: g["label"] for g in tax["groups"]}
+    tags = {t: dict(info, group_label=labels[info["group"]], games=sum(t in g["tags"] for g in games))
+            for t, info in tax["tags"].items()}
     epoch = os.environ.get("SOURCE_DATE_EPOCH")
     when = datetime.datetime.fromtimestamp(int(epoch), datetime.timezone.utc) if epoch \
         else datetime.datetime.now(datetime.timezone.utc)
@@ -392,7 +425,7 @@ def build(content, repo=REPO, deb_url=None):
                       ensure_ascii=False)
     return {"schema": SCHEMA, "generated": when.strftime("%Y-%m-%dT%H:%M:%SZ"),
             "content_date": max(dates, default=""), "revision": hashlib.sha256(body.encode()).hexdigest()[:16],
-            "games": games}
+            "games": games, "tag_groups": tax["groups"], "tags": tags}
 
 
 def diff(old, new, path=""):

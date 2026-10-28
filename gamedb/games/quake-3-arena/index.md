@@ -2,8 +2,7 @@
 id = "quake-3-arena"
 title = "Quake III Arena"
 summary = "id Software's 1999 arena shooter against bots, played with Walnut's ioquake3 from your own copy, with Team Arena if you have it."
-categories = ["shooter"]
-tags = ["fps", "classic", "3d", "bots", "multiplayer"]
+tags = ["fps", "arena", "sci-fi", "single-player", "online-multiplayer", "bots", "3d", "first-person", "quake-engine"]
 license = "GPL-2.0-or-later engine, commercial game data"
 homepage = "https://ioquake3.org/"
 data_guide = "https://wiki.debian.org/Games/GameDataPackager"

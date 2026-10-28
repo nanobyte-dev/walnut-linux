@@ -2,8 +2,7 @@
 id = "sauerbraten"
 title = "Sauerbraten"
 summary = "Cube 2: Sauerbraten, the 2020 Edition: a fast first person shooter with bots, over 200 maps and an in-game map editor."
-categories = ["shooter"]
-tags = ["fps", "multiplayer", "bots", "3d", "map editor"]
+tags = ["fps", "arena", "single-player", "online-multiplayer", "bots", "3d", "first-person", "map-editor"]
 license = "Zlib"
 homepage = "http://sauerbraten.org/"
 data_guide = "http://sauerbraten.org/"

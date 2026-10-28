@@ -371,10 +371,10 @@ BUILD_KEYS = ("packages", "engine", "suite", "needs_data", "data", "desktop", "d
 def write_game(content, gid="ex", **over):
     """a game folder: index.md, and build.toml with the keys of BUILD_KEYS (over: TOML values; build=None
     leaves build.toml out, build="text" appends text to it)"""
-    fm = {"id": gid, "title": "Example", "summary": "An example.", "categories": '["puzzle"]', "tags": '["a"]',
+    fm = {"id": gid, "title": "Example", "summary": "An example.", "tags": '["puzzle"]',
           "license": '"GPL-2.0-or-later"', "homepage": '"https://example.org/"', "packages": '["example"]',
           "desktop": '["example.desktop"]', "needs_data": "false", "controller": '"keyboard"', "suite": '"none"'}
-    fm = {k: (v if k in ("categories", "tags", "license", "homepage", "controller") + BUILD_KEYS else '"%s"' % v)
+    fm = {k: (v if k in ("tags", "license", "homepage", "controller") + BUILD_KEYS else '"%s"' % v)
           for k, v in fm.items()}
     extra = over.pop("build", "")
     fm.update(over)
@@ -442,9 +442,39 @@ class Check(unittest.TestCase):
         write_game(self.content, packages='["example-"]')
         self.assertIn("must end in", " ".join(self.problems()["ex"]))
 
-    def test_category_list_is_fixed(self):
-        write_game(self.content, categories='["fun"]')
-        self.assertIn("categories", " ".join(self.problems()["ex"]))
+    def test_tags_from_the_taxonomy(self):
+        for tags, want in (('["fun"]', "unknown tag 'fun'"), ('["gamepad", "puzzle"]', "'gamepad' is automatic"),
+                           ('["shooter", "fps"]', "'shooter' is implied"), ('["puzzle", "puzzle"]', "twice"),
+                           ('["3d"]', "no genre")):
+            write_game(self.content, tags=tags)
+            self.assertIn(want, " ".join(self.problems().get("ex", [])), tags)
+        write_game(self.content, tags='["fps", "local-multiplayer", "3d"]')
+        self.assertEqual(self.problems(), {})
+        # the former key is refused with a pointer to the tags
+        write_game(self.content, categories='["puzzle"]')
+        self.assertIn("genres are tags", " ".join(self.problems()["ex"]))
+
+    def test_taxonomy_file(self):
+        tax = check.taxonomy()
+        self.assertEqual(tax["tags"]["fps"]["parent"], "shooter")
+        self.assertEqual({t for t, i in tax["tags"].items() if i["automatic"]}, set(check.AUTOMATIC_TAGS))
+        self.assertEqual(check.tags_errors(tomllib.loads(check.TAGS_FILE.read_text())), [])
+        bad = {"group": [{"id": "genre", "label": "Genre", "tag": [
+            {"id": "a", "label": "A", "sub": [{"id": "a", "label": "again", "sub": []}]},
+            {"id": "gamepad", "label": "pad", "automatic": True}]}]}
+        msg = " ".join(check.tags_errors(bad))
+        for want in ("unique", "one level deep", "the automatic tags are"):
+            self.assertIn(want, msg)
+
+    def test_catalog_tags(self):
+        tax = check.taxonomy()
+        fm = {"tags": ["fps", "single-player"], "designed_for": "keyboard-mouse", "needs_data": True,
+              "data_setup": {"fetch": ["quake-shareware"]}}
+        tags, notes = catalog.game_tags(fm, "partial", {"low_memory": False}, tax)
+        self.assertEqual(tags, ["shooter", "fps", "single-player", "gamepad", "keyboard-mouse", "own-data", "free-download"])
+        self.assertEqual(notes, {"gamepad": "partial"})
+        tags, notes = catalog.game_tags({"tags": ["puzzle"]}, "keyboard", {"low_memory": True}, tax)
+        self.assertEqual((tags, notes), (["puzzle", "low-memory"], {}))
 
     def test_needs_data_needs_guide(self):
         write_game(self.content, needs_data="true")
@@ -774,9 +804,9 @@ class Check(unittest.TestCase):
         self.assertIn("status 'maybe'", " ".join(self.problems()["cand"]))
         # what a draft has is still checked
         (g / "index.md").write_text('+++\nid = "cand"\ntitle = "C"\ndraft = true\nstatus = "tried"\n'
-                                    'status_note = "crashes at start"\ncategories = ["fun"]\nhomepage = "x"\n+++\n')
+                                    'status_note = "crashes at start"\ntags = ["fun"]\nhomepage = "x"\n+++\n')
         text = " ".join(self.problems()["cand"])
-        self.assertIn("categories", text)
+        self.assertIn("unknown tag 'fun'", text)
         self.assertIn("homepage", text)
         (g / "index.md").write_text('+++\nid = "cand"\ntitle = "C"\ndraft = "yes"\nstatus = "tried"\n+++\n')
         self.assertIn("'draft' should be bool", " ".join(self.problems()["cand"]))

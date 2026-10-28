@@ -2,8 +2,7 @@
 id = "doom2"
 title = "Doom II: Hell on Earth"
 summary = "id Software's 1994 sequel to Doom, its 32 levels played with DSDA-Doom from your own copy."
-categories = ["shooter"]
-tags = ["fps", "classic", "doom", "single player"]
+tags = ["fps", "sci-fi", "horror", "single-player", "first-person", "doom-engine"]
 license = "GPL-2.0-or-later engine, commercial game data"
 homepage = "https://doomwiki.org/wiki/Doom_II"
 data_guide = "https://wiki.debian.org/Games/GameDataPackager"

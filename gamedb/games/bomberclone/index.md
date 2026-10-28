@@ -2,8 +2,7 @@
 id = "bomberclone"
 title = "BomberClone"
 summary = "A Bomberman clone: blow up walls and the other players with bombs, alone against bots or with friends."
-categories = ["arcade", "action"]
-tags = ["2d", "bomberman", "multiplayer", "local multiplayer"]
+tags = ["arcade", "action", "single-player", "local-multiplayer", "online-multiplayer", "bots", "2d", "top-down", "remake", "bomberman"]
 license = "GPL-2.0-or-later"
 homepage = "https://www.bomberclone.de/"
 controller = "partial"

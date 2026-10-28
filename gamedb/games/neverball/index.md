@@ -2,8 +2,7 @@
 id = "neverball"
 title = "Neverball"
 summary = "Tilt the floor to roll a ball through 3D levels, collecting coins before the time runs out."
-categories = ["arcade", "puzzle"]
-tags = ["3d", "physics", "ball", "levels"]
+tags = ["arcade", "puzzle", "family", "single-player", "3d", "physics", "ball", "levels"]
 license = "GPL-2.0-or-later"
 homepage = "https://neverball.org/"
 controller = "full"

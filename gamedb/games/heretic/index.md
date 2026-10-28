@@ -2,8 +2,7 @@
 id = "heretic"
 title = "Heretic"
 summary = "Raven Software's 1994 dark fantasy shooter on the Doom engine, Shadow of the Serpent Riders' five episodes, played with DSDA-Doom from your own copy."
-categories = ["shooter"]
-tags = ["fps", "classic", "fantasy", "single player"]
+tags = ["fps", "fantasy", "single-player", "first-person", "doom-engine"]
 license = "GPL-2.0-or-later engine, commercial game data"
 homepage = "https://doomwiki.org/wiki/Heretic"
 data_guide = "https://wiki.debian.org/Games/GameDataPackager"

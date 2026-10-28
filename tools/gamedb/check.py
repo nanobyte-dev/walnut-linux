@@ -9,7 +9,10 @@ Design
   run. The checks:
     * id: ^[a-z0-9][a-z0-9-]{0,63}$ and equal to the folder name; unique
     * required fields present and of the right type, no unknown field (a typo would silently vanish)
-    * categories from the fixed list below, 1 to 3 of them
+    * tags: ids of gamedb/tags.toml (taxonomy(): groups, subgroups, tags; the file itself checked by
+      tags_errors()), none of them automatic (catalog.py derives those: AUTOMATIC_TAGS), none twice, a subgroup's
+      tag without its parent (the parent is implied); a published game has at least one genre. The old
+      `categories` key is refused (genres are tags now)
     * build.toml (BUILD_KEYS, a closed set; gamedb/README.md): packages are Debian package names (they
       must end in [a-z0-9]), none of them licensed (tools/licensed.py names: those go to the licensed
       suite only, never into the public catalog), each one built by a debian/control of ours or, with
@@ -51,7 +54,7 @@ Design
     * todo.toml (a game's or an engine's backlog: [[item]] tables): todo_errors() (closed keys TODO_KEYS, kind
       one of TODO_KINDS, added a date, order an int of 1 or more, order/launcher/pc on session items only)
     * drafts (draft = true: a candidate, or a game tried and not published) need only id, title and
-      status (one of STATUSES; status_note says why); summary, license, homepage, categories, tags,
+      status (one of STATUSES; status_note says why); summary, license, homepage, tags,
       controller, thumb.png and build.toml (or any of its keys) may be missing, and nothing is made up for them;
       whatever a draft has is checked like a published game's. catalog.py (and so pack-catalog.py)
       and Hugo leave drafts out
@@ -73,16 +76,18 @@ REPO = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import score   # noqa: E402
 import evidence  # noqa: E402  (a session folder's evidence and its public-safe scan)
-CATEGORIES = ["action", "adventure", "arcade", "board-card", "platformer", "puzzle", "racing", "rpg",
-              "sandbox", "shooter", "simulation", "sports", "strategy"]
+# the tags (gamedb/tags.toml, taxonomy()); the automatic ones are derived by catalog.py (game_tags()) and never
+# listed in index.md: the file must mark exactly these automatic
+TAGS_FILE = REPO / "gamedb" / "tags.toml"
+AUTOMATIC_TAGS = ("gamepad", "keyboard-mouse", "own-data", "free-download", "low-memory")
+GENRE = "genre"
 CONTROLLERS = ["full", "partial", "keyboard", "unknown"]
 ID_RE = re.compile(r"[a-z0-9][a-z0-9-]{0,63}\Z")
 PKG_RE = re.compile(r"[a-z0-9][a-z0-9+.-]*[a-z0-9]\Z")
-TAG_RE = re.compile(r"[a-z0-9][a-z0-9 -]{0,30}\Z")
 URL_RE = re.compile(r"https?://[^\s]+\Z")
 # field: (type, required)
 FIELDS = {
-    "id": (str, True), "title": (str, True), "summary": (str, True), "categories": (list, True),
+    "id": (str, True), "title": (str, True), "summary": (str, True),
     "tags": (list, True), "license": (str, True), "homepage": (str, True), "data_guide": (str, False),
     "data_steps": (list, False),
     "controller": (str, True), "fps_cap": ((int, float), False), "medal_note": (str, False),
@@ -360,6 +365,114 @@ def investigation_errors(d, games_root):
     return errs
 
 
+def read_taxonomy(path=TAGS_FILE):
+    """gamedb/tags.toml as {"groups": [{id, label, description, collapsed, tags: [ids, a subgroup's after its
+    parent]}], "tags": {id: {id, label, description, group, parent, sub: [ids], automatic}}}, in the file's
+    order; raises ValueError (with tags_errors()'s problems) on a broken file"""
+    data = tomllib.loads(Path(path).read_text())
+    errs = tags_errors(data)
+    if errs:
+        raise ValueError("; ".join(errs))
+    groups, tags = [], {}
+    for g in data["group"]:
+        ids = []
+        for t in g["tag"]:
+            for x, parent in [(t, None)] + [(s, t["id"]) for s in t.get("sub", [])]:
+                tags[x["id"]] = {"id": x["id"], "label": x["label"], "description": x.get("description"),
+                                 "group": g["id"], "parent": parent, "automatic": x.get("automatic", False),
+                                 "sub": [s["id"] for s in x.get("sub", [])]}
+                ids.append(x["id"])
+        groups.append({"id": g["id"], "label": g["label"], "description": g.get("description"),
+                       "collapsed": g.get("collapsed", False), "tags": ids})
+    return {"groups": groups, "tags": tags}
+
+
+_TAXONOMY = {}
+
+
+def taxonomy(path=TAGS_FILE):
+    """read_taxonomy(), read once"""
+    if path not in _TAXONOMY:
+        _TAXONOMY[path] = read_taxonomy(path)
+    return _TAXONOMY[path]
+
+
+def tags_errors(data):
+    """the problems of gamedb/tags.toml's content: groups with id and label, tags with id (ID_RE, unique across
+    groups) and label, closed key sets, subgroups one level deep, the automatic tags exactly AUTOMATIC_TAGS"""
+    errs, seen, auto = [], set(), set()
+    if set(data) - {"group"} or not isinstance(data.get("group"), list) or not data["group"]:
+        return ["tags.toml: [[group]] tables only"]
+    gids = set()
+    for g in data["group"]:
+        if set(g) - {"id", "label", "description", "collapsed", "tag"}:
+            errs.append("tags.toml: group %r: unknown key %s" % (g.get("id"), sorted(set(g) - {"id", "label", "description", "collapsed", "tag"})))
+        if not isinstance(g.get("id"), str) or not ID_RE.match(g["id"]) or g["id"] in gids:
+            errs.append("tags.toml: group id %r: ^[a-z0-9][a-z0-9-]*$, unique" % (g.get("id"),))
+        gids.add(g.get("id"))
+        if not isinstance(g.get("label"), str) or not g["label"]:
+            errs.append("tags.toml: group %r: no label" % (g.get("id"),))
+        if not isinstance(g.get("collapsed", False), bool):
+            errs.append("tags.toml: group %r: collapsed is true or false" % (g.get("id"),))
+        if not isinstance(g.get("tag"), list) or not g["tag"]:
+            errs.append("tags.toml: group %r: no [[group.tag]]" % (g.get("id"),))
+            continue
+        for t in g["tag"]:
+            subs = t.get("sub", [])
+            if not isinstance(subs, list):
+                errs.append("tags.toml: tag %r: sub is a list of tags" % (t.get("id"),))
+                subs = []
+            for x, keys in [(t, {"id", "label", "description", "sub", "automatic"})] + \
+                    [(s, {"id", "label", "description", "automatic"}) for s in subs]:
+                if not isinstance(x, dict):
+                    errs.append("tags.toml: tag %r: a sub entry is not a table" % (t.get("id"),))
+                    continue
+                if set(x) - keys:
+                    errs.append("tags.toml: tag %r: unknown key %s (subgroups are one level deep)"
+                                % (x.get("id"), sorted(set(x) - keys)))
+                if not isinstance(x.get("id"), str) or not ID_RE.match(x["id"]) or x["id"] in seen:
+                    errs.append("tags.toml: tag id %r: ^[a-z0-9][a-z0-9-]*$, unique across the groups" % (x.get("id"),))
+                seen.add(x.get("id"))
+                if not isinstance(x.get("label"), str) or not x["label"]:
+                    errs.append("tags.toml: tag %r: no label" % (x.get("id"),))
+                if not isinstance(x.get("description", ""), str):
+                    errs.append("tags.toml: tag %r: description is a string" % (x.get("id"),))
+                if x.get("automatic", False) is True:
+                    auto.add(x.get("id"))
+                elif x.get("automatic", False) is not False:
+                    errs.append("tags.toml: tag %r: automatic is true or false" % (x.get("id"),))
+    if auto != set(AUTOMATIC_TAGS):
+        errs.append("tags.toml: the automatic tags are %s, catalog.py derives %s" % (sorted(auto), sorted(AUTOMATIC_TAGS)))
+    if GENRE not in gids:
+        errs.append("tags.toml: no group %r" % GENRE)
+    return errs
+
+
+def game_tag_errors(tags, draft):
+    """the problems of an index.md's tags (None: none given)"""
+    if tags is None:
+        return []
+    try:
+        tax = taxonomy()["tags"]
+    except (OSError, ValueError, tomllib.TOMLDecodeError) as e:
+        return ["tags: gamedb/tags.toml unreadable: %s" % e]
+    errs = []
+    for t in tags:
+        if not isinstance(t, str) or t not in tax:
+            errs.append("unknown tag %r (the ids of gamedb/tags.toml)" % (t,))
+        elif tax[t]["automatic"]:
+            errs.append("tag %r is automatic (catalog.py derives it): leave it out" % t)
+        elif tags.count(t) > 1:
+            errs.append("tag %r twice" % t)
+        elif tax[t]["parent"] in tags:
+            errs.append("tag %r: %r is implied by it, leave the parent out" % (t, tax[t]["parent"]))
+    if errs:
+        return sorted(set(errs), key=errs.index)
+    if not draft and not any(tax[t]["group"] == GENRE for t in tags):
+        errs.append("tags: no genre (one of the genre group's tags, gamedb/tags.toml)")
+    return errs
+
+
 def check_game(gdir, bad, repo, ctx=None):
     """a list of problems of one game folder"""
     errs = []
@@ -371,7 +484,9 @@ def check_game(gdir, bad, repo, ctx=None):
     except (ValueError, tomllib.TOMLDecodeError) as e:
         return ["index.md: %s" % e]
     for k in fm:
-        if k not in FIELDS and k not in ("title", "description", "date"):
+        if k == "categories":
+            errs.append("unknown field 'categories': genres are tags now (gamedb/tags.toml, group genre)")
+        elif k not in FIELDS and k not in ("title", "description", "date"):
             errs.append("unknown field %r" % k)
     draft = fm.get("draft") is True
     for k, (t, req) in FIELDS.items():
@@ -386,11 +501,7 @@ def check_game(gdir, bad, repo, ctx=None):
         errs.append("id %r must match ^[a-z0-9][a-z0-9-]{0,63}$ and the folder name %r" % (fm["id"], gdir.name))
     if "status" in fm and fm["status"] not in STATUSES:
         errs.append("status %r: one of %s" % (fm["status"], ", ".join(STATUSES)))
-    if "categories" in fm and (not 1 <= len(fm["categories"]) <= 3 or any(c not in CATEGORIES for c in fm["categories"])):
-        errs.append("categories %r: one to three of %s" % (fm["categories"], ", ".join(CATEGORIES)))
-    for t in fm.get("tags", []):
-        if not isinstance(t, str) or not TAG_RE.match(t):
-            errs.append("bad tag %r (lower case letters, digits, space, dash)" % (t,))
+    errs += game_tag_errors(fm.get("tags"), draft)
     if "homepage" in fm and not URL_RE.match(fm["homepage"]):
         errs.append("homepage is not an http(s) URL")
     try:
@@ -893,6 +1004,12 @@ def check(content, repo=REPO, apt=None):
     "engines/<e>"; apt: the package names of an apt index (None: not checked)"""
     bad, seen, out = licensed(repo), {}, {}
     ctx = context(repo, content, apt)
+    try:
+        errs = tags_errors(tomllib.loads(TAGS_FILE.read_text()))
+    except (OSError, tomllib.TOMLDecodeError) as e:
+        errs = ["tags.toml: %s" % e]
+    if errs:
+        out["tags.toml"] = errs
     edir = Path(content).parent / "engines"
     for e in sorted(edir.iterdir()) if edir.is_dir() else []:
         if e.is_dir():

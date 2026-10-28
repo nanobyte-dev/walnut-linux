@@ -1,0 +1,277 @@
+# The Walnut Games tags (gamedb/README.md "Tags"): every tag a game can have, in groups, some with subgroups.
+#
+# [[group]]: id, label, optional description, optional collapsed (the catalog filter shows the group folded).
+#   [[group.tag]]: id (unique across all groups; it is the tag page's URL, tags/<id>/), label, optional
+#   description, optional sub (the subgroup's tags: a game tagged with one of them has its parent too, the
+#   way a first-person shooter is a shooter), optional automatic (true: catalog.py derives it from other facts
+#   and index.md never lists it: check.py refuses it there).
+# A game's index.md lists the tags that aren't automatic in `tags = [...]`, by id, the most specific one of a
+# subgroup only ("fps", not "shooter" and "fps"); a published game has at least one genre.
+# Read by tools/gamedb/check.py (validates the file and every game's tags), catalog.py (the tags of each game
+# with the automatic and implied ones, and the groups for the site: tag pages, the filter panel).
+
+[[group]]
+id = "genre"
+label = "Genre"
+
+[[group.tag]]
+id = "shooter"
+label = "shooter"
+sub = [
+  { id = "fps", label = "first-person", description = "Shoot from the character's eyes." },
+  { id = "arena", label = "arena", description = "Fast deathmatch rounds on small maps." },
+]
+
+[[group.tag]]
+id = "strategy"
+label = "strategy"
+sub = [
+  { id = "rts", label = "real-time", description = "Build a base and command units without turns." },
+  { id = "management", label = "management", description = "Run a park, a company or a city and keep it profitable." },
+]
+
+[[group.tag]]
+id = "racing"
+label = "racing"
+
+[[group.tag]]
+id = "platformer"
+label = "platformer"
+
+[[group.tag]]
+id = "puzzle"
+label = "puzzle"
+
+[[group.tag]]
+id = "simulation"
+label = "simulation"
+
+[[group.tag]]
+id = "sandbox"
+label = "sandbox"
+
+[[group.tag]]
+id = "sports"
+label = "sports"
+
+[[group.tag]]
+id = "adventure"
+label = "adventure"
+
+[[group.tag]]
+id = "action"
+label = "action"
+
+[[group.tag]]
+id = "arcade"
+label = "arcade"
+
+[[group]]
+id = "theme"
+label = "Theme"
+
+[[group.tag]]
+id = "fantasy"
+label = "fantasy"
+
+[[group.tag]]
+id = "sci-fi"
+label = "sci-fi"
+
+[[group.tag]]
+id = "horror"
+label = "horror"
+
+[[group.tag]]
+id = "family"
+label = "family"
+description = "Fine for children: no blood, a friendly cast."
+
+[[group]]
+id = "players"
+label = "Players"
+
+[[group.tag]]
+id = "single-player"
+label = "single player"
+
+[[group.tag]]
+id = "local-multiplayer"
+label = "local multiplayer"
+description = "Several players on one console, each with a pad (split screen or one shared screen)."
+
+[[group.tag]]
+id = "online-multiplayer"
+label = "online multiplayer"
+description = "Play with others over the network."
+
+[[group.tag]]
+id = "bots"
+label = "bots"
+description = "Computer players to play against or with."
+
+[[group]]
+id = "input"
+label = "Input"
+description = "From the game's controller support and what it was made for, never set by hand."
+
+[[group.tag]]
+id = "gamepad"
+label = "supports gamepad"
+description = "Playable with a DualShock: fully, or partly (some actions need the keyboard or mouse)."
+automatic = true
+
+[[group.tag]]
+id = "keyboard-mouse"
+label = "made for keyboard and mouse"
+description = "Designed for a keyboard and mouse; the ratings judge it with them."
+automatic = true
+
+[[group]]
+id = "view"
+label = "View"
+
+[[group.tag]]
+id = "2d"
+label = "2D"
+
+[[group.tag]]
+id = "3d"
+label = "3D"
+
+[[group.tag]]
+id = "first-person"
+label = "first-person"
+
+[[group.tag]]
+id = "top-down"
+label = "top-down"
+
+[[group.tag]]
+id = "side-on"
+label = "side-on"
+
+[[group]]
+id = "content"
+label = "Content"
+
+[[group.tag]]
+id = "campaign"
+label = "campaign"
+
+[[group.tag]]
+id = "skirmish"
+label = "skirmish"
+
+[[group.tag]]
+id = "map-editor"
+label = "map editor"
+
+[[group.tag]]
+id = "mods"
+label = "mods"
+
+[[group]]
+id = "needs"
+label = "Needs"
+description = "From the game's data setup and its played sessions, never set by hand."
+
+[[group.tag]]
+id = "own-data"
+label = "your own game data"
+description = "The game's data isn't free: Walnut Games makes a package of it from your own copy."
+automatic = true
+
+[[group.tag]]
+id = "free-download"
+label = "free data download"
+description = "A free shareware or demo version of the data can be downloaded instead of your own copy."
+automatic = true
+
+[[group.tag]]
+id = "low-memory"
+label = "low memory"
+description = "A played session left under 10 MB of the console's memory free."
+automatic = true
+
+[[group]]
+id = "lineage"
+label = "Family"
+
+[[group.tag]]
+id = "doom-engine"
+label = "Doom engine"
+
+[[group.tag]]
+id = "quake-engine"
+label = "Quake engine"
+
+[[group.tag]]
+id = "remake"
+label = "remake or clone"
+description = "A free re-implementation or a clone of an older game."
+
+[[group]]
+id = "keywords"
+label = "Keywords"
+collapsed = true
+
+[[group.tag]]
+id = "voxel"
+label = "voxel"
+
+[[group.tag]]
+id = "kart"
+label = "kart"
+
+[[group.tag]]
+id = "bike"
+label = "bike"
+
+[[group.tag]]
+id = "physics"
+label = "physics"
+
+[[group.tag]]
+id = "ball"
+label = "ball"
+
+[[group.tag]]
+id = "penguin"
+label = "penguin"
+
+[[group.tag]]
+id = "downhill"
+label = "downhill"
+
+[[group.tag]]
+id = "courses"
+label = "courses"
+
+[[group.tag]]
+id = "levels"
+label = "levels"
+
+[[group.tag]]
+id = "tron"
+label = "tron"
+
+[[group.tag]]
+id = "bomberman"
+label = "bomberman"
+
+[[group.tag]]
+id = "transport"
+label = "transport"
+
+[[group.tag]]
+id = "theme-park"
+label = "theme park"
+
+[[group.tag]]
+id = "tycoon"
+label = "tycoon"
+
+[[group.tag]]
+id = "building"
+label = "building"

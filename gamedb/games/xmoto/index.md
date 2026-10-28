@@ -2,8 +2,7 @@
 id = "xmoto"
 title = "X-Moto"
 summary = "A 2D motorbike trials game: ride through physics-based levels without falling off, collecting strawberries."
-categories = ["platformer", "racing"]
-tags = ["2d", "physics", "bike", "levels"]
+tags = ["platformer", "racing", "single-player", "2d", "side-on", "physics", "bike", "levels"]
 license = "GPL-2.0-or-later"
 homepage = "https://xmoto.tuxfamily.org/"
 controller = "full"

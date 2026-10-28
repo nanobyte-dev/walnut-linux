@@ -2,8 +2,7 @@
 id = "warzone2100"
 title = "Warzone 2100"
 summary = "A 3D real-time strategy game: build a base, research technology, command tanks."
-categories = ["strategy"]
-tags = ["rts", "3d", "campaign", "skirmish"]
+tags = ["rts", "sci-fi", "single-player", "online-multiplayer", "bots", "3d", "top-down", "campaign", "skirmish"]
 license = "GPL-2.0-or-later"
 homepage = "https://wz2100.net/"
 controller = "keyboard"

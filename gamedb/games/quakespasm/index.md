@@ -2,8 +2,7 @@
 id = "quakespasm"
 title = "QuakeSpasm"
 summary = "A modern source port of id Software's Quake, with the original campaign and mods."
-categories = ["shooter"]
-tags = ["fps", "classic", "3d", "single player", "mods"]
+tags = ["fps", "horror", "single-player", "3d", "first-person", "mods", "quake-engine"]
 license = "GPL-2.0-or-later"
 homepage = "https://quakespasm.sourceforge.net/"
 data_guide = "https://quakespasm.sourceforge.net/"

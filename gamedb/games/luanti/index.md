@@ -2,8 +2,7 @@
 id = "luanti"
 title = "Luanti"
 summary = "A voxel sandbox engine for building and exploring, with Minetest Game and thousands of mods."
-categories = ["sandbox", "adventure"]
-tags = ["voxel", "mods", "multiplayer", "building"]
+tags = ["sandbox", "adventure", "single-player", "online-multiplayer", "3d", "first-person", "mods", "voxel", "building"]
 license = "LGPL-2.1-or-later"
 homepage = "https://www.luanti.org/"
 controller = "keyboard"

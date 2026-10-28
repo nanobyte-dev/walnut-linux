@@ -2,8 +2,7 @@
 id = "openarena"
 title = "OpenArena"
 summary = "A fast Quake III Arena style deathmatch shooter with bots, free data included."
-categories = ["shooter"]
-tags = ["fps", "multiplayer", "bots", "3d"]
+tags = ["fps", "arena", "sci-fi", "single-player", "online-multiplayer", "bots", "3d", "first-person", "quake-engine", "remake"]
 license = "GPL-2.0-or-later"
 homepage = "http://openarena.ws/"
 controller = "keyboard"

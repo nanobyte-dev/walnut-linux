@@ -2,8 +2,7 @@
 id = "armagetronad"
 title = "Armagetron Advanced"
 summary = "A 3D Tron light cycle game: leave a wall behind you and make the others crash into it."
-categories = ["arcade", "action"]
-tags = ["tron", "multiplayer", "bots", "3d"]
+tags = ["arcade", "action", "sci-fi", "single-player", "local-multiplayer", "online-multiplayer", "bots", "3d", "remake", "tron"]
 license = "GPL-2.0-or-later"
 homepage = "https://www.armagetronad.org/"
 controller = "full"
