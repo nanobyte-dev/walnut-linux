@@ -1,0 +1,20 @@
+#!/bin/sh
+set -e
+# Our rule out of NetSurf's system user stylesheet (postinst put it there between the markers); the
+# file's other rules stay, and the file goes only when nothing else is left in it.
+# DPKG_ROOT: dpkg's, and the tests' temporary root.
+if [ "$1" = remove ] || [ "$1" = purge ]; then
+	css="${DPKG_ROOT:-}/usr/share/netsurf/user.css"
+	if [ -f "$css" ] && grep -q '^/\* walnut-games begin \*/$' "$css"; then
+		sed '/^\/\* walnut-games begin \*\/$/,/^\/\* walnut-games end \*\/$/d' "$css" > "$css.walnut-games-new"
+		if grep -q '[^[:space:]]' "$css.walnut-games-new"; then
+			chmod 644 "$css.walnut-games-new"
+			mv "$css.walnut-games-new" "$css"
+		else
+			rm -f "$css.walnut-games-new" "$css"
+			rmdir "${css%/*}" 2>/dev/null || true
+		fi
+	fi
+fi
+#DEBHELPER#
+exit 0

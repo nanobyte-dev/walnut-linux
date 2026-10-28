@@ -1139,6 +1139,59 @@ class PadAndFocus(unittest.TestCase):
             self.assertNotIn("/dev/input/event99", reader.fds)   # the device went away (EOF): closed
 
 
+class NetSurfStylesheet(unittest.TestCase):
+    """postinst puts the rule that shows the site's "Open in Walnut Games" into NetSurf's
+    /usr/share/netsurf/user.css between markers (created, appended, replaced), postrm takes it out"""
+
+    def run_script(self, name, arg, root):
+        stubs = Path(root, "stubs")
+        stubs.mkdir(exist_ok=True)
+        for tool in ("visudo", "py3compile"):        # the rest of postinst, made harmless
+            (stubs / tool).write_text("#!/bin/sh\nexit 0\n")
+            (stubs / tool).chmod(0o755)
+        env = dict(os.environ, DPKG_ROOT=str(root), PATH=str(stubs) + ":/usr/bin:/bin")
+        r = subprocess.run(["sh", str(PKG / "debian" / name), arg], env=env, capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_add_append_again_remove(self):
+        rule = (PKG / "files/netsurf/user.css").read_text()
+        self.assertIn(".walnut-os-only { display: block !important; }", rule)
+        self.assertIn("~/.config/netsurf/user.css takes precedence", rule)
+        self.assertIn("files/netsurf/user.css $(P)/usr/share/walnut-games/netsurf-user.css",
+                      (PKG / "debian/rules").read_text())
+        block = "/* walnut-games begin */\n" + rule + "/* walnut-games end */\n"
+        with tempfile.TemporaryDirectory() as d:
+            share = Path(d, "usr/share/walnut-games")
+            share.mkdir(parents=True)
+            (share / "netsurf-user.css").write_text(rule)
+            css = Path(d, "usr/share/netsurf/user.css")
+            self.run_script("postinst", "configure", d)                  # no file yet: made
+            self.assertEqual(css.read_text(), block)
+            self.assertEqual(stat.S_IMODE(css.stat().st_mode), 0o644)
+            self.run_script("postinst", "configure", d)                  # again: the same
+            self.assertEqual(css.read_text(), block)
+            self.run_script("postrm", "remove", d)                       # only ours: the file goes
+            self.assertFalse(css.exists())
+            css.parent.mkdir(parents=True, exist_ok=True)
+            css.write_text("body { font-size: 20px; }\n")               # somebody's own rules
+            self.run_script("postinst", "configure", d)
+            self.assertEqual(css.read_text(), "body { font-size: 20px; }\n" + block)
+            (share / "netsurf-user.css").write_text(".walnut-os-only { display: inline !important; }\n")
+            self.run_script("postinst", "configure", d)                  # a new rule replaces ours
+            text = css.read_text()
+            self.assertEqual(text.count("walnut-games begin"), 1)
+            self.assertIn("display: inline", text)
+            self.assertNotIn("display: block", text)
+            self.assertTrue(text.startswith("body { font-size: 20px; }\n"))
+            self.run_script("postrm", "upgrade", d)                      # an upgrade keeps it
+            self.assertIn("walnut-games begin", css.read_text())
+            self.run_script("postrm", "purge", d)
+            self.assertEqual(css.read_text(), "body { font-size: 20px; }\n")
+            self.run_script("postrm", "purge", d)                        # nothing of ours: untouched
+            self.assertEqual(css.read_text(), "body { font-size: 20px; }\n")
+            self.assertEqual(sorted(p.name for p in css.parent.iterdir()), ["user.css"])   # no temporary left
+
+
 def x_server():
     """(process, display) of a private Xvfb or Xvnc, or None"""
     for name, extra in (("Xvfb", ["-screen", "0", "1400x900x24"]), ("Xvnc", [])):

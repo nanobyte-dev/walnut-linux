@@ -21,6 +21,8 @@ override_dh_auto_install:
 	# the site's pages for Details (make gamedb-app-pages): the catalog's pictures are links into it
 	install -d $(P)/usr/share/walnut-games/pages
 	tar -xf catalog/app-pages.tar -C $(P)/usr/share/walnut-games/pages --no-same-owner --no-same-permissions
+	# the rule postinst puts into NetSurf's user stylesheet (shows the site's "Open in Walnut Games")
+	install -D -m 644 files/netsurf/user.css $(P)/usr/share/walnut-games/netsurf-user.css
 	# the data manifest (tools/gamedb/gdp-manifest.json): root-owned 0644, import-data trusts it
 	install -m 644 catalog/data-manifest.json $(P)/usr/share/walnut-games/data-manifest.json
 	# the module's byte code is made at installation (postinst) and again with every python3

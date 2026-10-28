@@ -12,6 +12,25 @@ if [ "$1" = configure ]; then
 	else
 		python3 -m compileall -q /usr/lib/walnut-games >/dev/null 2>&1 || true
 	fi
+	# NetSurf's system user stylesheet (NetSurf 3.11's resource:user.css): our rule between markers, which
+	# shows the games site's "Open in Walnut Games" link; anything else in the file stays. Replaced when it
+	# is there already, so running this again changes nothing. A user's ~/.config/netsurf/user.css takes
+	# precedence (NetSurf reads it first). DPKG_ROOT: dpkg's, and the tests' temporary root.
+	css="${DPKG_ROOT:-}/usr/share/netsurf/user.css"
+	rule="${DPKG_ROOT:-}/usr/share/walnut-games/netsurf-user.css"
+	if [ -f "$rule" ]; then
+		mkdir -p "${css%/*}"
+		{
+			if [ -f "$css" ]; then
+				sed '/^\/\* walnut-games begin \*\/$/,/^\/\* walnut-games end \*\/$/d' "$css"
+			fi
+			echo '/* walnut-games begin */'
+			cat "$rule"
+			echo '/* walnut-games end */'
+		} > "$css.walnut-games-new"
+		chmod 644 "$css.walnut-games-new"
+		mv "$css.walnut-games-new" "$css"
+	fi
 fi
 #DEBHELPER#
 exit 0

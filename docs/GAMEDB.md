@@ -450,9 +450,14 @@ browser, NetSurf and the app's HTML view (the user, 2026-10-28):
   planned) and links `ratingDocs` (hugo.toml params; for now the about page's "How a game is tested"),
   the one place to point at the tool's own documentation when it exists.
 - **"Open in Walnut Games"**: the Overview's head has a `walnut://game/<id>` link for a visitor on a
-  Walnut console, with no script: the site's CSS hides `.walnut-os-only`, and ps3-desktop installs NetSurf's
-  user stylesheet, `/usr/share/netsurf/user.css` (NetSurf 3.11 reads `resource:user.css` from its resource
-  path: `~/.config/netsurf/` first, then `/usr/share/netsurf/`), which shows it. NetSurf hands a scheme it
+  Walnut console, with no script: the site's CSS hides `.walnut-os-only`, and walnut-games' postinst puts the rule that shows it
+  into NetSurf's system user stylesheet, `/usr/share/netsurf/user.css` (NetSurf 3.11 reads `resource:user.css`
+  from its resource path: `~/.config/netsurf/` first, then `/usr/share/netsurf/`, so a user's own
+  `~/.config/netsurf/user.css` takes precedence and hides the link again). The rule (the package's
+  `files/netsurf/user.css`, installed as `/usr/share/walnut-games/netsurf-user.css`) goes between
+  `/* walnut-games begin */` and `/* walnut-games end */`: the file is made when missing, the block appended
+  to rules already there, replaced when present; postrm (remove, purge) takes out only the block, and the
+  file when nothing else is left. NetSurf itself is not patched and no package ships the file. NetSurf hands a scheme it
   can't fetch to the desktop's default handler for `x-scheme-handler/walnut` (tested in a container with a
   dummy handler set by `xdg-mime`); the app registers it. The app's own copy (`--app`) leaves the link out.
 - **Styles**: `assets/gamedb.scss`, compiled by Hugo's libsass (css.Sass) to CSS 2.1: the palette is SCSS

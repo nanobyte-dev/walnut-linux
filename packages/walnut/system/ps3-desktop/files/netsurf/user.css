@@ -1,5 +1,0 @@
-/* Walnut's user stylesheet for NetSurf (installed as /usr/share/netsurf/user.css, NetSurf's resource:user.css;
-   a user's own ~/.config/netsurf/user.css replaces it). Pages may show things only to a Walnut console:
-   the Walnut Games site's "Open in Walnut Games" link (walnut://game/<id>) is hidden by the site's own CSS
-   and shown here. User !important rules win over the page's. */
-.walnut-os-only { display: block !important; }

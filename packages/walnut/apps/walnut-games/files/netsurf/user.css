@@ -1,0 +1,7 @@
+/* Walnut Games' rule in NetSurf's system user stylesheet, /usr/share/netsurf/user.css (NetSurf 3.11's
+   resource:user.css), put there by walnut-games' postinst between the walnut-games begin and end
+   markers and taken out by its postrm; the file's other rules are left alone. A user's own
+   ~/.config/netsurf/user.css takes precedence: NetSurf reads the user's first and then not this one.
+   The games site hides "Open in Walnut Games" (walnut://game/<id>, which this app opens) with its own
+   CSS; this shows it on a Walnut console. A user !important rule wins over the page's. */
+.walnut-os-only { display: block !important; }
