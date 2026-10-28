@@ -25,7 +25,7 @@ they came from.
 | [Diablo (DevilutionX)](../../gamedb/games/diablo/todo.toml) | 2 | 1 package, 1 session |  |
 | [dsda-doom](../../gamedb/games/dsda-doom/todo.toml) | 2 | 1 research, 1 session | 2.8 |
 | [Duke Nukem 3D](../../gamedb/games/duke-nukem-3d/todo.toml) | 1 | 1 benchmark |  |
-| [Dungeon Crawl Stone Soup](../../gamedb/games/crawl-tiles/todo.toml) | 2 | 1 benchmark, 1 package |  |
+| [Dungeon Crawl Stone Soup](../../gamedb/games/crawl-tiles/todo.toml) | 1 | 1 session |  |
 | [Endless Sky](../../gamedb/games/endless-sky/todo.toml) | 1 | 1 benchmark |  |
 | [Extreme Tux Racer](../../gamedb/games/etr/todo.toml) | 3 | 1 benchmark, 1 research, 1 session | 2.6 |
 | [Flare](../../gamedb/games/flare/todo.toml) | 1 | 1 benchmark |  |

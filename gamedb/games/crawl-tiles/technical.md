@@ -2,7 +2,8 @@
 
 ## Status
 
-Debian's Dungeon Crawl Stone Soup 0.34.1 (the tiles build). First run in batch ssdroot3
+Debian's Dungeon Crawl Stone Soup 0.34.1 (the tiles build), started by our `crawl-walnut` (below: the first
+start now loads in 14.5 s, fullscreen). First run in batch ssdroot3
 (gamedb:batch/2026-10-19-ssdroot3-smoke-new): it starts, but was still on "Loading maps..." in its small splash
 window at 60 s, with 67 s of CPU in the 120 s: the load takes longer than 120 s (how much longer is open), so its
 17 MB free and 91 MB peak are the load's, not play's. Ending it with SIGTERM prints Crawl's "crash" report, which
@@ -32,5 +33,8 @@ Its `/usr/games/crawl-walnut` copies the missing files into `~/.crawl/saves` (ne
 and starts `crawl-tiles -extra-opt-first tile_full_screen=true`: fullscreen at the desktop's size
 (Crawl's own default, `auto`, opens a 1830x990 window on a 1920x1080 screen; a player's rc file still
 decides). Our menu entry (`desktop/launchers/crawl-tiles.desktop`, through `ps3-game`) starts it, and
-Debian's entry is diverted (build.toml). State: built, pending its PS3 test (a fresh home: the time to
-the first screen, fullscreen).
+Debian's entry is diverted (build.toml). On the PS3 (2026-10-29, `run.sh smoke crawl-tiles walnut`, the
+caches removed first, crawl-walnut 0.931~dev): "Loading complete, press any key to start" 14.5 s after
+the start, fullscreen 1920x1080, and the home's cache afterwards byte-equal to the package's (crawl took
+it and remade nothing): the first start is as quick as any later one
+(`ps3-bench-20261028T221502Z-smoke-crawl-tiles-walnut`).
