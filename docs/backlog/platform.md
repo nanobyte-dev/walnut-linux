@@ -232,6 +232,7 @@ responsiveness. The `dcbz` memcpy trap is [graphics.md](graphics.md#the-dcbz-mem
 
 - **Effort:** M. **Needs:** PS3. **Status:** never measured.
 - **Source:** PLAN 4.14.
+- **A browser with JavaScript:** [research/BROWSERS.md](../research/BROWSERS.md) (2026-10-28): surf on WebKitGTK 2.52 is the only installable candidate; its PS3 test plan is there.
 
 ### GameOS auto-mount at boot
 
