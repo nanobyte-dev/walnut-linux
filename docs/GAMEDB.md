@@ -424,17 +424,19 @@ publishes it on every push that changes it (.github/workflows/walnut-site.yml). 
 browser, NetSurf and the app's HTML view (the user, 2026-10-28):
 
 - **A game's tabs are pages**: `games/<id>/` Overview (the rating: medal, score and the aspects behind it, an
-  aspect without a score saying "not tested" in its row, then one line, "Rated from N sessions, M minutes of
+  aspect without a score saying "not tested" in its row and nothing in the measured cell, then one line, "Rated from N sessions, M minutes of
   play on <game version>", linking Test runs; the screenshots; the installation, only the easy way: Walnut
   Games' Install and Add game files..., with the copies that work, the apt line, and "More ways" on the Guides;
-  the known issues), `games/<id>/test-runs/` (the played sessions, which make the rating, each with a page of
-  its own, `test-runs/<session>/`: the session rated on its own, every aspect's score and measurement, the
+  the known issues), `games/<id>/test-runs/` (the played sessions, which make the rating (what every session shares, the Walnut release,
+  the game's build and the platform builds, is said once above the table, which has a column only for what differs),
+  each with a page of its own, `test-runs/<session>/`: the session rated on its own, every aspect's score and measurement, the
   sound dropouts, the builds, the form's answers and notes, the picture review, the screenshots; all of them
   as a CSV download, a `data:` link, since the site server takes no .csv; the rating on each version; then
   the scripted benchmarks in a section of their own, "Not rated: tests of driver and game changes", a table
-  per batch with what was tested: the variant, the conditions it adds (its ENV, the stall recorder or a
-  profiler alongside), the Mesa and kernel build, the recipe's resolution, the run length, fps, steady fps,
-  1% low, stalls, the other metrics, then the batch's purpose and observations, always shown; rows that
+  per batch: the variant, the conditions it adds (its ENV, the stall recorder or a profiler alongside), steady
+  fps, 1% low and stalls, then the observations, always shown; the whole-run fps, the other metrics, the
+  Mesa and kernel build, the resolution and the run length are under "All numbers" (a `<details>`, open in
+  NetSurf); the recipe is a two-line summary with its full text behind a `<details>`; rows that
   gamedb/benchmarks/caveats.toml names are marked invalid or not comparable), `games/<id>/technical/` (the
   index.md text, technical.md, the build, the played test's setup, the investigations) and
   `games/<id>/guides/` (the bundle's `guides/*.md`: how-tos, tips, recommended settings; a game without any
@@ -663,8 +665,8 @@ data" (`#game-data`), generated so it can't drift from the data (`tools/gamedb/d
 `layouts/partials/data-guide.html`): what works (the hint), then three ways, each a section: 1. Walnut Games
 (the button, or `walnut-data import <id> <source>`, the add-ons with `-p`, the CD music), 2. game-data-packager,
 our patched Debian tool (the command per package, then `sudo apt install ./<deb>`; what our patches accept that
-Debian's gdp may refuse), 3. by hand (every file with its exact name, size, place and checksum, in plain
-tables). The bundle's `guides/game-data.md`, when there is one, adds the hand-written notes: which CD or
+Debian's gdp may refuse), 3. by hand (a row per file: its path under the package's folder, the accepted versions and the size range;
+the bytes and checksum of each version in a `<details>` under it, open in NetSurf). The bundle's `guides/game-data.md`, when there is one, adds the hand-written notes: which CD or
 edition, quirks, what the result looks like. A game that needs data without a `[data_setup]` (Sauerbraten)
 keeps `data_steps` in its front matter (a list of short steps, commands and paths in backticks; `check.py`
 refuses a `needs_data` game without steps, and steps on a game without `needs_data`), shown as a numbered

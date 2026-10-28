@@ -191,7 +191,7 @@ main.wrap { padding-bottom: rem(3); }
 // "Open in Walnut Games" (walnut://game/<id>): only on a Walnut console, whose NetSurf reads ps3-desktop's
 // user stylesheet (/usr/share/netsurf/user.css) and that shows it; hidden everywhere else, no script
 .walnut-os-only { display: none; }
-a.open-app { display: inline-block; margin-right: rem(0.5); padding: rem(0.4) rem(1); background: $accent-deep; color: #fff; text-decoration: none; border-radius: 6px; font-weight: 700; }
+a.open-app { display: inline-block; margin: rem(0.3) rem(0.8) rem(0.3) 0; padding: rem(0.4) rem(1); background: $accent-deep; color: #fff; text-decoration: none; border-radius: 6px; font-weight: 700; }
 a.open-app:hover { background: $accent; color: #fff; }
 .problems { margin: rem(0.6) 0; padding-left: rem(1.2); }
 td.unscored { color: $warn; font-style: italic; white-space: nowrap; }
@@ -216,6 +216,8 @@ table.facts { margin: rem(0.4) 0 rem(1); }
 table.facts th { width: rem(11); font-size: rem(0.9); }
 table.bench { font-size: rem(0.85); }
 table.tech-index td.num { width: auto; }
+table.more-nums { font-size: rem(0.8); }
+span.kv { display: inline-block; margin: 0 rem(0.9) rem(0.2) 0; white-space: nowrap; }
 
 // what you need: the install line, the data steps
 .install { @include row(rem(0.6), stretch); }
@@ -242,7 +244,9 @@ figcaption { color: $muted; font-size: rem(0.85); margin-top: rem(0.2); }
 details summary { cursor: pointer; color: $accent-light; }
 details.launcher { margin: rem(0.8) 0; }
 details.launcher > summary { font-weight: 600; margin-bottom: rem(0.4); }
-details.obs, details.older { margin: rem(0.4) 0; }
+details.obs, details.older, details.more { margin: rem(0.4) 0; }
+details.more > summary { font-size: rem(0.85); margin-bottom: rem(0.3); }
+.same { margin: rem(0.4) 0 rem(0.2); }
 details.older > summary { margin: rem(0.8) 0; }
 .table-wrap + h3 { margin-top: rem(1.4); }
 .nowrap { white-space: nowrap; }
@@ -293,8 +297,13 @@ table.data-pkgs, table.data-files { font-size: rem(0.85); margin: rem(0.4) 0 rem
 table.data-pkgs td code, table.data-files td code { white-space: nowrap; }
 table.data-pkgs td code.cmd { white-space: normal; }
 table.data-files th.num, table.data-files td.num { text-align: right; width: auto; }
-table.data-files tr.first td, table.data-files tr.alt td { border-bottom: 0; padding-bottom: 0; }
-table.data-files tr.alt td { padding-top: rem(0.2); }
-table.data-files tr.sum td { padding-top: rem(0.1); }
-code.sum { font-size: rem(0.8); background: transparent; padding: 0; }
+table.data-files tr.file td { border-bottom: 0; padding-bottom: rem(0.1); }
+table.data-files tr.sums td { padding-top: 0; padding-bottom: rem(0.5); }
+table.data-files details summary { font-size: rem(0.8); }
+// the checksums of one file, small monospace: NetSurf shows <details> open, so it has to read well open too
+table.sums { font-size: rem(0.75); margin: rem(0.2) 0 0; width: auto; }
+table.sums th, table.sums td { padding: rem(0.1) rem(0.6) rem(0.1) 0; border-bottom: 0; font-family: monospace; }
+table.sums th { font-family: inherit; }
+table.sums td.num { width: auto; }
+table.sums td.hash { word-break: break-all; }
 .data-easy p { margin: rem(0.5) 0; }

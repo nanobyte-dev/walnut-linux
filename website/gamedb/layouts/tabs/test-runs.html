@@ -12,7 +12,7 @@
     <h2 id="sessions">Played sessions</h2>
     {{ with $played }}
     <p class="muted">Testing is done with Walnut's rating tool (<code>walnut-rate</code>, planned): <a href="{{ site.Params.ratingDocs | relURL }}">how ratings are made and submitted</a>.</p>
-    {{ partial "tests-table.html" (dict "tests" . "sessions" $t.played.list) }}
+    {{ partial "sessions-table.html" (dict "tests" . "sessions" $t.played.list) }}
     {{ with $t.played.csv }}<p class="small"><a href="{{ printf "data:text/csv;base64,%s" (base64Encode .) | safeURL }}" download="{{ $g.id }}-sessions.csv">Download all sessions as CSV</a> <span class="muted">(one row per session, the aspects as columns)</span></p>{{ end }}
     {{ else }}
     <p>Nobody has played it on Walnut yet: no session, no medal.</p>
@@ -42,7 +42,8 @@
     (the desktop stopped, vsync off) to compare two builds of the game or of the graphics driver. The numbers say which build is faster;
     they never feed the medal.</p>
     {{ $bm := $t.benchmark }}
-    {{ with $bm.header }}<p class="small"><strong>How the script plays it:</strong> {{ . }}</p>{{ end }}
+    {{ with $bm.header_short }}<p class="small"><strong>How the script plays it:</strong> {{ . }}</p>{{ end }}
+    {{ with $bm.header }}<details class="more"><summary>The recipe's full description</summary><p class="small">{{ . }}</p></details>{{ end }}
     {{ if or $bm.env $bm.resolution }}<p class="small">The recipe today runs it {{ with $bm.resolution }}at {{ . }}{{ else }}at the game's own resolution{{ end }}{{ with $bm.env }}, with <code>{{ delimit . " " }}</code>{{ end }}{{ if in $bm.env "vblank_mode=0" }} (vsync off){{ end }}. Older batches ran the recipe as it was then: their titles and observations say what changed (a new game build, a driver change).</p>{{ end }}
     {{ if gt (len $bm.variants) 1 }}
     <details><summary>{{ len $bm.variants }} variants of the recipe</summary>
@@ -52,8 +53,9 @@
     </details>
     {{ end }}
     {{ with $bm.tables }}
-    <p class="small muted">Conditions: what a variant adds to the recipe (its environment switches) and what ran alongside (the stall recorder, a profiler).
-    Length: "warm-up + 120 s" is a steady-state run, which leaves out a 60 s warm-up and measures 120 s or more; "whole run" counted everything from the start, the way runs before 2026-10-17 did. Rows marked invalid or not comparable say why.</p>
+    <p class="small muted">Conditions: what a variant adds to the recipe (its environment switches) and what ran alongside (the stall recorder, a profiler). Rows marked invalid or not comparable say why.
+    The other numbers, the build and the run length are under "All numbers" in each batch.</p>
+    <details class="more"><summary>What the run length means</summary><p class="small muted">"warm-up + 120 s" is a steady-state run, which leaves out a 60 s warm-up and measures 120 s or more; "whole run" counted everything from the start, the way runs before 2026-10-17 did.</p></details>
       {{ range . }}{{ partial "bench-table.html" . }}{{ end }}
     {{ else }}
     <p class="muted">No benchmark results recorded for it yet.</p>

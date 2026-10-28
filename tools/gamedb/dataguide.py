@@ -55,6 +55,27 @@ def alt(a):
             "algo": algo, "sum": a.get(algo) if algo else None}
 
 
+def compact(alts):
+    """a file's row in the compact table: its versions as a short list, the size range, and the checksum column's
+    label ("sha1"; "checksum" with the algorithm in front of each sum where the versions differ)"""
+    rel = [a["release"] for a in alts if a["release"]]
+    sizes = [a["size"] for a in alts if a["size"] is not None]
+    lo, hi = (min(sizes), max(sizes)) if sizes else (None, None)
+    if lo is None:
+        size_h = None
+    elif lo == hi:
+        size_h = human(lo)
+    elif human(lo).split()[1] == human(hi).split()[1]:
+        size_h = "%s\u2013%s" % (human(lo).split()[0], human(hi))      # 10.6\u201313.8 MB
+    else:
+        size_h = "%s\u2013%s" % (human(lo), human(hi))
+    algos = {a["algo"] for a in alts if a["algo"]}
+    mixed = len(algos) > 1
+    for a in alts:
+        a["sum_show"] = ("%s %s" % (a["algo"], a["sum"]) if mixed else a["sum"]) if a["sum"] else None
+    return {"versions": rel, "size_range": size_h, "sum_label": "checksum" if mixed else (next(iter(algos), "checksum"))}
+
+
 def files(m):
     """(the package's game files [{path, name, required, alts}], how many doc files gdp adds besides)"""
     req = set(m.get("required", []))
@@ -63,8 +84,8 @@ def files(m):
         if p not in req and p.startswith("usr/share/doc/"):
             docs += 1
             continue
-        out.append({"path": "/" + p, "name": p.rsplit("/", 1)[-1], "required": p in req,
-                    "alts": [alt(a) for a in m["files"][p]]})
+        alts = [alt(a) for a in m["files"][p]]
+        out.append({"path": "/" + p, "name": p.rsplit("/", 1)[-1], "required": p in req, "alts": alts, **compact(alts)})
     out.sort(key=lambda f: (not f["required"], f["path"]))
     return out, docs
 
@@ -126,12 +147,15 @@ def package(name, gid, ds, m, role, added):
     gdp_cmd = "game-data-packager -d .%s -p %s %s%s" % ("" if (fetch or download) else " --no-download", name, gdp,
                                                         "" if fetch else " " + SOURCE)
     paths = [f["path"] for f in fs] + ["/" + p for p in (tracks or {}).get("paths", [])]
+    d = common_dir(paths)
+    for f in fs:        # the path under the package's folder (the guide says "Into <folder>")
+        f["rel"] = f["path"][len(d) + 1:] if d and f["path"].startswith(d + "/") else f["path"]
     big = len(fs) > MAX_FILES
     links = sorted(m.get("symlinks", {}).items())
     e = {"name": name, "edition": ds.get("editions", {}).get(name) or m.get("edition"), "role": role,
          "fetch": fetch, "download": download, "ours": name in added, "version": m.get("version"),
          "walnut": walnut, "gdp": gdp_cmd, "deb": "%s_*.deb" % name,
-         "dir": common_dir(paths), "replaces": m.get("replaces", []),
+         "dir": d, "replaces": m.get("replaces", []),
          "file_count": len(fs), "doc_count": docs, "known": bool(m),
          "size_h": human(sum((f["alts"][0]["size"] or 0) for f in fs if f["required"] and f["alts"])) if fs else None,
          "files": [] if big else fs, "folders": folders(fs) if big else [],

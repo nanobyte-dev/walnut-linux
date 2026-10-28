@@ -70,13 +70,17 @@
 {{ $list := .files }}{{ if not $list }}{{ $list = .key_files }}{{ with $list }}<p>The files of 1 MB and more:</p>{{ end }}{{ end }}
 {{ with $list }}
 <div class="table-wrap"><table class="data-files">
-  <thead><tr><th>File</th><th class="num">Size</th><th>Version</th></tr></thead>
+  <thead><tr><th>File</th><th>Versions</th><th class="num">Size</th></tr></thead>
   {{ range . }}{{ $f := . }}<tbody>
-  {{ range $i, $a := .alts }}
-    <tr class="{{ if $i }}alt{{ else }}first{{ end }}"><td>{{ if eq $i 0 }}<code>{{ $f.path }}</code>{{ if not $f.required }} <span class="muted small">optional</span>{{ end }}{{ else }}<span class="muted small">or</span>{{ end }}</td>
-      <td class="num">{{ $a.size_h }}<br><span class="muted small">{{ $a.bytes }} bytes</span></td><td>{{ with $a.release }}{{ . }}{{ else }}<span class="muted">-</span>{{ end }}</td></tr>
-    <tr class="sum"><td colspan="3"><span class="muted small">{{ $a.algo }}</span> <code class="sum">{{ $a.sum }}</code></td></tr>
-  {{ end }}
+    <tr class="file"><td><code>{{ $f.rel }}</code>{{ if not $f.required }} <span class="muted small">optional</span>{{ end }}</td>
+      <td>{{ with $f.versions }}{{ delimit . ", " }}{{ else }}<span class="muted">-</span>{{ end }}{{ if gt (len $f.alts) 1 }} <span class="muted small">(any one)</span>{{ end }}</td>
+      <td class="num">{{ $f.size_range }}</td></tr>
+    <tr class="sums"><td colspan="3"><details><summary>Checksums</summary>
+      <table class="sums">
+        <thead><tr>{{ if $f.versions }}<th>Version</th>{{ end }}<th class="num">Bytes</th><th>{{ $f.sum_label }}</th></tr></thead>
+        <tbody>{{ range $f.alts }}<tr>{{ if $f.versions }}<td>{{ with .release }}{{ . }}{{ else }}-{{ end }}</td>{{ end }}<td class="num">{{ .bytes }}</td><td class="hash">{{ .sum_show }}</td></tr>{{ end }}</tbody>
+      </table>
+    </details></td></tr>
   </tbody>{{ end }}
 </table></div>
 {{ end }}

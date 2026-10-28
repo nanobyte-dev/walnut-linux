@@ -439,6 +439,25 @@ def comment_text(lines):
     return " ".join(l.lstrip("#").strip() for l in lines).strip()
 
 
+def header_short(text, limit=240):
+    """the recipe header in a line or two: the parentheses dropped, the first sentence, cut at a word"""
+    if not text:
+        return None
+    t = text
+    while True:
+        u = re.sub(r"\s*\([^()]*\)", "", t)
+        if u == t:
+            break
+        t = u
+    parts = re.split(r"(?<=[A-Za-z0-9\"`])\.\s+(?=[A-Z])", t.strip())
+    t = parts[0].strip()
+    if len(t) < 60 and len(parts) > 1:      # "SuperTuxKart 1.5": say a little more
+        t += ". " + parts[1].strip()
+    if len(t) > limit:
+        t = t[:limit].rsplit(" ", 1)[0].rstrip(",;:") + "..."
+    return t if t.endswith(".") or t.endswith("...") else t + "."
+
+
 def recipe(gdir):
     """(the recipe's header comment, [{name, note}] of its variants, base first) or (None, [])"""
     f = Path(gdir) / "benchmark" / "recipe.sh"
@@ -501,7 +520,7 @@ def game_page(site, gdir, g, results, batches, metrics, patch_subjects, package_
         "our_packages": packages(check.patched_by(gdir, b), site.repo, patch_subjects, package_dir),
         "patch_count": len(g.get("patches", [])),
         "test": test, "sessions": len(sessions), "tests": len(g["tests"]),
-        "benchmark": {"header": header, "variants": variants, "recipes": recipes,
+        "benchmark": {"header": header, "header_short": header_short(header), "variants": variants, "recipes": recipes,
                       "tables": bench_tables(gid, results, batches, metrics, gdir, site.caveats),
                       "resolution": recipe_env(gdir)[2], "env": recipe_env(gdir)[1]},
         "played": sessions_of(gdir, site.repo),

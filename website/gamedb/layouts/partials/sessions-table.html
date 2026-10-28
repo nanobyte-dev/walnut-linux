@@ -1,0 +1,40 @@
+{{/* the played sessions of a game: (dict "tests" <catalog.json tests[] of kind session, newest first> "sessions"
+     <technical.json played.list>). What every session shares (the Walnut release, the game's build, the platform
+     builds under it: tools/gamedb/sessions.py builds) is said once above the table; the table has a column only for
+     what differs between sessions. Each session's own page (test-runs/<session>/) keeps the full stack */}}
+{{ $by := dict }}{{ range .sessions }}{{ $by = merge $by (dict .id .) }}{{ end }}
+{{ $sc := newScratch }}
+{{ $walnut := slice }}{{ $game := slice }}
+{{ range .tests }}{{ $s := index $by .id }}{{ if $s }}
+  {{ $walnut = $walnut | append $s.walnut }}
+  {{ range $i, $b := $s.builds }}{{ if eq $i 0 }}{{ $game = $game | append $b.version }}{{ else }}{{ $sc.Add $b.name (slice $b.version) }}{{ end }}{{ end }}
+{{ end }}{{ end }}
+{{ $walnutSame := le (len (uniq $walnut)) 1 }}{{ $gameSame := le (len (uniq $game)) 1 }}
+{{ $first := false }}{{ range .tests }}{{ if not $first }}{{ $first = index $by .id }}{{ end }}{{ end }}
+{{ $diff := slice }}{{ $same := slice }}
+{{ if $first }}{{ range $i, $b := $first.builds }}{{ if gt $i 0 }}{{ if gt (len (uniq ($sc.Get $b.name))) 1 }}{{ $diff = $diff | append $b.name }}{{ else }}{{ $same = $same | append $b }}{{ end }}{{ end }}{{ end }}{{ end }}
+{{ if $first }}
+<p class="small same"><strong>{{ if gt (len $.tests) 1 }}Same in every session{{ else }}Builds{{ end }}:</strong>
+  {{ if $walnutSame }}{{ partial "walnut.html" $first.walnut }}{{ end }}{{ if and $walnutSame $gameSame }}, {{ end }}
+  {{ if $gameSame }}{{ with index $first.builds 0 }}{{ .name }} <code>{{ .version }}</code>{{ end }}{{ end }}</p>
+{{ with $same }}
+<details class="more"><summary>The platform builds under it ({{ len . }})</summary>
+  <table class="facts"><tbody>{{ range . }}<tr><th>{{ .name }}</th><td><code>{{ .version }}</code>{{ if .ours }} <span class="muted small">Walnut's build</span>{{ end }}</td></tr>{{ end }}</tbody></table>
+</details>
+{{ end }}
+{{ end }}
+<div class="table-wrap">
+<table class="tests">
+  <thead><tr><th>Date</th>{{ if not $walnutSame }}<th>Walnut</th>{{ end }}<th>Launcher</th>{{ if not $gameSame }}<th>Game build</th>{{ end }}{{ with $diff }}<th>Platform builds that differ</th>{{ end }}<th>Rules</th><th>Play</th><th>Ended</th><th>Picture</th><th></th></tr></thead>
+  <tbody>{{ range .tests }}{{ $t := . }}{{ $s := index $by .id }}
+    <tr><td class="nowrap">{{ .date }}</td>
+    {{ if not $walnutSame }}<td>{{ partial "walnut.html" .walnut }}</td>{{ end }}
+    <td>{{ with .launcher }}{{ . }}{{ else }}<span class="muted">-</span>{{ end }}</td>
+    {{ if not $gameSame }}<td class="small">{{ if $s }}{{ with index $s.builds 0 }}{{ .name }} <span class="muted">{{ .version }}</span>{{ end }}{{ end }}</td>{{ end }}
+    {{ with $diff }}<td class="small builds">{{ if $s }}{{ $row := $s.builds }}{{ range $i, $n := . }}{{ if $i }}<br>{{ end }}{{ range $row }}{{ if eq .name $n }}{{ .name }} <span class="muted">{{ .version }}</span>{{ end }}{{ end }}{{ end }}{{ end }}</td>{{ end }}
+    <td>{{ $t.rules | default "1.0" }}</td><td class="nowrap">{{ div .play_seconds 60 | printf "%.0f" }} min</td><td>{{ .end }}</td>
+    <td>{{ with .verdict }}{{ . }}{{ else }}-{{ end }}</td>
+    <td class="nowrap">{{ if $s }}<a href="{{ $s.id }}/">Details</a>{{ end }}</td></tr>
+  {{ end }}</tbody>
+</table>
+</div>
