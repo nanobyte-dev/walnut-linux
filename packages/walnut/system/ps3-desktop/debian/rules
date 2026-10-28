@@ -27,6 +27,9 @@ override_dh_auto_install:
 	install -D -m 644 files/udev/60-walnut-optical.rules $(P)/usr/lib/udev/rules.d/60-walnut-optical.rules
 	install -D -m 644 files/udev/61-walnut-loop.rules $(P)/usr/lib/udev/rules.d/61-walnut-loop.rules
 	install -D -m 644 files/polkit/49-walnut-optical.rules $(P)/usr/share/polkit-1/rules.d/49-walnut-optical.rules
+	# NetSurf's user stylesheet (its resource path ends in /usr/share/netsurf; no Debian package ships this file):
+	# shows what pages keep for a Walnut console, e.g. the games site's "Open in Walnut Games" link
+	install -D -m 644 files/netsurf/user.css $(P)/usr/share/netsurf/user.css
 	cd files/xdg && find . -type f -exec install -D -m 644 {} ../../$(P)/etc/xdg/ps3/{} \;
 	install -d $(P)/usr/share/X11/xorg.conf.d
 	install -m 644 files/xorg/* $(P)/usr/share/X11/xorg.conf.d/
