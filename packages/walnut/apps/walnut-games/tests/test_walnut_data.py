@@ -757,6 +757,29 @@ class DataImport(unittest.TestCase):
         ds.update(required=[], optional=["x-data", "x-music"])                       # only optional ones: all
         self.assertEqual(wd.wanted_packages(ds, []), ["x-data", "x-music"])
 
+    def test_shareware_not_imported_beside_the_full_game(self):
+        man = {"quake-registered": {"replaces": ["quake-shareware"]}, "quake-shareware": {"replaces": []}}
+        ds = {"gdp": "quake", "required": ["quake-shareware", "quake-registered"], "optional": []}
+        old = wd.installed
+        self.addCleanup(setattr, wd, "installed", old)
+        wd.installed = lambda pkgs: set()
+        self.assertEqual(wd.superseded(["quake-shareware", "quake-registered"], ds, man),
+                         {"quake-shareware": "quake-registered"})
+        self.assertEqual(wd.superseded(["quake-registered"], ds, man), {})
+        self.assertEqual(wd.superseded(["quake-shareware"], ds, man), {})
+        wd.installed = lambda pkgs: {"quake-registered"} & set(pkgs)
+        self.assertEqual(wd.superseded(["quake-shareware"], ds, man), {"quake-shareware": "quake-registered (installed)"})
+        # through the import: only the full game reaches the helper
+        mp = self.t / "manifest.json"
+        mp.write_text(json.dumps({"packages": man}))
+        wd.MANIFEST = str(mp)
+        wd.installed = lambda pkgs: set()
+        self.games["quakespasm"] = {"id": "quakespasm", "data_setup": dict(ds, downloads=[], present_any=ds["required"])}
+        rc, out = self.imp(self.t / "src", game="quakespasm")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual([e["helper"][2] for e in self.log() if "helper" in e], ["quake-registered"])
+        self.assertIn("log quake-shareware not imported: quake-registered takes its place", out)
+
     def test_space_of_an_installer_is_its_own_size(self):
         self.partial_games()
         Path(wd.MANIFEST).write_text(json.dumps({"packages": {

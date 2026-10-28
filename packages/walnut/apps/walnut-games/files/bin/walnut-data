@@ -70,7 +70,9 @@ Design
   Each package gdp made is then `dpkg-deb --fsys-tarfile X.deb | sudo -n walnut-games-helper
   import-data GAME PKG` (the deb unlinked as soon as dpkg-deb has it open, so its space comes back
   when the stream ends): the helper checks every file against its manifest and builds and installs
-  the package itself (required packages first, in the catalog's order). out/ and tmp/ are emptied
+  the package itself (required packages first, in the catalog's order); a made package that another made
+  or installed one replaces (the manifest's replaces: quake-registered and quake-shareware) is left out
+  with a log line, so an import never trades a full game for its shareware. out/ and tmp/ are emptied
   before and removed after.
   Free space is checked before gdp runs, from the data manifest's sizes of the packages (T): the most
   each file system holds at one time over the phases (gdp: 3T in the cache, its copy of the files,
@@ -1379,6 +1381,9 @@ def cmd_import(game_id, sources, asked, no_download, games):
                                                                     " (exit %d)" % rc if rc else ""))
         addons = find_addons(ds, [p for p, _ in debs], paths, plans)    # while the disc or image is there
         src.close()            # the disc or image is no longer needed
+        for pkg, by in superseded([p for p, _ in debs], ds).items():
+            say("log", "%s not imported: %s takes its place" % (pkg, by))
+            debs = [(p, d) for p, d in debs if p != pkg]
         worst = 0
         for pkg, deb in debs:
             rc = import_deb(game_id, pkg, deb)
@@ -1397,6 +1402,23 @@ def cmd_import(game_id, sources, asked, no_download, games):
         for d in (out, tmp):
             shutil.rmtree(d, ignore_errors=True)
         os.close(lock)
+
+
+def superseded(made, ds, manifest=None):
+    """{package: the package that replaces it} for the made packages another made or installed package of the
+    game replaces (the data manifest's replaces: quake-registered replaces quake-shareware), which are not
+    imported: a plain import of a full Quake CD makes both, and the shareware's import would take an installed
+    full game away (its Conflicts) before the full one came back"""
+    man = manifest if manifest is not None else (load_manifest() or {})
+    have = installed(names(ds, "required") + names(ds, "optional"))
+    out = {}
+    for p in made:
+        for q in list(made) + sorted(have):
+            e = man.get(q)
+            if q != p and isinstance(e, dict) and p in (e.get("replaces") or []):
+                out[p] = q + ("" if q in made else " (installed)")
+                break
+    return out
 
 
 def size_bytes(num, unit):
