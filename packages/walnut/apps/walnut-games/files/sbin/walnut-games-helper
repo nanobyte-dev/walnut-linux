@@ -53,7 +53,8 @@ Design
   symlinks the manifest lists (gdp's own: Quake III's pk3s under /usr/lib/quake3, the exact path and
   target; each target relative and resolving under usr/, no file or link under a link path; made by
   this program after every file is written, all of them required); names relative, normalized,
-  without '..', each once; a file must be a manifest path with one of its
+  without '..', each once; the stream must end with tar's end-of-archive block (tarfile alone takes a
+  stream cut between two members, or inside a header, for a whole one); a file must be a manifest path with one of its
   sizes (checked before its data is read) and, hashed while it is copied, one of its checksums; the
   files game-data-packager generates itself (usr/share/doc/PKG/copyright and changelog*,
   usr/share/lintian/, and for the Doom family usr/share/applications, pixmaps and icons) are read
@@ -779,6 +780,7 @@ def read_stream(src, pkg, entry, root, cap):
     tracks_max = (entry.get("tracks") or {}).get("max_size", 0)
     links = entry.get("symlinks") or {}
     done, total, skipped = {}, 0, 0
+    src = StreamTail(src)
     try:
         tf = tarfile.open(fileobj=src, mode="r|")
         for m in tf:
@@ -823,6 +825,9 @@ def read_stream(src, pkg, entry, root, cap):
                 raise Refused("the data is larger than %s's files" % pkg)
             say("progress", "%d checking %s" % (min(39, 40 * total // max(cap, 1)), path))
             done[path] = copy_checked(tf.extractfile(m), m.size, alts, root, path)
+        if not src.zero_block_at(tf.offset):
+            # tarfile ends quietly at a stream cut between two members or inside a header
+            raise Refused("the data stream is cut short (it stops without tar's end-of-archive block)")
     except tarfile.TarError as e:
         raise Refused("the data stream is broken or cut short (%s)" % e)
     missing = [p for p in list(entry.get("required") or []) + sorted(tracks) + sorted(links) if p not in done]
@@ -836,6 +841,32 @@ def read_stream(src, pkg, entry, root, cap):
         except FileExistsError:
             raise Refused("%s is in the data twice" % path[:120])
     return {p: r for p, r in done.items() if p in files}
+
+
+class StreamTail:
+    """a file object read through, its last bytes kept: tarfile in stream mode ends without an error when
+    the stream stops at a member's end or inside a header (dpkg-deb --fsys-tarfile cut short), so the
+    end-of-archive block (512 zero bytes) is looked for where tarfile read its last header"""
+    KEEP = 4 * tarfile.RECORDSIZE
+
+    def __init__(self, f):
+        self.f, self.total, self.kept, self.chunks = f, 0, 0, []
+
+    def read(self, n=-1):
+        b = self.f.read(n)
+        if b:
+            self.total += len(b)
+            self.kept += len(b)
+            self.chunks.append(b)
+            while len(self.chunks) > 1 and self.kept - len(self.chunks[0]) >= self.KEEP:
+                self.kept -= len(self.chunks.pop(0))
+        return b
+
+    def zero_block_at(self, offset):
+        start = offset - (self.total - self.kept)
+        tail = b"".join(self.chunks)
+        return start >= 0 and len(tail) >= start + tarfile.BLOCKSIZE and \
+            tail[start:start + tarfile.BLOCKSIZE] == bytes(tarfile.BLOCKSIZE)
 
 
 def room(root, size, written):

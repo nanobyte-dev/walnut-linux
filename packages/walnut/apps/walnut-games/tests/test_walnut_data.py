@@ -331,6 +331,19 @@ class ImportData(Dirs):
             with self.subTest(cut=cut):
                 self.refused(data[:cut], "")
 
+    def test_cut_at_a_member_boundary_or_in_a_header(self):
+        # every required file is in, only the optional manual and gdp's own files are cut off: tarfile reads
+        # such a stream as a whole one
+        data = tar_of([m for m in good_members() if not m[0].endswith("manual.txt")][:7])
+        with tarfile.open(fileobj=io.BytesIO(data)) as t:
+            last = t.getmembers()[-1]
+        end = last.offset_data + (last.size + 511) // 512 * 512
+        for cut in (end, end + 100, end + 512):
+            with self.subTest(cut=cut):
+                self.refused(data[:cut] if cut != end + 512 else data[:end] + b"x" * 512, "cut short")
+        r, out, fake = self.imp(data)               # the same members with the end-of-archive block: fine
+        self.assertIsNone(r, out)
+
     def test_duplicate(self):
         self.refused(good_members() + [f("./" + GD + "b.dat", B)], "twice")
         self.refused(good_members() + [f("usr/share/doc/alpha-data/copyright", b"x")], "twice")
