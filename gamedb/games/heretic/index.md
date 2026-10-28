@@ -20,14 +20,6 @@ designed_for = "keyboard-mouse"
 
 Heretic runs on DSDA-Doom, the Doom port Walnut packages and patches for the PS3 (big-endian sound
 lumps, textures in formats the RSX has, batched GL draws). The engine is free; the game's data is not, so
-Walnut doesn't offer it: Walnut Games makes a package of it from your own copy (below). Nobody has played it on
+Walnut doesn't offer it: Walnut Games makes a package of it from your own copy (What you need, above). Nobody has played it on
 Walnut yet. DSDA-Doom with Freedoom runs at about 56 frames a second on its OpenGL renderer; with this
 game's WAD it has not been tried.
-
-## Setting up the game data
-
-Walnut Games makes the data for you. Open Heretic in the app and choose Add game files...; the chooser lists the disc in the drive, any mounted disc or USB stick, GOG and Steam folders, and the ISOs, installers and archives in Downloads and your home folder, or you pick a file or folder yourself. In a terminal, the same thing is `walnut-data import heretic /path/to/your/copy` (an ISO is mounted read-only by the desktop for the import). It runs Walnut's patched `game-data-packager`, which checks the files against the checksums of the editions it knows, and installs the result as an ordinary package (heretic-wad) that Remove data takes away again. Heretic (DSDA-Doom) appears in Play once the data is there.
-
-What it needs: HERETIC.WAD from Heretic: Shadow of the Serpent Riders (1.3) or the original 1.0 release (three episodes), from a CD, an installed copy (Steam: `common/Heretic Shadow of the Serpent Riders`), or the GOG installer.
-
-If you have Walnut's licensed suite as an apt source, the page offers Install from Walnut licensed instead (`walnut-data install-repo heretic`). Debian's `game-data-packager` makes the same package on a PC, and `sudo apt install ./file.deb` installs it.
