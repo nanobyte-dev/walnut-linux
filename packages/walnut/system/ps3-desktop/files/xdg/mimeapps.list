@@ -35,8 +35,6 @@ audio/x-wav=mpv.desktop
 video/mp4=mpv.desktop
 video/x-matroska=mpv.desktop
 video/webm=mpv.desktop
-# the web: Badwolf (WebKitGTK, JavaScript); NetSurf stays installed as the light one, in the menu
-text/html=badwolf.desktop
-application/xhtml+xml=badwolf.desktop
-x-scheme-handler/http=badwolf.desktop
-x-scheme-handler/https=badwolf.desktop
+text/html=netsurf-gtk.desktop
+x-scheme-handler/http=netsurf-gtk.desktop
+x-scheme-handler/https=netsurf-gtk.desktop

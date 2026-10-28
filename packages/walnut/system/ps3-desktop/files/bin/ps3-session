@@ -66,16 +66,10 @@ c=${XDG_CONFIG_HOME:-$HOME/.config}/pcmanfm/default/desktop-items-0.conf
 [ "${PS3_STARTUP_CHIME:-on}" = off ] || [ ! -r /usr/share/sounds/walnut/startup.wav ] ||
 	d aplay -q /usr/share/sounds/walnut/startup.wav
 # tint2 copies its config into ~/.config at the first start, so a launcher we add later (Walnut
-# Games, the browser) never reaches it: added once to a copy that still has our menu launcher and
-# lacks it (the browser after Walnut Games)
+# Games) never reaches it: added once to a copy that still has our menu launcher and lacks it
 t=${XDG_CONFIG_HOME:-$HOME/.config}/tint2/tint2rc
 if [ -f "$t" ] && grep -q '^launcher_item_app = jgmenu.desktop$' "$t" && ! grep -q 'walnut-games.desktop' "$t"; then
 	sed -i 's/^launcher_item_app = jgmenu.desktop$/&\nlauncher_item_app = walnut-games.desktop/' "$t"
-fi
-if [ -f "$t" ] && grep -q '^launcher_item_app = walnut-games.desktop$' "$t" && ! grep -q 'badwolf.desktop' "$t" &&
-	[ ! -e "${XDG_CONFIG_HOME:-$HOME/.config}/tint2/.walnut-browser-added" ]; then
-	sed -i 's/^launcher_item_app = walnut-games.desktop$/&\nlauncher_item_app = badwolf.desktop/' "$t"
-	: > "${XDG_CONFIG_HOME:-$HOME/.config}/tint2/.walnut-browser-added"
 fi
 unset t
 d pcmanfm --desktop; d tint2; d nm-applet; d pnmixer; d lxpolkit; d dunst
