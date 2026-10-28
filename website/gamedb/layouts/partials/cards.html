@@ -24,7 +24,8 @@
       data-tags="{{ delimit .tags "|" }}" data-needs-data="{{ .needs_data }}"
       data-search="{{ lower (printf "%s %s %s %s" .title .summary (delimit .tags " ") (delimit .categories " ")) }}">
     <a href="{{ $page.RelPermalink }}">
-      {{ with $page.Resources.Get "thumb.png" }}<img src="{{ .RelPermalink }}" width="256" height="144" alt="" loading="lazy">{{ end }}
+      {{ with $page.Resources.Get "thumb.png" }}<img src="{{ .RelPermalink }}" width="256" height="144" alt="" loading="lazy">
+      {{- else }}{{ with resources.Get "no-screenshot.png" }}<img src="{{ .RelPermalink }}" width="256" height="144" alt="No screenshot yet" loading="lazy">{{ end }}{{ end }}
       <div class="card-body">
         <h2>{{ .title }}</h2>
         <p class="meta">{{ partial "medal.html" .rating }}</p>
