@@ -2,9 +2,21 @@
 # a session item's order is its place in the played-session queue (docs/TESTS.md's generated block).
 
 [[item]]
-kind = "benchmark"
-added = 2026-10-19
-source = "TESTS.md Next (smoke re-runs)"
+kind = "session"
+order = 19
+launcher = "ScummVM"
+pc = "needs the data"
+added = 2026-10-29
+source = "games night 2026-10-28 (smoke)"
 text = """\
-Smoke re-run: the intro skipped by Escape (the recipe now waits for the game's title), then `queen`, \
-`drascula`, `lure`; ssdroot5's run was nudged by the user, so it doesn't count."""
+First played session with a player's own game through ScummVM's launcher (Add Game on ~/Games/scummvm/DOTT): \
+Day of the Tentacle for 10 minutes, the voices and music by ear, the pad as a mouse (ScummVM's own \
+gamepad mouse), a save and a load. The smoke run reached the lobby with the right picture."""
+
+[[item]]
+kind = "benchmark"
+added = 2026-10-29
+source = "games night 2026-10-28 (smoke)"
+text = """\
+Beneath a Steel Sky (the base recipe, Debian's data package) and the other free games (queen, drascula, \
+lure) once the disk has room: the intro skip now reaches the window."""

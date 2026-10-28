@@ -45,7 +45,7 @@ they came from.
 | [Return to Castle Wolfenstein (iortcw)](../../gamedb/games/return-to-castle-wolfenstein/todo.toml) | 1 | 1 benchmark |  |
 | [Sauerbraten](../../gamedb/games/sauerbraten/todo.toml) | 2 | 1 package, 1 session |  |
 | [Scorched3D](../../gamedb/games/scorched3d/todo.toml) | 1 | 1 fix |  |
-| [ScummVM](../../gamedb/games/scummvm/todo.toml) | 1 | 1 benchmark |  |
+| [ScummVM](../../gamedb/games/scummvm/todo.toml) | 2 | 1 benchmark, 1 session |  |
 | [SimCity (Micropolis)](../../gamedb/games/simcity/todo.toml) | 1 | 1 package |  |
 | [Simutrans](../../gamedb/games/simutrans/todo.toml) | 1 | 1 benchmark |  |
 | [SuperTuxKart](../../gamedb/games/supertuxkart/todo.toml) | 5 | 2 fix, 1 package, 1 research, 1 session | 2.1, 3.1 |

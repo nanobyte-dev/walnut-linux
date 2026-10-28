@@ -35,7 +35,12 @@ setup() {
 }
 sv_cmd() { CMD=(/usr/games/scummvm -f ${SV_GFX:+--gfx-mode="$SV_GFX"} --stretch-mode=fit -p "$SV_DIR" "$SV_ID"); }
 sv_cmd
-during() { [ "$SV_KEYS" = 1 ] || return 0; smoke_xkeys "$SV_TITLE" "$SV_KBD_WAIT" Escape +6 Escape; shot_mark; }
+during() {
+	[ "$SV_KEYS" = 1 ] || return 0
+	smoke_xkeys "$SV_TITLE" "$SV_KBD_WAIT" Escape +6 Escape
+	xwininfo -root -tree | grep -m3 -i 'scummvm\|"[A-Z]' | sed 's/^ */window: /'	# the titles, for the recipe
+	shot_mark
+}
 SHOT_FROM=mark	# the screenshots after the keys (the load's end in the variants without keys)
 variant_queen() { SV_ID=queen; SV_TITLE="Flight of the Amazon Queen"; SV_DIR=/usr/share/scummvm/flight-of-the-amazon-queen; sv_cmd; }
 variant_drascula() { SV_ID=drascula; SV_TITLE="Drascula"; SV_DIR=/usr/share/scummvm/drascula; sv_cmd; }
@@ -43,3 +48,8 @@ variant_lure() { SV_ID=lure; SV_TITLE="Lure of the Temptress"; SV_DIR=/usr/share
 variant_gl() { SV_GFX=opengl; sv_cmd; }
 variant_intro() { SV_KEYS=0; }
 variant_nosound() { CMD+=(--music-driver=null --no-sfx); }
+# The player's own games (not in Debian), from the folder a player would point ScummVM's "Add Game" at,
+# ~/Games/scummvm/<GAME> (copied there for the test; never committed: their sha256 sums are in the
+# game's technical.md): Day of the Tentacle (CD, talkie) and Monkey Island 2 (floppy, VGA)
+variant_dott() { SV_ID=tentacle; SV_TITLE="Day of the Tentacle"; SV_DIR=$HOME/Games/scummvm/DOTT; sv_cmd; }
+variant_monkey2() { SV_ID=monkey2; SV_TITLE="Monkey Island 2"; SV_DIR=$HOME/Games/scummvm/MONKEY2; sv_cmd; }
