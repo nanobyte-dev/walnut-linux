@@ -63,12 +63,18 @@ smoke_xkeys() {
 # own uinput device: SDL never saw events written to a device's event node, smoke_keys' way (checked
 # on the PC, 2026-10-29). It runs as "evemu-device-pad" (a link to evemu-play, argv[0] evemu-play)
 # so ps3-intfwatch takes the device for the bench's own, as it does evemu-device's.
+# SMOKE_PAD=generic: the same pad under a made-up name and ID (1209:0001), which SDL maps from its evdev
+# codes, so a recipe can hide a real DS3 that is connected (ENV+=(SDL_GAMECONTROLLER_IGNORE_DEVICES=
+# 0x054c/0x0268): a game that takes the first pad then gets the virtual one.
 smoke_pad() {
 	local e rec=${BENCH_DIR:-$D}/.smoke-pad
-	{ cat "$BENCH_LIB/ds3.evemu"
-	  printf '%s\n' "$@" | awk -v end=$((DURATION + 60)) '
+	{ if [ "${SMOKE_PAD:-ds3}" = generic ]; then
+		sed 's/^N: .*/N: Walnut virtual pad/; s/^I: .*/I: 0003 1209 0001 0001/' "$BENCH_LIB/ds3.evemu"
+	  else cat "$BENCH_LIB/ds3.evemu"; fi
+	  printf '%s\n' "$@" | awk -v end=$((DURATION + 60)) -v generic=$([ "${SMOKE_PAD:-ds3}" = generic ] && echo 1 || echo 0) '
 		BEGIN { split("cross 304 circle 305 triangle 307 square 308 l1 310 r1 311 l2 312 r2 313 select 314 start 315 ps 316 l3 317 r3 318 up 544 down 545 left 546 right 547", a, " ")	# BTN_SOUTH.. BTN_THUMBR, BTN_DPAD_*: decimal (mawk has no strtonum)
 			for (i = 1; i in a; i += 2) b[a[i]] = a[i + 1]
+			if (generic) { b["triangle"] = 308; b["square"] = 307 }	# SDL maps an unknown pad'"'"'s BTN_NORTH to X, BTN_WEST to Y
 			x["lx"] = 0; x["ly"] = 1; x["rx"] = 3; x["ry"] = 4; t = 0
 			printf "E: 0.000000 0003 0000 0128\nE: 0.000000 0000 0000 0000\nE: 0.100000 0003 0000 0128\nE: 0.100000 0000 0000 0000\n" }	# the left stick centred, twice: two anchors: evemu-play skips the wait before its second event
 		function ev(s, ty, c, v) { printf "E: %.6f %04x %04x %04d\nE: %.6f 0000 0000 0000\n", s, ty, c, v, s }

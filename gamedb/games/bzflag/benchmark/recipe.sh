@@ -43,4 +43,6 @@ setup() {
 	[ "$BZ_PAD" = 1 ] || return 0
 	smoke_pad +25 triangle +3 ly=0 +4 ly=128 cross +1 cross +2 start +2 down +1 down +1 circle +2 cross
 }
-variant_pad() { BZ_PAD=1; NEEDS+=(evemu-play); }
+# The console's own DS3 (on USB) would be the first game controller "auto" takes: the virtual pad comes
+# under another ID (SMOKE_PAD=generic) and SDL hides the DS3's (054c:0268) for this run.
+variant_pad() { BZ_PAD=1; NEEDS+=(evemu-play); SMOKE_PAD=generic; ENV+=(SDL_GAMECONTROLLER_IGNORE_DEVICES=0x054c/0x0268); }
