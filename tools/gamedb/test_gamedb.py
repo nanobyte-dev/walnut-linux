@@ -1115,6 +1115,10 @@ class PackIntegration(unittest.TestCase):
                 argv = wg.parse_exec(wg.desktop_entry(str(apps / name))["Exec"])
                 self.assertNotIn("-game", argv)
                 self.assertEqual(argv[argv.index("-basedir") + 1], "/usr/share/games/quake")
+                # shown only with the original game's data (shareware or registered: both have pak0)
+                e = wg.desktop_entry(str(apps / name))
+                self.assertEqual(e["X-Walnut-Requires"], "/usr/share/games/quake/id1/pak0.pak", name)
+                self.assertEqual(e["NoDisplay"], "true", name)
 
 
 class Importer(unittest.TestCase):

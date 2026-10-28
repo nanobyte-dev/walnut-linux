@@ -10,7 +10,8 @@ no audible dropouts: one of the games that meet the 60 fps target with room to s
 - `quakespasm` from Debian, nothing of ours in the binary. Two menu entries of ours
   ([desktop/launchers](desktop/launchers/)) replace Debian's (diverted): "QuakeSpasm (GLSL)" and a
   `-noglsl` one, both `-basedir /usr/share/games/quake -nopackedpixels -width 1920 -height 1080
-  -fullscreen`; a third, Quake (2021 re-release), for the re-release's own folder (below). Don't install
+  -fullscreen`, packed hidden (`NoDisplay=true`, `X-Walnut-Requires=/usr/share/games/quake/id1/pak0.pak`,
+  which the shareware and the full game both have), so they show only with the original game's data; a third, Quake (2021 re-release), for the re-release's own folder (below). Don't install
   the `quake` launcher package: it pulls GTK 4.
 - **`-nopackedpixels`**: 0.96.3's packed-pixel lightmaps give wrong colours and dlight wraparound on
   big-endian (quakespasm issue #114). Upstream master disables the path on big-endian; nv30 has no

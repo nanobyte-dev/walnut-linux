@@ -52,6 +52,7 @@ import sys
 import tarfile
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -800,6 +801,25 @@ class DataImport(unittest.TestCase):
             wd.check_space = real
         self.assertEqual(rc, 0, out)
         self.assertEqual((seen["total"], seen["archive"], seen["unpack"]), (200, True, 1000))   # not 1 TB
+
+    def test_space_of_an_archive_is_what_it_unpacks_to(self):
+        # a compressed archive unpacks to more than its own size (GOG's Quake Enhanced: 607 MB, 1137 MB unpacked)
+        self.partial_games()
+        Path(wd.MANIFEST).write_text(json.dumps({"packages": {
+            "a-data": {"files": {"a": [{"size": 100}]}}, "b-data": {"files": {"b": [{"size": 100}]}}}}))
+        with zipfile.ZipFile(self.t / "setup.zip", "w", zipfile.ZIP_DEFLATED) as z:
+            z.writestr("game/big.dat", bytes(50000))
+            z.writestr("game/small.dat", bytes(30000))
+        self.assertLess((self.t / "setup.zip").stat().st_size, 2000)
+        seen = {}
+        real = wd.check_space
+        wd.check_space = lambda total, archive, cache, **kw: seen.update(total=total, archive=archive, **kw)
+        try:
+            rc, out = self.imp(self.t / "setup.zip")
+        finally:
+            wd.check_space = real
+        self.assertEqual(rc, 0, out)
+        self.assertEqual((seen["total"], seen["archive"], seen["unpack"]), (200, True, 80000))
 
     def test_addons_found_in_a_folder(self):
         self.partial_games()

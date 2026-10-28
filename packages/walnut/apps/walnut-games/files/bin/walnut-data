@@ -80,7 +80,8 @@ Design
   installer or archive 3T plus its unpacked files, counted as the packages' data or the installer's
   or archive's own size, the larger (gdp unpacks what the installer holds for any package of the game:
   GOG's Quake III Gold gave baseq3/pak0.pk3 to a Team Arena import, which ran out of space at 4T; the
-  unpacked files are about the installer's size, whichever packages were asked for), plus
+  unpacked files are what the installer's listing adds up to, whichever packages were asked for, at
+  least its own size: GOG's Quake Enhanced, 607 MB, unpacks to 1137 MB), plus
   what the sources put there (a BIN/CUE's ISO and music) and DOWNLOAD_BYTES
   when it may download; streaming: T cache + T staging; the helper's deb: 3T staging, its files, dpkg-deb's
   temporary data member and the deb; installing: T staging +
@@ -1349,8 +1350,9 @@ def cmd_import(game_id, sources, asked, no_download, games):
         if total:
             # an installer or archive: unpacked first
             archive = any(kind == "path" and os.path.isfile(what) for kind, what, _ in plans)
-            # an installer is unpacked whole, whichever packages were asked for: about its own size
-            unpack = max(total, sum(os.path.getsize(what) for kind, what, _ in plans
+            # an installer is unpacked whole, whichever packages were asked for: what its listing adds up
+            # to (GOG's Quake Enhanced, 607 MB, unpacks to 1137 MB), at least its own size
+            unpack = max(total, sum(max(os.path.getsize(what), unpacked_bytes(what)) for kind, what, _ in plans
                                     if kind == "path" and os.path.isfile(what)))
             check_space(total, archive, base, unpack=unpack, extra=sum(extra for _, _, extra in plans)
                         + (DOWNLOAD_BYTES if download == "--download" else 0))
@@ -1463,6 +1465,12 @@ def listed_files(path):
             out.append((m.group(1).replace("\\", "/").rpartition("/")[2].lower(),
                         size_bytes(m.group(2), m.group(3) or "") if m.group(2) else None))
     return out
+
+
+def unpacked_bytes(path):
+    """the bytes an installer's or archive's files take unpacked, summed from its listing (listed_files);
+    0 when it can't be listed"""
+    return sum(sz[0] for _, sz in listed_files(path) if sz)
 
 
 def has_file(listed, name, sizes):

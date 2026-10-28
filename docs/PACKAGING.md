@@ -305,7 +305,9 @@ game-data-packager's output isn't reproducible (the files' dates are the build t
 ### Data built on the console
 
 A plain import (no `-p`) makes the game's base, its `required` packages (the user, 2026-10-28), and the
-free-space check counts only those, plus an installer's or archive's own size for its unpacking. The `optional` packages
+free-space check counts only those, plus what an installer or archive unpacks to (gdp unpacks it whole, whichever
+packages were asked for): the sizes its listing adds up to, at least its own size (GOG's Quake Enhanced, 607 MB,
+unpacks to 1137 MB; counted as its own size, Dimension of the Machine's import ran out of space inside gdp). The `optional` packages
 (expansions, music) are add-ons: after the base, `walnut-data` prints `addon available PKG` for those the same source
 holds (found by base name and size against the manifest: a folder is walked, a zip read, an installer listed with
 `innoextract --list`, a BIN/CUE with audio tracks offers the music), and the app's "Also add: NAME" buttons run

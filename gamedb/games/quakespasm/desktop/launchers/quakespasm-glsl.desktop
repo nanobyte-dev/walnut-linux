@@ -7,3 +7,5 @@ Icon=quakespasm
 Terminal=false
 Categories=Game;ActionGame;
 Keywords=quake;first person shooter;
+NoDisplay=true
+X-Walnut-Requires=/usr/share/games/quake/id1/pak0.pak

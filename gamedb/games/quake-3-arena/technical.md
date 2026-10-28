@@ -4,7 +4,8 @@
 
 Untested as a played game: published so that Walnut Games can set up its data. On 2026-10-27 the data
 came from the CD's ISO on the PS3 and ioquake3 loaded q3dm1 with the right picture (lightmaps, models,
-HUD; xwd fullscreen, looked at); nobody has played a session or measured it yet.
+HUD; xwd fullscreen, looked at); on 2026-10-28 from GOG's installer, with Team Arena, whose mpteam1
+loaded with its own HUD. Nobody has played a session or measured it yet.
 
 ## Packages, data and settings
 
@@ -38,10 +39,10 @@ HUD; xwd fullscreen, looked at); nobody has played a session or measured it yet.
   from `ftp.fu-berlin.de` (idstuff) in the games builder on the PC. On the PS3 the import ran with
   `--no-download` and GOG's pak1-8 beside the ISO, for lack of room for the download's 128 MB.
 - **GOG's Quake III Gold** (`setup_quake3_2.0.0.2.exe`, 921 MB, known to gdp): gdp unpacks
-  `baseq3/pak0.pk3` as well when only Team Arena is asked for. On the PS3 that ran out of space at 4x the
-  package, and walnut-data's space check now counts an installer's unpack as every package of the game.
-  The installer needs about 2 GB free for quake3-data alone. Built from it in the games builder on the PC:
-  `quake3-team-arena-data`.
+  `baseq3/pak0.pk3` as well when only Team Arena is asked for (the installer unpacks to 981 MB, whichever
+  package is asked for); walnut-data's space check counts that. On the PS3 (2026-10-28) a plain import made
+  quake3-data in 349 s and named Team Arena as an add-on, `-p quake3-team-arena-data` took 315 s; about
+  2.4 GB free for the base and 2 GB for Team Arena, besides the installer itself.
 - **MDF/MDS**: the CD's ISO written as a 2448-byte-sector MDF (2352 + 96 bytes of subchannel) with its
   `.mds` and extracted again by walnut-data's code gave the ISO 9660 volume byte for byte (on the PC).
 

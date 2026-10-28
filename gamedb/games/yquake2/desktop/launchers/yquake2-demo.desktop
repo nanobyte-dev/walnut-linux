@@ -7,3 +7,5 @@ Icon=applications-games
 Terminal=false
 Categories=Game;ActionGame;
 Keywords=quake;quake2;first person shooter;
+NoDisplay=true
+X-Walnut-Requires=/usr/share/games/quake2-demo/baseq2/pak0.pak

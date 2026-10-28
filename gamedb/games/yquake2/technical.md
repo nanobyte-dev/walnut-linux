@@ -21,9 +21,9 @@ random-number table shrank from 32 MB to 64 KB, and its played session had a 60 
   [upstream.md](upstream.md).
 - Two menu entries of ours ([desktop/launchers](desktop/launchers/)), the gl1 renderer fullscreen at the
   desktop's resolution (`r_mode -2`): "Quake II (demo)", `-datadir /usr/share/games/quake2-demo`, and
-  "Quake II", the full game, `-datadir /usr/share/games/quake2`, `NoDisplay=true` with
-  `X-Walnut-Requires=/usr/share/games/quake2/baseq2/pak0.pak` (shown once the menu rule for it exists,
-  PLAN 5.10). The full game's data is game-data-packager's `quake2-full-data` (build.toml `[data_setup]`).
+  "Quake II", the full game, `-datadir /usr/share/games/quake2`. Both are packed hidden (`NoDisplay=true`)
+  with `X-Walnut-Requires=` their data's `baseq2/pak0.pak` (`/usr/share/games/quake2-demo/...`,
+  `/usr/share/games/quake2/...`): ps3-game-menu shows each only when that file exists. The full game's data is game-data-packager's `quake2-full-data` (build.toml `[data_setup]`).
 - **The data** (licensed): `quake2-demo-data` (`/usr/share/games/quake2-demo/baseq2/`, the demo's
   `baseq2` with `demos/q2demo1.dm2` in its pak), built once with game-data-packager 89 (`make game-data`,
   the demo archive downloaded from id's mirrors and kept in `build/downloads/game-data`) as
