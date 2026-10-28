@@ -22,6 +22,7 @@ import argparse
 import hashlib
 import io
 import os
+import shutil
 import subprocess
 import sys
 import tarfile
@@ -92,6 +93,7 @@ def main():
                     help="where build.sh --app writes the pages (made again)")
     ap.add_argument("--out", default=str(REPO / "build" / "gamedb" / "app-pages.tar"))
     a = ap.parse_args()
+    shutil.rmtree(a.site, ignore_errors=True)    # Hugo's --cleanDestinationDir leaves old stylesheets behind
     subprocess.run([str(HERE / "build.sh"), "--app", a.site], check=True, stdout=subprocess.DEVNULL)
     files, links = pack(a.site, catalog_files(a.catalog), a.out)
     print("pack-app-pages: %d files, %d links to the catalog's pictures -> %s (%.1f MB)"

@@ -642,7 +642,11 @@ the desktop running): importing tkinterweb and making the frame adds 16 MB to a 
 the app's copy should carry the screenshots at the size shown. Scrolling takes 6-9 ms a step (44 ms at
 worst). The PS3's pages look the same as the PC's (an amd64 build under Xvfb): no byte-order problem
 (Tkhtml has no byte-order code; colours and images are right). Tkhtml knows CSS 2.1 selectors only
-(`a[href^="walnut:"]` is an error: match `a[href]` and test the value).
+(`a[href^="walnut:"]` is an error: match `a[href]` and test the value). In the app (2026-10-28, the
+PS3 at 1080p with the desktop running and memory tight): the first Details takes 4.2 s (the import and
+the Overview); the app is about 25 MB RSS before Details and 43 MB with it open; closed, the frame is
+freed but tkinterweb and Tkhtml stay loaded, and five more opens and closes moved RSS from 54 to 55 MB
+(VmHWM 57 to 59 MB): no growth per open.
 
 ## Adding a game
 
