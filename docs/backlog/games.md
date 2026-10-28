@@ -34,6 +34,7 @@ they came from.
 | [Heroes of Might and Magic II (fheroes2)](../../gamedb/games/heroes-of-might-and-magic-2/todo.toml) | 1 | 1 benchmark |  |
 | [LinCity-NG](../../gamedb/games/lincity-ng/todo.toml) | 1 | 1 benchmark |  |
 | [Luanti](../../gamedb/games/luanti/todo.toml) | 6 | 1 benchmark, 1 package, 3 research, 1 session | 2.6, 2.9, 3.12 |
+| [MegaGlest](../../gamedb/games/megaglest/todo.toml) | 1 | 1 fix |  |
 | [Mr.Boom](../../gamedb/games/mrboom/todo.toml) | 1 | 1 session |  |
 | [Neverball](../../gamedb/games/neverball/todo.toml) | 2 | 1 benchmark, 1 session | 3.10 |
 | [Neverputt](../../gamedb/games/neverputt/todo.toml) | 1 | 1 session |  |

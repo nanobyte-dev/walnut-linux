@@ -2,6 +2,6 @@
 id = "megaglest"
 title = "MegaGlest"
 draft = true
-status = "candidate"
-status_note = "GL 2.x with optional shaders, in Debian ppc64 (3.13.0-10.1+b1); a CPU-heavy RTS, 400 MB+ (2026-10-19)."
+status = "tried"
+status_note = "Smoke run on the PS3 on 2026-10-29: its auto-test plays a scenario by itself, fullscreen 1920x1080 with the right picture, 24 fps with 27 s of stalls in 90 s (frames up to 5 s), and its exit after the test ends in an uncaught exception (technical.md); no played session yet."
 +++
