@@ -31,6 +31,7 @@ they came from.
 | [Extreme Tux Racer](../../gamedb/games/etr/todo.toml) | 3 | 1 benchmark, 1 research, 1 session | 2.6 |
 | [Flare](../../gamedb/games/flare/todo.toml) | 1 | 1 benchmark |  |
 | [Freeciv](../../gamedb/games/freeciv/todo.toml) | 1 | 1 benchmark |  |
+| [FreeOrion](../../gamedb/games/freeorion/todo.toml) | 1 | 1 fix |  |
 | [Heroes of Might and Magic II (fheroes2)](../../gamedb/games/heroes-of-might-and-magic-2/todo.toml) | 1 | 1 benchmark |  |
 | [LinCity-NG](../../gamedb/games/lincity-ng/todo.toml) | 1 | 1 benchmark |  |
 | [Luanti](../../gamedb/games/luanti/todo.toml) | 6 | 1 benchmark, 1 package, 3 research, 1 session | 2.6, 2.9, 3.12 |

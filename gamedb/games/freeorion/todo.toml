@@ -1,0 +1,11 @@
+# FreeOrion: the backlog (gamedb/README.md, "games/<id>/todo.toml"): [[item]] with kind, text, added, source;
+# a session item's order is its place in the played-session queue (docs/TESTS.md's generated block).
+
+[[item]]
+kind = "fix"
+added = 2026-10-29
+source = "games night 2026-10-28 (smoke)"
+text = """\
+The white square on the galaxy map: a textured sprite over the home system drawn white on nv30 (texture \
+format, size or a shader). Then the AI turn time: six Python AIs left turn 1 waiting for more than a \
+minute (fewer AIs in the quickstart settings for the PS3?)."""
