@@ -15,6 +15,12 @@ a player points "Add Game" at; never in the repository), recipe variants `dott` 
   stops at the game's own copy-protection screen (the recipe for bad breath), drawn right; ScummVM doesn't
   skip it for this version.
 
+- The Secret of Monkey Island, floppy VGA, Spanish (`000.LFL` sha256 `4b24ef06...dfd9fc`; variant `monkey`):
+  the "Parte Uno" title, then Guybrush on the dock at night with the verbs, colours right (`ps3-bench-20261029T023324Z-smoke-scummvm-monkey`).
+- Full Throttle, CD, Spanish (`FT.LA0` sha256 `ead126c9...0526`, `FT.LA1` `35fd5f3b...6bf6f`; variant `ft`): the
+  SMUSH intro skipped, the alley by the dumpster in play, right (`ps3-bench-20261029T023527Z-smoke-scummvm-ft`). 282 MB of data, removed from the
+  console after the run for the disk.
+
 The Gallium HUD numbers (6-9 fps, "stalls") mean nothing here: ScummVM presents a frame only when the picture
 changes. Beneath a Steel Sky (the base recipe) was not re-run: its data package isn't installed and the disk
 was at 1.9 GB free.

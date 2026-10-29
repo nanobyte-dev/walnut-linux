@@ -53,3 +53,6 @@ variant_nosound() { CMD+=(--music-driver=null --no-sfx); }
 # game's technical.md): Day of the Tentacle (CD, talkie) and Monkey Island 2 (floppy, VGA)
 variant_dott() { SV_ID=tentacle; SV_TITLE="Day of the Tentacle"; SV_DIR=$HOME/Games/scummvm/DOTT; sv_cmd; }
 variant_monkey2() { SV_ID=monkey2; SV_TITLE="Monkey Island 2"; SV_DIR=$HOME/Games/scummvm/MONKEY2; sv_cmd; }
+# The Secret of Monkey Island (floppy, VGA) and Full Throttle (CD: SMUSH video, iMUSE), the player's own too
+variant_monkey() { SV_ID=monkey; SV_TITLE="The Secret of Monkey Island"; SV_DIR=$HOME/Games/scummvm/MONKEY; sv_cmd; }
+variant_ft() { SV_ID=ft; SV_TITLE="Full Throttle"; SV_DIR=$HOME/Games/scummvm/FULLTHROTTLE; sv_cmd; }
