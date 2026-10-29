@@ -13,6 +13,18 @@ after throwing ... megaglest_runtime_error: In [thread.cpp::~Mutex Line: 534] ab
 1`, and the harness killed it at 200 s. Runs, needs performance work (a profile first) and the exit fixed.
 
 
+## Our package
+
+`megaglest` 3.13.0-10.1+ps3.N ([packages/megaglest](packages/megaglest/)),
+[0001](packages/megaglest/patches/0001-byte_order-don-t-byte-reverse-std-string-objects.patch): Debian's build
+crashed at the main menu on the PS3 (SIGSEGV ~50 s after the start, in a SimpleTaskThread; the bench runs
+never saw it, `--auto-test` and `--load-scenario` skip the menu). The core (Debian's megaglest-dbgsym, gdb
+on the PC) put it in `PlatformByteOrder::EndianReverse<std::string>`: that template reverses the raw bytes
+of any object, `toCommonEndian` calls it on big-endian machines, and the CRC cache
+(`platform_common.cpp`) passes its version strings and file path through it, so the strings' own pointers
+were reversed. 0001 returns a string unchanged. Built, pending its PS3 test (the menu entry, the main menu
+for a few minutes); the exit's "about to destroy mutex refCount = 1" may be the same thread, to re-check.
+
 ## Our defaults
 
 The menu entry is ours (`desktop/launchers/megaglest-walnut.desktop`, Debian's diverted): a first start writes

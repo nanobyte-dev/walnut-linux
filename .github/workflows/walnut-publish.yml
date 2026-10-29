@@ -39,6 +39,7 @@ on:
       - "pkg: linux"
       - "pkg: luajit"
       - "pkg: luanti"
+      - "pkg: megaglest"
       - "pkg: mesa"
       - "pkg: mrboom"
       - "pkg: neverball"

@@ -6,6 +6,7 @@ kind = "fix"
 added = 2026-10-29
 source = "games night 2026-10-28 (smoke)"
 text = """\
-Performance and the exit: its auto-test scenario plays at 24 fps with 27 s of stalls in 90 s (frames up to \
-5 s), and quitting after the test throws "about to destroy mutex refCount = 1" (thread.cpp ~Mutex). A \
-`BENCH_PERF=1 BENCH_STALLS=1 BENCH_MEM=1` smoke run first."""
+The main-menu crash is fixed in our megaglest 0001 (pending its PS3 test: the menu entry, a few \
+minutes at the main menu, then a game); re-check the exit's \"about to destroy mutex refCount = 1\" with \
+it. Speed: 22 fps with 29 s of stalls on one scenario, the swap (~150 MB of the game on disk): a \
+memory job (what holds the RAM: MEM=1 runs exist, technical.md \"Our defaults\")."""

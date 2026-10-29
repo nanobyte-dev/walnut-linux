@@ -1,0 +1,41 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Thu, 29 Oct 2026 04:03:48 +0200
+Subject: byte_order: don't byte-reverse std::string objects
+
+EndianReverse() reverses the bytes of whatever object it is given, and
+toCommonEndian()/fromCommonEndian() call it on big-endian machines. The
+CRC cache (platform_common.cpp) passes std::string values through them
+(the game and git versions, the file path), so on big-endian (the PS3)
+the strings' own pointer and length bytes were reversed: a SIGSEGV in a
+SimpleTaskThread about 50 s after the start, at the main menu. A string is
+a run of bytes, the same in either byte order: EndianReverse now returns
+it unchanged.
+
+Forwarded: not-needed (worth offering upstream)
+
+diff --git a/source/shared_lib/include/platform/common/byte_order.h b/source/shared_lib/include/platform/common/byte_order.h
+--- a/source/shared_lib/include/platform/common/byte_order.h
++++ b/source/shared_lib/include/platform/common/byte_order.h
+@@ -13,6 +13,7 @@
+ #define BYTE_ORDER_H
+ 
+ #include <algorithm>
++#include <string>
+ #include "leak_dumper.h"
+ 
+ namespace Shared{ namespace PlatformByteOrder {
+@@ -32,6 +33,13 @@ template<class T> T EndianReverse(T t) {
+     return t;
+ }
+ 
++// A string is a run of bytes, the same in either byte order; reversing its object's own bytes (its
++// pointer and length) corrupted it on big-endian machines: the CRC cache (platform_common.cpp) wrote
++// and read its version strings through toCommonEndian, and the game crashed at its main menu.
++template<> inline std::string EndianReverse<std::string>(std::string t) {
++	return t;
++}
++
+ inline static bool isBigEndian() {
+ 	short n = 0x1;
+ 	return (*(char*)(&n) == 0x0);
