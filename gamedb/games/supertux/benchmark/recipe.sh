@@ -41,3 +41,4 @@ variant_card() { ST_KEYS=0; }
 variant_sdl() { ST_RENDERER=sdl; st_cmd "$ST_LEVEL"; }
 variant_nomusic() { CMD+=(--disable-music); }
 variant_fresh() { CMD=(/usr/games/supertux2 "$ST_LEVEL"); }	# no video options: what a new player gets (the level card keys still pressed)
+variant_entry() { CMD=(/usr/games/supertux2 --fullscreen "$ST_LEVEL"); }	# as our menu entry starts it (supertux2-walnut.desktop: --fullscreen alone), plus the level
