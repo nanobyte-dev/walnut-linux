@@ -31,6 +31,10 @@ disassembly names as `Blit8888to8888PixelAlphaSwizzle`: the scalar path (no SIMD
 per-pixel-alpha ARGB8888 sprites onto sdl12-compat's XRGB8888 screen. Our libsdl3's
 [0003](../../../packages/patched/graphics/libsdl3/patches/0003-blit-a-faster-scalar-8888-alpha-blit-between-differe.patch)
 makes that loop cheaper, bit-identical (shifts in registers, one mask for same-place RGB, alpha 0 and 255
-without the blend); pending its PS3 numbers. Frozen Bubble spends 27% in the same loop. A lower resolution
-scaled by sdl12-compat is the other lever.
+without the blend). On the PS3 (2026-10-29, same boot): the game's counter 7.0 -> 9.8 fps, the picture
+unchanged (`ps3-bench-20261029T033532Z-smoke-warmux-play`); under perf libSDL3 55% -> 40%. Frozen Bubble,
+which spent 27% in the same loop, stays at its 45 fps cap with the picture right. Next in the profile
+(`ps3-bench-20261029T034148Z`): `ConvertAltivec32to32_prefetch` 11% (a whole-frame 32-bit format conversion,
+already AltiVec: sdl12-compat's screen surface into its texture, probably a format mismatch to remove) and
+the blit itself 8%. A lower resolution scaled by sdl12-compat is the other lever.
 
