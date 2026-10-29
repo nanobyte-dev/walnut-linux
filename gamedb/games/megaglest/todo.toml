@@ -6,7 +6,7 @@ kind = "fix"
 added = 2026-10-29
 source = "games night 2026-10-28 (smoke)"
 text = """\
-The main-menu crash is fixed in our megaglest 0001 (pending its PS3 test: the menu entry, a few \
-minutes at the main menu, then a game); re-check the exit's \"about to destroy mutex refCount = 1\" with \
-it. Speed: 22 fps with 29 s of stalls on one scenario, the swap (~150 MB of the game on disk): a \
+The main-menu crash is fixed in our megaglest 0001 (checked on the PS3). The exit after the \
+auto-test now waits instead of throwing: watch its CPU while it \"hangs\" (busy: the CRC thread finishing \
+the data set; idle: a deadlock) and give it 10 minutes; then quitting from the main menu. Speed: 22 fps with 29 s of stalls on one scenario, the swap (~150 MB of the game on disk): a \
 memory job (what holds the RAM: MEM=1 runs exist, technical.md \"Our defaults\")."""

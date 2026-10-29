@@ -22,8 +22,12 @@ never saw it, `--auto-test` and `--load-scenario` skip the menu). The core (Debi
 on the PC) put it in `PlatformByteOrder::EndianReverse<std::string>`: that template reverses the raw bytes
 of any object, `toCommonEndian` calls it on big-endian machines, and the CRC cache
 (`platform_common.cpp`) passes its version strings and file path through it, so the strings' own pointers
-were reversed. 0001 returns a string unchanged. Built, pending its PS3 test (the menu entry, the main menu
-for a few minutes); the exit's "about to destroy mutex refCount = 1" may be the same thread, to re-check.
+were reversed. 0001 returns a string unchanged. On the PS3 (2026-10-29, `ps3-bench-20261029T044952Z-smoke-megaglest-menu`):
+the main menu stays up and animated past 100 s, 38 fps, no crash. The auto-test's exit no longer throws
+"about to destroy mutex refCount = 1" but doesn't end within the harness's 220 s
+(`ps3-bench-20261029T045225Z-smoke-megaglest-autotest`): likely the same CRC thread, which now runs to its
+end (the CRCs of the whole data set on the PPE) and is waited for at exit, where before it was destroyed
+running; open.
 
 ## Our defaults
 
