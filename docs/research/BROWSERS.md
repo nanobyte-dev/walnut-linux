@@ -956,7 +956,8 @@ reads the 128 KB around it.
   together at the start of `.text`; the code is unchanged and the screenshots match pixel for pixel, be-test 13 of
   13. The list was made from two other pages (the GameDB OpenArena page, Wikipedia "Cell (processor)") and tested
   on the GameDB home and Wikipedia "PlayStation 3": only 3% of the functions those ran were missing from it. The
-  shipped list adds the test pages' traces too. A new WebKit version needs new traces (tools/webkit-order/: the
+  shipped list adds the test pages' traces too; the package built with it (ps3.1144, 40 min with ccache, not
+  published) holds 30.5 MB of the two libraries' code after the Wikipedia scroll, pixel-identical again. A new WebKit version needs new traces (tools/webkit-order/: the
   recipe is in `tracefuncs.py`); until then, functions it adds or renames just stay in the default place.
 - **Packed relocations** (DT_RELR, glibc 2.36+): 13.3 MB less for the dynamic loader to read at each process start.
   The three processes still write the same relocated pages.
