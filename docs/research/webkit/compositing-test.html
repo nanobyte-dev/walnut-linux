@@ -1,0 +1,31 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>gpu colours</title>
+<style>
+body { margin: 0; background: #fff; font: 20px sans-serif; }
+.row { display: flex; gap: 10px; padding: 10px; }
+.b { width: 150px; height: 100px; color: #fff; display: flex; align-items: center; justify-content: center; }
+.layer { will-change: transform; }
+.op { opacity: 0.5; }
+.rot { transform: rotate(8deg); }
+.round { border-radius: 24px; overflow: hidden; }
+.tall { height: 3000px; background: linear-gradient(#f00, #0f0 33%, #00f 66%, #000); }
+</style></head><body>
+<div class="row">
+ <div class="b" style="background:#f00">red</div><div class="b" style="background:#0f0;color:#000">green</div>
+ <div class="b" style="background:#00f">blue</div><div class="b" style="background:#ff0;color:#000">yellow</div>
+</div>
+<div class="row">
+ <div class="b layer" style="background:#f00">layer red</div><div class="b layer" style="background:#0f0;color:#000">layer green</div>
+ <div class="b layer" style="background:#00f">layer blue</div><div class="b layer op" style="background:#f00">50% red</div>
+</div>
+<div class="row">
+ <div class="b layer rot" style="background:#f80">rotated</div><div class="b layer round" style="background:#80f">rounded</div>
+ <canvas id="c" width="150" height="100" class="layer"></canvas>
+</div>
+<div class="tall"></div>
+<script>
+const g = document.getElementById('c').getContext('2d');
+g.fillStyle = '#f00'; g.fillRect(0, 0, 50, 100); g.fillStyle = '#0f0'; g.fillRect(50, 0, 50, 100);
+g.fillStyle = '#00f'; g.fillRect(100, 0, 50, 100);
+</script>
+</body></html>

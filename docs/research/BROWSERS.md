@@ -34,6 +34,9 @@ and asked for the features we don't need to be left out where that saves memory 
      mode, and a UI process without an accelerated backing store (Badwolf: acceleration NEVER, no DMA-BUF
      renderer) crashed. YouTube took Badwolf down in seconds on the PC, with Debian's build too;
   7. a missing include the smaller feature set exposes.
+  Three more, the files 0009 to 0011, are for [GPU compositing](#gpu-compositing), which stays off by default:
+  compositing without WebGL (upstream turned acceleration off for good in builds without it), TextureMapper's ARGB
+  colour matrix on big-endian (it was transposed), and shared-memory frames in Cairo's byte order on big-endian.
   Built on the dev PC (`BUILD=xcc`, [PACKAGING.md](../PACKAGING.md#built-on-the-dev-pc)), never by CI; published
   to testing from there once the PS3 test passes.
 - **Tested so far:** on the PC (amd64) the whole build, Badwolf on it and every page below. On ppc64, without
@@ -449,6 +452,160 @@ run them, just slowly (a page takes a few minutes). That is how fixes 2 and 3 we
 qemu core and a copy of `/proc/<pid>/maps` taken while it ran give each frame's library and offset, and gdb in
 the chroot with the `-dbgsym` packages names them. A build tree kept in such a chroot, where `ninja JavaScriptCore` alone
 rebuilds the interpreter, turns a JSC fix around in about half an hour instead of a whole package build.
+
+### GPU compositing
+
+The user asked on 2026-10-29 whether the browser could draw on the GPU: page layers as textures in VRAM,
+composited by the RSX, so that scrolling stops copying frames between VRAM and RAM. Short answer: the layers can
+live in VRAM and be composited by the RSX, and what that sends the RSX is safe as far as the validator and our
+known-bad list can tell. The copies don't go away, though. WebKitGTK 2.52 on GTK 3 and X11 reads every composited
+frame back into RAM and hands it to X as an image, so compositing adds a VRAM-to-RAM copy per frame on top of the
+upload X does anyway. On the PS3, scrolling is held back by paging, not by drawing
+([Our build on the PS3](#our-build-on-the-ps3-2026-10-29): pixman and Cairo are 2-3% of the samples), and GL in
+the web process costs memory. So compositing is not worth turning on as it is. The route that would keep frames in
+VRAM is a different presentation path, sketched at the end.
+
+**What our build did.** Nothing composited, whatever the policy said. `HardwareAccelerationManager.cpp` turns
+acceleration off for good when WebGL is left out of the build (`#if !ENABLE(WEBGL)`), and ours leaves it out. That
+is upstream's code, not one of our cuts. TextureMapper and the threaded compositor are built on GTK either way and
+need nothing of WebGL or ANGLE. Patch 0009 drops the gate: without WebGL, the same checks decide as with it. Badwolf
+still defaults to NEVER and, since its patch 0007, keeps its processes off the GPU, so 0009 changes nothing for it
+unless someone opts in.
+
+**What compositing needs** (2.52 source; paths under `Source/`):
+
+- The UI process (`UIProcess/gtk/AcceleratedBackingStore.cpp`) needs `WEBKIT_DISABLE_DMABUF_RENDERER` unset or 0,
+  `EGL_KHR_platform_gbm` or `EGL_MESA_platform_surfaceless` among EGL's client extensions, a GL vendor other than
+  NVIDIA, and a GL context that GTK 3 can make for a window (GLX on X11). Without the DMA-BUF renderer, 2.52 has
+  no other accelerated backing store: the X11 and Wayland ones are gone.
+- Buffer modes. With a DRM device (`drmMainDevice()`, which comes from the UI's EGL display or `drmGetDevices2`)
+  and `EGL_EXT_image_dma_buf_import` in the UI, the mode is Hardware: the web process renders into a `gbm_bo`
+  (`GBM_BO_USE_RENDERING`, LINEAR, XRGB8888 or ARGB8888). Otherwise it is SharedMemory: an FBO read back with
+  `glReadPixels(GL_BGRA)` into a shared bitmap every frame.
+- The web process uses EGL only (no GLX anywhere): `PlatformDisplayGBM` on the render node in Hardware mode,
+  surfaceless otherwise. It calls `eglBindAPI(EGL_OPENGL_ES_API)` and asks for a GLES 2 context with an RGBA8888
+  config and 8 bits of stencil. A driver with desktop GL only cannot be used. TextureMapper's shaders are GLSL ES
+  1.00 with precision statements.
+- GL features it uses: FBOs, `GL_DEPTH24_STENCIL8_OES` for the surface (no fallback), stencil and scissor clips,
+  NPOT textures (otherwise a manual-repeat shader), `GL_EXT_unpack_subimage` (otherwise rows are copied into a
+  temporary buffer), and `GL_EXT_read_format_bgra` in SharedMemory mode. It uses no VAOs, PBOs, `glTexStorage`,
+  `glBlitFramebuffer` or BGRA textures.
+- Nv30 has all of it: the EGL listing under the shim (below) and [glxinfo-nv47.txt](../glxinfo-nv47.txt) give
+  OpenGL ES 2.0 through EGL, surfaceless and GBM platforms, `EGL_KHR_surfaceless_context`, dma-buf import,
+  `GL_OES_packed_depth_stencil`, `GL_OES_depth24`, `GL_OES_texture_npot`, `GL_EXT_unpack_subimage`,
+  `GL_EXT_read_format_bgra` and a 4096 texture limit. `EGL_MESA_image_dma_buf_export` is missing, but only the
+  surfaceless Hardware variant needs it.
+- Tiles are painted by Cairo on the CPU into malloc'd buffers (`CoordinatedUnacceleratedTileBuffer`, BGRA8, which
+  on big-endian means Cairo's ARGB32 words) and uploaded with `glTexSubImage2D(GL_RGBA, GL_UNSIGNED_BYTE)`.
+  Texels are not swizzled on the CPU: a colour matrix in the shader puts the channels in order. The tiles are as
+  wide as the view and at least 256 rows high.
+- How a frame reaches the screen on GTK 3 and X11. In Hardware mode the UI process maps the whole `gbm_bo` every
+  frame (`gbm_bo_map(GBM_BO_TRANSFER_READ)`; on nv30 that is an M2MF copy of VRAM into GART and a CPU read),
+  wraps it in a Cairo image surface and paints it into the GTK window, which reaches X as an image that glamor
+  uploads to VRAM again. In SharedMemory mode the web process reads the frame back itself. The only GL-import path
+  (an EGLImage drawn with `gdk_cairo_draw_from_gl`) is compiled only without GBM, and on GTK 3 X11 it reads back
+  too. **No path keeps the frame in VRAM.** Scrolling with compositing moves layers and paints only newly exposed
+  tiles, but each step composites and copies out a whole frame.
+
+**Two big-endian bugs in the composited path,** found from the source and then seen on ppc64:
+
+- TextureMapper's ARGB-to-RGBA colour matrix (`TextureMapper.cpp`, used on big-endian, where Cairo's tile bytes
+  are A, R, G, B) was the transpose of the right one, because the matrix goes to the shader column by column.
+  Every tile came out as (B, A, R, G). Patch 0010.
+- SharedMemory mode reads frames back as `GL_BGRA` bytes, and the UI process wraps them as Cairo ARGB32, which on
+  big-endian is A, R, G, B in memory. Patch 0011 reverses each pixel's bytes after the read on big-endian.
+  Hardware mode needs no fix with our Mesa, whose patch 0009 makes the 8888 fourccs host-order words.
+
+Both showed up in our ppc64 build under qemu with Mesa's software driver (softpipe, since our ppc64 Mesa has no
+LLVM), Badwolf at ALWAYS, on [compositing-test.html](webkit/compositing-test.html). This is a page of red, green,
+blue and yellow boxes, some as their own layers, at 50% opacity, rotated, rounded, plus a canvas and a gradient.
+With 0009 alone, red stayed red, green and blue vanished (alpha 0), yellow turned magenta and orange pink, exactly
+what the two bugs predict together. With 0010 and 0011 the composited page matches the non-composited one, and
+the gradient scrolls right.
+
+**On the PC** (amd64, Xvfb at 1280x1024, Badwolf in an 800x600 window, Debian's 2.52.6-1 build because it has
+WebGL on and so composites, `MESA_GL_VERSION_OVERRIDE=2.1`, `MESA_GLSL_VERSION_OVERRIDE=120` and
+`MESA_GLES_VERSION_OVERRIDE=2.0` on llvmpipe). After a 35 s load we scrolled for 30 s with the wheel (75 steps down
+and 75 up, 0.2 s apart) and measured the CPU time of the UI, web and X processes over that window. Two rounds,
+interleaved; the table gives their mean.
+
+| Page | NEVER | ALWAYS, Skia CPU raster (`WEBKIT_SKIA_ENABLE_CPU_RENDERING=1`, like Cairo) | ALWAYS, Skia GPU raster |
+|---|---:|---:|---:|
+| GameDB home | 2.2 s | 12.1 s | 12.5 s |
+| Wikipedia, "PlayStation 3" | 3.1 s | 6.2 s | 5.9 s |
+| BBC News | 3.2 s | 19.7 s | 17.8 s |
+
+It composited in every ALWAYS run: with `WEBKIT_SHOW_COMPOSITING_DEBUG_VISUALS=1` the tile borders show. There were
+no fallbacks and no warnings. The mode was SharedMemory (Xvfb has no DRI3, so there is no DRM device). Most of the
+extra time is in the web process, where llvmpipe runs the GL work on the CPU and reads every frame back, so on the
+PC the comparison is skewed against GL. The readback and the UI's image copy are real on the PS3 too.
+
+**On the RSX, through the validator.** The ppc64 build with patches 0009-0011, Badwolf at ALWAYS, ran under qemu on
+Mesa 26.2.4-1+ps3.1037 (with 0052) and the nouveau drm-shim answering like ps3rsx
+(`packages/walnut/drivers/ps3rsx/test/mesa-shim/`; its `browser.sh` runs Badwolf the same way). Every push of
+every process went to a file, and every file went through ps3rsx's validator with `test/validate-capture`. The
+window was 1278x613; each page loaded for 200-500 s under qemu, then got 20 wheel steps down and 5 up.
+
+| Page | Web process: submits, words | Refused |
+|---|---:|---:|
+| compositing-test.html | 791, 205,888 | 0 |
+| GameDB home | 656, 121,610 | 0 |
+| Wikipedia, "PlayStation 3" | 756, 175,631 | 0 |
+| BBC News | 908, 341,112 | 0 |
+
+The UI process made a channel too (2 submits, 61 words: the binds) for GTK's GL check. Badwolf 0007 keeps it off
+the device on the PS3 unless it is overridden. `mesa-shim/capture-stats.py` lists what the streams ask of the RSX,
+over all four pages:
+
+- **Textures:** only A8R8G8B8, linear, normalized, 2D, one level, in VRAM, offsets 128-byte aligned,
+  clamp-to-edge, linear filtering. Sizes include view-wide tiles (1278x256, pitch 5120), images (208x436,
+  532x307), 21-pixel strips (pitch 128), 150x100 for the canvas, and a 1278x1 tile. There is no X16, L16, float,
+  DXT, swizzled, cube or 3D texture. The 0x105 rules (the X16 format, a misaligned offset) are never touched.
+- **Render targets:** A8R8G8B8 with Z24S8, linear, at the view size (1278x613 and 798x493 before the resize), pitch
+  3200 or 5120, offsets aligned. No swizzled target, so nothing 1 pixel wide (0x106).
+- **Draws:** triangle fans from float x2 vertex formats (one float x4 layout), premultiplied-alpha blending
+  (ONE, ONE_MINUS_SRC_ALPHA), scissor. Stencil is only written at init. Three fragment programs in all.
+- **Copies:** M2MF only, no SIFM or swizzled surfaces. GART to VRAM for tile uploads, some to destinations that
+  are only 4-byte aligned (sub-rectangle updates), and VRAM to GART for the whole frame (the readback: 1278x613 at
+  pitch 5120, about 3 MB, once per frame).
+
+All of this is the kind of stream glamor and the games already send: the same texture and target formats, M2MF
+uploads, float vertices. Nothing new for the RSX was found, with two caveats. The validator does not look into
+fragment program code (as for every program), and Hardware mode could not be captured: GBM does not initialise
+under the drm-shim. In that mode the target is a `gbm_bo` and the UI's `gbm_bo_map` does the VRAM-to-GART copy
+instead of `glReadPixels`. One composited frame from the GameDB capture (submits 387-389: three tile uploads,
+twelve draws, the fence, the readback) is the validator fixture `test/fixtures/webkit-compositing.h`, checked by
+`validate-test`.
+
+**What would keep frames in VRAM.** The web process already renders into a dma-buf in Hardware mode. A GTK 3 X11
+backing store could hand that buffer to the X server instead of mapping it: DRI3's `PixmapFromBuffers` turns it
+into a pixmap, and `XCopyArea` or Present puts it on the window, a VRAM-to-VRAM copy that glamor does on the RSX.
+That is a new `AcceleratedBackingStore` buffer type for X11, roughly what 2.42 removed with the XComposite store,
+and needs PRIME on ps3rsx (which it has). WPE with cog's X11 platform does the same by design: it draws the
+imported EGLImage into an EGL window surface and swaps. Both are projects, and both still carry the GL context's
+memory in the web process, which is the PS3's real limit today.
+
+**PS3 test plan (not run).** This comes after the validator video test in [TESTS.md](../TESTS.md) Next (ps3rsx
+0.1036 or 0.1077 and Mesa ps3.1037 with 0052 installed first), and only with the user present: the risk is a
+wedge that needs a reboot. Nothing else is queued in that boot. It needs a webkit2gtk build with 0009-0011 (the
+package's next build), deployed by hand, not published.
+
+1. With the defaults (NEVER, Badwolf 0007), GameDB home: draws as before, and the web process has no `/dev/dri`
+   descriptor. 0009 changes nothing here.
+2. SharedMemory mode, the captured one: `LIBGL_ALWAYS_SOFTWARE=0 WEBKIT_WEB_RENDER_DEVICE_FILE=/dev/dri/renderD128
+   WEBKIT_DISABLE_DMABUF_RENDERER=0 WEBKIT_DMABUF_RENDERER_FORCE_SHM=1 WALNUT_BROWSER_ACCEL=always badwolf
+   file:///.../compositing-test.html` (the first two override 0007). Check `dmesg` for `rejected push` and
+   `graphics exception`, and compare an `xwd` with the PC reference: boxes in the right colours, the gradient after
+   scrolling. Stop at the first rejection or exception and keep dmesg.
+3. The same on the GameDB home, then Wikipedia: 30 s of wheel scrolling. Record CPU per process (UI, web, Xorg),
+   PSS and swap per process, the time from a scroll step to the screen (the probe from the run above), and dmesg.
+   Measure against NEVER in the same boot.
+4. Only if 2 and 3 are clean: Hardware mode (drop `WEBKIT_DMABUF_RENDERER_FORCE_SHM`). This path is uncaptured:
+   web rendering into a GBM buffer, the UI's `gbm_bo_map`. Same checks.
+
+Expected: correct pictures, no rejection, and scrolling no better (likely worse) than NEVER because of the
+readback and the GL memory. If so, compositing stays off. The capture still says the RSX can take TextureMapper's
+streams, which is what a DRI3 presentation path would build on.
 
 ## 4. WPE WebKit and cog
 
