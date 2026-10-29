@@ -102,6 +102,12 @@ smoke_pad() {
 		[ -n "$node" ] && [ -r "/dev/input/$node" ] && break
 		sleep 0.1
 	done
-	udevadm settle -t 10 2>/dev/null || sleep 2
+	# udev done with it: SDL (through udev) lists a pad only once udev has tagged it a joystick; on the
+	# PS3 that came ~1 s after the node, and bzflag, started at the node, saw no pad (settle alone didn't wait)
+	for i in $(seq 100); do
+		udevadm info --query=property --name="/dev/input/$node" 2>/dev/null | grep -q '^ID_INPUT_JOYSTICK=1' && break
+		sleep 0.1
+	done
+	udevadm settle -t 10 2>/dev/null; sleep 1
 	echo "virtual pad /dev/input/${node:-?} ready at $EPOCHREALTIME (its events count from the call)"
 }
