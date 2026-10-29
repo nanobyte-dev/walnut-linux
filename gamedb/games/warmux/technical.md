@@ -20,6 +20,11 @@ the config is `~/.config/wormux/config.xml` (the recipe's BACKUP path was wrong)
   and fell into the water at once ("Winner: Bugzilla"): the ground's tiles test each pixel as a Uint32
   0xAARRGGBB, but tile.cpp read the map's PNG as B, G, R, A bytes (`png_set_bgr`), which is that value only
   on little-endian; the PS3 tested the blue byte as alpha and most of the ground was empty. Big-endian now
-  reads A, R, G, B (`png_set_swap_alpha`). Built, pending its PS3 test (variant `play`). Worth offering
-  upstream.
+  reads A, R, G, B (`png_set_swap_alpha`). Checked on the PS3 (2026-10-29, variant `play`,
+  `ps3-bench-20261029T023911Z-smoke-warmux-play`): the characters stand on the Abyss map, the turns pass, the
+  picture right. Worth offering upstream.
+
+The match runs at 7 fps (the game's counter; 9 on the Gallium HUD, 51 s of 90 in frames over 100 ms, 110 MB
+RSS): SDL 1.2 software drawing of a 1920x1080 surface through sdl12-compat. A lower resolution scaled by
+sdl12-compat is the next default to try.
 

@@ -6,6 +6,6 @@ kind = "fix"
 added = 2026-10-29
 source = "games night 2026-10-28"
 text = """\
-warmux 0002 (the ground on big-endian, technical.md \"Our package\"), pending its PS3 test: \
-`run.sh smoke warmux play`: the characters stand on the map and the match goes on; then a played \
-session (fullscreen is 0001's, checked)."""
+Speed: 7 fps at 1920x1080 (SDL 1.2 software drawing; the ground fix 0002 is checked). Try the \
+match at 960x540 and 1280x720 fullscreen (sdl12-compat scales it to the screen): if one plays near \
+30 fps and looks right, that becomes 0001's default instead of the screen's size."""
