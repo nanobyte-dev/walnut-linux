@@ -1,0 +1,115 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Thu, 29 Oct 2026 23:25:15 +0200
+Subject: loader/dri3: keep the back buffers we have when another can't be
+ allocated
+
+When X page-flips a fullscreen window, the DRI3 loader wants a third back buffer
+(dri3_update_max_num_back: 3 with a swap interval, 4 without). On the PS3 a game
+that has filled the VRAM (Trigger Rally, 2026-10-29: "ps3rsx: out of VRAM for a
+8100 KiB BO" once per frame) can't get it. dri3_find_back then picks the empty
+slot every frame, the allocation fails, getBuffers returns false and the frontend
+keeps drawing into the back buffer it validated last, while the swap presents
+whichever buffer is idle. One of them holds an old frame, so the screen
+alternates between the new picture and a stale one: Trigger Rally's main menu
+and the menu opened from it flashed in turn.
+
+Once an allocation for an empty slot fails and the drawable has two back
+buffers, cap max_num_back at what it has (for the drawable's life) and wait for
+one of them to go idle, in getBuffers and in the swap's dri3_find_back_alloc.
+A warning goes to the log once. With fewer than two back buffers nothing
+changes: a single buffer that is being scanned out never goes idle.
+
+diff --git a/src/gallium/frontends/dri/loader_dri3_helper.c b/src/gallium/frontends/dri/loader_dri3_helper.c
+--- a/src/gallium/frontends/dri/loader_dri3_helper.c
++++ b/src/gallium/frontends/dri/loader_dri3_helper.c
+@@ -295,6 +295,28 @@ dri3_update_max_num_back(struct loader_dri3_drawable *draw)
+    default:
+       draw->max_num_back = 2;
+    }
++
++   if (draw->alloc_cap_num_back && draw->max_num_back > draw->alloc_cap_num_back)
++      draw->max_num_back = draw->alloc_cap_num_back;
++}
++
++/* PS3: another back buffer could not be allocated (out of VRAM: a page-flipping drawable wants a
++ * third one). Make do with the back buffers we have from now on, so dri3_find_back waits for one
++ * of them to go idle instead of picking the empty slot again. Without this, getBuffers fails every
++ * frame, the frontend keeps drawing into the previous back buffer and the swap presents another
++ * one, whose content is old: the screen alternates between the new frame and a stale one. Needs
++ * two buffers: a lone back buffer that is being scanned out never goes idle. */
++static bool
++dri3_cap_num_back(struct loader_dri3_drawable *draw)
++{
++   if (draw->cur_num_back < 2)
++      return false;
++   if (!draw->alloc_cap_num_back)
++      mesa_logw("dri3: no memory for back buffer %d, keeping %d", draw->cur_num_back + 1,
++                draw->cur_num_back);
++   draw->alloc_cap_num_back = draw->cur_num_back;
++   draw->max_num_back = draw->cur_num_back;
++   return true;
+ }
+ 
+ void
+@@ -2061,8 +2083,19 @@ dri3_get_buffer(struct dri_drawable *driDrawable,
+                                             draw->width,
+                                             draw->height,
+                                             draw->depth);
+-      if (!new_buffer)
+-         return NULL;
++      if (!new_buffer) {
++         /* PS3: an empty slot we can't fill: wait for one of the back buffers we have */
++         if (buffer_type != loader_dri3_buffer_back || buffer || !dri3_cap_num_back(draw))
++            return NULL;
++         buf_id = dri3_find_back(draw, !draw->prefer_back_buffer_reuse);
++         if (buf_id < 0)
++            return NULL;
++         buffer = draw->buffers[buf_id];
++         if (!buffer || buffer->width != draw->width ||
++             buffer->height != draw->height || buffer->reallocate)
++            return NULL;
++         goto have_buffer;
++      }
+ 
+       /* When resizing, copy the contents of the old buffer, waiting for that
+        * copy to complete using our fences before proceeding
+@@ -2117,6 +2150,7 @@ dri3_get_buffer(struct dri_drawable *driDrawable,
+       dri3_set_render_buffer(draw, buf_id, buffer);
+    }
+ 
++have_buffer:
+    if (fence_await)
+       dri3_fence_await(draw->conn, draw, buffer);
+ 
+@@ -2370,9 +2404,17 @@ dri3_find_back_alloc(struct loader_dri3_drawable *draw)
+    back = draw->buffers[id];
+    /* Allocate a new back if we haven't got one */
+    if (!back && draw->back_format != DRM_FORMAT_INVALID &&
+-       dri3_update_drawable(draw))
++       dri3_update_drawable(draw)) {
+       back = dri3_alloc_render_buffer(draw, draw->back_format,
+                                       draw->width, draw->height, draw->depth);
++      /* PS3: no memory for another back buffer: take one of those we have */
++      if (!back && dri3_cap_num_back(draw)) {
++         id = dri3_find_back(draw, false);
++         if (id < 0)
++            return NULL;
++         back = draw->buffers[id];
++      }
++   }
+ 
+    if (!back)
+       return NULL;
+diff --git a/src/gallium/frontends/dri/loader_dri3_helper.h b/src/gallium/frontends/dri/loader_dri3_helper.h
+--- a/src/gallium/frontends/dri/loader_dri3_helper.h
++++ b/src/gallium/frontends/dri/loader_dri3_helper.h
+@@ -155,6 +155,8 @@ struct loader_dri3_drawable {
+    int cur_back;
+    int cur_num_back;
+    int max_num_back;
++   /* PS3: the back buffers the driver could allocate, once one more failed (0: no limit) */
++   int alloc_cap_num_back;
+    int cur_blit_source;
+ 
+    uint32_t *stamp;

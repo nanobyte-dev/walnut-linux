@@ -11,3 +11,13 @@ source = "games night 2026-10-28 (smoke)"
 text = """\
 First played session on the game's defaults (58 fps in the smoke race): a few stages with the DualShock 3 \
 (the game finds it; does its mapping steer, throttle and brake?), the engine and co-driver by ear."""
+
+[[item]]
+kind = "fix"
+added = 2026-10-29
+source = "played session 2026-10-29 (ps3-bench-20261029T205633Z-session-trigger-rally-base)"
+text = """\
+Menus flash between the open menu and the one before it (a stale back buffer: Mesa's DRI3 loader can't get the \
+third back buffer page flipping wants with the VRAM full, technical.md "Menus flashing"). Fix: Mesa 0054. Test \
+on the PS3: the menus steady on the TV, one `dri3: no memory for back buffer` line, dmesg without a stream of \
+8100 KiB `out of VRAM` lines; then the played session again."""

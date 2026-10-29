@@ -18,6 +18,30 @@ A fresh configuration is already fullscreen at the screen's size (`automatic="ye
 no audible dropouts. The game found the DualShock 3 ("Found 1 joystick: Sony PLAYSTATION(R)3 Controller");
 whether its own joystick mapping drives the car is not tried. Not checked: the sound by ear, a whole stage.
 
+## Menus flashing: a stale back buffer from Mesa (session 2026-10-29)
+
+In the first played session (`ps3-bench-20261029T205633Z-session-trigger-rally-base`, Mesa ps3.924, vsync as
+shipped) the user found the menus unusable: after opening a menu, the TV alternated between it and the menu
+before it. The xwd at 60 s is a clean main menu, since it reads one buffer.
+
+The game is not the cause. In 0.6.6.1 the level screen (`MainApp::renderStateLevel`) draws a full-screen
+background quad and the whole GUI every frame, `PApp::run` swaps every frame (`SDL_GL_SwapWindow` after
+`glFinish`), and nothing draws to `GL_FRONT` or skips frames. The session's dmesg has
+`ps3rsx: out of VRAM for a 8100 KiB BO` about 58 times a second for the whole session: one 1920x1080 back
+buffer per frame. X page-flips the fullscreen window, so Mesa's DRI3 loader wants a third back buffer
+(`dri3_update_max_num_back`: 3 with vsync, 4 without), and with the VRAM full of the game's textures it never
+gets one. `dri3_find_back` picks the empty slot every frame and the allocation fails. `getBuffers` returns false,
+so the frontend keeps drawing into the back buffer it validated last, while the swap presents whichever buffer is
+idle, one of which holds an old frame. A static menu shows it plainly. In a race it would be a frame from the past
+every other frame. The smoke runs (`vblank_mode=0`) logged the same failures in bursts and drew right in their
+screenshots.
+
+The fix is in Mesa, for every game that fills the VRAM: patch 0054 (docs/DRIVER.md's table) caps the loader at the
+two back buffers it has once a third can't be allocated, and waits for one of them. There is no per-game switch:
+Mesa 26 has no DRI2 for GLX, and the only way to stop the flips is xorg's `Option "PageFlip" "off"`, which applies
+to every game. The two `Race finished in invalid state 30` lines are from quitting (state 30 is the quit dialog,
+and `endGame` runs at shutdown). They are harmless.
+
 ## Threads in the stall frames
 
 Checked on 2026-10-29 after gamedb:luanti's stalls turned out to be its render thread waiting for the CPU its own worker threads had (luanti 0010 puts them at nice 10). From the stall record (stalls.py's `stall_main_pct` and `stall_rest_pct`: the CPU of the main thread and of the game's other threads in the stall frames, in % of their time, 100 being one PPE thread; Luanti before its fix: 22 and 83) and the profile (`bench/analysis/stallperf.py`). Run `ps3-bench-20261029T171249Z-smoke-trigger-rally-freshrace` (STALLS=1 PERF=1, the game's defaults; gamedb:batch/2026-10-29-worker-threads): 59 fps steady, 1% low 32, 3 frames over 100 ms in the 90 s smoke window, one of them the stage load (13.9 s: `glTexImage2D`, PhysFS reads, libjpeg), which the smoke window doesn't leave out. In those frames the main thread ran 74% of the time and the other threads 8% (OpenAL's mixer); the race itself has no worker threads that compete with the drawing.
