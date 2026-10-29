@@ -5,7 +5,8 @@
 #   run.sh DIR setup [MESA_DEBS_DIR]   the ppc64 build chroot in DIR/root, with mpv, gcc and our
 #                                      Mesa (debs from MESA_DEBS_DIR, else build/debs/mesa)
 #   run.sh DIR play CLIP FRAMES OUT    player.c on CLIP for FRAMES frames: pushes in DIR/OUT
-#   run.sh DIR sh 'command'            anything else in the chroot (cwd /tmp)
+#   run.sh DIR sh 'command'            anything else in the chroot (cwd /tmp), e.g. './browser.sh ...'
+#                                      (Badwolf with GPU compositing: its header says what it needs)
 # Runs in the deb builder (privileged docker, as tools/deb-build.sh does); DIR under build/tmp.
 # The chroot is root-owned: remove it with run.sh DIR sh 'true' && docker ... rm, or make
 # clean-ephemeral.
@@ -16,7 +17,7 @@ here=$(dirname "$(realpath "$0")"); top=$(realpath "$here/../../../../../..")
 img=$(docker images --format '{{.Repository}}:{{.Tag}}' | grep '^ps3-deb-builder:' | head -1)
 [ -n "$img" ] || { echo "no ps3-deb-builder image (make builder)" >&2; exit 1; }
 mkdir -p "$D/in"
-cp "$here"/wrap.c "$here"/player.c "$D/in/"
+cp "$here"/wrap.c "$here"/player.c "$here"/browser.sh "$D/in/"
 inside() {
 	docker run --rm --privileged -v "$D:/r" -v "$top/build/chroot:/c:ro" "$img" bash -c '
 		set -e; R=/r/root

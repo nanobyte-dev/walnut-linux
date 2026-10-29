@@ -4,7 +4,9 @@
  * page aligned, never moving), and write every push of every submit to $PUSHDUMP (default
  * /tmp/push.bin: per push the big-endian words 'PUSH', submit, push index, word count, then the
  * words; $PUSHDUMP.bos lists the BOs). DUMPBO_SUBMIT=N also writes the BOs submit N lists to
- * /tmp/bo-N-<offset>.bin (programs, staging data). */
+ * /tmp/bo-N-<offset>.bin (programs, staging data). PUSHDUMP_PERPID=1 appends .<pid> to both
+ * names, for programs with several GL processes (a browser's UI and web processes); the files
+ * are made at a process's first nouveau ioctl. */
 #define _GNU_SOURCE
 #include <dlfcn.h>
 #include <errno.h>
@@ -15,6 +17,7 @@
 #include <string.h>
 #include <sys/mman.h>
 #include <sys/ioctl.h>
+#include <unistd.h>
 #include <drm.h>
 #include <nouveau_drm.h>
 
@@ -35,10 +38,20 @@ static void init(void)
 		return;
 	real_ioctl = dlsym(RTLD_NEXT, "ioctl");
 	real_mmap = dlsym(RTLD_NEXT, "mmap");
+}
+
+static void open_dump(void)
+{
+	if (dump)
+		return;
 	const char *p = getenv("PUSHDUMP");
-	dump = fopen(p ? p : "/tmp/push.bin", "wb");
-	char b[512];
-	snprintf(b, sizeof(b), "%s.bos", p ? p : "/tmp/push.bin");
+	char n[512], b[520];
+	if (getenv("PUSHDUMP_PERPID"))
+		snprintf(n, sizeof(n), "%s.%d", p ? p : "/tmp/push.bin", (int)getpid());
+	else
+		snprintf(n, sizeof(n), "%s", p ? p : "/tmp/push.bin");
+	dump = fopen(n, "wb");
+	snprintf(b, sizeof(b), "%s.bos", n);
 	bolog = fopen(b, "w");
 }
 
@@ -75,6 +88,7 @@ int ioctl(int fd, unsigned long req, ...)
 	unsigned nr = _IOC_NR(req);
 	if (_IOC_TYPE(req) == 'd' && nr >= DRM_COMMAND_BASE) {
 		unsigned cmd = nr - DRM_COMMAND_BASE;
+		open_dump();
 		if (cmd == DRM_NOUVEAU_GETPARAM) {
 			struct drm_nouveau_getparam *gp = arg;
 			switch (gp->param) {

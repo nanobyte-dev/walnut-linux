@@ -9,7 +9,8 @@
  *   Mesa sends: its float, short and byte formats, 0043's UB256 x4;
  * - texture formats: X16 (0x14, mpv's dither texture: 0x105) refused in every fragment unit,
  *   every other format passes; mpv's first frame as captured (fixtures/) refused, and passed with
- *   its dither texture as L8 and as Mesa 0052 sends it;
+ *   its dither texture as L8 and as Mesa 0052 sends it; WebKit's composited frame (fixtures/,
+ *   GPU compositing in Badwolf) passes;
  * - texture offsets not 128-byte aligned (Neverball's +0xaa0 blit source: 0x105), swizzled render
  *   targets 1 pixel wide (0x106), M2MF methods on the surface-2D object (0x109);
  * - the vertex texture units (0x900-0x97c, task #16): every format byte and every low byte
@@ -41,6 +42,7 @@ void ps3rsx_validate_init(void);
 #include VALIDATE_C
 
 #include "fixtures/mpv-vo-gpu-0x105.h"
+#include "fixtures/webkit-compositing.h"
 
 static int fails, checks;
 #define CHECK(c, ...) do { checks++; if (!(c)) { fails++; printf("FAIL: "); printf(__VA_ARGS__); printf("\n"); } } while (0)
@@ -351,6 +353,18 @@ int main(int argc, char **argv)
 		/* and as Mesa 0052 sends it */
 		r = run_mpv(mpv_frame1_0052, ARRAY_SIZE(mpv_frame1_0052));
 		CHECK(r == 0, "mpv's frame from Mesa 0052: %d (%s)", r, last_warn);
+	}
+
+	/* WebKit's composited frame (GPU compositing, Badwolf on the GameDB home): every word passes */
+	{
+		struct ps3rsx_vstate vs;
+		int r;
+
+		memset(&vs, 0, sizeof(vs));
+		r = ps3rsx_validate(&vs, webkit_init, ARRAY_SIZE(webkit_init));
+		CHECK(r == 0, "WebKit's channel binds: %d (%s)", r, last_warn);
+		r = ps3rsx_validate(&vs, webkit_frame, ARRAY_SIZE(webkit_frame));
+		CHECK(r == 0, "WebKit's composited frame: %d (%s)", r, last_warn);
 	}
 
 	/* 0x105, Neverball: Mesa's blit sampling a 2x2 level at +0xaa0 (fragment unit 0); and the

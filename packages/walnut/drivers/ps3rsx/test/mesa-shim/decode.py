@@ -31,24 +31,25 @@ def name(sc, m):
     if m < 0x100: return f'HOST_{m:x}'
     n, d = SUB.get(sc, (f'sc{sc}', {}))
     return f'{n}.{d.get(m, hex(m))}'
-data = open(sys.argv[1], 'rb').read()
-only = int(sys.argv[2]) if len(sys.argv) > 2 else None
-p = 0
-while p < len(data):
-    mag, sub, idx, n = struct.unpack('>4I', data[p:p + 16]); p += 16
-    w = struct.unpack(f'>{n}I', data[p:p + 4 * n]); p += 4 * n
-    if only is not None and sub != only: continue
-    print(f'== submit {sub} push {idx} ({n} words)')
-    i = 0
-    while i < n:
-        h = w[i]
-        if h == 0: i += 1; continue
-        cnt = (h >> 18) & 0x7ff; sc = (h >> 13) & 7; m = h & 0x1ffc; ni = (h & 0xe0030003) == 0x40000000
-        vals = w[i + 1:i + 1 + cnt]
-        if cnt > 12 and (ni or m in (0x1818, 0xb80)):
-            print(f'  {name(sc, m)}{" NI" if ni else ""} x{cnt}: ' + ' '.join(f'{v:08x}' for v in vals[:4]) + ' ...')
-        else:
-            for k, v in enumerate(vals):
-                mm = m if ni else m + 4 * k
-                print(f'  [{sc}] {mm:04x} {name(sc, mm):40s} {v:08x}')
-        i += 1 + cnt
+if __name__ == '__main__':
+    data = open(sys.argv[1], 'rb').read()
+    only = int(sys.argv[2]) if len(sys.argv) > 2 else None
+    p = 0
+    while p < len(data):
+        mag, sub, idx, n = struct.unpack('>4I', data[p:p + 16]); p += 16
+        w = struct.unpack(f'>{n}I', data[p:p + 4 * n]); p += 4 * n
+        if only is not None and sub != only: continue
+        print(f'== submit {sub} push {idx} ({n} words)')
+        i = 0
+        while i < n:
+            h = w[i]
+            if h == 0: i += 1; continue
+            cnt = (h >> 18) & 0x7ff; sc = (h >> 13) & 7; m = h & 0x1ffc; ni = (h & 0xe0030003) == 0x40000000
+            vals = w[i + 1:i + 1 + cnt]
+            if cnt > 12 and (ni or m in (0x1818, 0xb80)):
+                print(f'  {name(sc, m)}{" NI" if ni else ""} x{cnt}: ' + ' '.join(f'{v:08x}' for v in vals[:4]) + ' ...')
+            else:
+                for k, v in enumerate(vals):
+                    mm = m if ni else m + 4 * k
+                    print(f'  [{sc}] {mm:04x} {name(sc, mm):40s} {v:08x}')
+            i += 1 + cnt
