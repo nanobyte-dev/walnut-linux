@@ -42,5 +42,6 @@ first format (ARGB8888) against the 32-bit screen's XRGB8888;
 makes it in the application's format. With both (2026-10-29, same boot,
 `ps3-bench-20261029T040111Z-smoke-warmux-play`): 17.5 fps on the game's counter (7.0 with neither, 9.8 with
 libsdl3 0003 alone), 38.6 s of stalls in 90 (51-57 before), the picture and colours right; Frozen Bubble,
-BomberClone and Pingus look right too. A lower resolution scaled by sdl12-compat is the lever left.
+BomberClone and Pingus look right too. At 1280x720 scaled up by sdl12-compat it plays at 17.0 fps
+(`ps3-bench-20261029T050814Z-smoke-warmux-play720`): the size no longer matters, so 0001 keeps the screen's.
 
