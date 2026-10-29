@@ -380,6 +380,17 @@ Rank 72. `make test` and `make test-slow` run every host suite with a summary ta
 
 - **Effort:** S-M. **Needs:** host. **Status:** not started. **Source:** PLAN 5.9.
 
+### The browser's frames in VRAM
+
+WebKitGTK 2.52's GPU compositing on GTK 3/X11 reads every composited frame back into RAM, so on the
+PS3 it adds a VRAM-to-RAM copy instead of removing one ([BROWSERS.md](../research/BROWSERS.md),
+"GPU compositing"; the RSX handles its command stream: every captured push passed the validator).
+Frames that stay in VRAM need a different path: the web process's dma-buf handed to X through DRI3
+(`PixmapFromBuffers`, then a copy glamor does on the RSX), or WPE with cog on X11. Either is a
+project of its own; the browser's real limit today is memory (paging), not drawing.
+
+- **Effort:** L. **Needs:** host, then the PS3 with the user. **Status:** parked (2026-10-29).
+
 ### Build caches and links off /home
 
 Two build-tool fixes to bundle into the next change of the shared packaging tools (a commit to
