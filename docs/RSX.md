@@ -119,7 +119,7 @@ Reading ps3fb's dump takes care (a worked example: [the mpv analysis](dumps/exce
 - FIFO_PAUSE then FIFO_RESUME (both return 0);
 - freeing every context and the memory handle (which unbinds ps3fb without crashing) and rebinding: the fresh handle and context allocate, but the first FIFO run still times out.
 
-Only a console reboot recovered it. Whether an LPAR-only reboot through Petitboot is enough is untested. The consequence is a hard rule: the driver must never submit a faulting command stream. That is why ps3rsx validates every push ([DRIVER.md](DRIVER.md#the-validator)). Ideas for a real reset are in [backlog/graphics.md](backlog/graphics.md).
+Only a console reboot recovered it. Whether an LPAR-only reboot through Petitboot is enough is untested. The consequence is a hard rule: the driver must never submit a faulting command stream. That is why ps3rsx validates every push and keeps a submit with a rejected push off the GPU whole: what reaches the GPU, laid end to end, passes the validator as one stream, whether the client then recovers or its channel is refused ([DRIVER.md](DRIVER.md#a-rejected-push-the-submit-is-cancelled-the-client-recovers)). Ideas for a real reset are in [backlog/graphics.md](backlog/graphics.md).
 
 ## 3D pipeline from raw commands (E12, E13, E15)
 
