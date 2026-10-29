@@ -18,7 +18,7 @@ kind = "package"
 added = 2026-10-28
 source = "games night 2026-10-28"
 text = """\
-The built-in pad scheme is in our package (bzflag 0001, technical.md \"Our package\"), pending its \
-PS3 test: the smoke recipe on it (keyboard path unchanged, no joystick error without a pad), then the \
-pad in a played session (Cross fires, the left stick drives, Start opens the menu, the D-pad and \
-Cross work it)."""
+The built-in pad scheme (bzflag 0001, technical.md \"Our package\"): on the PS3 the keyboard path is \
+unchanged and the virtual pad's Start, D-pad and Circle work the menu, but its Triangle didn't spawn \
+the tank. Next: the real DS3 in a played session (Triangle spawns? Cross fires, the stick drives); if \
+Triangle fails there too, log the button numbers bzflag sees (a debug line in 0001's button loop)."""

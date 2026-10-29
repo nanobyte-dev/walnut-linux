@@ -37,9 +37,14 @@ Cross and R2 fire, Square and L2 jump, Circle drops the flag, Triangle identifie
 Select the score; the left stick drives (the input switches to the joystick when it moves). Where the
 buttons become key events, Start is Escape (the menu), the D-pad the arrow keys, and in a menu Cross is
 Return and Circle Escape. The keyboard and mouse are unchanged; a saved configuration keeps its own
-joystick and bindings. Built on the PC for amd64 first (compiles clean); state: pending its PS3 test (the
-smoke recipe for the keyboard path and no error without a pad; the pad itself needs a player or a
-virtual pad).
+joystick and bindings. On the PC (amd64 build, a virtual DS3 through uinput) every part worked: Start
+opened the menu, the D-pad moved, Circle closed it, Triangle spawned the tank, Cross fired, the stick drove.
+On the PS3 (2026-10-29, the dev build): the keyboard path is unchanged (57 fps, no joystick message), and
+with the recipe's virtual pad (variant `pad`, smoke.inc `smoke_pad`, a made-up ID with the console's own DS3
+hidden) Start, the D-pad and Circle work the menu, so bzflag opens the pad as a game controller; but
+Triangle never spawned the tank (three presses from 40 s, `ps3-bench-20261029T053020Z-smoke-bzflag-pad`) and
+the start line kept naming "i". Open: whether the virtual pad's Triangle arrives as SDL's Y there (the
+generic ID maps BTN_WEST as Y on the PC), or the spawn binding; a real DS3 in a played session decides.
 
 ## Research
 
