@@ -2,11 +2,10 @@
 # a session item's order is its place in the played-session queue (docs/TESTS.md's generated block).
 
 [[item]]
-kind = "fix"
+kind = "session"
 added = 2026-10-29
-source = "games night 2026-10-28 (smoke)"
+source = "games night 2026-10-28"
 text = """\
-Fullscreen: done in our colobot 0001 (a fresh configuration starts fullscreen at the desktop's mode; \
-the window came from the recipe's -resolution, now gone), pending its PS3 test: `run.sh smoke colobot \
-fresh`. The NUL byte in every 513th byte of what it writes (big-endian: colobot 0003) is fixed in the same \
-package, pending: the run's colobot.ini without a NUL."""
+A played session: fullscreen and the file writer are fixed in our colobot (0001, 0003, checked on the \
+PS3); next the first missions by hand (27 fps on missions101), a program written in the editor and a \
+save loaded back (the files 0003 fixed)."""

@@ -16,20 +16,21 @@ menu) Colobot opens an 800x600 window.
 configuration (no `Resolution`, no `Fullscreen`, no `-resolution`) starts fullscreen at the desktop's
 mode, 1920x1080 on the PS3 (no mode change); a saved configuration, `-resolution` and the options menu
 still decide. On the PC (amd64 build, Xvfb 1280x720, an empty home): fullscreen 1280x720, and it wrote
-`Resolution=1280x720`, `Fullscreen=1`. State: pending its PS3 test (recipe variant `fresh`).
+`Resolution=1280x720`, `Fullscreen=1`. On the PS3 (2026-10-29, the dev build, recipe variant `fresh`, no colobot.ini):
+fullscreen 1920x1080 by itself, 27 fps, 1% low 16, and the ini it wrote has `Resolution=1920x1080`, `Fullscreen=1`.
 [Packaging 0002](packages/colobot/packaging/0002-debian-build-the-colobot-binary-only-on-Debian-s-dat.patch):
 doxygen (a Build-Depends-Indep) isn't installable on debian-ports' ppc64, so only the binary is built, on
 Debian's own data packages (depended on by upstream version, >= 0.2.2).
 
 ## Known problems
 
-- Every file Colobot wrote on the PS3 had a NUL for its 513th byte (then one each further 512): the
+- Fixed: every file Colobot wrote on the PS3 had a NUL for its 513th byte (then one each further 512): the
   colobot.ini of two runs read `ShadowM\0ppingResolution=1024`, and the same would cut saved games and
   the player's programs. Cause: `COutputStreamBuffer::overflow()` wrote the character that didn't fit
   into its full 512-byte buffer with `PHYSFS_write(m_file, &ch, 1, 1)`, `ch` an `int`: its first byte is
   the character on little-endian machines (the PC's file was clean) and 0 on big-endian ones.
   [0003](packages/colobot/patches/0003-COutputStreamBuffer-write-the-overflow-char-not-its-.patch)
-  writes the character; pending its PS3 test (the ini after a run has no NUL). Worth offering upstream.
+  writes the character: the ini a PS3 run wrote with it has no NUL (2026-10-29). Worth offering upstream.
 
 ## Research
 
