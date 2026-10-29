@@ -76,7 +76,8 @@ smoke_pad() {
 			for (i = 1; i in a; i += 2) b[a[i]] = a[i + 1]
 			if (generic) { b["triangle"] = 308; b["square"] = 307 }	# SDL maps an unknown pad'"'"'s BTN_NORTH to X, BTN_WEST to Y
 			x["lx"] = 0; x["ly"] = 1; x["rx"] = 3; x["ry"] = 4; t = 0
-			printf "E: 0.000000 0003 0000 0128\nE: 0.000000 0000 0000 0000\nE: 0.100000 0003 0000 0128\nE: 0.100000 0000 0000 0000\n" }	# the left stick centred, twice: two anchors: evemu-play skips the wait before its second event
+			for (k = 0; k < 2; k++) { for (i = 0; i < 5; i++) if (i != 2) printf "E: %.6f 0003 %04x 0128\n", k / 10, i
+				printf "E: %.6f 0000 0000 0000\n", k / 10 } }	# both sticks centred (the device starts them at 0: full up and left), twice: two anchors, as evemu-play skips the wait before its second event
 		function ev(s, ty, c, v) { printf "E: %.6f %04x %04x %04d\nE: %.6f 0000 0000 0000\n", s, ty, c, v, s }
 		/^\+/ { t += substr($0, 2); next }
 		/=/ { split($0, kv, "="); if (!(kv[1] in x)) { print "smoke_pad: no stick " kv[1] > "/dev/stderr"; next }
@@ -90,6 +91,17 @@ smoke_pad() {
 	mkdir -p "$rec.bin" && ln -sf "$(command -v evemu-play)" "$rec.bin/evemu-device-pad"
 	sudo -n timeout $((DURATION + 30)) bash -c 'exec -a evemu-play "$0" "$1" < /dev/null' \
 		"$rec.bin/evemu-device-pad" "$rec" > "$rec.log" 2>&1 &
-	sleep 1	# the device is up well within that (its log line comes late: evemu-play's stdout is buffered)
-	echo "virtual pad started at $EPOCHREALTIME (its events count from 1 s before: the call; the device: .smoke-pad.log)"
+	# ready: its event node listed (a virtual device: Sysfs /devices/virtual/), readable, and udev done
+	# with it (on the PS3 udev takes a while; a game that looks before that sees no pad). The log line
+	# naming the node comes late: evemu-play's stdout is buffered.
+	local node= i
+	for i in $(seq 100); do
+		node=$(awk -v name="$([ "${SMOKE_PAD:-ds3}" = generic ] && echo 'Walnut virtual pad' || echo 'Sony PLAYSTATION(R)3 Controller')" '
+			/^N: Name=/ { n = substr($0, 10); gsub(/"/, "", n) } /^S: Sysfs=/ { v = ($0 ~ /\/devices\/virtual\//) }
+			/^H: Handlers=/ && n == name && v { sub(/^H: Handlers=/, ""); for (i = 1; i <= NF; i++) if ($i ~ /^event/) print $i }' /proc/bus/input/devices | tail -1)
+		[ -n "$node" ] && [ -r "/dev/input/$node" ] && break
+		sleep 0.1
+	done
+	udevadm settle -t 10 2>/dev/null || sleep 2
+	echo "virtual pad /dev/input/${node:-?} ready at $EPOCHREALTIME (its events count from the call)"
 }
