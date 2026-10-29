@@ -16,7 +16,15 @@
  * - the vertex texture units (0x900-0x97c, task #16): every format byte and every low byte
  *   (location, cubic, border, dimension) of FORMAT, and good and bad words of each of the eight
  *   methods in each unit, as one write, in a burst and non-incrementing; Mesa's CONTROL0 = 0 and
- *   libgcm-style setups pass.
+ *   libgcm-style setups pass;
+ * - the primitive order: BEGIN only with no primitive open, END and vertex data (elements,
+ *   batches, inline data) only inside one, across pushes as Mesa splits draws;
+ * - recovery (recover_cases(): submit.c's handling of a rejected push, modelled per submit):
+ *   reject then recover, a rejected state push followed by a draw relying on it, a draw split
+ *   across a rejected submit, repeated rejections, a client that doesn't recover, mpv's first
+ *   frame cancelled and sent again from Mesa 0052. What reaches the "GPU" (the accepted
+ *   pushes and the kernel's own END, in order) must pass the validator as one stream, and its
+ *   state (shadow.c) must be only what accepted pushes set.
  * Built in userspace with inc/ (kernel stand-ins) by the Makefile here.
  */
 #include "shim.h"
@@ -26,6 +34,7 @@ static int verbose;
 static char last_warn[256];
 #define pr_warn(...) do { snprintf(last_warn, sizeof(last_warn), __VA_ARGS__); \
 			  if (verbose) printf("%s", last_warn); } while (0)
+#define pr_warn_ratelimited pr_warn
 
 struct ps3rsx_vstate {
 	u32 bound[8];
@@ -40,6 +49,12 @@ void ps3rsx_validate_init(void);
 #define VALIDATE_C "../src/validate.c"
 #endif
 #include VALIDATE_C
+
+#define RESTORE_MAX_WORDS	(16 * 1024)	/* as in ps3rsx.h */
+#ifndef SHADOW_C
+#define SHADOW_C "../src/shadow.c"
+#endif
+#include SHADOW_C
 
 #include "fixtures/mpv-vo-gpu-0x105.h"
 #include "fixtures/webkit-compositing.h"
@@ -260,10 +275,273 @@ static void vtxtex_cases(void)
 	}
 }
 
+/* --- recovery: what submit.c does with a rejected push -------------------------------- */
+
+/* What reached the "GPU", in order: the accepted pushes and the kernel's own END */
+static u32 gpu[1 << 16], ngpu;
+
+static void gpu_put(const u32 *w, u32 n)
+{
+	if (ngpu + n > ARRAY_SIZE(gpu)) {
+		printf("FAIL: test GPU stream full\n");
+		exit(1);
+	}
+	memcpy(&gpu[ngpu], w, n * 4);
+	ngpu += n;
+}
+
+/* A channel as submit.c keeps it: validator state, recovering client or not */
+struct tchan {
+	struct ps3rsx_vstate vs;
+	bool recover, broken;
+	u32 cancelled;
+};
+
+/*
+ * One submit of npush pushes, as ps3rsx_ioctl_gem_pushbuf() and submit_rejected() run it: 0, or
+ * -ECANCELED (rejected, the client recovers), -EINVAL (rejected, it doesn't: refused from now
+ * on), -EIO (refused). Every push is checked against a copy of the channel's state, kept only
+ * if all pass; a rejected submit sends nothing, except the END of a primitive the channel's
+ * last accepted submit left open.
+ */
+static int submit(struct tchan *ch, u32 npush, const u32 *const *p, const u32 *n)
+{
+	struct ps3rsx_vstate vs;
+	u32 i, sc;
+
+	if (ch->broken)
+		return -EIO;
+	vs = ch->vs;
+	for (i = 0; i < npush; i++) {
+		if (!ps3rsx_validate(&vs, p[i], n[i]))
+			continue;
+		if (!ch->recover) {
+			ch->broken = true;
+			return -EINVAL;
+		}
+		if (ch->vs.prim_open) {
+			u32 end[2] = { 0, 0 };
+
+			for (sc = 0; sc < 8 && ch->vs.bound[sc] != 0x31337000; sc++)
+				;
+			end[0] = HDRS(1, sc & 7, 0x1808);
+			gpu_put(end, 2);
+			ch->vs.prim_open = false;
+		}
+		ch->cancelled++;
+		return -ECANCELED;
+	}
+	for (i = 0; i < npush; i++)
+		gpu_put(p[i], n[i]);
+	ch->vs = vs;
+	return 0;
+}
+
+#define SUB1(ch, a) submit(ch, 1, (const u32 *const[]){ a }, (const u32[]){ ARRAY_SIZE(a) })
+#define SUB2(ch, a, b) submit(ch, 2, (const u32 *const[]){ a, b }, \
+			      (const u32[]){ ARRAY_SIZE(a), ARRAY_SIZE(b) })
+
+/* The GPU stream as one push through a fresh validator state: 0 if every word passes */
+static int gpu_whole(void)
+{
+	struct ps3rsx_vstate vs;
+
+	memset(&vs, 0, sizeof(vs));
+	last_warn[0] = 0;
+	return ps3rsx_validate(&vs, gpu, ngpu);
+}
+
+/* The 3D state the GPU holds after the stream (shadow.c's replay of it) */
+static struct ps3rsx_shadow *gpu_state(void)
+{
+	struct ps3rsx_shadow *sh = ps3rsx_shadow_new();
+
+	ps3rsx_shadow_push(sh, gpu, ngpu);
+	return sh;
+}
+
+static u32 reg3d(const struct ps3rsx_shadow *sh, u32 m)
+{
+	return test_bit(m / 4, sh->reg3d_set) ? sh->reg3d[m / 4] : 0xdeadbeef;
+}
+
+static void tchan_init(struct tchan *ch, bool recover)
+{
+	static const u32 bind[] = { HDR(1, 0), 0x31337000 };
+
+	memset(ch, 0, sizeof(*ch));
+	ch->recover = recover;
+	ngpu = 0;
+	CHECK(SUB1(ch, bind) == 0, "3D bind refused");
+}
+
+/* Mesa-like words, on the 3D object at subchannel 7 */
+#define L8_A	0x00018129	/* TEX_FORMAT unit 0: L8, DMA0, 2D, 1 level */
+#define L8_C	0x00028129	/* the same, 2 levels */
+#define X16	0x00019429	/* X16: refused (0x105) */
+static const u32 state_a[] = { HDR(2, 0x1a00), 0x01943000, L8_A, HDR(1, 0x1740), 0x22 };
+static const u32 state_c[] = { HDR(2, 0x1a00), 0x01a00000, L8_C, HDR(1, 0x1740), 0x32 };
+static const u32 state_b_ok[] = { HDR(1, 0x1740), 0x32, HDR(1, 0x1a00), 0x02000000 };
+static const u32 state_b_bad[] = { HDR(1, 0x1a04), X16 };
+static const u32 draw[] = { HDR(1, 0x1808), 5, NONINC | HDR(1, 0x1814), 0x02000000,
+			    HDR(1, 0x1808), 0 };
+static const u32 begin_inline[] = { HDR(1, 0x1808), 5, NONINC | HDR(4, 0x1818), 1, 2, 3, 4 };
+static const u32 inline_end[] = { NONINC | HDR(2, 0x1818), 5, 6, HDR(1, 0x1808), 0 };
+static const u32 inline_only[] = { NONINC | HDR(2, 0x1818), 7, 8 };
+static const u32 end_only[] = { HDR(1, 0x1808), 0 };
+
+static void recover_cases(void)
+{
+	struct ps3rsx_shadow *sh;
+	struct tchan ch;
+	u32 before, i;
+	int r;
+
+	/* the primitive order, one push each (vertex data only inside BEGIN/END) */
+	{
+		static const u32 nested[] = { HDR(1, 0x1808), 5, HDR(1, 0x1808), 5 };
+		static const u32 elems_out[] = { NONINC | HDR(2, 0x180c), 0x00010000, 0x00020003 };
+		static const u32 elem32_out[] = { HDR(1, 0x1810), 7 };
+		static const u32 batch_out[] = { NONINC | HDR(1, 0x1814), 0x02000000 };
+		static const u32 index_out[] = { NONINC | HDR(1, 0x1824), 0x02000000 };
+		static const u32 idxbuf[] = { HDR(2, 0x181c), 0x01900000, 0x10 };
+		static const u32 elems_in[] = { HDR(1, 0x1808), 5, HDR(2, 0x181c), 0x01900000,
+						0x10, NONINC | HDR(1, 0x1824), 0x02000000,
+						HDR(1, 0x180c), 0x00010000, HDR(1, 0x1808), 0 };
+
+		CHECK(push(draw, ARRAY_SIZE(draw)) == 0, "a draw refused (%s)", last_warn);
+		CHECK(push(begin_inline, ARRAY_SIZE(begin_inline)) == 0, "BEGIN + inline data refused");
+		CHECK(push(nested, ARRAY_SIZE(nested)) != 0, "a BEGIN in an open primitive accepted");
+		CHECK(push(end_only, 2) != 0, "an END with no primitive open accepted");
+		CHECK(push(inline_only, 3) != 0, "inline data outside a primitive accepted");
+		CHECK(push(elems_out, 3) != 0, "U16 elements outside a primitive accepted");
+		CHECK(push(elem32_out, 2) != 0, "a U32 element outside a primitive accepted");
+		CHECK(push(batch_out, 2) != 0, "a vertex batch outside a primitive accepted");
+		CHECK(push(index_out, 2) != 0, "an index batch outside a primitive accepted");
+		CHECK(push(idxbuf, 3) == 0, "the index buffer's offset and format refused");
+		CHECK(push(elems_in, ARRAY_SIZE(elems_in)) == 0, "an indexed draw refused (%s)",
+		      last_warn);
+	}
+
+	/* 1. reject then recover: the rejected submit leaves no trace, the next one draws */
+	tchan_init(&ch, true);
+	CHECK(SUB2(&ch, state_a, draw) == 0, "1: state A and a draw refused");
+	before = ngpu;
+	CHECK(SUB2(&ch, state_b_bad, draw) == -ECANCELED, "1: the X16 submit not cancelled");
+	CHECK(ngpu == before, "1: the cancelled submit sent %u words", ngpu - before);
+	r = SUB2(&ch, state_c, draw);
+	CHECK(r == 0, "1: the state sent again and a draw after the cancel: %d (%s)", r, last_warn);
+	CHECK(gpu_whole() == 0, "1: the GPU's stream fails as one stream (%s)", last_warn);
+	sh = gpu_state();
+	CHECK(reg3d(sh, 0x1a04) == L8_C && reg3d(sh, 0x1a00) == 0x01a00000 &&
+	      reg3d(sh, 0x1740) == 0x32, "1: the GPU state isn't state C");
+	ps3rsx_shadow_free(sh);
+
+	/*
+	 * 2. a rejected state push, then a draw that counts on it: the submit's good push went
+	 * nowhere either, and the draw runs on state A, which passed (nothing of B)
+	 */
+	tchan_init(&ch, true);
+	CHECK(SUB2(&ch, state_a, draw) == 0, "2: state A and a draw refused");
+	before = ngpu;
+	CHECK(SUB2(&ch, state_b_ok, state_b_bad) == -ECANCELED, "2: state B not cancelled");
+	CHECK(ngpu == before, "2: the cancelled submit sent %u words", ngpu - before);
+	CHECK(SUB1(&ch, draw) == 0, "2: the draw after the cancel refused (%s)", last_warn);
+	CHECK(gpu_whole() == 0, "2: the GPU's stream fails as one stream (%s)", last_warn);
+	sh = gpu_state();
+	CHECK(reg3d(sh, 0x1740) == 0x22 && reg3d(sh, 0x1a00) == 0x01943000 &&
+	      reg3d(sh, 0x1a04) == L8_A, "2: the draw ran on state from the cancelled submit");
+	ps3rsx_shadow_free(sh);
+	/* a bind in a cancelled submit doesn't count: methods on that subchannel are refused */
+	{
+		static const u32 bind_bad[] = { HDRS(1, 3, 0), 0x31337303, HDR(1, 0x1a04), X16 };
+		static const u32 m2mf3[] = { HDRS(8, 3, 0x30c), 0x2fc000, 0x1945000, 0x1f0, 0x1f0,
+					     0x1f0, 1, 0x101, 0 };
+
+		before = ngpu;
+		CHECK(SUB1(&ch, bind_bad) == -ECANCELED, "2: a bind with X16 not cancelled");
+		CHECK(SUB1(&ch, m2mf3) == -ECANCELED && strstr(last_warn, "no object bound"),
+		      "2: a copy through the cancelled bind not cancelled (%s)", last_warn);
+		CHECK(ngpu == before, "2: the cancelled bind's copy sent %u words", ngpu - before);
+	}
+
+	/* 3. a draw split across submits, its rest in a rejected one: the kernel ends it */
+	tchan_init(&ch, true);
+	CHECK(SUB2(&ch, state_a, begin_inline) == 0, "3: a draw left open refused");
+	CHECK(ch.vs.prim_open, "3: the primitive isn't open");
+	before = ngpu;
+	CHECK(SUB2(&ch, inline_end, state_b_bad) == -ECANCELED, "3: its rest with X16 not cancelled");
+	CHECK(ngpu == before + 2 && gpu[before] == HDR(1, 0x1808) && gpu[before + 1] == 0,
+	      "3: no END from the kernel (%u words)", ngpu - before);
+	CHECK(!ch.vs.prim_open, "3: the primitive stayed open");
+	before = ngpu;
+	CHECK(SUB1(&ch, inline_end) == -ECANCELED, "3: inline data after the END not cancelled");
+	CHECK(SUB1(&ch, inline_only) == -ECANCELED, "3: inline data not cancelled");
+	CHECK(SUB1(&ch, end_only) == -ECANCELED, "3: a second END not cancelled");
+	CHECK(ngpu == before, "3: the continuation sent %u words", ngpu - before);
+	CHECK(SUB2(&ch, state_c, begin_inline) == 0 && SUB1(&ch, inline_end) == 0,
+	      "3: a new split draw refused (%s)", last_warn);
+	CHECK(gpu_whole() == 0, "3: the GPU's stream fails as one stream (%s)", last_warn);
+	/* the BEGIN in a rejected submit: its continuation has no primitive to go into */
+	tchan_init(&ch, true);
+	CHECK(SUB1(&ch, state_a) == 0, "3: state A refused");
+	before = ngpu;
+	CHECK(SUB2(&ch, state_b_bad, begin_inline) == -ECANCELED, "3: X16 + BEGIN not cancelled");
+	CHECK(SUB1(&ch, inline_end) == -ECANCELED, "3: the rest of a cancelled BEGIN not cancelled");
+	CHECK(ngpu == before, "3: the cancelled BEGIN's rest sent %u words", ngpu - before);
+	CHECK(gpu_whole() == 0, "3: the GPU's stream fails as one stream (%s)", last_warn);
+
+	/* 4. repeated rejections: each one cancelled, the good frames between them drawn */
+	tchan_init(&ch, true);
+	CHECK(SUB2(&ch, state_a, draw) == 0, "4: state A and a draw refused");
+	for (i = 0; i < 1000; i++) {
+		before = ngpu;
+		if (i % 10 == 9) {
+			r = SUB2(&ch, state_c, draw);
+			CHECK(r == 0 && ngpu > before, "4: good frame %u: %d", i, r);
+		} else {
+			r = SUB2(&ch, state_b_bad, draw);
+			CHECK(r == -ECANCELED && ngpu == before, "4: bad frame %u: %d, %u words", i, r,
+			      ngpu - before);
+		}
+	}
+	CHECK(ch.cancelled == 900, "4: %u cancelled, expected 900", ch.cancelled);
+	CHECK(gpu_whole() == 0, "4: the GPU's stream fails as one stream (%s)", last_warn);
+
+	/* 5. a client that doesn't recover (no PS3_RECOVER, or refuse_rejected=1): refused */
+	tchan_init(&ch, false);
+	CHECK(SUB2(&ch, state_a, draw) == 0, "5: state A and a draw refused");
+	before = ngpu;
+	CHECK(SUB2(&ch, state_b_bad, draw) == -EINVAL, "5: the X16 submit not rejected");
+	CHECK(SUB2(&ch, state_c, draw) == -EIO && SUB1(&ch, draw) == -EIO,
+	      "5: the channel not refused after a rejection");
+	CHECK(ngpu == before, "5: a refused channel sent %u words", ngpu - before);
+
+	/* 6. mpv's first frame as captured (X16 dither texture) cancelled, then from Mesa 0052 */
+	tchan_init(&ch, true);
+	ngpu = 0;
+	memset(&ch.vs, 0, sizeof(ch.vs));
+	CHECK(SUB1(&ch, mpv_init) == 0, "6: mpv's binds refused (%s)", last_warn);
+	before = ngpu;
+	CHECK(SUB1(&ch, mpv_frame1) == -ECANCELED, "6: mpv's X16 frame not cancelled");
+	CHECK(ngpu == before, "6: the cancelled frame sent %u words", ngpu - before);
+	for (i = 0; i < 3; i++) {
+		r = SUB1(&ch, mpv_frame1_0052);
+		CHECK(r == 0, "6: mpv's frame from Mesa 0052 after the cancel: %d (%s)", r, last_warn);
+		r = SUB1(&ch, mpv_frame1);
+		CHECK(r == -ECANCELED, "6: mpv's X16 frame %u not cancelled", i);
+	}
+	CHECK(gpu_whole() == 0, "6: the GPU's stream fails as one stream (%s)", last_warn);
+	sh = gpu_state();
+	CHECK(reg3d(sh, 0x1a04) != X16, "6: the GPU holds the X16 format");
+	ps3rsx_shadow_free(sh);
+}
+
 int main(int argc, char **argv)
 {
 	verbose = argc > 1;
 	ps3rsx_validate_init();
+	ps3rsx_shadow_init();
 
 	for (u32 slot = 0; slot < 16; slot++) {
 		const u32 m = 0x1740 + 4 * slot;
@@ -405,6 +683,7 @@ int main(int argc, char **argv)
 	}
 
 	vtxtex_cases();
+	recover_cases();
 
 	printf("validate-test: %d checks, %d failed\n", checks, fails);
 	return fails != 0;

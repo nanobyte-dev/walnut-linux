@@ -46,6 +46,10 @@ int ps3rsx_ioctl_getparam(struct drm_device *dev, void *data, struct drm_file *f
 		mutex_unlock(&pf->lock);
 		gp->value = PS3RSX_ABI_VERSION;
 		break;
+	case PS3RSX_GETPARAM_PS3_RECOVER:
+		WRITE_ONCE(pf->recover, true);
+		gp->value = 1;
+		break;
 	default:
 		/* includes HAS_VMA_TILEMODE: Mesa then doesn't prefer zink */
 		return -EINVAL;

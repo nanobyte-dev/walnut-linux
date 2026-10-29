@@ -29,6 +29,12 @@ static bool dry_run;
 module_param_named(dry_run, dry_run, bool, 0644);
 MODULE_PARM_DESC(dry_run, "Validate submissions but send nothing to the GPU");
 
+static bool refuse_rejected;
+module_param(refuse_rejected, bool, 0644);
+MODULE_PARM_DESC(refuse_rejected, "A channel with a rejected push (or an open primitive ps3rsx had "
+		 "to close) is refused from then on (-EIO), even when its client recovers "
+		 "(PS3_RECOVER: it gets -ECANCELED and re-sends its state)");
+
 /* All channels share one reports area; each gets its own fence label and query slice */
 #define FENCE_LABEL(id)		(0x20 + 32 * (id))	/* Mesa asks for 32 bytes */
 #define QUERY_SLICE(id)		(0x1400 + 0x1000 * (id))
@@ -44,9 +50,19 @@ struct ps3rsx_chan *ps3rsx_chan_find(struct ps3rsx_file *pf, u32 id)
 	return NULL;
 }
 
-/* The owner of an open primitive didn't continue it: end it, and mark that channel broken
- * (its next push would continue a primitive that no longer exists). exec_lock held. */
-static int close_stale_primitive(struct ps3rsx_device *rsx)
+/* Does the channel's client re-send its state after a cancelled submit (PS3_RECOVER)? */
+static bool chan_recovers(struct ps3rsx_chan *ch)
+{
+	return READ_ONCE(ch->pf->recover) && !READ_ONCE(refuse_rejected);
+}
+
+/*
+ * End the primitive the GPU holds open for prim_owner (its last accepted submit left it open)
+ * with a BEGIN_END stop on its 3D subchannel. The channel's validator state then has no
+ * primitive open, so its later vertex data and END are rejected (validate.c) rather than sent
+ * outside a primitive. exec_lock held.
+ */
+static int end_primitive(struct ps3rsx_device *rsx)
 {
 	struct ps3rsx_chan *owner = rsx->prim_owner;
 	struct dma_fence *f;
@@ -60,16 +76,60 @@ static int close_stale_primitive(struct ps3rsx_device *rsx)
 		return ret;
 	p[0] = (1 << 18) | ((sc & 7) << 13) | 0x1808;	/* BEGIN_END = stop */
 	p[1] = 0;
-	f = ps3rsx_ring_commit(rsx, 8, true);
+	f = ps3rsx_ring_commit(rsx, 8, !dry_run);
 	if (IS_ERR(f))
 		return PTR_ERR(f);
 	dma_fence_put(f);
-	pr_warn("ps3rsx: channel %u left a primitive open for 1 s: closed it\n", owner->id);
-	owner->broken = true;
 	owner->vstate.prim_open = false;
 	rsx->prim_owner = NULL;
 	wake_up_all(&rsx->prim_wq);
 	return 0;
+}
+
+/* The owner of an open primitive didn't continue it: end it. Unless its client recovers, mark
+ * that channel broken (its next push would continue a primitive that no longer exists; a
+ * recovering client's is rejected for it and cancelled). exec_lock held. */
+static int close_stale_primitive(struct ps3rsx_device *rsx)
+{
+	struct ps3rsx_chan *owner = rsx->prim_owner;
+	int ret = end_primitive(rsx);
+
+	if (ret)
+		return ret;
+	pr_warn("ps3rsx: channel %u left a primitive open for 1 s: closed it\n", owner->id);
+	if (!chan_recovers(owner))
+		owner->broken = true;
+	return 0;
+}
+
+/*
+ * A push of the submit was rejected: nothing of the submit reached the GPU, and the channel's
+ * validator state and shadow are still what its last accepted submit left. Its client counted
+ * on what the submit would have set (Mesa sends state once), so its next draws would run on
+ * older state. A client that recovers (PS3_RECOVER) gets -ECANCELED, takes nothing of its own
+ * state as set any more and re-sends it all before it draws again; its later pushes are
+ * validated as always. Any other is refused from now on (-EIO), as all were before.
+ * exec_lock held.
+ */
+static int submit_rejected(struct ps3rsx_device *rsx, struct ps3rsx_chan *ch)
+{
+	if (!chan_recovers(ch)) {
+		if (!ch->broken)
+			pr_warn("ps3rsx: channel %u refused from now on (pid %d, %s)\n",
+				ch->id, task_pid_nr(current), current->comm);
+		ch->broken = true;
+		return -EINVAL;
+	}
+	/* its last accepted submit left a primitive open, which this one was to continue or end:
+	 * end it now (nothing else may reach the GPU inside it) */
+	if (ch->vstate.prim_open && rsx->prim_owner == ch && end_primitive(rsx)) {
+		ch->broken = true;		/* the ring didn't take it: the GPU is gone */
+		return -EIO;
+	}
+	ch->cancelled++;
+	pr_warn_ratelimited("ps3rsx: channel %u: submit cancelled (%u so far; pid %d, %s)\n",
+			    ch->id, ch->cancelled, task_pid_nr(current), current->comm);
+	return -ECANCELED;
 }
 
 /* Bring hw_shadow up to date with the last channel's pushes. exec_lock held. */
@@ -171,6 +231,7 @@ int ps3rsx_ioctl_channel_alloc(struct drm_device *dev, void *data, struct drm_fi
 		return -ENOSPC;
 	}
 	ch->id = id;
+	ch->pf = pf;
 
 	/* the notifier memory is the context's reports area (labels at 0, reports at 0x1400) */
 	bo = ps3rsx_bo_new_reports(rsx);
@@ -448,16 +509,7 @@ int ps3rsx_ioctl_gem_pushbuf(struct drm_device *dev, void *data, struct drm_file
 				     push[i].bo_index, push[i].offset, dst, len);
 			ret = ps3rsx_validate(&vs, dst, len / 4);
 			if (ret) {
-				/*
-				 * Mesa sends state once and counts on it: the channel's next pushes
-				 * would draw on the GPU's older state (another program's vertex
-				 * formats, textures and programs with this one's buffers), which can
-				 * fault as well. Refuse the channel from now on.
-				 */
-				if (!ch->broken)
-					pr_warn("ps3rsx: channel %u refused from now on (pid %d, %s)\n",
-						ch->id, task_pid_nr(current), current->comm);
-				ch->broken = true;
+				ret = submit_rejected(rsx, ch);
 				mutex_unlock(&rsx->exec_lock);
 				goto out;
 			}

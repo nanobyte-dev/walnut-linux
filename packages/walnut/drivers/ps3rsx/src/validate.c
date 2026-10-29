@@ -11,7 +11,13 @@
  * Data checks: vertex format type 0 and UB256 with other than 4 components, 1-pixel-wide
  * swizzled render targets, fragment texture offsets not 128-byte aligned, the X16 texture
  * format, every word of the vertex texture units (vtxtex_ok()), SIFM surfaces.
+ * Order checks: BEGIN only with no primitive open, END and vertex data only inside one (the
+ * channel's primitive state carries over from its accepted submits: Mesa splits draws).
  * Not yet: bounds checks of offsets against BOs at trigger methods.
+ *
+ * Every check reads only the push's own words and the channel's validator state, which only
+ * accepted submits change: a rejected submit leaves nothing behind, so the streams that reach
+ * the GPU, laid end to end, pass these checks as one stream (docs/DRIVER.md, recovery).
  */
 #include <linux/kernel.h>
 
@@ -95,11 +101,13 @@ static unsigned long allowed[VC_N][BITS_TO_LONGS(0x2000 / 4)];
  * method on that class whatever the data, and changes nothing (allowed, not a bind or host
  * method, not data-checked: fast_kind()); F_VTXFMT, F_TEXOFS and F_TEXFMT when its only check is
  * the vertex format (vtxfmt_ok()), the texture offset alignment or the texture format
- * (texfmt_ok()). Such words, nearly all of a push, cost a table lookup; a non-incrementing burst
- * to an F_OK method (inline vertex and index data) costs one for all its words. Everything else
- * goes through check_method(), so the fast path accepts nothing it wouldn't.
+ * (texfmt_ok()). F_PRIM: vertex data, allowed only inside a primitive (prim_method()); a
+ * non-incrementing burst of it inside one is taken as F_OK. Such words, nearly all of a push, cost
+ * a table lookup; a non-incrementing burst to an F_OK method (inline vertex and index data) costs
+ * one for all its words. Everything else goes through check_method(), so the fast path accepts
+ * nothing it wouldn't.
  */
-enum { F_SLOW, F_OK, F_VTXFMT, F_TEXOFS, F_TEXFMT };
+enum { F_SLOW, F_OK, F_VTXFMT, F_TEXOFS, F_TEXFMT, F_PRIM };
 static u8 fast[VC_N][0x2000 / 4];
 
 /*
@@ -290,6 +298,18 @@ static bool known_dma(u32 handle)
 	return false;
 }
 
+/*
+ * Vertex data, which the RSX takes only between BEGIN and END: VB_ELEMENT_U16 and _U32 (0x180c,
+ * 0x1810), VB_VERTEX_BATCH (0x1814), inline VERTEX_DATA (0x1818) and VB_INDEX_BATCH (0x1824).
+ * Not the index buffer's offset and format (0x181c, 0x1820), set before BEGIN. Mesa sends these
+ * only inside a primitive; outside one they could come from a client continuing a draw whose
+ * BEGIN was in a rejected submit, or whose primitive ps3rsx closed (submit.c).
+ */
+static bool prim_method(u32 m)
+{
+	return m == 0x180c || m == 0x1810 || m == 0x1814 || m == 0x1818 || m == 0x1824;
+}
+
 /* A fragment texture offset (units 0-15)? */
 static bool tex_offset(u32 m)
 {
@@ -314,6 +334,8 @@ static u8 fast_kind(int c, u32 m)
 		return F_OK;
 	if (m == 0x1808 || m == 0x208)
 		return F_SLOW;			/* BEGIN_END state, RT_FORMAT */
+	if (prim_method(m))
+		return F_PRIM;			/* vertex data: inside a primitive only */
 	if (m >= VTXTEX_LO && m <= VTXTEX_HI)
 		return F_SLOW;			/* vertex texture units: vtxtex_ok() */
 	if (m >= 0x1740 && m <= 0x177c)
@@ -353,8 +375,19 @@ static int check_method(struct ps3rsx_vstate *vs, u32 subch, u32 mthd, u32 data,
 		*why = "method not in the allowlist for this object";
 		return -EINVAL;
 	}
-	if (vs->bound[subch] == 0x31337000 && mthd == 0x1808)
-		vs->prim_open = data != 0;	/* BEGIN_END: Mesa splits draws across pushes */
+	if (vs->bound[subch] == 0x31337000 && mthd == 0x1808) {
+		/* BEGIN_END: Mesa splits draws across pushes and submits, so the state carries
+		 * over; a BEGIN inside a primitive or an END outside one is nothing Mesa sends */
+		if ((data != 0) == vs->prim_open) {
+			*why = data ? "BEGIN with a primitive open" : "END with no primitive open";
+			return -EINVAL;
+		}
+		vs->prim_open = data != 0;
+	}
+	if (vs->bound[subch] == 0x31337000 && prim_method(mthd) && !vs->prim_open) {
+		*why = "vertex data outside BEGIN/END";
+		return -EINVAL;
+	}
 	if (vs->bound[subch] == 0x31337000 && mthd >= 0x1740 && mthd <= 0x177c &&
 	    !vtxfmt_ok(data)) {
 		/* vertex format type 0 raises a graph exception on the RSX (quirks test), and so
@@ -442,6 +475,9 @@ int ps3rsx_validate(struct ps3rsx_vstate *vs, const u32 *w, u32 nwords)
 			/* the same method for every word: one lookup when its data isn't checked */
 			u8 f = ok[mthd / 4];
 
+			if (f == F_PRIM && vs->prim_open)
+				f = F_OK;	/* vertex data inside a primitive (it can't close it) */
+
 			if (f != F_OK) {
 				for (k = 0; k < count; k++) {
 					if (fast_ok(f, data[k]))
@@ -472,6 +508,6 @@ int ps3rsx_validate(struct ps3rsx_vstate *vs, const u32 *w, u32 nwords)
 	}
 	return 0;
 bad:
-	pr_warn("ps3rsx: rejected push: %s at word %u (%08x)\n", why, i, w[i]);
+	pr_warn_ratelimited("ps3rsx: rejected push: %s at word %u (%08x)\n", why, i, w[i]);
 	return -EINVAL;
 }

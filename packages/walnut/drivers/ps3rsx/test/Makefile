@@ -35,13 +35,14 @@ $(O)/zero-test: zero-test.c ../src/zero.h inc/shim.h
 	gcc $(CFLAGS) -Wno-unused-function -fsanitize=address,undefined -fno-sanitize-recover=undefined -o $@ $<
 $(O)/zero-test-ppc64: zero-test.c ../src/zero.h inc/shim.h $(O)/libatomic_asneeded.a
 	powerpc64-linux-gnu-gcc $(CFLAGS) -Wno-unused-function $(PPCFLAGS) -o $@ $<
-# the validator against the streams that raised graph exceptions (src/validate.c, fixtures/)
-$(O)/validate-test: validate-test.c ../src/validate.c inc/shim.h fixtures/mpv-vo-gpu-0x105.h \
-	fixtures/webkit-compositing.h
+# the validator against the streams that raised graph exceptions (src/validate.c, fixtures/), and
+# recovery from a rejected push (the GPU's stream checked whole, its state through src/shadow.c)
+$(O)/validate-test: validate-test.c ../src/validate.c ../src/shadow.c inc/shim.h \
+	fixtures/mpv-vo-gpu-0x105.h fixtures/webkit-compositing.h
 	@mkdir -p $(O)
 	gcc $(CFLAGS) -Wno-unused-function -fsanitize=address,undefined -fno-sanitize-recover=undefined -o $@ $<
 # a mesa-shim capture's pushes through the validator: validate-capture PUSH.BIN...
-$(O)/validate-capture: validate-capture.c ../src/validate.c inc/shim.h
+$(O)/validate-capture: validate-capture.c ../src/validate.c ../src/shadow.c inc/shim.h
 	@mkdir -p $(O)
 	gcc $(CFLAGS) -Wno-unused-function -fsanitize=address,undefined -fno-sanitize-recover=undefined -o $@ $<
 $(O)/cnt-ppc64: $(SRC) $(O)/libatomic_asneeded.a

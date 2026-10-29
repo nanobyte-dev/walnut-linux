@@ -47,6 +47,13 @@ struct drm_nouveau_grobj_alloc {
  * it only from 2 on, so a newer Mesa on an older module keeps working). */
 #define PS3RSX_GETPARAM_PS3_ABI	0x1000
 #define PS3RSX_ABI_VERSION	2
+/* Private GETPARAM, value 1: the client recovers from a cancelled submit. Asked (before its
+ * channels submit), a rejected push makes its submit fail with -ECANCELED, and the channel takes
+ * further submits (each validated as always); not asked, the channel is refused from then on
+ * (-EIO). Mesa 0053 asks and, on -ECANCELED, drops its view of the GPU state and re-sends it
+ * before its next draw (docs/DRIVER.md, the validator). Module parameter refuse_rejected=1
+ * refuses every such channel. */
+#define PS3RSX_GETPARAM_PS3_RECOVER	0x1001
 
 #define CPU_VRAM_LIMIT		0xe000000ULL	/* ps3fb's VRAM mapping size: CPU access above it is unproven */
 
@@ -269,14 +276,18 @@ struct ps3rsx_chan {
 	u32 id;
 	struct ps3rsx_vstate vstate;
 	struct ps3rsx_shadow *shadow;	/* the state this channel's pushes set (shadow.c) */
+	struct ps3rsx_file *pf;		/* the file it belongs to */
 	bool broken;			/* refused: its open primitive was closed under it, or a
-				 * push of it was rejected (its later ones count on it) */
+				 * push of it was rejected (its later ones count on it), and
+				 * its client doesn't recover (PS3_RECOVER) */
+	u32 cancelled;			/* submits cancelled for a rejected push (it recovers) */
 };
 
 /* Per open file */
 struct ps3rsx_file {
 	struct mutex lock;
 	bool abi_ok;			/* PS3_ABI was queried */
+	bool recover;			/* PS3_RECOVER was queried: -ECANCELED, not refusal */
 	struct list_head objects;	/* NVIF objects (device, engine objects) */
 	struct list_head chans;
 	bool was_master;		/* counted in masters_open */
