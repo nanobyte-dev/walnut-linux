@@ -33,6 +33,11 @@ deb make game-data-packager-deb built into the deb builder image and runs this t
   -dimension-of-the-machine, expansions of quake-rerelease in its base directory, with their paks'
   sizes and checksums, the mission packs' music optional, GOG's Quake Enhanced installer providing
   them (loader only); QuakeTask's tryexec detector only for packages in $assets/quake.
+- 0016 secret-of-monkey-island-floppy-es-data and 0017 loom-ega-es-data: the Spanish floppy releases,
+  with their files' sizes and checksums, 901-904.lfl shared with the German floppy and Loom's
+  unchanged rooms with the other EGA releases (loader only).
+- 0018 --no-launchers for the ScummVM games: a build of a fixture ScummVM game ("walnutscumm", plugin
+  scummvm_common) has the .desktop link and an icon without it, neither with it.
 
 game-data-packager checks every file against its checksums, so the builds use a game of our own,
 "walnuttest" (plugin doom_common, so DoomTask writes its launchers), whose checksums are those of
@@ -661,6 +666,119 @@ class QuakePackageOption(unittest.TestCase):
     def test_shortcut(self):
         self.assertEqual(self.parse(['quake', '-m', 'x']), ['quake-registered'])
         self.assertIsNone(self.parse(['quake', 'x']))
+
+
+class SpanishScumm(unittest.TestCase):
+    """0016, 0017: the Spanish floppy releases of The Secret of Monkey Island and Loom"""
+
+    def files(self, game, package):
+        from game_data_packager.game import load_games
+        g = load_games()[game]
+        g.load_file_data()
+        p = g.packages[package]
+        return g, p, {w.name: w for w in p.install_files}
+
+    def test_monkey(self):
+        g, p, files = self.files('monkey', 'secret-of-monkey-island-floppy-es-data')
+        self.assertEqual(p.lang, 'es')
+        self.assertEqual(len(files), 13)
+        f = files['000.lfl?es_floppy']
+        self.assertEqual((f.size, f.md5, f.sha256),
+                         (8357, '93f436541c10ce1e8a72cb3878ec0347',
+                          '4b24ef06d45d31d34db293d807979b38a20a772982015d6d808ce3b558dfd9fc'))
+        self.assertIn('901.lfl?de_floppy', files)	# the German floppy's, byte for byte
+        self.assertEqual(sorted(n.split('?')[0] for n in files),
+                         ['000.lfl', '901.lfl', '902.lfl', '903.lfl', '904.lfl'] +
+                         ['disk%02d.lec' % i for i in range(1, 9)])
+        for n, f in files.items():
+            if n.endswith('?es_floppy'):
+                self.assertTrue(f.size and f.md5 and f.sha1 and f.sha256, n)
+
+    def test_loom(self):
+        g, p, files = self.files('loom', 'loom-ega-es-data')
+        self.assertEqual(p.lang, 'es')
+        self.assertEqual(len(files), 74)
+        f = files['00.lfl?es']
+        self.assertEqual((f.size, f.md5), (5748, '2a208ffbcd0e83e86f4356e6f64aa6e1'))
+        self.assertIn('05.lfl', files)		# unchanged from the English EGA release
+        self.assertIn('99.lfl?fr', files)	# the French release's
+        # the same rooms as the English EGA release
+        _, _, en = self.files('loom', 'loom-ega-data')
+        self.assertEqual(sorted(n.split('?')[0] for n in files), sorted(n.split('?')[0] for n in en))
+
+
+class ScummvmNoLaunchers(unittest.TestCase):
+    """0018: --no-launchers leaves a ScummVM game's menu entry and icon out"""
+    DATA = b'walnut scumm room' * 64
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.mkdtemp(prefix='gdp-test.')
+        cls.datadir = os.path.join(cls.tmp, 'data')
+        os.mkdir(cls.datadir)
+        for f in os.listdir(PKGDATADIR):
+            os.symlink(os.path.join(PKGDATADIR, f), os.path.join(cls.datadir, f))
+        s = sums(cls.DATA)
+        with open(os.path.join(cls.datadir, 'walnutscumm.yaml'), 'w', encoding='utf-8') as f:
+            f.write(f"""---
+longname: Walnut ScummVM test game
+copyright: "\\u00a9 2026 nobody"
+plugin: scummvm_common
+wiki: Day_of_the_Tentacle
+
+packages:
+  walnut-scumm-data:
+    install:
+    - walnutscumm.000
+
+groups:
+  main: |
+    {len(cls.DATA)} {s['md5']} walnutscumm.000
+
+sha1sums: |
+  {s['sha1']} walnutscumm.000
+
+sha256sums: |
+  {s['sha256']} walnutscumm.000
+""")
+        with open(os.path.join(cls.datadir, 'walnutscumm.json'), 'w', encoding='utf-8') as f:
+            f.write('{}')
+        cls.files = os.path.join(cls.tmp, 'files')
+        os.mkdir(cls.files)
+        with open(os.path.join(cls.files, 'WALNUTSCUMM.000'), 'wb') as f:
+            f.write(cls.DATA)
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp)
+
+    def build(self, *args):
+        out = tempfile.mkdtemp(dir=self.tmp, prefix='out.')
+        env = dict(os.environ, LANGUAGE='en', GDP_PKGDATADIR=self.datadir)
+        p = subprocess.run([GDP, '-n', '-d', out, '--no-search', '--no-compress', '--no-download',
+                            *args, 'walnutscumm', self.files],
+                           env=env, capture_output=True, text=True, timeout=600)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        deb, = glob.glob(os.path.join(out, 'walnut-scumm-data_*_all.deb'))
+        c = subprocess.run(['dpkg-deb', '-c', deb], check=True, capture_output=True,
+                           text=True).stdout
+        info = subprocess.run(['dpkg-deb', '-f', deb, 'Recommends'], capture_output=True,
+                              text=True).stdout
+        return c, info
+
+    def test_with_launchers(self):
+        c, rec = self.build()
+        self.assertIn('./usr/share/games/walnut-scumm/walnutscumm.000', c)
+        self.assertIn('./usr/share/applications/walnut-scumm.desktop', c)
+        self.assertRegex(c, r'\./usr/share/(pixmaps|icons/hicolor/scalable/apps)/walnut-scumm\.')
+        self.assertIn('game-data-packager-runtime', rec)
+
+    def test_no_launchers(self):
+        c, rec = self.build('--no-launchers')
+        self.assertIn('./usr/share/games/walnut-scumm/walnutscumm.000', c)
+        for gone in ('applications/walnut-scumm', 'pixmaps/walnut-scumm', 'apps/walnut-scumm'):
+            self.assertNotIn(gone, c)
+        self.assertNotIn('game-data-packager-runtime', rec)
 
 if __name__ == '__main__':
     unittest.main()
