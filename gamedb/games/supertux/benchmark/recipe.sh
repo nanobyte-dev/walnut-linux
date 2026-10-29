@@ -40,3 +40,4 @@ variant_menu() { ST_KEYS=0; st_cmd; SHOT_STATIC=1; }
 variant_card() { ST_KEYS=0; }
 variant_sdl() { ST_RENDERER=sdl; st_cmd "$ST_LEVEL"; }
 variant_nomusic() { CMD+=(--disable-music); }
+variant_fresh() { CMD=(/usr/games/supertux2 "$ST_LEVEL"); }	# no video options: what a new player gets (the level card keys still pressed)
