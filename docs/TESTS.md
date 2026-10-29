@@ -56,7 +56,6 @@ edit the todo.toml, not the table.
 | 17 | Trigger Rally | not rated yet | Trigger Rally | ready | First played session on the game's defaults (58 fps in the smoke race): a few stages with the DualShock 3 (the game finds it; does its mapping steer, throttle and brake?), the engine and co-driver by ear. |
 | 18 | Diablo (DevilutionX) | not rated yet | DevilutionX | needs the data | First played session with the player's DIABDAT.MPQ: the DualShock 3 through the menus (it fills in the hero's name) and in the dungeon, the sound by ear (8 audible dropouts in the smoke run), a save and a load. The smoke run gave 58 fps in town. |
 | 19 | ScummVM | not rated yet | ScummVM | needs the data | First played session with a player's own game through ScummVM's launcher (Add Game on ~/Games/scummvm/DOTT): Day of the Tentacle for 10 minutes, the voices and music by ear, the pad as a mouse (ScummVM's own gamepad mouse), a save and a load. The smoke run reached the lobby with the right picture. |
-| 20 | Neverputt | not rated yet | Neverputt | ready | First played session: a course of 9 holes with the DualShock 3 and the mouse, the sound by ear. The smoke run reached hole 1 at 129 fps. |
 | 21 | Heroes of Might and Magic II (fheroes2) | not rated yet | fheroes2 | needs the data | First played session with the player's Heroes II data: a standard game, a few turns, a battle, a save and a load; the music and effects by ear. |
 <!-- /gamedb:session-queue -->
 

@@ -11,6 +11,12 @@ Smoke run on 2026-10-29 (kernel .874, Mesa ps3.924, the VRAM swap on; `ps3-bench
 running with 6 audible dropouts, 47 MB peak RSS. Not checked: a putt, the pad, the sound by ear. The recipe:
 [benchmark/recipe.sh](benchmark/recipe.sh).
 
+Played session `ps3-bench-20261029T212316Z` (ps3.931~dev, 2026-10-29): 5.7 min, quit, 328 s of play, fullscreen 1920x1080
+(five shots, three courses of par 2, 3 and 9, in proportion, no bars, the pointer hidden). Median 60.0 fps, 1% low 44.5,
+longest frame 194.6 ms, 0.33 s a minute of stutter, load 15 s, 44 MB RSS, 0 audible sound dropouts (17 xruns of 15 ms).
+The form: sound and music heard, controls full (the DualShock opened, 22171 pad events in play, one key press), pad menus
+worked, play seamless, no glitches. No PC reference sheet. Rated Platinum 96, provisional: stability is scored from 5
+minutes of play (90, the start of a crash-free game).
 
 ## Research
 
