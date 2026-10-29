@@ -45,3 +45,4 @@ variant_window() { TW_ARGS=("${TW_ARGS[@]/gfx_fullscreen 1/gfx_fullscreen 0}"); 
 # the SPE encoders off (Mesa's own DXT path on the PPE): SPEQ_S3TC=ppe, with libspeq's counters in the log
 variant_s3tcppe() { ENV+=(SPEQ_S3TC=ppe SPEQ_DEBUG=1); }
 variant_s3tcspu() { ENV+=(SPEQ_S3TC=spu SPEQ_DEBUG=1); }
+variant_fresh() { TW_ARGS=("player_name smoke"); tw_cmd; }	# the defaults a new player gets (only the name set)
