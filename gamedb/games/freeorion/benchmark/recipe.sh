@@ -12,3 +12,4 @@ BACKUP=("$HOME/.config/freeorion/config.xml" "$HOME/.config/freeorion/persistent
 FO_TURNS=3
 fo_cmd() { CMD=(/usr/games/freeorion -f -q --auto-advance-n-turns "$FO_TURNS"); }
 fo_cmd
+variant_dxt() { ENV+=(NV30_FORCE_DXT=all); }	# the 2048x2048 field textures as DXT5 at upload (they drew white: VRAM)
