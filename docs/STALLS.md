@@ -164,7 +164,10 @@ stall's cause is the largest share. The rules, in order:
 
 report.py groups them into columns: `stall_disk_s`, `stall_swap_s` (both swaps), `stall_reclaim_s`
 (reclaim and gart), `stall_gpu_s`, `stall_cpu_s` (cpu and runq), `stall_io_s`, `stall_wait_s`,
-`stall_other_s` (fault and unknown), and `stall_why` (the largest). matrix.py has
+`stall_other_s` (fault and unknown), and `stall_why` (the largest). `stall_main_pct` and
+`stall_rest_pct` say who had the CPU in the stall frames: the main thread's CPU and that of the game's
+other threads, in % of the frames' time (100 is one PPE thread; from each sample's process CPU and the
+main thread's ticks), and stalls.py prints the same with Xorg and kswapd0 under the cause table. matrix.py has
 `stall_{disk,swap,reclaim,gpu,cpu}_s.csv`, each created by the first run that has the number.
 
 Limits. The direct reclaim counters are global, so a reclaim by Xorg while the game runs its own code
@@ -405,6 +408,34 @@ thread 0.29 s). luanti 0010 puts those threads at nice 10 and 0011 lets the buil
 map blocks it no longer uses after 5 s: 30.9 s of stalls became 1.8 s, 21 fps became 38
 ([the investigation](../gamedb/games/luanti/investigations/2026-10-29-view120-stalls.md)). So for a
 game with busy worker threads, a `cpu` stall wants stallperf.py before the main thread's code is blamed.
+
+## Does it apply to other games? Mostly not
+
+The Luanti pattern has a signature in the stall record alone: the main thread low and the game's
+other threads high in the stall frames (`stall_main_pct` and `stall_rest_pct`, above; Luanti 22 and
+83). Checked on 2026-10-29 for every recent run with a record, plus one profiled smoke run each of
+Scorched 3D, Trigger Rally and Endless Sky (gamedb:batch/2026-10-29-worker-threads):
+
+| Game (run) | stalls in the window | main thread | other threads | kswapd0 | what the stall frames are |
+|---|---|---|---|---|---|
+| [Luanti](../gamedb/games/luanti/) view 120 before 0010/0011 (`T162428Z-luanti-v120old`) | 37.1 s of 135 | 22% | 83% | 28% | MeshUpdate, Emerge, Server have the PPE; fixed (38 fps, 1.8 s) |
+| [TORCS](../gamedb/games/torcs/) (`T232756Z-smoke-torcs-base`) | 93.6 s of 90 | 84% | 9% | 2% | its one thread: Mesa 41%, the robots and physics |
+| [Warmux](../gamedb/games/warmux/) (`T030029Z-smoke-warmux-play`) | 91.1 s of 90 | 74% | 13% | 3% | SDL3's blit on the main thread (since sped up) |
+| [MegaGlest](../gamedb/games/megaglest/) (`T004557Z`, 5 more runs 69-85%) | 35.5 s of 90 | 61% | 20% | 22% | drawing (Mesa 24%) and swap; the faction threads are waited for |
+| [Widelands](../gamedb/games/widelands/) (`T004009Z`) | 33.8 s of 90 | 74% | 11% | 10% | logic and drawing in the main thread |
+| [Trigger Rally](../gamedb/games/trigger-rally/) (`T171249Z`) | 17.1 s of 90 | 74% | 8% | 3% | one 13.9 s frame: the stage load |
+| [Scorched 3D](../gamedb/games/scorched3d/) (`T170925Z`) | 13.5 s of 90 | 62% | 9% | 23% | swap, Mesa, the Ogg music decoded on the main thread |
+| [Endless Sky](../gamedb/games/endless-sky/) (`T000953Z`) | 8.3 s of 90 | 43% | 78% | 12% | the data load: the main thread waits for its two loaders by design |
+
+So no generic renicer went into ps3-desktop's game-mode guard: of the installed games only Luanti
+has worker threads that compete with the frame. The rest run their game in one thread (with
+OpenAL's or SDL's audio thread beside it, which stays at its priority), or wait for their workers on
+purpose: MegaGlest's main thread spins until its faction threads finish each world frame, and Endless
+Sky's loading screen waits for its loaders, so a lower priority for those threads would only make
+the main thread wait longer. Where a game's stalls are `cpu`, the first question is now this pair of
+numbers: main high means its own code (profile it), main low with the rest high means a thread to
+look at with stallperf.py. A game that comes onto the console later gets the same check first. Each
+game's technical notes have its line ("Threads in the stall frames").
 
 ## Game prefetch
 
@@ -677,5 +708,8 @@ kernel.
 - 2026-10-18 15:13 (row 66, commit e59c09a): `local/0009` on .419, on/off in game (SSH-polled).
 - 2026-10-18 evening, batch 16 (row 68, commit 296f99d): the clean on/off repeat on .433; the
   prefetch A/B shows no gain and its default goes to off.
+
+- 2026-10-29: Luanti's render thread starved by its own workers (luanti 0010, 0011); the
+  `stall_main_pct`/`stall_rest_pct` check over the other games finds no second case.
 
 Older versions and the dated history: [archive/STALLS.md](archive/STALLS.md).

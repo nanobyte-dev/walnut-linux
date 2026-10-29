@@ -19,6 +19,10 @@ audible dropouts. The picture: the ship in deep space with the game's "Lost 1" m
 status panel drawn (xwd). The load to the menu, 1 to 1.5 minutes, is the part left to shorten: zlib's inflate and libjpeg lead its
 profile (`BENCH_PERF_LOAD=1`, the first 19 s), with the swap active.
 
+## Threads in the stall frames
+
+Checked on 2026-10-29 after gamedb:luanti's stalls turned out to be its render thread waiting for the CPU its own worker threads had (luanti 0010 puts them at nice 10). From the stall record (stalls.py's `stall_main_pct` and `stall_rest_pct`: the CPU of the main thread and of the game's other threads in the stall frames, in % of their time, 100 being one PPE thread; Luanti before its fix: 22 and 83) and the profile (`bench/analysis/stallperf.py`). Runs `ps3-bench-20261029T000953Z-smoke-endless-sky-base` (STALLS=1) and `ps3-bench-20261029T171540Z-smoke-endless-sky-base` (STALLS=1 PERF=1, disturbed at 331 s by an SSH command, left out of the records). Both windows (19-109 s) are the data load, not the flight (from about 300 s). There the main thread ran 43% of the stall time and the other threads 78%; the profile has the two loader threads (patch 0003's PS3 default) at 38% and 36% of the samples and the main thread at 16%: the main thread shows the loading screen and waits for the loaders, as designed. Lowering their priority would only make the load longer. The flight itself had 2 frames over 100 ms in 90 s (TESTS.md, 10-29 02:02).
+
 ## Research
 
 What the surveys and plans said about it, newest first; each line names its source, the section and the date.

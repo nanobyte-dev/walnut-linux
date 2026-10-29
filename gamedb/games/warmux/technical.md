@@ -45,3 +45,6 @@ libsdl3 0003 alone), 38.6 s of stalls in 90 (51-57 before), the picture and colo
 BomberClone and Pingus look right too. At 1280x720 scaled up by sdl12-compat it plays at 17.0 fps
 (`ps3-bench-20261029T050814Z-smoke-warmux-play720`): the size no longer matters, so 0001 keeps the screen's.
 
+## Threads in the stall frames
+
+Checked on 2026-10-29 after gamedb:luanti's stalls turned out to be its render thread waiting for the CPU its own worker threads had (luanti 0010 puts them at nice 10). From the stall record (stalls.py's `stall_main_pct` and `stall_rest_pct`: the CPU of the main thread and of the game's other threads in the stall frames, in % of their time, 100 being one PPE thread; Luanti before its fix: 22 and 83) and the profile (`bench/analysis/stallperf.py`). Run `ps3-bench-20261029T030029Z-smoke-warmux-play` (STALLS=1 PERF=1, before libsdl3 0003 and sdl12-compat 0001): main thread 74%, other threads 13% (SDL's audio thread), kswapd0 3%. The stalls were the main thread's own blits (the SDL3 loop the two fixes since sped up), not a worker: renicing has nothing to act on.

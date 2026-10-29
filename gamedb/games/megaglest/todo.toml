@@ -9,3 +9,14 @@ text = """\
 The main-menu crash and the exit's throw are fixed in our megaglest 0001 (checked on the PS3; the \
 exit waits ~80 s for the CRC thread on a first run). Left: quitting from the main menu by hand. Speed: 22 fps with 29 s of stalls on one scenario, the swap (~150 MB of the game on disk): a \
 memory job (what holds the RAM: MEM=1 runs exist, technical.md \"Our defaults\")."""
+
+[[item]]
+kind = "benchmark"
+added = 2026-10-29
+source = "worker-thread check 2026-10-29 (gamedb:batch/2026-10-29-worker-threads)"
+text = """\
+Two settings that don't change the picture, A/B on the scenario (`--load-scenario=amazones`, \
+3 rounds, same boot, STALLS=1): `EnableFTPServer=false` (its FTPServerThread took 4% of the CPU serving map \
+transfers nobody asks for in a local game) and `EnableNewThreadManager=true` (the main thread waits for the \
+faction threads on semaphores instead of spinning; technical.md "Threads in the stall frames"). A default \
+in our glestuser.ini only if the stalls or the 1% low move."""

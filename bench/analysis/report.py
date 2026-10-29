@@ -56,7 +56,10 @@ stall causes (runs with a stalls.rec: ps3-bench.sh BENCH_STALLS=1, run.sh STALLS
           what the game's main thread and the counters did; stall_why the largest of them;
           load_disk_s the load's seconds waiting on the disk (client start to load_end, all of it,
           not only stall frames), warm_disk_s the warm-up's stall frames' disk seconds,
-          warmup_disk_s the warm-up's (load_end to the window's start) seconds waiting on the disk
+          warmup_disk_s the warm-up's (load_end to the window's start) seconds waiting on the disk;
+          stall_main_pct, stall_rest_pct the CPU of the main thread and of the game's other threads
+          in the stall frames, % of their time (100 = one PPE thread): main low and rest high = the
+          main thread waited for its own threads (stallperf.py names them; docs/STALLS.md)
   snd     the sound card state(s) at SOUND_AT seconds; end: how the run ended (exit, end, duration)
   unx     the unexpected processes (bench.txt unexpected=: names off bench/harness/allowed-processes.txt that
           ran beside the run, processes-check.txt); such a run is intf=1 too
@@ -609,7 +612,7 @@ COLS = ["load", "fps", "maxms", "hud", "steady", "src", "low1", "stalls", "smoot
         "ftdrift", "cpu", "rss", "vram", "gart", "avail", "so_load", "so_all",
         "vsw_peak", "vsw_wb", "xrun", "xaud", "wedge", "sstall", "dump", "tmax", "tcell", "trsx", "snd", "end", "intf", "unx", "stall_disk_s", "stall_swap_s", "stall_reclaim_s",
         "stall_gpu_s", "stall_cpu_s", "stall_io_s", "stall_wait_s", "stall_other_s", "stall_why",
-        "load_disk_s", "warm_disk_s", "warmup_disk_s"]
+        "stall_main_pct", "stall_rest_pct", "load_disk_s", "warm_disk_s", "warmup_disk_s"]
 # the profiles' columns: printed only for the runs that have them
 PROF_COLS = (["perf_n", "perf_game", "perf_mesa", "perf_drm", "perf_kgpu", "perf_kernel", "perf_libc", "perf_other",
               "perf_unk", "perf_xorg", "perf_kswapd", "perf_self"]

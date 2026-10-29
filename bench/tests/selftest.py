@@ -1091,6 +1091,11 @@ def stalls_synthetic(tmp):
           r.get("stall_gpu_s") == 0.2 and r.get("stall_swap_s") == 0.4 and r.get("stall_reclaim_s") == 0.4
           and r.get("stall_cpu_s") == 0.2 and r.get("stall_other_s") == 0.0,
           {k: v for k, v in r.items() if k.startswith("stall_")})
+    # the process's CPU in the stall samples (c=, us) is 29.4 ms a sample-row set: 588 ms of 1800, the
+    # main thread's ticks (mu=, ms=) none: main 0%, the other threads 33%
+    check("report: stall_main_pct 0, stall_rest_pct 33 (the game's CPU in the stall frames)",
+          r.get("stall_main_pct") == 0 and 31 <= (r.get("stall_rest_pct") or 0) <= 35,
+          (r.get("stall_main_pct"), r.get("stall_rest_pct")))
     res2 = tmp / "results-stalls"
     env = dict(os.environ, BENCH_GAMEDB=str(tmp / "gamedb-stalls"))
     p = subprocess.run([sys.executable, str(ANALYSIS / "matrix.py"), "stall row", str(d)], env=env, capture_output=True, text=True)

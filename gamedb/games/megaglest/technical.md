@@ -43,6 +43,10 @@ disk): a memory job, not a GPU setting. Checked on the PS3 with megaglest 0001 (
 start writes the glestuser.ini and the main menu comes up fullscreen 1920x1080 in game mode, still up at
 110 s.
 
+## Threads in the stall frames
+
+Checked on 2026-10-29 after gamedb:luanti's stalls turned out to be its render thread waiting for the CPU its own worker threads had (luanti 0010 puts them at nice 10). From the stall record (stalls.py's `stall_main_pct` and `stall_rest_pct`: the CPU of the main thread and of the game's other threads in the stall frames, in % of their time, 100 being one PPE thread; Luanti before its fix: 22 and 83) and the profile (`bench/analysis/stallperf.py`). Runs `ps3-bench-20261029T004557Z-smoke-megaglest-base` (STALLS=1 PERF=1) and the five scenario runs after it: main thread 61-85%, other threads 17-20%, kswapd0 7-22%. The others are OpenAL's mixer (SCHED_RR), the music's streaming thread (`program.cpp_879`, Vorbis), the per-faction threads and `FTPServerThread` (4% of all samples, a select loop serving map transfers to network players, idle work in a local game). The faction threads can't be reniced: every world frame the main thread signals them and spins until they are done (world.cpp, `EnableNewThreadManager=false` by default), so a lower priority for them would lengthen its spin. The spin itself is small (pthread_mutex_lock 1% of the samples). The stalls are the main thread's drawing (Mesa 24% of the samples) and the swap. Two settings to A/B, neither changing the picture: `EnableFTPServer=false` and `EnableNewThreadManager=true` (semaphores instead of the spin) (todo.toml).
+
 ## Research
 
 What the surveys and plans said about it, newest first; each line names its source, the section and the date.

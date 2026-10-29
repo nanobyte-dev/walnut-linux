@@ -38,6 +38,10 @@ build, `~/.scorched3d` removed, `NOVSWAP=0 run.sh smoke scorched3d fresh`,
 wrote has the preset, fullscreen and 1920x1080.
 
 
+## Threads in the stall frames
+
+Checked on 2026-10-29 after gamedb:luanti's stalls turned out to be its render thread waiting for the CPU its own worker threads had (luanti 0010 puts them at nice 10). From the stall record (stalls.py's `stall_main_pct` and `stall_rest_pct`: the CPU of the main thread and of the game's other threads in the stall frames, in % of their time, 100 being one PPE thread; Luanti before its fix: 22 and 83) and the profile (`bench/analysis/stallperf.py`). Run `ps3-bench-20261029T170925Z-smoke-scorched3d-fresh` (STALLS=1 PERF=1, the fresh fastest preset, the VRAM swap on; gamedb:batch/2026-10-29-worker-threads): 20 fps steady, 1% low 4.2, 13.5 s of stalls in 90 s, the longest frame 2.0 s, 130 MB peak RSS, the picture right (the island, the bots' shots, kill messages). In the stall frames the main thread ran 62% of the time, the game's other threads 9% (OpenAL's mixer and the network threads of the in-process server), kswapd0 23%. The stalls are memory (kswapd, swap-ins) and the main thread's own work: its stall samples are Mesa 28% (display lists, `glCallList` 15%) and the Ogg music decoded on the main thread (`ov_read` 18%). Renicing has nothing to act on; the music decode is a candidate to move off the frame (todo.toml).
+
 ## Research
 
 What the surveys and plans said about it, newest first; each line names its source, the section and the date.

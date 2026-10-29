@@ -8,4 +8,6 @@ source = "games night 2026-10-28 (smoke)"
 text = """\
 Performance: Quick Race on Forza runs at about 7 fps with frames up to 6 s. A `PERF=1` run of the base \
 recipe (Return into the race) first: plib's drawing on the PPE against the robots' simulation; then the \
-game's own levers (fewer opponents, visibility, the sky dome, texture size) and GL call counts on llvmpipe."""
+game's own levers (fewer opponents, visibility, the sky dome, texture size) and GL call counts on llvmpipe. \
+The profile exists (`ps3-bench-20261028T232756Z`, Mesa 41% of the samples); the stalls are the main thread's \
+own work (84% of the stall time), no worker thread to renice (technical.md "Threads in the stall frames")."""

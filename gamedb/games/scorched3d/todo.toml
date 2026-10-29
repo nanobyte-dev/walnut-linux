@@ -12,3 +12,13 @@ fullscreen at the desktop's size, the default of a fresh configuration (checked 
 13.8 s of stalls in 90, no OOM). Next a `MEM=1 PERF=1` run of it: what holds the 121 MB (the \
 landscape's height maps, textures, the in-process server) and the stalls' cause; the levers left are a \
 smaller MaxLandscapeSize in the game settings and the texture size."""
+
+[[item]]
+kind = "fix"
+added = 2026-10-29
+source = "worker-thread check 2026-10-29 (gamedb:batch/2026-10-29-worker-threads)"
+text = """\
+The Ogg music is decoded on the main thread: 18% of its samples in the stall frames (`ov_read`, \
+technical.md "Threads in the stall frames"). Decoding it ahead on a thread of its own (or OpenAL's \
+streaming from a buffer filled outside the frame) takes it off the frame without changing the sound. \
+Measure first: an A/B with the music off (the game's own setting) says what it is worth."""

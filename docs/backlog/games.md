@@ -35,7 +35,7 @@ they came from.
 | [Heroes of Might and Magic II (fheroes2)](../../gamedb/games/heroes-of-might-and-magic-2/todo.toml) | 2 | 1 package, 1 session |  |
 | [LinCity-NG](../../gamedb/games/lincity-ng/todo.toml) | 1 | 1 benchmark |  |
 | [Luanti](../../gamedb/games/luanti/todo.toml) | 8 | 2 benchmark, 1 package, 4 research, 1 session | 2.6, 2.9, 3.12 |
-| [MegaGlest](../../gamedb/games/megaglest/todo.toml) | 1 | 1 fix |  |
+| [MegaGlest](../../gamedb/games/megaglest/todo.toml) | 2 | 1 benchmark, 1 fix |  |
 | [Mr.Boom](../../gamedb/games/mrboom/todo.toml) | 1 | 1 session |  |
 | [Neverball](../../gamedb/games/neverball/todo.toml) | 2 | 1 benchmark, 1 session | 3.10 |
 | [Neverputt](../../gamedb/games/neverputt/todo.toml) | 1 | 1 session |  |
@@ -48,7 +48,7 @@ they came from.
 | [Red Eclipse](../../gamedb/games/redeclipse/todo.toml) | 1 | 1 fix | 3.8 |
 | [Return to Castle Wolfenstein (iortcw)](../../gamedb/games/return-to-castle-wolfenstein/todo.toml) | 1 | 1 benchmark |  |
 | [Sauerbraten](../../gamedb/games/sauerbraten/todo.toml) | 2 | 1 package, 1 session |  |
-| [Scorched3D](../../gamedb/games/scorched3d/todo.toml) | 1 | 1 fix |  |
+| [Scorched3D](../../gamedb/games/scorched3d/todo.toml) | 2 | 2 fix |  |
 | [ScummVM](../../gamedb/games/scummvm/todo.toml) | 2 | 1 benchmark, 1 session |  |
 | [SimCity (Micropolis)](../../gamedb/games/simcity/todo.toml) | 1 | 1 package |  |
 | [Simutrans](../../gamedb/games/simutrans/todo.toml) | 1 | 1 benchmark |  |

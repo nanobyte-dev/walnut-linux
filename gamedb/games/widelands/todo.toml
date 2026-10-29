@@ -9,4 +9,6 @@ text = """\
 Performance: the tutorial plays at 23 fps with a 1% low of 7 and many frames over 100 ms after a 40 s \
 load. A `PERF=1 MEM=1` run of the base recipe (OK clicked) first: the map renderer's CPU (terrain, \
 the many small sprite draws), the Lua scenario, the swap; then the levers (Widelands' own options: \
-animations, the minimap, texture quality)."""
+animations, the minimap, texture quality). The profiled run exists (`ps3-bench-20261029T004009Z`): the \
+stalls are the main thread's own work (74% of the stall time) and the swap, no worker thread to renice \
+(technical.md "Threads in the stall frames")."""

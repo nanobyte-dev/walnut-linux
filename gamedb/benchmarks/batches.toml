@@ -1217,6 +1217,16 @@ observations = "The luanti build with 0010 (background threads at nice 10) and 0
 source = "bench/analysis/matrix.py"
 
 [[batch]]
+name = "2026-10-29-worker-threads"
+order = 114
+kind = "run"
+title = "Mesa ps3.924 + kernel .874, profiled smoke runs (STALLS=1 PERF=1): which threads hold the CPU in the stall frames"
+date = 2026-10-29
+runs = 2
+observations = "One profiled smoke run per game whose engine has more threads than main and audio (scorched3d fresh, trigger-rally freshrace, endless-sky base), VRAM swap on, to see whether the stall frames are the main thread waiting for the CPU while the game's own worker threads run (gamedb:luanti 2026-10-29). They are not: in the stall frames the main thread ran 62% (Scorched 3D) and 74% (Trigger Rally) of the time and the game's other threads 9% and 8% (stalls.py's new stall_main_pct/stall_rest_pct; Luanti before its fix: 22 and 83). Scorched 3D: 20 fps, 13.5 s of stalls in 90 s; kswapd0 23% of the stall time, the main thread itself decoding the Ogg music (18% of its stall samples), the picture right (bots firing, island, HUD). Trigger Rally: 59 fps, 3 stall frames, one of them the 13.9 s stage load inside the smoke window (glTexImage2D, PhysFS reads); the race drawn (the car stands at the start). Endless Sky's run was disturbed by an SSH command at 331 s (left out); its profile covers the data load, where the two loader threads have 74% of the CPU and the main thread 16% (waiting for them, as designed). Every run fullscreen 1920x1080, procs=ok."
+source = "bench/analysis/matrix.py"
+
+[[batch]]
 name = "suite-summary-2026-10"
 kind = "summary"
 title = "The suite's numbers, 2026-10: the rules-1 calibration"

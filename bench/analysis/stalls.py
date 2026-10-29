@@ -319,7 +319,7 @@ def analyze(d):
     ft = report.floats(ft_path) if ft_path.exists() else []
     off, spread, how = align(rec, b, ft)
     res = {"rec": rec, "frames": len(ft), "rec_frames": len(rec.frames), "align": how, "offset": off,
-           "spread": spread, "stalls": [], "window": Counter(), "load": None, "warmup": None}
+           "spread": spread, "stalls": [], "window": Counter(), "share": Counter(), "load": None, "warmup": None}
     t0 = report.num(b.get("t0"))
     if t0 is not None and rec.clocks and off is not None:
         res["t0_offset"] = rec.real_to_rec(t0) - off    # the two alignments against each other
@@ -339,6 +339,14 @@ def analyze(d):
             by = {c: x / tot * v / 1000 for c, x in by.items()}
             res["stalls"].append({"at": end - off - v / 1000, "ms": v, "cause": cause, "by": by,
                                   "evidence": evidence(ev, states, wchans, calls, others, stacks)})
+            # who had the CPU in the stall frames: the main thread, the game's other threads, the rest
+            sh = res["share"]
+            sh["wall_ms"] += v
+            sh["main_ms"] += ev["user_ms"] + ev["sys_ms"]
+            sh["proc_ms"] += ev["cpu_ms"]
+            for k, x in others.items():
+                if k.endswith(":ms"):
+                    sh[k[:-3]] += x
             for c, x in by.items():
                 res["window"][c] += x
     if ft and off is not None and (wseg := report.warm_segment(b)):
@@ -386,7 +394,19 @@ def summary(d):
     out.update({col: round(sum(res["window"].get(c, 0) for c in causes), 1) for col, causes in COLUMNS.items()})
     if res["stalls"]:
         out["stall_why"] = max(res["window"], key=res["window"].get)
+        out.update(share(res))
     return out
+
+
+def share(res):
+    """stall_main_pct, stall_rest_pct: the main thread's and the game's other threads' CPU in the
+    stall frames, in % of their wall time (100 = one PPE thread). A main thread well under 100 with
+    the rest high waited for the CPU its own threads had (gamedb:luanti 2026-10-29: 22 and 83)."""
+    sh = res["share"]
+    if not sh["wall_ms"]:
+        return {}
+    w = sh["wall_ms"] / 100
+    return {"stall_main_pct": round(sh["main_ms"] / w), "stall_rest_pct": round(max(0, sh["proc_ms"] - sh["main_ms"]) / w)}
 
 
 def table(by, total=None):
@@ -425,6 +445,12 @@ def show(d):
     st = res["stalls"]
     print("  window: %d stalls, %.1f s" % (len(st), sum(x["ms"] for x in st) / 1000))
     print(table(res["window"]))
+    if res["share"]["wall_ms"]:
+        sh, w = res["share"], res["share"]["wall_ms"] / 100
+        rest = " ".join("%s %.0f%%" % (k, sh[k] / w) for k in sorted(sh) if not k.endswith("_ms") and sh[k] / w >= 0.5)
+        print("  CPU in the stall frames (%% of their time; 100 = one PPE thread): main thread %.0f%%, the game's "
+              "other threads %.0f%%%s" % (sh["main_ms"] / w, max(0, sh["proc_ms"] - sh["main_ms"]) / w,
+                                         ", " + rest if rest else ""))
     if res.get("warm"):
         print("  warm-up (the first %g s after the load), stall frames: %.1f s" % (
             report.num(report.kv(Path(d) / "bench.txt").get("warmup")) or 0, sum(res["warm"].values())))
