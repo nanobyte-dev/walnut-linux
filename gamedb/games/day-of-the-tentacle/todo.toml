@@ -1,0 +1,15 @@
+# Day of the Tentacle: the backlog (gamedb/README.md, "games/<id>/todo.toml"): [[item]] with kind, text, added, source;
+# a session item's order is its place in the played-session queue (docs/TESTS.md's generated block).
+
+[[item]]
+kind = "session"
+order = 19
+launcher = "Day of the Tentacle"
+pc = "needs the data"
+added = 2026-10-29
+source = "games night 2026-10-28 (smoke)"
+text = """\
+First played session with the player's own copy, imported with Walnut Games (Add game files on \
+~/Games/scummvm/DOTT, the Spanish floppy release): Day of the Tentacle from its menu entry for 10 \
+minutes, the music by ear, the pad as the mouse (ScummVM's own game controller support), a save and \
+a load. The smoke run reached the lobby with the right picture."""

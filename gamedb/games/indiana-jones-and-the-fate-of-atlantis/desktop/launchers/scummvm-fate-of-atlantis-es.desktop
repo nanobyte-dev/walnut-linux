@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Indiana Jones and the Fate of Atlantis
+Comment=Indiana Jones and the Fate of Atlantis from your own copy (the Spanish CD release, package fate-of-atlantis-es-data), in ScummVM fullscreen
+Exec=ps3-game sh -c "mkdir -p ~/.config/scummvm/walnut && exec scummvm -c ~/.config/scummvm/walnut/atlantis.ini -i /usr/share/ps3-games/scummvm/atlantis.ini -p /usr/share/games/fate-of-atlantis-es atlantis"
+Icon=org.scummvm.scummvm
+Terminal=false
+Categories=Game;AdventureGame;
+Keywords=adventure;lucasarts;scumm;indiana;jones;indy;
+NoDisplay=true
+X-Walnut-Requires=/usr/share/games/fate-of-atlantis-es/atlantis.000

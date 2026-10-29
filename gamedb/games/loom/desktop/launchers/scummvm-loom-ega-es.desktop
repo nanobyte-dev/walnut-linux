@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Loom
+Comment=Loom from your own copy (the Spanish EGA floppy release, package loom-ega-es-data), in ScummVM fullscreen
+Exec=ps3-game sh -c "mkdir -p ~/.config/scummvm/walnut && exec scummvm -c ~/.config/scummvm/walnut/loom.ini -i /usr/share/ps3-games/scummvm/loom.ini -p /usr/share/games/loom-ega-es loom"
+Icon=org.scummvm.scummvm
+Terminal=false
+Categories=Game;AdventureGame;
+Keywords=adventure;lucasarts;scumm;loom;
+NoDisplay=true
+X-Walnut-Requires=/usr/share/games/loom-ega-es/00.lfl

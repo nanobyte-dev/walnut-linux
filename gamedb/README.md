@@ -46,7 +46,7 @@ gamedb/
   benchmarks/README.md              the results' format
   benchmarks/metrics.toml           metric names, units, direction, the tool that computes each
   research/<slug>.md                surveys across games
-  engines/<e>/                      an engine that is its own upstream project (cube2, ioquake3, darkplaces-gl2)
+  engines/<e>/                      an engine that is its own upstream project (cube2, ioquake3, darkplaces-gl2, scummvm)
     engine.md  build.toml  technical.md  investigations/  packages/<pkg>/
   games/<id>/
     index.md                        the player's page
@@ -122,7 +122,7 @@ adds "(partial)"), `keyboard-mouse` for `designed_for = "keyboard-mouse"`. Needs
 build.toml `needs_data`, `free-download` for a `[data_setup]` `fetch` package (a shareware or demo the app
 downloads), `low-memory` for a rating whose played sessions left under 10 MB free. Engine: one tag per
 engine, labelled with its name, in subgroups by family (id Tech 1: DSDA-Doom; id Tech 2: QuakeSpasm, Yamagi
-Quake II, DarkPlaces; id Tech 3: ioquake3; Cube 2 on its own). An engine tag has `engine = "<id>"`: a
+Quake II, DarkPlaces; id Tech 3: ioquake3; Cube 2 and ScummVM on their own). An engine tag has `engine = "<id>"`: a
 `engines/<id>/` bundle, or a game bundle that is the engine itself (dsda-doom, quakespasm, yquake2). A game
 has the tag when its build.toml `engine` is that id, or its own id is, or the id is among its `packages`
 (the Doom games run `dsda-doom`); a game on no such engine has no engine tag. `check.py` refuses an engine
@@ -256,7 +256,9 @@ its own bundle's build.toml.
 How the game is integrated into the PS3 desktop, as files (`tools/gamedb/check.py` allows only these):
 
 - `launchers/*.desktop`: our menu entries, one per way to start the game (OpenArena's two renderers); the
-  Exec starts it through `ps3-game` (game mode). `pack-integration.py` adds `TryExec=` the program Exec runs (in an `sh -c` script, the first one it `exec`s)
+  Exec starts it through `ps3-game` (game mode), except in an entry marked `X-Walnut-GameMode=false`, a
+  game's tool that is no game (ScummVM's own launcher, `env PS3_GAME_MODE=off scummvm`), which ps3-game-menu
+  leaves as it is. `pack-integration.py` adds `TryExec=` the program Exec runs (in an `sh -c` script, the first one it `exec`s)
   (past `env` and `VAR=value`), so the entry shows only when the game is installed, and `X-Walnut-Game=<id>`:
   the Walnut Games app (`play_commands`) and `bench/harness/launcher.py --game` keep only a game's own
   stamped entries, so games on one engine (dsda-doom: Freedoom, Doom, Heretic) don't list each other's.

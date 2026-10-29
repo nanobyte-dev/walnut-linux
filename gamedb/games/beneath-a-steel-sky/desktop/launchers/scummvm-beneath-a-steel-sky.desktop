@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Beneath a Steel Sky
+Comment=Beneath a Steel Sky, the free release Debian packages, in ScummVM fullscreen
+Exec=ps3-game sh -c "mkdir -p ~/.config/scummvm/walnut && exec scummvm -c ~/.config/scummvm/walnut/sky.ini -i /usr/share/ps3-games/scummvm/sky.ini -p /usr/share/scummvm/beneath-a-steel-sky sky"
+Icon=org.scummvm.scummvm
+Terminal=false
+Categories=Game;AdventureGame;
+Keywords=adventure;cyberpunk;revolution;
+NoDisplay=true
+X-Walnut-Requires=/usr/share/scummvm/beneath-a-steel-sky/sky.dsk

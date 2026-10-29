@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Flight of the Amazon Queen
+Comment=Flight of the Amazon Queen, the free release Debian packages, in ScummVM fullscreen
+Exec=ps3-game sh -c "mkdir -p ~/.config/scummvm/walnut && exec scummvm -c ~/.config/scummvm/walnut/queen.ini -i /usr/share/ps3-games/scummvm/queen.ini -p /usr/share/scummvm/flight-of-the-amazon-queen queen"
+Icon=org.scummvm.scummvm
+Terminal=false
+Categories=Game;AdventureGame;
+Keywords=adventure;amazon;queen;
+NoDisplay=true
+X-Walnut-Requires=/usr/share/scummvm/flight-of-the-amazon-queen/queen.1c

@@ -1,0 +1,5 @@
+# ScummVM's own launcher (gamedb/README.md "build.toml"): no game of its own. Each game ScummVM runs has
+# its bundle with its own launchers (engines/scummvm); this one keeps ScummVM's launcher in the menu,
+# ours without game mode (desktop/launchers/scummvm.desktop) in place of Debian's
+packages = ["scummvm"]
+divert = ["/usr/share/applications/org.scummvm.scummvm.desktop"]

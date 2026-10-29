@@ -1,0 +1,6 @@
+# Indiana Jones and the Fate of Atlantis: the played test (gamedb/README.md "games/<id>/rating/"). Data, never run: the session
+# harness reads it through bench/harness/playdef.py.
+process = 'scummvm'
+# set aside for a session on fresh defaults: this game's own ScummVM settings (its menu entries' -c file)
+# and its saves, nothing of the player's other ScummVM games
+home = ['.config/scummvm/walnut/atlantis.ini', '.local/share/scummvm/saves/atlantis.s*']

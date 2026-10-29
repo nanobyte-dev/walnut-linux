@@ -1,0 +1,16 @@
+# How Loom is built, installed and integrated (gamedb/README.md "build.toml").
+# ScummVM (engines/scummvm); the data from the player's own copy, one game-data-packager package per
+# edition and language, each in /usr/share/games/<package without -data>/ with a launcher of its own.
+# Not loom-en-data (the VGA talkie: the CD, Steam, GOG): gdp rips its CD audio track (or takes GOG's
+# cdda.sou), which the import's manifest can't describe yet (tools/gamedb/gdp-manifest.py refuses it)
+packages = ["scummvm"]
+engine = "scummvm"
+suite = "none"
+needs_data = true
+
+[data_setup]
+gdp = "loom"
+required = ["loom-ega-data", "loom-ega-de-data", "loom-ega-es-data", "loom-ega-fr-data"]
+hint = "The EGA floppy release's installed files, 00.LFL to 99.LFL (English, German, French or Spanish), copied to a folder."
+# what each package holds (X-Walnut-Edition of the package import-data builds)
+editions = { "loom-ega-data" = "full", "loom-ega-de-data" = "full", "loom-ega-es-data" = "full", "loom-ega-fr-data" = "full" }

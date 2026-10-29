@@ -1,0 +1,14 @@
+# How Indiana Jones and the Fate of Atlantis is built, installed and integrated (gamedb/README.md "build.toml").
+# ScummVM (engines/scummvm); the data from the player's own copy, one game-data-packager package per
+# edition and language, each in /usr/share/games/<package without -data>/ with a launcher of its own
+packages = ["scummvm"]
+engine = "scummvm"
+suite = "none"
+needs_data = true
+
+[data_setup]
+gdp = "atlantis"
+required = ["fate-of-atlantis-de-data", "fate-of-atlantis-en-data", "fate-of-atlantis-es-data", "fate-of-atlantis-floppy-de-data", "fate-of-atlantis-floppy-es-data", "fate-of-atlantis-fr-data", "fate-of-atlantis-it-data"]
+hint = "ATLANTIS.000 and ATLANTIS.001 from the DOS release: the CD (the talkie; English, German, Spanish, French or Italian) or the floppies' installed files (German or Spanish), copied to a folder, or GOG's installer."
+# what each package holds (X-Walnut-Edition of the package import-data builds)
+editions = { "fate-of-atlantis-de-data" = "full", "fate-of-atlantis-en-data" = "full", "fate-of-atlantis-es-data" = "full", "fate-of-atlantis-floppy-de-data" = "full", "fate-of-atlantis-floppy-es-data" = "full", "fate-of-atlantis-fr-data" = "full", "fate-of-atlantis-it-data" = "full" }

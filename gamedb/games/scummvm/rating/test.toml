@@ -1,6 +1,6 @@
-# ScummVM: the played test (gamedb/README.md "games/<id>/rating/"). Data, never run: the session
-# harness reads it through bench/harness/playdef.py.
+# ScummVM's own launcher: the played test (gamedb/README.md "games/<id>/rating/"). Data, never run: the
+# session harness reads it through bench/harness/playdef.py. The games have their own (engines/scummvm).
 process = 'scummvm'
-# its settings and data, set aside for a session on fresh defaults; checked against its XDG/legacy paths
-home = ['.config/scummvm', '.local/share/scummvm', '.scummvmrc']
-command = ['/usr/games/scummvm', '-f', '--stretch-mode=fit', '-p', '/usr/share/scummvm/beneath-a-steel-sky', 'sky']	# without a menu launcher
+# the launcher's own settings, set aside for a session on fresh defaults; each game's settings and saves
+# are its own bundle's (.config/scummvm/walnut/<target>.ini, .local/share/scummvm/saves/<target>.*)
+home = ['.config/scummvm/scummvm.ini', '.scummvmrc']

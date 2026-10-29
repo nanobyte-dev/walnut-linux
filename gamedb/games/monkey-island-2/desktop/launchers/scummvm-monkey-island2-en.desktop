@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Monkey Island 2: LeChuck's Revenge
+Comment=Monkey Island 2: LeChuck's Revenge from your own copy (the English floppy release, package monkey-island2-en-data), in ScummVM fullscreen
+Exec=ps3-game sh -c "mkdir -p ~/.config/scummvm/walnut && exec scummvm -c ~/.config/scummvm/walnut/monkey2.ini -i /usr/share/ps3-games/scummvm/monkey2.ini -p /usr/share/games/monkey-island2-en monkey2"
+Icon=org.scummvm.scummvm
+Terminal=false
+Categories=Game;AdventureGame;
+Keywords=adventure;lucasarts;scumm;monkey;island;pirate;
+NoDisplay=true
+X-Walnut-Requires=/usr/share/games/monkey-island2-en/monkey2.000

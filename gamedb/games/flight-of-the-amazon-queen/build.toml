@@ -1,0 +1,7 @@
+# How Flight of the Amazon Queen is built, installed and integrated (gamedb/README.md "build.toml").
+# ScummVM (engines/scummvm) with Debian's free data package (the CD release, English)
+packages = ["scummvm", "flight-of-the-amazon-queen"]
+engine = "scummvm"
+suite = "free"
+needs_data = false
+divert = ["/usr/share/applications/flight-of-the-amazon-queen.desktop"]

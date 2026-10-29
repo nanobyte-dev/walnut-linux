@@ -1,0 +1,20 @@
+# ScummVM (engine): the backlog (gamedb/README.md, "games/<id>/todo.toml"): [[item]] with kind, text, added, source;
+# a session item's order is its place in the played-session queue (docs/TESTS.md's generated block).
+
+[[item]]
+kind = "benchmark"
+added = 2026-10-29
+source = "games night 2026-10-28 (smoke)"
+text = """\
+Smoke runs of the free games through their new menu launchers (recipe scummvm: base, queen, drascula, \
+lure): Beneath a Steel Sky's intro skip now reaches the window; Drascula said "Couldn't identify game" on \
+2026-10-20, and runs on the PC with today's data package (1.0+ds4-4)."""
+
+[[item]]
+kind = "package"
+added = 2026-10-30
+source = "ScummVM games split (2026-10-30)"
+text = """\
+Loom's VGA talkie (loom-en-data: the CD, Steam, GOG) for the import: game-data-packager rips its one CD \
+audio track (or takes GOG's cdda.sou, linked as track1.ogg), which tools/gamedb/gdp-manifest.py can't \
+describe yet; the EGA releases import today."""

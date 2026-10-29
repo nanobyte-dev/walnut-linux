@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Lure of the Temptress
+Comment=Lure of the Temptress, the free release Debian packages, in ScummVM fullscreen
+Exec=ps3-game sh -c "mkdir -p ~/.config/scummvm/walnut && exec scummvm -c ~/.config/scummvm/walnut/lure.ini -i /usr/share/ps3-games/scummvm/lure.ini -p /usr/share/scummvm/lure-of-the-temptress/en lure"
+Icon=org.scummvm.scummvm
+Terminal=false
+Categories=Game;AdventureGame;
+Keywords=adventure;fantasy;revolution;lure;
+NoDisplay=true
+X-Walnut-Requires=/usr/share/scummvm/lure-of-the-temptress/en/Disk1.vga

@@ -57,6 +57,9 @@ label = "sports"
 [[group.tag]]
 id = "adventure"
 label = "adventure"
+sub = [
+  { id = "point-and-click", label = "point-and-click", description = "Walk, look, talk and use things by pointing at them; puzzles and dialogue, no reflexes." },
+]
 
 [[group.tag]]
 id = "action"
@@ -243,6 +246,13 @@ id = "cube2"
 label = "Cube 2"
 engine = "cube2"
 description = "The Cube 2 engine (Sauerbraten)."
+automatic = true
+
+[[group.tag]]
+id = "scummvm"
+label = "ScummVM"
+engine = "scummvm"
+description = "The adventure game interpreter: LucasArts' SCUMM games, Revolution's and many more, from their original data."
 automatic = true
 
 [[group]]

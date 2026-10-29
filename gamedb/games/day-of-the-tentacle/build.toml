@@ -1,0 +1,14 @@
+# How Day of the Tentacle is built, installed and integrated (gamedb/README.md "build.toml").
+# ScummVM (engines/scummvm); the data from the player's own copy, one game-data-packager package per
+# edition and language, each in /usr/share/games/<package without -data>/ with a launcher of its own
+packages = ["scummvm"]
+engine = "scummvm"
+suite = "none"
+needs_data = true
+
+[data_setup]
+gdp = "tentacle"
+required = ["dayofthetentacle-de-data", "dayofthetentacle-en-data", "dayofthetentacle-es-data", "dayofthetentacle-floppy-de-data", "dayofthetentacle-floppy-en-data", "dayofthetentacle-floppy-es-data", "dayofthetentacle-floppy-fr-data", "dayofthetentacle-floppy-it-data", "dayofthetentacle-fr-data", "dayofthetentacle-it-data"]
+hint = "TENTACLE.000, TENTACLE.001 and MONSTER.SOU from the CD (the talkie) or the floppy release, in English, German, Spanish, French or Italian: the CD, an installed copy or the floppies' files copied to a folder."
+# what each package holds (X-Walnut-Edition of the package import-data builds)
+editions = { "dayofthetentacle-de-data" = "full", "dayofthetentacle-en-data" = "full", "dayofthetentacle-es-data" = "full", "dayofthetentacle-floppy-de-data" = "full", "dayofthetentacle-floppy-en-data" = "full", "dayofthetentacle-floppy-es-data" = "full", "dayofthetentacle-floppy-fr-data" = "full", "dayofthetentacle-floppy-it-data" = "full", "dayofthetentacle-fr-data" = "full", "dayofthetentacle-it-data" = "full" }

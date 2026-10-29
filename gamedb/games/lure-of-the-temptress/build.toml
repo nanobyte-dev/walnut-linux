@@ -1,0 +1,8 @@
+# How Lure of the Temptress is built, installed and integrated (gamedb/README.md "build.toml").
+# ScummVM (engines/scummvm) with Debian's free data package (English, German, French, Italian and
+# Spanish, each in its own folder; the launcher starts the English one)
+packages = ["scummvm", "lure-of-the-temptress"]
+engine = "scummvm"
+suite = "free"
+needs_data = false
+divert = ["/usr/share/applications/lure-of-the-temptress.desktop"]

@@ -1,0 +1,2 @@
+# How the ScummVM engine is built and installed (gamedb/README.md "build.toml"): Debian's, unpatched.
+packages = ["scummvm"]

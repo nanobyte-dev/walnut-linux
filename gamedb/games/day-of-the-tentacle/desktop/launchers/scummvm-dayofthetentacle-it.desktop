@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Day of the Tentacle
+Comment=Day of the Tentacle from your own copy (the Italian CD release, package dayofthetentacle-it-data), in ScummVM fullscreen
+Exec=ps3-game sh -c "mkdir -p ~/.config/scummvm/walnut && exec scummvm -c ~/.config/scummvm/walnut/tentacle.ini -i /usr/share/ps3-games/scummvm/tentacle.ini -p /usr/share/games/dayofthetentacle-it tentacle"
+Icon=org.scummvm.scummvm
+Terminal=false
+Categories=Game;AdventureGame;
+Keywords=adventure;lucasarts;scumm;tentacle;
+NoDisplay=true
+X-Walnut-Requires=/usr/share/games/dayofthetentacle-it/tentacle.000

@@ -1,0 +1,8 @@
+# How Drascula: The Vampire Strikes Back is built, installed and integrated (gamedb/README.md "build.toml").
+# ScummVM (engines/scummvm) with Debian's free data packages: the English game and its music (Ogg
+# Vorbis, Recommended by drascula); the other languages (drascula-spanish, ...) are separate packages
+packages = ["scummvm", "drascula", "drascula-music"]
+engine = "scummvm"
+suite = "free"
+needs_data = false
+divert = ["/usr/share/applications/drascula.desktop"]

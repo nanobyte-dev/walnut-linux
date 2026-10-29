@@ -1,0 +1,7 @@
+# How Beneath a Steel Sky is built, installed and integrated (gamedb/README.md "build.toml").
+# ScummVM (engines/scummvm) with Debian's free data package (the CD release, all its languages)
+packages = ["scummvm", "beneath-a-steel-sky"]
+engine = "scummvm"
+suite = "free"
+needs_data = false
+divert = ["/usr/share/applications/beneath-a-steel-sky.desktop"]

@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=ScummVM
+Comment=ScummVM's own launcher, for games Walnut has no entry for (your games from the menu start directly); no game mode
+Exec=env PS3_GAME_MODE=off scummvm -i /usr/share/ps3-games/scummvm/scummvm.ini
+Icon=org.scummvm.scummvm
+Terminal=false
+Categories=Game;AdventureGame;
+Keywords=adventure;scumm;launcher;
+StartupWMClass=scummvm
+X-Walnut-GameMode=false

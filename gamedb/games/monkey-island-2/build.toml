@@ -1,0 +1,14 @@
+# How Monkey Island 2: LeChuck's Revenge is built, installed and integrated (gamedb/README.md "build.toml").
+# ScummVM (engines/scummvm); the data from the player's own copy, one game-data-packager package per
+# edition and language, each in /usr/share/games/<package without -data>/ with a launcher of its own
+packages = ["scummvm"]
+engine = "scummvm"
+suite = "none"
+needs_data = true
+
+[data_setup]
+gdp = "monkey2"
+required = ["monkey-island2-de-alt-data", "monkey-island2-de-data", "monkey-island2-en-data", "monkey-island2-es-data", "monkey-island2-fr-data", "monkey-island2-it-alt-data", "monkey-island2-it-data"]
+hint = "MONKEY2.000 and MONKEY2.001 from the DOS release (English, German, Spanish, French or Italian): the floppies' installed files, copied to a folder."
+# what each package holds (X-Walnut-Edition of the package import-data builds)
+editions = { "monkey-island2-de-alt-data" = "full", "monkey-island2-de-data" = "full", "monkey-island2-en-data" = "full", "monkey-island2-es-data" = "full", "monkey-island2-fr-data" = "full", "monkey-island2-it-alt-data" = "full", "monkey-island2-it-data" = "full" }

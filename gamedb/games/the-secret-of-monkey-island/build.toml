@@ -1,0 +1,14 @@
+# How The Secret of Monkey Island is built, installed and integrated (gamedb/README.md "build.toml").
+# ScummVM (engines/scummvm); the data from the player's own copy, one game-data-packager package per
+# edition and language, each in /usr/share/games/<package without -data>/ with a launcher of its own
+packages = ["scummvm"]
+engine = "scummvm"
+suite = "none"
+needs_data = true
+
+[data_setup]
+gdp = "monkey"
+required = ["secret-of-monkey-island-de-data", "secret-of-monkey-island-en-data", "secret-of-monkey-island-floppy-de-data", "secret-of-monkey-island-floppy-en-data", "secret-of-monkey-island-floppy-es-data", "secret-of-monkey-island-fr-data", "secret-of-monkey-island-it-data"]
+hint = "The DOS release: the CD (MONKEY.000 and MONKEY.001; English, German, French or Italian) or the VGA floppies (000.LFL, 901-904.LFL and the DISK*.LEC files; English, German or Spanish), copied to a folder. The Special Edition (Steam, GOG) is not supported."
+# what each package holds (X-Walnut-Edition of the package import-data builds)
+editions = { "secret-of-monkey-island-de-data" = "full", "secret-of-monkey-island-en-data" = "full", "secret-of-monkey-island-floppy-de-data" = "full", "secret-of-monkey-island-floppy-en-data" = "full", "secret-of-monkey-island-floppy-es-data" = "full", "secret-of-monkey-island-fr-data" = "full", "secret-of-monkey-island-it-data" = "full" }

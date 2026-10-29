@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Drascula: The Vampire Strikes Back
+Comment=Drascula: The Vampire Strikes Back, the free release Debian packages, in ScummVM fullscreen
+Exec=ps3-game sh -c "mkdir -p ~/.config/scummvm/walnut && exec scummvm -c ~/.config/scummvm/walnut/drascula.ini -i /usr/share/ps3-games/scummvm/drascula.ini -p /usr/share/scummvm/drascula/en drascula"
+Icon=org.scummvm.scummvm
+Terminal=false
+Categories=Game;AdventureGame;
+Keywords=adventure;vampire;comedy;drascula;
+NoDisplay=true
+X-Walnut-Requires=/usr/share/scummvm/drascula/en/1.ALD

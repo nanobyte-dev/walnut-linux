@@ -23,6 +23,7 @@ they came from.
 | [Chromium B.S.U.](../../gamedb/games/chromium-bsu/todo.toml) | 1 | 1 benchmark |  |
 | [ClassiCube](../../gamedb/games/classicube/todo.toml) | 4 | 1 fix, 2 package, 1 research | 3.12 |
 | [Colobot: Gold Edition](../../gamedb/games/colobot/todo.toml) | 1 | 1 session |  |
+| [Day of the Tentacle](../../gamedb/games/day-of-the-tentacle/todo.toml) | 1 | 1 session |  |
 | [Diablo (DevilutionX)](../../gamedb/games/diablo/todo.toml) | 2 | 2 fix |  |
 | [dsda-doom](../../gamedb/games/dsda-doom/todo.toml) | 2 | 1 research, 1 session | 2.8 |
 | [Duke Nukem 3D](../../gamedb/games/duke-nukem-3d/todo.toml) | 1 | 1 benchmark |  |
@@ -48,7 +49,6 @@ they came from.
 | [Return to Castle Wolfenstein (iortcw)](../../gamedb/games/return-to-castle-wolfenstein/todo.toml) | 1 | 1 benchmark |  |
 | [Sauerbraten](../../gamedb/games/sauerbraten/todo.toml) | 2 | 1 package, 1 session |  |
 | [Scorched3D](../../gamedb/games/scorched3d/todo.toml) | 2 | 2 fix |  |
-| [ScummVM](../../gamedb/games/scummvm/todo.toml) | 2 | 1 benchmark, 1 session |  |
 | [SimCity (Micropolis)](../../gamedb/games/simcity/todo.toml) | 1 | 1 package |  |
 | [Simutrans](../../gamedb/games/simutrans/todo.toml) | 1 | 1 benchmark |  |
 | [SuperTuxKart](../../gamedb/games/supertuxkart/todo.toml) | 5 | 2 fix, 1 package, 1 research, 1 session | 2.1, 3.1 |
@@ -68,6 +68,7 @@ they came from.
 | [Yamagi Quake II](../../gamedb/games/yquake2/todo.toml) | 2 | 2 session |  |
 | [Cube 2 (engine)](../../gamedb/engines/cube2/todo.toml) | 1 | 1 package |  |
 | [ioquake3 (engine)](../../gamedb/engines/ioquake3/todo.toml) | 1 | 1 fix | 3.9 |
+| [ScummVM (engine)](../../gamedb/engines/scummvm/todo.toml) | 2 | 1 benchmark, 1 package |  |
 <!-- /gamedb:todo-summary -->
 
 ## Across the games
