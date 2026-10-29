@@ -1,0 +1,41 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Thu, 29 Oct 2026 05:51:57 +0200
+Subject: video: the window texture in the application's format when the
+ renderer has it
+
+The streaming texture behind the SDL 1.2 screen surface was always made in
+the renderer's first format. The OpenGL renderer lists ARGB8888 first, and
+a 32-bit SDL 1.2 screen is XRGB8888, so every update converted the frame
+into the texture (SDL_UpperBlit into VideoConvertSurface20). With SSE
+that is cheap; on the PS3 (PowerPC, AltiVec) it was 11% of Warmux's frame
+after the alpha blits. Now, when the renderer lists the application's own
+format, the texture is made in it and an update is a plain copy; other
+formats convert as before.
+
+Forwarded: no
+
+diff --git a/src/SDL12_compat.c b/src/SDL12_compat.c
+--- a/src/SDL12_compat.c
++++ b/src/SDL12_compat.c
+@@ -6824,6 +6824,20 @@ SetVideoModeImpl(int width, int height, int bpp, Uint32 flags12)
+             return EndVidModeCreate();
+         }
+ 
++        /* Walnut: the texture in the application's own format when the renderer has it, else its
++           first one as before. The first (ARGB8888) against the 32-bit screen's XRGB8888 meant a
++           whole-frame conversion on every update: 11% of Warmux's frame on the PS3 (no SSE there). */
++        {
++            Uint32 k;
++            /* 32-bit formats only: an INDEX8 texture would need the palette set on it */
++            for (k = 0; SDL_BYTESPERPIXEL(appfmt) == 4 && k < rinfo.num_texture_formats; k++) {
++                if (rinfo.texture_formats[k] == appfmt) {
++                    rinfo.texture_formats[0] = appfmt;
++                    break;
++                }
++            }
++        }
++
+         if (!VideoTexture20) {
+             SDL20_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, WantScaleMethodNearest ? "0" : "1");
+             VideoTexture20 = SDL20_CreateTexture(VideoRenderer20, rinfo.texture_formats[0], SDL_TEXTUREACCESS_STREAMING, width, height);
