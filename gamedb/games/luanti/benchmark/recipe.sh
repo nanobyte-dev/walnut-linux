@@ -130,6 +130,7 @@ variant_nominimap() { LU_SET+=("enable_minimap = false"); }
 # Fewer blocks everywhere (about the square of the range): 40 and 90 around the 60 of the base.
 variant_view40() { LU_VIEW=40; }
 variant_view90() { LU_VIEW=90; }
+variant_view120() { LU_VIEW=120; }
 variant_view190() { LU_VIEW=190; }	# Luanti's own default (defaultsettings.cpp), what a fresh player gets
 
 # Stalls while blocks arrive. renderMap merges every mesh buffer of under 300 vertices of the

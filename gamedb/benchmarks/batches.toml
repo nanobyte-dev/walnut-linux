@@ -1167,6 +1167,16 @@ observations = "Luanti's own default viewing_range 190 against the recipe's 60 (
 source = "bench/analysis/matrix.py"
 
 [[batch]]
+name = "2026-10-29-luanti-view120"
+order = 109
+kind = "run"
+title = "Mesa ps3.924 + kernel .874, luajit ps3.931~dev (0002), luanti ps3.1025"
+date = 2026-10-29
+runs = 4
+observations = "Luanti's viewing_range 120 (variant view120, three runs) next to the recipe's 60 (base, one run), same boot, STALLS=1, SHOTS=100, order base then view120 once, then two view120 runs (the user ruled out anything under 120). Every run fullscreen 1920x1080, no interference, the process list before the runs held system services only. 120: 20 fps steady (19-20), 1% low 4.0 (3.9-4.3), 36 s of frames over 100 ms in the 135 s window (35.7-41.0), longest frame 1.0-3.8 s; 60: 46 fps, 16.8, 4.5 s, 500 ms. One 120 run showed a black world with only the HUD at its 100 s screenshot (meshes not caught up). The default of the package is 120 (0009), the smoothness work starts from these numbers (gamedb:luanti todo.toml)."
+source = "bench/analysis/matrix.py"
+
+[[batch]]
 name = "suite-summary-2026-10"
 kind = "summary"
 title = "The suite's numbers, 2026-10: the rules-1 calibration"

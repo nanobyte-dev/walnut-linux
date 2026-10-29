@@ -31,7 +31,7 @@ meshed: that stutter is the real problem, more than the frame rate.
 | [0006](packages/luanti/patches/0006-Sky-quads-in-one-draw-LU_GL_SKY-equal-materials-set-.patch) | the sky quads in one draw; equal materials set once | `LU_GL_SKY`, `LU_GL_MATREUSE` |
 | [0007](packages/luanti/patches/0007-porting-malloc_trim-threshold-from-LU_TRIM_MB-defaul.patch) | the `malloc_trim` threshold in MiB (Luanti trims only after 256 MiB of blocks and meshes were freed, which a 217 MB machine rarely reaches) | `LU_TRIM_MB` (256 when unset) |
 | [0008](packages/luanti/patches/0008-settings-fullscreen-by-default-Walnut-is-a-console-o.patch) | fullscreen by default, at the screen's mode (a fresh configuration started in a 1024x600 window) | the `fullscreen` setting |
-| [0009](packages/luanti/patches/0009-settings-viewing-range-60-by-default-on-the-PS3-not-.patch) | a viewing range of 60 by default, not 190: at 190 the bench flight ran at 15 fps with 56 s of stalls in its 135 s window, at 60 at 46 fps with 2.3 s (gamedb:batch/2026-10-28-luanti-view190) | the `viewing_range` setting |
+| [0009](packages/luanti/patches/0009-settings-viewing-range-120-by-default-on-the-PS3-not-.patch) | a viewing range of 120 by default, not 190: at 190 the bench flight ran at 15 fps with 56 s of stalls in its 135 s window, at 120 at 20 fps with 36 s, at 60 at 46 fps with 4.5 s; 120 is the floor the user set, not the smoothest (gamedb:batch/2026-10-29-luanti-view120) | the `viewing_range` setting |
 
 ## How it performs
 
@@ -43,7 +43,9 @@ meshed: that stutter is the real problem, more than the frame rate.
 | base with force-DXT off, opaque, opaque+NEAREST (n=2 each) | 46.5 / 46.0 / 46.0 | 3.3 / 3.3 / 3.9 s | 61-62 MB | gamedb:batch/2026-10-20-ssdroot8-force-dxt |
 | `view40` (one run) | 59 | 0.9 s / 29.2 / 362 ms | 19 / 55 MB | gamedb:batch/2026-10-18-luanti-memory |
 | `view190`, Luanti's own default before 0009 (one run, against base 46 / 2.3 s the same boot) | 15 | 55.8 s / 3.0 / 642 ms | 11 / 93 MB | gamedb:batch/2026-10-28-luanti-view190 |
+| **`view120`, the default since 0009 and the baseline for the smoothness work** (3 runs, one boot, 2026-10-29; the base run beside them, 60: 46 fps / 4.5 s / 16.8 / 500 ms) | 20 (19-20) | 36.2 s (35.7-41.0) / 4.0 (3.9-4.3) / 995-3825 ms | 11-13 MB free | gamedb:batch/2026-10-29-luanti-view120 |
 
+- **View 120 is the default and the baseline (the user, 2026-10-29: never below 120, lower graphics quality is not the fix).** The same boot's runs: 60 gives 46 fps and 4.5 s of stalls, 120 gives 20 fps and 36 s (35.7, 36.2, 41.0), 1% low 4 fps, longest frames 1.0-3.8 s; one 120 run showed an empty black world (the HUD only) in its screenshot at 100 s, when the meshes had not caught up. Every run was fullscreen 1920x1080 (`geom=`); the process list before the runs (`ps-before.txt` in the run directories) held only system services. The cause of the stalls is open (todo.toml): profile it, do not lower the range.
 - Picture right. Sound plays with no underruns; it was not judged by ear in a bench run, and the webcam
   mic hears only the room.
 - **The load** is 25.0 s on the SSD root against 40.8 s on USB: the main thread's disk wait went from
@@ -74,7 +76,7 @@ the start for 15 s while the first blocks are generated and meshed, logs `ps3ben
 45 s (240 nodes north looking down, then a full turn) four times, logs `ps3bench: path end` and shuts
 the game down; fps from the Gallium HUD, `WARMUP=45` from "path start", `MEASURE=135` (loops 2-4, the
 same terrain flown again). The world is made new every run from `fixed_map_seed = 20261017` (mapgen v7)
-in `/var/tmp/ps3-bench/luanti` (the player's `~/.minetest` untouched); `viewing_range = 60`, no vsync,
+in `/var/tmp/ps3-bench/luanti` (the player's `~/.minetest` untouched); `viewing_range = 60` (variant `view120` is the package default, 0009), no vsync,
 `fps_max = 1000`, creative, no damage. The mod's memory lines (`vmrss`, `rssanon`, `rssfile`,
 `vmswap`) never come out: it reads `/proc/self/status` wrongly.
 

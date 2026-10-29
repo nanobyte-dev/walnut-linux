@@ -58,3 +58,15 @@ SPU meshing: map generation burns 8.4 s on the emerge thread in the load and the
 in the warm-up (batch 17). The work is data-parallel and asynchronous already, the shape SPU jobs \
 suit; writing the meshes straight into VBOs needs probe E16 (backlog graphics.md \"RSX and SPU \
 probes\"). Effort L, engine patches."""
+
+[[item]]
+kind = "research"
+added = 2026-10-29
+source = "the user, 2026-10-29"
+text = """\
+Smoothness at view 120: find the cause of the stalls (profile), don't lower quality. The default is 120 \
+(luanti 0009, the user: never below 120). Baseline, 3 runs, one boot: 20 fps steady, 36 s of stalls in \
+the 135 s window (35.7-41.0), 1% low 4 fps, longest frame 1.0-3.8 s (60: 46 fps, 4.5 s, 16.8). \
+`run.sh bench luanti view120 3` with `STALLS=1`, then `PERF=1`/`MEM=1`; candidates: mesh and map-block \
+churn, the merged mesh buffers (nomerge, meshchunk2), the server's generation, swap (vmswap 60-100 MB \
+at the end)."""
