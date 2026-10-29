@@ -23,6 +23,7 @@ run.sh's summary, perf-post.sh's profiles), `tests/` checks all of it without th
 | `harness/client.sh` | one game run from a recipe (the X client `ps3-bench.sh x` starts) |
 | `harness/games.sh`, `games.py` | where a game's recipe is: `gamedb/games/<id>/benchmark/` here, `games/<id>/` in the PS3's copy; old recipe names (below) |
 | `harness/playdef.py`, `gamedata.py` | a game's data: its played test (`rating/test.toml`) as shell assignments for session.sh and client.sh; its analysis rules (`benchmark/analysis.toml`) for report.py, logscan.py, matrix.py and interference-scan.py |
+| `harness/proccheck.py`, `allowed-processes.txt` | the process check of every run: what may run beside a benchmark ("Process check" below) |
 | `harness/xruns.py`, `launcher.py` | the audible dropouts of a run's sound (`ps3-xrunlog`'s log); a game's menu launchers, for session.sh |
 | `harness/perf-post.sh`; `analysis/perfprof.py`, `memprof.py`, `loadprof.py` | the CPU profile of the window, the memory snapshots, the start-up profile |
 | `harness/ssd-arm.sh` | the SSD arms `GAMEDATA=ssd`, `SWAP=ssd` ([GAMEOS-HDD.md](../GAMEOS-HDD.md)) |
@@ -116,6 +117,25 @@ with plain runs.
 a VT switch, a device, an SSH login or command. run.sh warns after it, report.py marks it and leaves
 it out of the medians, matrix.py skips it; `RERUN_INTERFERED=1` runs it once more at once (both
 directories stay; the clean one counts).
+
+**Process check.** A benchmark next to a browser or a compile measures the wrong thing, so client.sh
+(every bench and session run) takes one `ps -eo pid,ppid,rss,pcpu,stat,comm,args` (arguments cut at
+200 characters) at the start (before the game), at `SOUND_AT` and at the end, into
+`processes-start.txt`, `processes-mid.txt` and `processes-end.txt` in the run directory (`BENCH_PROCS=0`:
+none). `harness/proccheck.py` compares them with `harness/allowed-processes.txt`, the standard Walnut
+desktop (Xorg, openbox, tint2, pcmanfm --desktop, nm-applet, pnmixer, lxpolkit, dunst, gvfs/udisks
+helpers, systemd, dbus, sshd, the shells and tools the harness uses, `ps3-*`); kernel threads and
+everything the run itself started (the game under test and its helpers, the harness's ancestors) are
+always fine. Unexpected: a process on the file's `!` list whatever it uses (badwolf, WebKit*, netsurf,
+firefox, chrom*, a second `ps3-game`, wine, scummvm, apt, dpkg, a compiler or make), or any other process off
+the list using more than 2% CPU (ps's pcpu is the share since the process started, so it catches
+long-running load, not a burst) or 20 MB RSS. bench.txt gets `procs=ok|unexpected|none` (`none`: no
+snapshot or no python3) and, when something was found, `unexpected=<names>`; `processes-check.txt` has the
+reasons (snapshot, pid, command), and the run log a `!! UNEXPECTED PROCESSES` line (run.sh repeats it).
+report.py shows the names as `unx=` and counts such a run as `intf=1` (`!INTERFERED`, out of the medians,
+matrix.py skips it, `import-run.py` refuses it, `--include-interfered` keeps it). A new desktop helper
+that is part of the standard session goes on the allowlist; selftest.py checks a clean list, a browser,
+a compiler and an unknown big process.
 
 **The picture's size.** At `SOUND_AT` (15 s by default, before the warm-up ends) client.sh also records
 the game's window and the screen (`geom.py`, at nice 19; `GEOM=0` turns it off): bench.txt
