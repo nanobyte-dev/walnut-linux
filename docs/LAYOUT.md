@@ -103,27 +103,35 @@ gamedb/README.md.
 | `engines/darkplaces/packages/darkplaces-gl2/` | [DarkPlaces (engine)](../gamedb/engines/darkplaces/) | upstream tarball (`upstream.mk`) | 14 (+ `debian/`) |
 | `engines/ioquake3/packages/ioquake3/` | [ioquake3 (engine)](../gamedb/engines/ioquake3/) | Debian's `ioquake3` 1.36+u20260719.58839361+dfsg-1 | 30 (+ `packaging/`) |
 | `games/armagetronad/packages/armagetronad/` | [Armagetron Advanced](../gamedb/games/armagetronad/) | Debian's `armagetronad` 0.2.9.3.0-1 | 2 |
-| `games/bomberclone/packages/bomberclone/` | [BomberClone](../gamedb/games/bomberclone/) | Debian's `bomberclone` 0.11.9-9 | 2 |
+| `games/bomberclone/packages/bomberclone/` | [BomberClone](../gamedb/games/bomberclone/) | Debian's `bomberclone` 0.11.9-9 | 3 |
+| `games/bzflag/packages/bzflag/` | [BZFlag](../gamedb/games/bzflag/) | Debian's `bzflag` 2.4.30-4 | 1 |
+| `games/chromium-bsu/packages/chromium-bsu/` | [Chromium B.S.U.](../gamedb/games/chromium-bsu/) | Debian's `chromium-bsu` 0.9.16.1-5 | 2 |
 | `games/classicube/packages/classicube/` | [ClassiCube](../gamedb/games/classicube/) | upstream tarball (`upstream.mk`) | 4 (+ `debian/`) |
+| `games/colobot/packages/colobot/` | [Colobot: Gold Edition](../gamedb/games/colobot/) | Debian's `colobot` 0.2.2-4 | 2 (+ `packaging/`) |
+| `games/crawl-tiles/packages/crawl-walnut/` | [Dungeon Crawl Stone Soup](../gamedb/games/crawl-tiles/) | native (ours) | none (+ `debian/`) |
 | `games/ddnet/packages/ddnet/` | [DDNet](../gamedb/games/ddnet/) | Debian's `ddnet` 20.1.1+ds-1 | 1 |
 | `games/dsda-doom/packages/dsda-doom/` | [dsda-doom](../gamedb/games/dsda-doom/) | Debian's `dsda-doom` 0.30.0+dfsg-1 | 7 |
 | `games/endless-sky/packages/endless-sky/` | [Endless Sky](../gamedb/games/endless-sky/) | Debian's `endless-sky` 0.11.2-1 | 11 (+ `packaging/`) |
 | `games/etr/packages/etr/` | [Extreme Tux Racer](../gamedb/games/etr/) | Debian's `extremetuxracer` 0.8.4-2 | 8 |
 | `games/hedgewars/packages/hedgewars/` | [Hedgewars](../gamedb/games/hedgewars/) | Debian's `hedgewars` 1.0.3-5 | 1 (+ `packaging/`) |
-| `games/luanti/packages/luanti/` | [Luanti](../gamedb/games/luanti/) | Debian's `luanti` 5.15.2+dfsg-2 | 6 (+ `packaging/`) |
+| `games/heroes-of-might-and-magic-2/packages/fheroes2/` | [Heroes of Might and Magic II (fheroes2)](../gamedb/games/heroes-of-might-and-magic-2/) | Debian's `fheroes2` 1.1.17+dfsg-1 | 1 |
+| `games/luanti/packages/luanti/` | [Luanti](../gamedb/games/luanti/) | Debian's `luanti` 5.15.2+dfsg-2 | 8 (+ `packaging/`) |
+| `games/megaglest/packages/megaglest/` | [MegaGlest](../gamedb/games/megaglest/) | Debian's `megaglest` 3.13.0-10.1 | 1 |
 | `games/mrboom/packages/mrboom/` | [Mr.Boom](../gamedb/games/mrboom/) | Debian's `mrboom` 5.5+ds-1 | 1 |
-| `games/neverball/packages/neverball/` | [Neverball](../gamedb/games/neverball/) | Debian's `neverball` 1.6.0+git20180603-3 | 3 |
+| `games/neverball/packages/neverball/` | [Neverball](../gamedb/games/neverball/) | Debian's `neverball` 1.6.0+git20180603-3 | 4 |
 | `games/openrct2/packages/openrct2/` | [OpenRCT2](../gamedb/games/openrct2/) | upstream tarball (`upstream.mk`) | 7 (+ `debian/`) |
 | `games/openttd/packages/openttd/` | [OpenTTD](../gamedb/games/openttd/) | Debian's `openttd` 15.1-1 | 3 |
 | `games/opentyrian/packages/opentyrian/` | [OpenTyrian](../gamedb/games/opentyrian/) | Debian's `opentyrian` 2.1.20260912-1 | none (+ `packaging/`) |
 | `games/sauerbraten/packages/sauerbraten-walnut/` | [Sauerbraten](../gamedb/games/sauerbraten/) | native (ours) | none (+ `debian/`) |
+| `games/scorched3d/packages/scorched3d/` | [Scorched3D](../gamedb/games/scorched3d/) | Debian's `scorched3d` 44+dfsg-8 | 1 |
 | `games/supertuxkart/packages/supertuxkart/` | [SuperTuxKart](../gamedb/games/supertuxkart/) | Debian's `supertuxkart` 1.5-2 | 7 |
 | `games/teeworlds/packages/teeworlds/` | [Teeworlds](../gamedb/games/teeworlds/) | Debian's `teeworlds` 0.7.5-3 | 1 |
 | `games/uqm/packages/uqm/` | [The Ur-Quan Masters](../gamedb/games/uqm/) | Debian's `uqm` 0.8.0+dfsg-4 | none (+ `packaging/`) |
+| `games/warmux/packages/warmux/` | [Warmux](../gamedb/games/warmux/) | Debian's `warmux` 1:11.04.1+repack2-6 | 2 |
 | `games/warzone2100/packages/warzone2100/` | [Warzone 2100](../gamedb/games/warzone2100/) | upstream tarball (`upstream.mk`) | 10 (+ `debian/`) |
 | `games/wesnoth/packages/wesnoth/` | [Battle for Wesnoth](../gamedb/games/wesnoth/) | Debian's `wesnoth-1.18` 1:1.18.8-1 | none (+ `packaging/`) |
 | `games/xmoto/packages/xmoto/` | [X-Moto](../gamedb/games/xmoto/) | Debian's `xmoto` 0.6.3+repack-1 | 5 |
-| `games/yquake2/packages/yquake2/` | [Yamagi Quake II](../gamedb/games/yquake2/) | Debian's `yquake2` 8.70+dfsg-1 | 2 |
+| `games/yquake2/packages/yquake2/` | [Yamagi Quake II](../gamedb/games/yquake2/) | Debian's `yquake2` 8.70+dfsg-1 | 3 |
 | `games/bananabread/licensed/sauerbraten-nonfree-data/` | [BananaBread, licensed data](../gamedb/games/bananabread/) | upstream tarball (`upstream.mk`) | none (+ `debian/`) |
 | `games/classicube/licensed/classicube-data/` | [ClassiCube, licensed data](../gamedb/games/classicube/) | upstream tarball (`upstream.mk`) | none (+ `debian/`) |
 | `games/opentyrian/licensed/tyrian-data/` | [OpenTyrian, licensed data](../gamedb/games/opentyrian/) | script `tyrian-data.sh` | none |
