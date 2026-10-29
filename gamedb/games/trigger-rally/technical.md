@@ -42,6 +42,21 @@ Mesa 26 has no DRI2 for GLX, and the only way to stop the flips is xorg's `Optio
 to every game. The two `Race finished in invalid state 30` lines are from quitting (state 30 is the quit dialog,
 and `endGame` runs at shutdown). They are harmless.
 
+## Played session 2026-10-29: textures missing, the pad unused
+
+The first imported session (`ps3-bench-20261029T221408Z-session-trigger-rally-base`, rating/sessions/2026-10-29-session;
+Mesa ps3.1139~dev with 0052 and 0054 but not 0053, ps3rsx 0.924, kernel .874): 5.3 min, three Trigger Cup stages
+(warmup, operation, old), quit from the menu. Rust 84 (the player saw the picture broken; provisional), 58 fps median,
+1% low 24, longest frame 448 ms, fullscreen 1920x1080, sound heard (no music in the race), 0 audible dropouts. The
+menus held still: 0054 works (`dri3: no memory for back buffer 3, keeping 2` once in the game log, and only 10
+8100 KiB `out of VRAM` lines in dmesg instead of a stream).
+
+The player's notes: no textures, a grey gradient sky, a black car, no gamepad at all, the menus mouse-only. The
+screenshots agree: the terrain, the HUD, the minimap and the co-driver signs are textured; the car, the buildings
+and rocks and the sky are not. dmesg has a steady stream of `ps3rsx: out of VRAM` (about 400 a second; printed:
+252 of 5464 KiB, a 1024x1024 RGBA texture with its mips, 144 of 1368 KiB, 104 of 344 KiB). Both are open
+items in todo.toml.
+
 ## Threads in the stall frames
 
 Checked on 2026-10-29 after gamedb:luanti's stalls turned out to be its render thread waiting for the CPU its own worker threads had (luanti 0010 puts them at nice 10). From the stall record (stalls.py's `stall_main_pct` and `stall_rest_pct`: the CPU of the main thread and of the game's other threads in the stall frames, in % of their time, 100 being one PPE thread; Luanti before its fix: 22 and 83) and the profile (`bench/analysis/stallperf.py`). Run `ps3-bench-20261029T171249Z-smoke-trigger-rally-freshrace` (STALLS=1 PERF=1, the game's defaults; gamedb:batch/2026-10-29-worker-threads): 59 fps steady, 1% low 32, 3 frames over 100 ms in the 90 s smoke window, one of them the stage load (13.9 s: `glTexImage2D`, PhysFS reads, libjpeg), which the smoke window doesn't leave out. In those frames the main thread ran 74% of the time and the other threads 8% (OpenAL's mixer); the race itself has no worker threads that compete with the drawing.

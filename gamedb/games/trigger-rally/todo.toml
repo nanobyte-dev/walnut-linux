@@ -7,10 +7,11 @@ order = 17
 launcher = "Trigger Rally"
 pc = "ready"
 added = 2026-10-28
-source = "games night 2026-10-28 (smoke)"
+source = "games night 2026-10-28 (smoke); first session imported 2026-10-29 (Rust 84, picture broken)"
 text = """\
-First played session on the game's defaults (58 fps in the smoke race): a few stages with the DualShock 3 \
-(the game finds it; does its mapping steer, throttle and brake?), the engine and co-driver by ear."""
+Second played session once the missing textures and the pad are fixed (the items below): a few Trigger Cup \
+stages with the DualShock 3 (steer, throttle, brake, handbrake, the menus), the car, buildings and sky textured, \
+the engine and co-driver by ear."""
 
 [[item]]
 kind = "fix"
@@ -21,3 +22,22 @@ Menus flash between the open menu and the one before it (a stale back buffer: Me
 third back buffer page flipping wants with the VRAM full, technical.md "Menus flashing"). Fix: Mesa 0054. Test \
 on the PS3: the menus steady on the TV, one `dri3: no memory for back buffer` line, dmesg without a stream of \
 8100 KiB `out of VRAM` lines; then the played session again."""
+
+[[item]]
+kind = "fix"
+added = 2026-10-30
+source = "played session 2026-10-29 (ps3-bench-20261029T221408Z-session-trigger-rally-base)"
+text = """\
+Textures missing in the race: the car black, buildings and rocks flat grey, the sky a grey gradient, while the \
+terrain and the HUD are textured; dmesg has a stream of `ps3rsx: out of VRAM` failures for 1024x1024 (5464 KiB \
+with mips), 512x512 and 256x256 textures. The game's textures don't fit the CPU-visible VRAM next to Xorg, and \
+nv30 asks for VRAM only (technical.md "Textures missing")."""
+
+[[item]]
+kind = "fix"
+added = 2026-10-30
+source = "played session 2026-10-29 (ps3-bench-20261029T221408Z-session-trigger-rally-base)"
+text = """\
+The DualShock 3 drives nothing and the menus answer only the mouse: the game's default configuration ships \
+both joystick blocks with enable="no" (upstream). Console default: a pad scheme like our other games' \
+(technical.md "The gamepad")."""
