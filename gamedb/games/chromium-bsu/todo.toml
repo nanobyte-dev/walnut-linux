@@ -7,15 +7,4 @@ added = 2026-10-28
 source = "games night 2026-10-28 (smoke)"
 text = """\
 The DualShock 3 with our package (0002): through the menus and in play, plugged in before and \
-after the start (the user, or a virtual pad). The fresh start ran right on 2026-10-28 (54 fps)."""
-
-[[item]]
-kind = "session"
-order = 16
-launcher = "Chromium B.S.U."
-pc = "ready"
-added = 2026-10-28
-source = "games night 2026-10-28 (smoke)"
-text = """\
-First played session, on our package (fullscreen in proportion, the pad scheme): a few levels with the \
-DualShock 3; the music and effects by ear. Debian's ran at 55 fps in play."""
+after the start (the user, or a virtual pad). The fresh start ran right on 2026-10-28 (54 fps). The played session of 2026-10-29 answered it for play: the pad opened (27022 events), the form says menus worked and play seamless; plugging in after the start is still untried."""

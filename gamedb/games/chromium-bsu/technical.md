@@ -22,7 +22,13 @@ configuration at all (`ps3-bench-20261028T210239Z`): fullscreen 1920x1080, the f
 clear colour at the sides, 54 fps steady, 1% low 41, sound running, no audible dropouts. The pad scheme is not
 tried yet (no pad at the console tonight).
 
-## Packages
+Played session `ps3-bench-20261029T203517Z` (ps3.931~dev, 2026-10-29): 4.4 min, quit with exit code 0, 246 s of play,
+fullscreen 1920x1080 (geom= `1920x1080+0+0 fs=1`, the four shots show the field in proportion, the clear colour at the
+sides red after a hit and grey otherwise). Median 56.1 fps, 1% low 41.1, longest frame 236.5 ms, 0.15 s a minute of
+stutter, load 17 s, 50 MB RSS, 0 sound dropouts. The form: sound and music heard, controls full (the DualShock opened,
+27022 pad events in play, no keyboard presses), no glitches. No PC reference sheet. Rated Platinum 97, provisional:
+stability is scored from 4 minutes of play (90, the start of a crash-free game; the hours-based rule needs three).
+
 
 - `chromium-bsu`, `chromium-bsu-data` (`0.9.16.1-5+ps3.N`, [packages/chromium-bsu](packages/chromium-bsu/)):
   Debian's source with two patches. In no suite; CI builds it for testing.
