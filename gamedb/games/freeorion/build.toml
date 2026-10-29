@@ -1,1 +1,7 @@
+# How FreeOrion is built, installed and integrated (gamedb/README.md "build.toml").
 packages = ["freeorion"]
+# our menu entry (desktop/launchers/freeorion-walnut.desktop, Debian's diverted): fullscreen (-f) and
+# NV30_FORCE_DXT=all: the galaxy map's 2048x2048 field textures didn't fit the VRAM and drew as a white
+# square; stored as DXT5 at upload they draw (checked on the PS3)
+desktop = ["freeorion-walnut.desktop"]
+divert = ["/usr/share/applications/org.freeorion.FreeOrion.desktop"]

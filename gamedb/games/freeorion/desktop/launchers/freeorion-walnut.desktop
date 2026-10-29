@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=FreeOrion
+GenericName=Turn-based space strategy game
+Comment=Turn-based space empire and galactic conquest (4X), fullscreen; its big textures stored compressed so they fit the video memory
+Exec=ps3-game env NV30_FORCE_DXT=all freeorion -f
+Icon=org.freeorion.FreeOrion
+Terminal=false
+Categories=Game;StrategyGame;

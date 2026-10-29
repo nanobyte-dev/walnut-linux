@@ -8,8 +8,20 @@ Mesa ps3.924, the VRAM swap on; `ps3-bench-20261028T235212Z-smoke-freeorion-base
 the client reporting OpenGL 2.1. The interface is drawn right (the turn bar, the situation report, the empires,
 the planet panel), but the galaxy map has a white, rotated square about 400 px wide over the home system, on
 the TV too (xwd at 120 s, webcam at 150 s): a sprite drawn without its texture. Turn 1 still "Waiting for Other
-Players" after about 90 s (six Python AI processes on the PPE). No OOM. Handed to the fixes.
+Players" after about 90 s (six Python AI processes on the PPE; the universe takes 100-150 s to generate). No OOM.
 
+
+## The white square: field textures too big for the VRAM
+
+The square is a field (nebula, ion storm, molecular cloud) drawn rotating over the system: the PC reference
+(Debian's amd64 build on llvmpipe at GL 2.1, the same command) draws a grey cloud there. The field textures
+(`default/data/art/fields/*.png`) are 2048x2048 RGBA, about 22 MB each with their mipmaps; on the PS3 a
+copy shrunk to 1024 draws (`ps3-bench-20261029T002334Z`), and so do the package's own 2048 ones stored as
+DXT5 at upload by our Mesa (`NV30_FORCE_DXT=all`, `ps3-bench-20261029T044231Z-smoke-freeorion-dxt`): they
+didn't fit the video memory, and a texture that can't be placed samples white. Our menu entry
+(`desktop/launchers/freeorion-walnut.desktop`, Debian's diverted) starts `freeorion -f` with that
+variable: fullscreen, and the fields drawn. State: the entry built (ps3-games-integration), pending its PS3
+test from the menu.
 
 ## Research
 
