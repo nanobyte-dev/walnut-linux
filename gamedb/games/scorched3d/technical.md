@@ -17,8 +17,21 @@ match plays itself) and `display.xml` with fullscreen 1920x1080.
   Gallium HUD, 1% low 4, 66 frames over 100 ms (19 s of 90), the longest 4.3 s; 121 MB peak RSS; sound
   running, 3 audible dropouts. Runs, but memory-bound: the stalls are the swap.
 
-Not checked: the wxWidgets launcher (`scorched3d`, the menu entry, which starts the client on the game's
-default display settings: the OOM case), a human player's turn, the sound by ear.
+- On the game's default display settings with the VRAM swap on (recipe variant `default`,
+  `ps3-bench-20261028T231236Z`): no OOM, but 9 fps, 1% low 1.8, 61 s of 90 in frames over 100 ms, 133 MB RSS.
+  So the defaults play but are unplayable: the fastest preset is the console's default (below).
+
+Not checked: the wxWidgets launcher (`scorched3d`, the menu entry), a human player's turn, the sound by ear.
+
+## Our package
+
+`scorched3d` 44+dfsg-8+ps3.N ([packages/scorched3d](packages/scorched3d/)),
+[0001](packages/scorched3d/patches/0001-OptionsDisplay-a-fresh-configuration-on-the-fastest-.patch): when
+`~/.scorched3d/display.xml` doesn't exist (a first start, the menu's launcher too), the options start from
+the game's own `fastestdisplay.xml` preset, fullscreen at the desktop's size (SDL's current video mode);
+the launcher and the client both write the file back at once, so a player's settings decide after that.
+On the PC (amd64 build, a fresh home, Xvfb 1280x720) the written display.xml has `FullScreen on`,
+1280x720, `NoShadows on`, `TexureSize 0`, `NoGLExt on`, `DetailTexture off`. State: pending its PS3 test.
 
 
 ## Research

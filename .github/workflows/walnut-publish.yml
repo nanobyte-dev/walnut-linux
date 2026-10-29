@@ -55,6 +55,7 @@ on:
       - "pkg: ps3-system"
       - "pkg: ps3rsx"
       - "pkg: sauerbraten-walnut"
+      - "pkg: scorched3d"
       - "pkg: sdl2-compat"
       - "pkg: supertuxkart"
       - "pkg: teeworlds"

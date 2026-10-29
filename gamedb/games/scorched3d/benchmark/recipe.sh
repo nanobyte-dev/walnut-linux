@@ -15,11 +15,15 @@ setup() {
 	mkdir -p "$S3_DIR"
 	# the game's own "fastest" display preset (S3_DISPLAY) plus fullscreen 1920x1080; the first run
 	# (2026-10-28) on the defaults was OOM-killed 34 s in, the swap filling while the land was made
+	# fresh: no display.xml at all (our scorched3d 0001: the fastest preset, fullscreen at the desktop's size)
+	if [ "$S3_DISPLAY" = fresh ]; then rm -f "$S3_DIR/display.xml"
+	else
 	{ if [ "$S3_DISPLAY" = none ]; then echo "<options source='Scorched3D'>"
 	  else sed '/<\/options>/d' "/usr/share/games/scorched3d/data/${S3_DISPLAY}display.xml"; fi
 	  printf '%s\n' "<option><name>FullScreen</name><value>on</value></option>" \
 		"<option><name>ScreenWidth</name><value>1920</value></option>" \
 		"<option><name>ScreenHeight</name><value>1080</value></option>" "</options>"; } > "$S3_DIR/display.xml"
+	fi
 	# the game: the tutorial's settings file with four computer tanks (Random: a random AI each) and
 	# nobody else, so the match plays itself; the client spectates
 	python3 -I - "$S3_GAME" /usr/share/games/scorched3d/data/singletutorial.xml "$S3_DIR/singlecustom.xml" <<'PY'
@@ -42,4 +46,5 @@ CMD=(/usr/games/scorched3dc -startcustom)
 variant_human() { S3_GAME=human; }
 variant_medium() { S3_DISPLAY=medium; }
 variant_default() { S3_DISPLAY=none; }	# the game's own display defaults, fullscreen 1920x1080 only
+variant_fresh() { S3_DISPLAY=fresh; }	# no display.xml: the package's own fresh defaults
 during() { sleep 30; xwininfo -root -tree | grep -m3 -i 'scorch' | sed 's/^ */window: /'; }
