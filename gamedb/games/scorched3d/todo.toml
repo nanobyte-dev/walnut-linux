@@ -8,7 +8,7 @@ source = "games night 2026-10-28 (smoke)"
 text = """\
 Memory and speed: Debian's defaults ran at 9 fps with 61 s of stalls in 90 (VRAM swap on) or out of \
 memory (off); the fastest preset at 17 fps with 19 s. Our scorched3d 0001 makes the fastest preset, \
-fullscreen at the desktop's size, the default of a fresh configuration (pending its PS3 test: \
-`run.sh smoke scorched3d fresh`). Then a `MEM=1 PERF=1` run of it: what holds the 121 MB (the \
+fullscreen at the desktop's size, the default of a fresh configuration (checked on the PS3: 18 fps, \
+13.8 s of stalls in 90, no OOM). Next a `MEM=1 PERF=1` run of it: what holds the 121 MB (the \
 landscape's height maps, textures, the in-process server) and the stalls' cause; the levers left are a \
 smaller MaxLandscapeSize in the game settings and the texture size."""

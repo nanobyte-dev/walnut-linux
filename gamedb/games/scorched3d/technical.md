@@ -31,7 +31,11 @@ Not checked: the wxWidgets launcher (`scorched3d`, the menu entry), a human play
 the game's own `fastestdisplay.xml` preset, fullscreen at the desktop's size (SDL's current video mode);
 the launcher and the client both write the file back at once, so a player's settings decide after that.
 On the PC (amd64 build, a fresh home, Xvfb 1280x720) the written display.xml has `FullScreen on`,
-1280x720, `NoShadows on`, `TexureSize 0`, `NoGLExt on`, `DetailTexture off`. State: pending its PS3 test.
+1280x720, `NoShadows on`, `TexureSize 0`, `NoGLExt on`, `DetailTexture off`. On the PS3 (2026-10-29, the dev
+build, `~/.scorched3d` removed, `NOVSWAP=0 run.sh smoke scorched3d fresh`,
+`ps3-bench-20261029T010223Z-smoke-scorched3d-fresh`): fullscreen 1920x1080, the four bots play, 18 fps steady,
+1% low 4.0, 52 frames over 100 ms (13.8 s of 90), the longest 1.9 s, 127 MB RSS, no OOM; the display.xml it
+wrote has the preset, fullscreen and 1920x1080.
 
 
 ## Research
