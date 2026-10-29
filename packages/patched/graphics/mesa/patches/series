@@ -49,3 +49,4 @@
 0050-nv30-GL_POINT_SMOOTH-points-are-round-NV30_POINT_SMO.patch
 0051-nv30-point-sizes-from-the-vertex-program-POINT_PARAM.patch
 0052-nv30-no-A16-X16-textures-on-the-PS3.patch
+0053-nouveau-nv30-recover-from-a-submission-ps3rsx-cancel.patch

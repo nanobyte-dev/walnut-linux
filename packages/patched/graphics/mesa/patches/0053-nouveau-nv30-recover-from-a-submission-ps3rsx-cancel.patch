@@ -1,0 +1,445 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Thu, 29 Oct 2026 19:02:05 +0200
+Subject: nouveau, nv30: recover from a submission ps3rsx cancelled
+ (PS3_RECOVER)
+
+ps3rsx validates every push, because one bad command wedges the RSX until the console reboots.
+Up to now a rejected push refused its channel for good (-EIO on every later submission): Mesa
+sends state once and counts on it, so its next draws would have run on the GPU's older state.
+The program then drew nothing for the rest of its life. ps3rsx now offers a recovery: a client
+that asks for it (private GETPARAM 0x1001, PS3_RECOVER, before its channel exists) gets
+-ECANCELED for a submission with a rejected push, none of which reached the GPU, and the
+channel takes further submissions, each validated as always. This patch is that client.
+
+Winsys: -ECANCELED counts in nouveau_device::cancelled (a line on stderr at the 1st, 2nd, 4th,
+... cancellation, not the pushbuf dump). A push buffer whose cancel_seen lags behind it was
+built on state that never reached the GPU (the rest of a draw the cancelled submission began,
+a copy loop's lines after its DMA objects, state of other contexts on the channel): its kick
+drops the queued words and submits only the fence kick_notify adds, so fences keep landing.
+
+nv30: before a validation, a transfer or a buffer copy (not inside a validation), a context
+whose push buffer lags runs nv30_state_lost(): the kick drops its queued words, and once per
+cancellation the screen empties the vertex program and constant heaps (code and constants are
+uploaded again where used, the blits' program too), bumps lost_gen (fragment programs and the
+blit program are uploaded again) and forgets cur_ctx, so the next context to draw assumes
+nothing of the GPU state and writes all of it (0029's path, also with NV30_CTX_STATE_KEEP).
+What the cancelled submission uploaded or rendered is lost, as after a GPU reset. A program
+that keeps sending something ps3rsx refuses draws nothing and keeps running.
+
+Waits: a fence of the cancelled submission never lands; its waiter submits the context's
+current fence and waits for that one. A query whose end may have been cancelled (a
+cancellation since it was queued) and whose report isn't there is taken as lost: occlusion
+"passed", times 0, instead of a wait that never ends.
+
+NV30_PS3_RECOVER=0: not asked (the channel is refused as before). On an older ps3rsx the
+GETPARAM fails and nothing changes. Not on the PS3 the counters never move.
+
+Checked on the PC with ps3rsx's mesa-shim (the validator over every submit, ps3rsx's answers):
+mpv --vo=gpu on this patch without 0052 has every frame cancelled for its X16 texture and keeps
+playing, drawing nothing; with 0052 and one submit rejected by hand, the next frame re-sends the
+whole state (346 words against 36) and the final GPU state equals the run without the rejection;
+egl-gears, gl-mipread, gl-genmip and gl-texsub with 2-3 rejected submits each finish; what
+reached the "GPU" passes the validator as one stream every time.
+
+Forwarded: not-needed (ps3rsx only)
+
+diff --git a/src/gallium/drivers/nouveau/nouveau_fence.c b/src/gallium/drivers/nouveau/nouveau_fence.c
+--- a/src/gallium/drivers/nouveau/nouveau_fence.c
++++ b/src/gallium/drivers/nouveau/nouveau_fence.c
+@@ -373,6 +373,19 @@ _nouveau_fence_wait(struct nouveau_fence *fence, struct util_debug_callback *deb
+       }
+ 
+       _nouveau_fence_update(screen, false);
++      /* ps3rsx cancelled the submission it was in (nouveau_device::cancelled): it never
++       * lands. The next fence to land after it signals it: submit the context's current one
++       * and wait for that (the kick drops what was queued on the lost state, not the fence). */
++      if (fence->state != NOUVEAU_FENCE_STATE_SIGNALLED && screen->device->cancelled &&
++          fence->context && fence->context->fence && fence->context->fence != fence) {
++         struct nouveau_fence *next = NULL;
++
++         _nouveau_fence_ref(fence->context->fence, &next);
++         if (nouveau_fence_kick(next) && next->bo)
++            nouveau_bo_wait(next->bo, NOUVEAU_BO_RDWR, screen->client);
++         _nouveau_fence_update(screen, false);
++         _nouveau_fence_ref(NULL, &next);
++      }
+       if (fence->state != NOUVEAU_FENCE_STATE_SIGNALLED)
+          return false;
+ 
+diff --git a/src/gallium/drivers/nouveau/nouveau_screen.c b/src/gallium/drivers/nouveau/nouveau_screen.c
+--- a/src/gallium/drivers/nouveau/nouveau_screen.c
++++ b/src/gallium/drivers/nouveau/nouveau_screen.c
+@@ -335,6 +335,14 @@ nouveau_screen_init(struct nouveau_screen *screen, struct nouveau_device *dev)
+                     vendor == 0x104d &&
+                     !nouveau_getparam(dev, 0x1000 /* PS3_ABI */, &ps3_abi);
+    screen->ps3_abi = screen->is_ps3 ? ps3_abi : 0;
++   /* ps3rsx's PS3_RECOVER, asked before the channel is made: a submission with a push its
++    * validator rejects is then cancelled (-ECANCELED, nouveau_device::cancelled) and the driver
++    * sends its state again (nv30_state_lost()), instead of the channel being refused for good.
++    * An older ps3rsx doesn't know it (the channel is refused, as before). NV30_PS3_RECOVER=0:
++    * not asked. */
++   uint64_t ps3_recover;
++   if (screen->is_ps3 && debug_get_bool_option("NV30_PS3_RECOVER", true))
++      nouveau_getparam(dev, 0x1001 /* PS3_RECOVER */, &ps3_recover);
+    screen->ps3_relocs = screen->is_ps3 && debug_get_bool_option("NV30_PS3_RELOCS", false);
+    if (screen->is_ps3) {
+       nv04_data.vram = 0xfeed0000;
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_context.h b/src/gallium/drivers/nouveau/nv30/nv30_context.h
+--- a/src/gallium/drivers/nouveau/nv30/nv30_context.h
++++ b/src/gallium/drivers/nouveau/nv30/nv30_context.h
+@@ -65,6 +65,13 @@ struct nv30_context {
+    /* nv30_screen::tex_gen when this context last invalidated the texture cache */
+    uint32_t tex_gen;
+ 
++   /* nv30_state_lost() ran: the next context switch assumes nothing of the GPU state, even
++    * with NV30_CTX_STATE_KEEP; in_validate: inside nv30_state_validate (no reset there);
++    * blit_fp_gen: nv30_screen::lost_gen when blit_fp was uploaded */
++   bool state_lost;
++   bool in_validate;
++   uint32_t blit_fp_gen;
++
+    /* draws since the last submission of this context (NV30_PS3_KICK_DRAWS) */
+    unsigned draws_since_kick;
+ 
+@@ -247,6 +254,21 @@ nv30_render_vbo(struct pipe_context *pipe, const struct pipe_draw_info *info,
+ bool
+ nv30_state_validate(struct nv30_context *nv30, uint32_t mask, bool hwtnl);
+ 
++void
++nv30_state_lost(struct nv30_context *nv30);
++
++/* Before anything that sets GPU state or counts on it: after a cancelled submission
++ * (nouveau_device::cancelled moved past this context's push buffer), take nothing of the GPU
++ * state as known and send it all again (nv30_state_lost()). Not inside nv30_state_validate:
++ * the draw it validates for is dropped with the words already queued. */
++static inline void
++nv30_state_check_lost(struct nv30_context *nv30)
++{
++   if (unlikely(nv30->base.pushbuf->cancel_seen != nv30->screen->base.device->cancelled) &&
++       !nv30->in_validate)
++      nv30_state_lost(nv30);
++}
++
+ void
+ nv30_state_release(struct nv30_context *nv30);
+ 
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_fragprog.c b/src/gallium/drivers/nouveau/nv30/nv30_fragprog.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_fragprog.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_fragprog.c
+@@ -124,6 +124,11 @@ nv30_fragprog_validate(struct nv30_context *nv30)
+    /* translated elsewhere (the smooth point variant: nv30_fragprog_smooth) and never uploaded */
+    if (unlikely(!fp->buffer))
+       upload = true;
++   /* uploaded before a cancelled submission (nv30_state_lost()): its code may not be there */
++   if (unlikely(fp->lost_gen != nv30->screen->lost_gen)) {
++      fp->lost_gen = nv30->screen->lost_gen;
++      upload = true;
++   }
+ 
+    /* update constants, also needs to be done on every fp switch as we
+     * have no idea whether the constbuf changed in the meantime
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_query.c b/src/gallium/drivers/nouveau/nv30/nv30_query.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_query.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_query.c
+@@ -48,6 +48,7 @@ struct nv30_query {
+    uint64_t result;
+    uint64_t start; /* TIME_ELAPSED: the start time, once qo[0] was taken back */
+    struct nouveau_fence *fence; /* NV30_QUERY_WAIT: the submission that ends the query */
++   uint32_t cancel_seen; /* its push buffer's nouveau_pushbuf::cancel_seen at the end */
+ };
+ 
+ /* Offset of the query notifier inside the query DMA object */
+@@ -58,6 +59,16 @@ nv30_query_base(struct nv30_screen *screen)
+    return screen->base.is_ps3 ? query->offset - 0x1400 : 0;
+ }
+ 
++/* A submission was cancelled since the query's end was queued (or before, and its push buffer
++ * still drops what it queues: nv30_state_lost()): its report may never come, and a wait for it
++ * would never end. Taken as lost while it isn't there; a later cancellation can take a report
++ * that was on its way, which a GPU reset could too. */
++static bool
++nv30_query_lost(struct nv30_screen *screen, struct nv30_query *q)
++{
++   return q->cancel_seen != screen->base.device->cancelled;
++}
++
+ static volatile void *
+ nv30_ntfy(struct nv30_screen *screen, struct nv30_query_object *qo)
+ {
+@@ -272,6 +283,7 @@ nv30_query_end(struct pipe_context *pipe, struct pipe_query *pq)
+    struct nouveau_pushbuf *push = nv30->base.pushbuf;
+ 
+    nv30_query_object_release(screen, &q->qo[1]);   /* TIMESTAMP: ended again, never begun */
++   q->cancel_seen = push->cancel_seen;
+    q->qo[1] = nv30_query_object_new(screen, q);
+    if (q->qo[1]) {
+       BEGIN_NV04(push, NV30_3D(QUERY_GET), 1);
+@@ -340,7 +352,7 @@ nv30_query_wait(struct nv30_screen *screen, struct nv30_query *q, volatile uint3
+    nv30_query_spin_medium();
+    if ((ntfy[3] & 0xff000000) && q->fence)
+       nouveau_fence_wait(q->fence, NULL);
+-   while (ntfy[3] & 0xff000000)
++   while ((ntfy[3] & 0xff000000) && !nv30_query_lost(screen, q))
+       sched_yield();
+ }
+ 
+@@ -352,20 +364,30 @@ nv30_query_read(struct nv30_screen *screen, struct nv30_query *q, bool wait)
+    volatile uint32_t *ntfy1 = nv30_ntfy(screen, q->qo[1]);
+ 
+    if (ntfy1) {
++      bool lost;
++
+       /* NV30_QUERY_KICK=0/2: the end of the query may not be submitted yet */
+       if (q->fence && screen->query_kick != 1 && (ntfy1[3] & 0xff000000))
+          nouveau_fence_flush(q->fence);
+-      if (screen->query_wait_us >= 0 && (ntfy1[3] & 0xff000000)) {
++      lost = (ntfy1[3] & 0xff000000) && nv30_query_lost(screen, q);
++      if (!lost && screen->query_wait_us >= 0 && (ntfy1[3] & 0xff000000)) {
+          if (!wait)
+             return false;
+          nv30_query_wait(screen, q, ntfy1);
+       }
+-      while (ntfy1[3] & 0xff000000) {
++      while (!lost && (ntfy1[3] & 0xff000000)) {
+          if (!wait)
+             return false;
++         lost = nv30_query_lost(screen, q);
+       }
+ 
+-      switch (q->type) {
++      /* its report won't come: as after a GPU reset, samples passed (an occlusion-culled
++       * object is drawn), no time went by */
++      if (lost)
++         q->result = (q->type == PIPE_QUERY_OCCLUSION_COUNTER ||
++                      q->type == PIPE_QUERY_OCCLUSION_PREDICATE ||
++                      q->type == PIPE_QUERY_OCCLUSION_PREDICATE_CONSERVATIVE) ? 1 : 0;
++      else switch (q->type) {
+       case PIPE_QUERY_TIMESTAMP:
+          q->result = *(uint64_t *)&ntfy1[0];
+          break;
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_screen.h b/src/gallium/drivers/nouveau/nv30/nv30_screen.h
+--- a/src/gallium/drivers/nouveau/nv30/nv30_screen.h
++++ b/src/gallium/drivers/nouveau/nv30/nv30_screen.h
+@@ -34,6 +34,13 @@ struct nv30_screen {
+     * texture cache before its next draw once it differs from what it last saw.
+     */
+    uint32_t tex_gen;
++
++   /* ps3rsx cancelled a submission of this screen's channel (nouveau_device::cancelled): the
++    * count nv30_state_lost() last reset the screen for, and how many such resets there were
++    * (a program uploaded before one is uploaded again: the upload may have been cancelled) */
++   uint32_t lost_seen;
++   uint32_t lost_gen;
++
+    bool tex_invalidate_always; /* NV30_TEX_INVALIDATE_ALWAYS: before every draw, as before */
+    bool vtx_invalidate_draw;   /* NV30_VTX_INVALIDATE_DRAW: the draw-time 0x1710 too, as before */
+    bool vtxfmt_always;         /* NV30_VTXFMT_ALWAYS: rewrite VTXFMT even when unchanged */
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_state.h b/src/gallium/drivers/nouveau/nv30/nv30_state.h
+--- a/src/gallium/drivers/nouveau/nv30/nv30_state.h
++++ b/src/gallium/drivers/nouveau/nv30/nv30_state.h
+@@ -123,6 +123,7 @@ struct nv30_fragprog {
+ 
+    struct pipe_resource *buffer;
+    bool vram_stale;	/* NV30_FP_CONST_VRAM: insn's constants only in a stream copy */
++   uint32_t lost_gen;	/* nv30_screen::lost_gen at its last upload */
+    uint32_t vp_or; /* appended to VP_RESULT_EN */
+    uint32_t fp_control;
+    uint32_t point_sprite_control;
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_state_validate.c b/src/gallium/drivers/nouveau/nv30/nv30_state_validate.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_state_validate.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_state_validate.c
+@@ -451,7 +451,7 @@ nv30_state_context_switch(struct nv30_context *nv30)
+ 
+    if (prev) {
+       nv30->state = prev->state;
+-   } else if (unlikely(nv30->screen->ctx_state_keep)) {
++   } else if (unlikely(nv30->screen->ctx_state_keep) && !nv30->state_lost) {
+       nv30->state.vtxfmt_nr = 0;	/* the last context to draw is gone: GPU formats unknown */
+    } else {
+       /* The context that drew last is gone, and the GPU holds its state, not what this
+@@ -488,6 +488,55 @@ nv30_state_context_switch(struct nv30_context *nv30)
+       nv30->dirty &= ~NV30_NEW_ZSA;
+ 
+    nv30->screen->cur_ctx = nv30;
++   nv30->state_lost = false;
++}
++
++/*
++ * ps3rsx cancelled a submission of this screen's channel: one of its pushes was rejected
++ * (ps3rsx_validate, docs/DRIVER.md), and the kernel sent none of it. The GPU holds the state of
++ * the channel's last accepted submission, not what any context set since, so nothing this
++ * driver keeps about the GPU is true any more, for this context or another on the channel:
++ *  - this context's queued words were built on that state: the kick here drops them (the
++ *    winsys, nouveau_pushbuf::cancel_seen) and submits only the fence, which signals what waits
++ *    on the fences of the cancelled submission;
++ *  - the screen, once per cancellation: vertex programs and their constants are uploaded again
++ *    where used (the heaps emptied: the GPU may lack their code), fragment programs at their
++ *    next validation (lost_gen), and no context's view of the GPU state counts (cur_ctx), so
++ *    the next to draw writes all of its state, as after the last context to draw went away
++ *    (0029: all 16 vertex formats, the fragment program, the base index and restart state);
++ *  - this context invalidates the texture cache before its next draw.
++ * What the cancelled submission uploaded or rendered is lost (as after a GPU reset).
++ */
++void
++nv30_state_lost(struct nv30_context *nv30)
++{
++   struct nv30_screen *screen = nv30->screen;
++   struct nouveau_pushbuf *push = nv30->base.pushbuf;
++   uint32_t cancelled = screen->base.device->cancelled;
++
++   if (PUSH_SPACE(push, 16))
++      PUSH_KICK(push);
++   push->cancel_seen = cancelled;
++
++   if (screen->lost_seen != cancelled) {
++      struct nouveau_heap *heap;
++
++      screen->lost_seen = cancelled;
++      screen->lost_gen++;
++      heap = screen->vp_exec_heap;
++      while (heap->next && heap->next->in_use) {
++         struct nouveau_heap **evict = heap->next->priv;
++         nouveau_heap_free(evict);
++      }
++      heap = screen->vp_data_heap;
++      while (heap->next && heap->next->in_use) {
++         struct nv30_vertprog *evp = heap->next->priv;
++         nouveau_heap_free(&evp->data);
++      }
++      screen->cur_ctx = NULL;
++   }
++   nv30->state_lost = true;
++   nv30->tex_gen = p_atomic_read(&screen->tex_gen) - 1;
+ }
+ 
+ bool
+@@ -498,8 +547,10 @@ nv30_state_validate(struct nv30_context *nv30, uint32_t mask, bool hwtnl)
+    struct nouveau_bufref *bref;
+    struct state_validate *validate;
+ 
++   nv30_state_check_lost(nv30);
+    if (nv30->screen->cur_ctx != nv30)
+       nv30_state_context_switch(nv30);
++   nv30->in_validate = true;
+ 
+    if (hwtnl) {
+       nv30->draw_dirty |= nv30->dirty;
+@@ -527,6 +578,8 @@ nv30_state_validate(struct nv30_context *nv30, uint32_t mask, bool hwtnl)
+       nv30->dirty &= ~mask;
+    }
+ 
++   nv30->in_validate = false;
++
+    nouveau_pushbuf_bufctx(push, bctx);
+    if (PUSH_VAL(push)) {
+       nouveau_pushbuf_bufctx(push, NULL);
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_transfer.c b/src/gallium/drivers/nouveau/nv30/nv30_transfer.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_transfer.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_transfer.c
+@@ -122,7 +122,13 @@ nv30_transfer_rect_fragprog(struct nv30_context *nv30)
+    struct nv04_resource *fp = nv04_resource(nv30->blit_fp);
+    struct pipe_context *pipe = &nv30->base.pipe;
+ 
++   /* uploaded before a cancelled submission (nv30_state_lost()): made again */
++   if (fp && unlikely(nv30->blit_fp_gen != nv30->screen->lost_gen)) {
++      pipe_resource_reference(&nv30->blit_fp, NULL);
++      fp = NULL;
++   }
+    if (!fp) {
++      nv30->blit_fp_gen = nv30->screen->lost_gen;
+       nv30->blit_fp =
+          pipe_buffer_create(pipe->screen, 0, PIPE_USAGE_STAGING, 12 * 4);
+       if (nv30->blit_fp) {
+@@ -721,6 +727,10 @@ nv30_transfer_rect(struct nv30_context *nv30, enum nv30_transfer_filter filter,
+       {}
+    };
+ 
++   /* after a cancelled submission: the queued words dropped, nothing assumed (the copies set
++    * all the state they use, the blit what it draws with) */
++   nv30_state_check_lost(nv30);
++
+    /* texture memory changes: invalidate the texture cache before the next draw */
+    p_atomic_inc(&nv30->screen->tex_gen);
+ 
+@@ -757,6 +767,8 @@ nv30_transfer_copy_data(struct nouveau_context *nv,
+    struct nouveau_pushbuf *push = nv->pushbuf;
+    unsigned pages, lines;
+ 
++   nv30_state_check_lost(nv30_context(&nv->pipe));
++
+    pages = size >> 12;
+    size -= (pages << 12);
+ 
+diff --git a/src/gallium/winsys/nouveau/drm/nouveau.c b/src/gallium/winsys/nouveau/drm/nouveau.c
+--- a/src/gallium/winsys/nouveau/drm/nouveau.c
++++ b/src/gallium/winsys/nouveau/drm/nouveau.c
+@@ -1163,6 +1163,18 @@ pushbuf_submit(struct nouveau_pushbuf *push, struct nouveau_object *chan)
+    if (chan->oclass != NOUVEAU_FIFO_CHANNEL_CLASS)
+       return -EINVAL;
+ 
++   /* ps3rsx cancelled a submission since the driver last re-sent its state: these words may
++    * count on what that one was to set (a draw on its textures and programs, a copy on its
++    * DMA objects, the rest of a draw it began). They go nowhere; the fence kick_notify adds
++    * below still does, so what waits on it is not left waiting. The buffer list stays. */
++   if (push->cancel_seen != dev->cancelled) {
++      for (struct nouveau_pushbuf_krec *k = nvpb->list; k; k = k->next) {
++         k->nr_push = 0;
++         k->nr_reloc = 0;
++      }
++      push->cur = nvpb->bgn;
++   }
++
+    if (push->kick_notify && !push->kick_notify(push))
+       return -EINVAL;
+ 
+@@ -1192,6 +1204,14 @@ pushbuf_submit(struct nouveau_pushbuf *push, struct nouveau_object *chan)
+       dev->vram_limit = (req.vram_available * nouveau_device(dev)->vram_limit_percent) / 100;
+       dev->gart_limit = (req.gart_available * nouveau_device(dev)->gart_limit_percent) / 100;
+ 
++      if (ret == -ECANCELED) {
++         /* ps3rsx rejected a push of it and sent none: the driver re-sends its state before
++          * it draws again (nouveau_device::cancelled); the rest of this list goes nowhere */
++         uint32_t n = ++dev->cancelled;
++         if (!(n & (n - 1)))
++            err("ps3rsx cancelled a submission (%u so far): its state is sent again\n", n);
++         break;
++      }
+       if (ret) {
+          err("kernel rejected pushbuf: %s\n", strerror(-ret));
+          pushbuf_dump(dev, krec, krec_id++, channel);
+@@ -1623,6 +1643,7 @@ nouveau_pushbuf_new(struct nouveau_client *client, struct nouveau_object *chan,
+    push = &nvpb->base;
+    push->client = client;
+    push->channel = chan;
++   push->cancel_seen = client->device->cancelled;
+    push->flags = NOUVEAU_BO_RD;
+    if (fifo->pushbuf & NOUVEAU_GEM_DOMAIN_GART) {
+       push->flags |= NOUVEAU_BO_GART;
+diff --git a/src/gallium/winsys/nouveau/drm/nouveau.h b/src/gallium/winsys/nouveau/drm/nouveau.h
+--- a/src/gallium/winsys/nouveau/drm/nouveau.h
++++ b/src/gallium/winsys/nouveau/drm/nouveau.h
+@@ -54,6 +54,11 @@ struct nouveau_device {
+ 
+    /* only pci info, class ids and and device type are set */
+    struct nv_device_info info;
++
++   /* Submissions the kernel cancelled (ps3rsx's -ECANCELED: a push of it was rejected, so
++    * the GPU holds the state of the channel's last accepted submission, not what the
++    * driver set since). Push buffers built before it changed are dropped at their kick. */
++   uint32_t cancelled;
+ };
+ 
+ struct nouveau_client {
+@@ -118,6 +123,11 @@ struct nouveau_pushbuf {
+    /* The kernel never moves a buffer (the PS3's ps3rsx): every presumed offset stays right,
+     * so no relocations are sent. */
+    bool no_relocs;
++
++   /* nouveau_device::cancelled when the driver last took nothing of the GPU state as known
++    * (after a cancelled submission): while they differ, a kick drops the words built since
++    * and submits only what kick_notify adds then (the fence). */
++   uint32_t cancel_seen;
+ };
+ 
+ struct nouveau_pushbuf_refn {
