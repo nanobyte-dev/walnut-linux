@@ -7,7 +7,7 @@ license = "GPL-2.0-or-later"
 homepage = "https://www.bomberclone.de/"
 controller = "partial"
 known_issues = [
-  "The gamepad works in matches but not in the menus: they need the keyboard.",
+  "The gamepad works in matches but not in the menus: they need the keyboard. Fixed in our next bomberclone (the pad works the menus, checked with a virtual pad).",
   "The HUD text is small at 1080p.",
 ]
 +++

@@ -23,7 +23,10 @@ replacing Debian's; in no suite.
   Return and the second as Escape (Cross and Circle on a DualShock 3), and a DualShock 3's D-pad buttons
   and Start too. In a match a DualShock 3's Start opens the game menu (which the pad then works) and its
   D-pad moves as the stick does (any pad's hat too). Tried on the PC with a virtual DS3 (evemu, the
-  hid-sony layout): the main menu, the manual's pages and back. Pending its PS3 test.
+  hid-sony layout): the main menu, the manual's pages and back. On the PS3 (2026-10-29, the dev build,
+  `run.sh smoke bomberclone pad`, the virtual DS3 beside the console's own): the pad's events moved through
+  the menus with no key (the Configuration menu open at 20 s, the highlight on its "Ok" at 40 s;
+  `ps3-bench-20261029T000433Z-smoke-bomberclone-pad`).
 
 ## How it performs
 
@@ -36,5 +39,6 @@ session; the recipe ([benchmark/recipe.sh](benchmark/recipe.sh)) is for sessions
 ## Known problems
 
 - The gamepad worked in matches but not in the menus: BomberClone's menus read the keyboard only (as on the
-  PC). 0003 (pending its PS3 test) makes the pads work them.
+  PC). 0003 makes the pads work them (checked on the PS3 with a virtual DS3; a real pad in a played
+  session is still to come).
 - The HUD text is small at 1080p (12 px: Player1, Bombs, Range, Speed at the top).
