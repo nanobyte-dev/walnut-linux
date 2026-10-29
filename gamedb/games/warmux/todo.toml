@@ -2,9 +2,10 @@
 # a session item's order is its place in the played-session queue (docs/TESTS.md's generated block).
 
 [[item]]
-kind = "benchmark"
-added = 2026-10-19
-source = "TESTS.md Next (smoke re-runs)"
+kind = "fix"
+added = 2026-10-29
+source = "games night 2026-10-28"
 text = """\
-Smoke re-run (8511b3f: `setup()` sets `full_screen` in ~/.config/wormux/config.xml), menu only, with \
-the user at the controller; set Options > Fullscreen once if the config edit did not take."""
+warmux 0002 (the ground on big-endian, technical.md \"Our package\"), pending its PS3 test: \
+`run.sh smoke warmux play`: the characters stand on the map and the match goes on; then a played \
+session (fullscreen is 0001's, checked)."""

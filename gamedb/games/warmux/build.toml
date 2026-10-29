@@ -1,0 +1,3 @@
+# How Warmux is built, installed and integrated (gamedb/README.md "build.toml").
+# Our build of Debian's warmux (packages/warmux: fullscreen by default, the ground on big-endian).
+packages = ["warmux", "warmux-data"]

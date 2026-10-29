@@ -65,6 +65,7 @@ on:
       - "pkg: tkinterweb"
       - "pkg: uqm"
       - "pkg: walnut-games"
+      - "pkg: warmux"
       - "pkg: warzone2100"
       - "pkg: webkit2gtk"
       - "pkg: wesnoth"

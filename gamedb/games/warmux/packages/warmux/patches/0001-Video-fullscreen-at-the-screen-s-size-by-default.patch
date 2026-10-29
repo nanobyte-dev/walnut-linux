@@ -1,0 +1,49 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Wed, 28 Oct 2026 22:39:39 +0200
+Subject: Video: fullscreen at the screen's size by default
+
+On a console on a TV the game belongs fullscreen; a fresh configuration
+started in a small window (the smoke run of 2026-10-19), because the
+default was windowed and the size, when none was saved, the smallest mode
+in the list. Now a fresh configuration is fullscreen at the desktop's
+size, which SDL 1.2 reports before the first SetVideoMode (1920x1080 on
+the PS3, through sdl12-compat). The Options menu and a saved config.xml
+still change both.
+
+Forwarded: not-needed
+
+diff --git a/src/game/config.cpp b/src/game/config.cpp
+--- a/src/game/config.cpp
++++ b/src/game/config.cpp
+@@ -118,7 +118,7 @@ Config::Config()
+   , video_fullscreen(true) // No other mode supported
+   , max_fps(25)
+ #else
+-  , video_fullscreen(false)
++  , video_fullscreen(true) // Walnut: a console on a TV
+   , max_fps(50)
+ #endif
+ 
+diff --git a/src/graphic/video.cpp b/src/graphic/video.cpp
+--- a/src/graphic/video.cpp
++++ b/src/graphic/video.cpp
+@@ -70,8 +70,16 @@ Video::Video()
+   int w = config->GetVideoWidth();
+   int h = config->GetVideoHeight();
+   if (!w || !h) {
+-    w = available_configs.begin()->GetX();
+-    h = available_configs.begin()->GetY();
++    // No size saved yet: the screen's own (SDL 1.2 reports the desktop's before the first
++    // SetVideoMode); the smallest mode, 640x480 or so, was the old choice
++    const SDL_VideoInfo *info = SDL_GetVideoInfo();
++    if (info && info->current_w >= 480 && info->current_h >= 320) {
++      w = info->current_w;
++      h = info->current_h;
++    } else {
++      w = available_configs.begin()->GetX();
++      h = available_configs.begin()->GetY();
++    }
+   }
+ 
+   SetConfig(w, h, config->IsVideoFullScreen());

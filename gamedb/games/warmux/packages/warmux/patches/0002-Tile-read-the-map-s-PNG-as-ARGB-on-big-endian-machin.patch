@@ -1,0 +1,35 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Thu, 29 Oct 2026 03:38:04 +0200
+Subject: Tile: read the map's PNG as ARGB on big-endian machines
+
+The ground's tiles test each pixel as a Uint32 0xAARRGGBB (alpha mask
+0xFF000000), but the PNG rows were always read as B, G, R, A bytes
+(png_set_bgr), which is that value only on a little-endian machine. On
+big-endian (the PS3) the alpha test read the blue byte, so most of the
+ground counted as empty: every character was "probably misplaced" and fell
+into the water at the start, and the match ended at once. Big-endian now
+reads A, R, G, B (png_set_swap_alpha).
+
+Forwarded: not-needed (worth offering upstream)
+
+diff --git a/src/map/tile.cpp b/src/map/tile.cpp
+--- a/src/map/tile.cpp
++++ b/src/map/tile.cpp
+@@ -457,8 +457,15 @@ bool Tile::LoadImage(const std::string& filename,
+   if (depth == 16)
+     png_set_strip_16(png_ptr);
+ 
+-  // Find the proper mapping of channels
++  // Find the proper mapping of channels: the tiles read each pixel as a Uint32 0xAARRGGBB (alpha mask
++  // 0xFF000000), so the bytes in memory are B, G, R, A on a little-endian machine and A, R, G, B on a
++  // big-endian one. With BGRA there (as before), the alpha test read the blue byte: on the PS3 most of
++  // the ground counted as empty and every character fell into the water at the start.
++#if SDL_BYTEORDER == SDL_BIG_ENDIAN
++  png_set_swap_alpha(png_ptr);
++#else
+   png_set_bgr(png_ptr);
++#endif
+ 
+   FreeMem();
+   m_alpha_threshold = alpha_threshold;

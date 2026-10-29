@@ -59,7 +59,7 @@ they came from.
 | [UFO: Alien Invasion](../../gamedb/games/ufoai/todo.toml) | 1 | 1 benchmark |  |
 | [Ultima VII (Exult)](../../gamedb/games/ultima-7/todo.toml) | 1 | 1 benchmark |  |
 | [VVVVVV](../../gamedb/games/vvvvvv/todo.toml) | 1 | 1 benchmark |  |
-| [Warmux](../../gamedb/games/warmux/todo.toml) | 1 | 1 benchmark |  |
+| [Warmux](../../gamedb/games/warmux/todo.toml) | 1 | 1 fix |  |
 | [Warzone 2100](../../gamedb/games/warzone2100/todo.toml) | 1 | 1 session |  |
 | [Widelands](../../gamedb/games/widelands/todo.toml) | 1 | 1 fix |  |
 | [Wolfenstein: Enemy Territory (ET: Legacy)](../../gamedb/games/wolfenstein-enemy-territory/todo.toml) | 1 | 1 benchmark |  |
