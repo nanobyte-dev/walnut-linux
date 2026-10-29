@@ -25,6 +25,12 @@ the config is `~/.config/wormux/config.xml` (the recipe's BACKUP path was wrong)
   picture right. Worth offering upstream.
 
 The match runs at 7 fps (the game's counter; 9 on the Gallium HUD, 51 s of 90 in frames over 100 ms, 110 MB
-RSS): SDL 1.2 software drawing of a 1920x1080 surface through sdl12-compat. A lower resolution scaled by
-sdl12-compat is the next default to try.
+RSS): SDL 1.2 software drawing of a 1920x1080 surface through sdl12-compat. The profile
+(`ps3-bench-20261029T030029Z-smoke-warmux-play`) has 55% of the frame in one loop of libSDL3, which the
+disassembly names as `Blit8888to8888PixelAlphaSwizzle`: the scalar path (no SIMD on PowerPC) for
+per-pixel-alpha ARGB8888 sprites onto sdl12-compat's XRGB8888 screen. Our libsdl3's
+[0003](../../../packages/patched/graphics/libsdl3/patches/0003-blit-a-faster-scalar-8888-alpha-blit-between-differe.patch)
+makes that loop cheaper, bit-identical (shifts in registers, one mask for same-place RGB, alpha 0 and 255
+without the blend); pending its PS3 numbers. Frozen Bubble spends 27% in the same loop. A lower resolution
+scaled by sdl12-compat is the other lever.
 

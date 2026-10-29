@@ -1,0 +1,82 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Thu, 29 Oct 2026 05:08:21 +0200
+Subject: blit: a faster scalar 8888 alpha blit between different formats
+
+Without SIMD (PowerPC: no SSE4.1, AVX2, LSX or NEON path) every 32-bit
+sprite with per-pixel alpha blitted onto a surface of another 8888 format
+goes through Blit8888to8888PixelAlphaSwizzle. Its macro read the four
+shifts and the alpha mask from both formats for every pixel (the stores
+through dst keep the compiler from holding them in registers), and blended
+fully transparent and fully opaque pixels like any other. On the PS3 that
+loop was 55% of Warmux's frame (SDL 1.2 through sdl12-compat: ARGB8888
+sprites onto the XRGB8888 screen).
+
+Now the shifts are locals, the RGB bytes are moved only when their places
+differ (ARGB8888 onto XRGB8888 keeps them: one mask), and a pixel with
+alpha 0 leaves dst alone, one with alpha 255 stores the source, exactly
+what the blend gives at those values. The results are bit-identical to
+before (a host test compares the two loops on 11 million random pixels,
+every 8888 layout pair, both FACTOR_BLEND_8888 variants).
+
+Forwarded: no
+
+diff --git a/src/video/SDL_blit_A.c b/src/video/SDL_blit_A.c
+--- a/src/video/SDL_blit_A.c
++++ b/src/video/SDL_blit_A.c
+@@ -1071,17 +1071,49 @@ static void Blit8888to8888PixelAlphaSwizzle(SDL_BlitInfo *info)
+ 
+     SDL_Get8888AlphaMaskAndShift(dstfmt, &dstAmask, &dstAshift);
+ 
++    /* Walnut: the shifts in locals (the macro read them from the formats for every pixel: the
++       compiler can't keep them in registers across the stores through dst), the RGB bytes moved
++       only when their places differ (ARGB8888 onto XRGB8888 keeps them), and a pixel's alpha of 0
++       or 255 decided without the blend (the blend gives exactly dst or src there). Without SIMD
++       (PowerPC) this is the path for every 32-bit sprite blitted onto a window surface of another
++       format: 55% of Warmux's frame on the PS3. */
++    const Uint32 sA = srcfmt->Ashift, sR = srcfmt->Rshift, sG = srcfmt->Gshift, sB = srcfmt->Bshift;
++    const Uint32 dR = dstfmt->Rshift, dG = dstfmt->Gshift, dB = dstfmt->Bshift;
++    const Uint32 dAmask = dstfmt->Amask;
++    const bool same_rgb = (sR == dR && sG == dG && sB == dB);
++    const Uint32 rgbmask = (0xFFu << sR) | (0xFFu << sG) | (0xFFu << sB);
++
+     while (height--) {
+         int i = 0;
+ 
+         for (; i < width; ++i) {
+-            Uint32 src32 = *(Uint32 *)src;
+-            Uint32 dst32 = *(Uint32 *)dst;
+-            ALPHA_BLEND_SWIZZLE_8888(src32, dst32, srcfmt, dstfmt);
+-            if (fill_alpha) {
+-                dst32 |= dstAmask;
++            const Uint32 src32 = *(Uint32 *)src;
++            const Uint32 srcA = (src32 >> sA) & 0xFF;
++            if (srcA == 0) {
++                if (fill_alpha) {
++                    *(Uint32 *)dst |= dstAmask;
++                }
++            } else {
++                Uint32 tmp;
++                if (same_rgb) {
++                    tmp = (src32 & rgbmask) | dAmask;
++                } else {
++                    tmp = (((src32 >> sR) & 0xFF) << dR) |
++                          (((src32 >> sG) & 0xFF) << dG) |
++                          (((src32 >> sB) & 0xFF) << dB) | dAmask;
++                }
++                Uint32 dst32;
++                if (srcA == 0xFF) {
++                    dst32 = tmp;
++                } else {
++                    dst32 = *(Uint32 *)dst;
++                    FACTOR_BLEND_8888(tmp, dst32, srcA);
++                }
++                if (fill_alpha) {
++                    dst32 |= dstAmask;
++                }
++                *(Uint32 *)dst = dst32;
+             }
+-            *(Uint32 *)dst = dst32;
+             src += 4;
+             dst += 4;
+         }
