@@ -9,8 +9,8 @@
  * methods Mesa's nv30 driver can emit (docs/MESA-METHODS.md section 4, indexed arrays
  * expanded to all units) plus what our raw tests use, all of which ran on the RSX.
  * Data checks: vertex format type 0 and UB256 with other than 4 components, 1-pixel-wide
- * swizzled render targets, texture offsets not 128-byte aligned, the X16 texture format,
- * SIFM surfaces.
+ * swizzled render targets, fragment texture offsets not 128-byte aligned, the X16 texture
+ * format, every word of the vertex texture units (vtxtex_ok()), SIFM surfaces.
  * Not yet: bounds checks of offsets against BOs at trigger methods.
  */
 #include <linux/kernel.h>
@@ -117,17 +117,104 @@ static __always_inline bool vtxfmt_ok(u32 data)
 }
 
 /*
- * A texture format word (TEX_FORMAT, 0x1a04 + 0x20 * unit, and the vertex units' 0x904 + 0x20 *
- * unit) the RSX samples without a graph exception: not format 0x14 (nouveau's A16, libgcm's
- * X16), which nothing had sampled on the RSX before mpv's dither texture (GL_LUMINANCE16, Mesa's
- * L16_UNORM): its first draw raised exception 0x105 and wedged the RSX (2026-10-28,
- * docs/RSX.md). Mesa 0052 no longer offers the format on the PS3.
+ * A fragment texture format word (TEX_FORMAT, 0x1a04 + 0x20 * unit) the RSX samples without a
+ * graph exception: not format 0x14 (nouveau's A16, libgcm's X16), which nothing had sampled on
+ * the RSX before mpv's dither texture (GL_LUMINANCE16, Mesa's L16_UNORM): its first draw raised
+ * exception 0x105 and wedged the RSX (2026-10-28, docs/RSX.md). Mesa 0052 no longer offers the
+ * format on the PS3. The vertex units take far less: vtxtex_ok().
  */
 #define TEXFMT_X16	0x14
 
 static __always_inline bool texfmt_ok(u32 data)
 {
 	return ((data >> 8) & 0x1f) != TEXFMT_X16;
+}
+
+/*
+ * A word for the vertex texture units (0x900 + 0x20 * unit, units 0-3) as libgcm writes them
+ * (cellGcmSetVertexTexture*, RPCS3's vertex_texture): NV40 vertex texture fetch reads 2D fp32
+ * textures without filtering. Nothing sends these words yet (Mesa's vertex sampler count is 0;
+ * nv40_verttex.c writes only CONTROL0 = 0), and no vertex texture has been sampled on the RSX,
+ * so anything else is refused (docs/DRIVER.md, the validator):
+ *   0x00 OFFSET     128-byte aligned like the fragment units, below 256 MiB (VRAM's size, and
+ *                   the end of the IO window);
+ *   0x04 FORMAT     location 1 (VRAM) or 2 (XDR), not cubic, border colour (bit 3, as Mesa and
+ *                   libgcm send it), 2D, format X32_FLOAT (0x9c) or W32_Z32_Y32_X32_FLOAT (0x9b),
+ *                   swizzled or linear (+0x20) and normalized, 1 to 13 levels (4096 down to 1);
+ *   0x08 ADDRESS    wrap S (bits 0-3) and T (bits 8-11) 1 to 8 (WRAP .. MIRROR_ONCE_CLAMP), the
+ *                   rest 0;
+ *   0x0c CONTROL0   enable (bit 31), min and max LOD (bits 19-30, 7-18); no anisotropy or
+ *                   alpha kill (bits 0-6 0);
+ *   0x10 CONTROL3   pitch at most 65536 (4096 RGBA32F texels), depth 0 or 1;
+ *   0x14 FILTER     the LOD bias (bits 0-12), the rest 0;
+ *   0x18 IMAGE_RECT width (bits 16-31) and height (0-15) 1 to 4096;
+ *   0x1c BORDER     any colour.
+ * Not checked: the offset plus the texture's size against its buffer (no texture unit's is:
+ * the bounds checks at trigger methods are not written).
+ */
+#define VTXTEX_LO	0x0900
+#define VTXTEX_HI	0x097c
+
+static const char *const vtxtex_why[8] = {
+	"vertex texture offset not 128-byte aligned or past 256 MiB",
+	"vertex texture format other than 2D fp32 (X32 or W32Z32Y32X32)",
+	"vertex texture address (wrap) out of range",
+	"vertex texture control0 with anisotropy or alpha kill",
+	"vertex texture pitch or depth out of range",
+	"vertex texture filter other than an LOD bias",
+	"vertex texture size not 1 to 4096",
+	"",
+};
+
+static bool vtxtex_ok(u32 m, u32 data, const char **why)
+{
+	u32 fmt, w, h, levels;
+
+	switch (m & 0x1c) {
+	case 0x00:
+		if ((data & 127) || data >= 0x10000000)
+			goto bad;
+		return true;
+	case 0x04:
+		fmt = (data >> 8) & 0xdf;	/* LN (0x20) either way */
+		levels = data >> 16;
+		if ((data & 0xff) != 0x29 && (data & 0xff) != 0x2a)
+			goto bad;		/* location, cubic, border, dimension */
+		if (fmt != 0x9b && fmt != 0x9c)
+			goto bad;
+		if (levels < 1 || levels > 13)
+			goto bad;
+		return true;
+	case 0x08:
+		w = data & 0xf;
+		h = (data >> 8) & 0xf;
+		if ((data & ~0xf0fu) || w < 1 || w > 8 || h < 1 || h > 8)
+			goto bad;
+		return true;
+	case 0x0c:
+		if (data & 0x7f)
+			goto bad;
+		return true;
+	case 0x10:
+		if ((data & 0xfffff) > 0x10000 || (data >> 20) > 1)
+			goto bad;
+		return true;
+	case 0x14:
+		if (data & ~0x1fffu)
+			goto bad;
+		return true;
+	case 0x18:
+		w = data >> 16;
+		h = data & 0xffff;
+		if (w < 1 || w > 4096 || h < 1 || h > 4096)
+			goto bad;
+		return true;
+	default:
+		return true;			/* border colour */
+	}
+bad:
+	*why = vtxtex_why[(m & 0x1c) / 4];
+	return false;
 }
 
 static __always_inline bool fast_ok(u8 f, u32 data)
@@ -203,16 +290,16 @@ static bool known_dma(u32 handle)
 	return false;
 }
 
-/* A 3D texture offset (fragment units 0-15, vertex units 0-3)? */
+/* A fragment texture offset (units 0-15)? */
 static bool tex_offset(u32 m)
 {
-	return (m & ~0x1e0) == 0x1a00 || (m & ~0x60) == 0x0900;
+	return (m & ~0x1e0) == 0x1a00;
 }
 
-/* A 3D texture format word (fragment units 0-15, vertex units 0-3)? */
+/* A fragment texture format word (units 0-15)? */
 static bool tex_format(u32 m)
 {
-	return (m & ~0x1e0) == 0x1a04 || (m & ~0x60) == 0x0904;
+	return (m & ~0x1e0) == 0x1a04;
 }
 
 /*
@@ -227,6 +314,8 @@ static u8 fast_kind(int c, u32 m)
 		return F_OK;
 	if (m == 0x1808 || m == 0x208)
 		return F_SLOW;			/* BEGIN_END state, RT_FORMAT */
+	if (m >= VTXTEX_LO && m <= VTXTEX_HI)
+		return F_SLOW;			/* vertex texture units: vtxtex_ok() */
 	if (m >= 0x1740 && m <= 0x177c)
 		return F_VTXFMT;		/* vertex format: vtxfmt_ok() */
 	if (tex_offset(m))
@@ -288,6 +377,9 @@ static int check_method(struct ps3rsx_vstate *vs, u32 subch, u32 mthd, u32 data,
 		*why = "texture offset not 128-byte aligned";
 		return -EINVAL;
 	}
+	if (vs->bound[subch] == 0x31337000 && mthd >= VTXTEX_LO && mthd <= VTXTEX_HI &&
+	    !vtxtex_ok(mthd, data, why))
+		return -EINVAL;
 	if (vs->bound[subch] == 0x31337000 && tex_format(mthd) && !texfmt_ok(data)) {
 		/* the X16 (A16) format: mpv's first draw sampling one raised graph exception 0x105
 		 * (texfmt_ok()) */
