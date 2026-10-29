@@ -380,6 +380,18 @@ Rank 72. `make test` and `make test-slow` run every host suite with a summary ta
 
 - **Effort:** S-M. **Needs:** host. **Status:** not started. **Source:** PLAN 5.9.
 
+### Build caches and links off /home
+
+Two build-tool fixes to bundle into the next change of the shared packaging tools (a commit to
+`tools/deb-*.sh` shifts every package's N, so they wait for a reason to bump all versions anyway):
+`tools/deb-prepare.sh` links the orig tarball with `realpath`, which inside a build container is a
+`/work/...` path that dangles on the host (it broke `tools/prebuilt-upload.sh`'s leak check, worked
+around there on 2026-10-29); use a relative link (`ln -sr`). And the per-package build-dependency
+caches (`build/chroot/<pkg>-deps-*.tar`, about 1 GB each) fill /home after a busy night: keep them on
+the overflow drive (`/mnt/data_linux/Temp/ps3`), with only the base chroots on /home.
+
+- **Effort:** S. **Needs:** host. **Status:** not started. **Source:** games night 2026-10-28/29.
+
 Older versions and the dated history: [archive/PLAN.md](../archive/PLAN.md),
 [archive/DESKTOP-PLAN.md](../archive/DESKTOP-PLAN.md), [archive/GAMEOS-HDD.md](../archive/GAMEOS-HDD.md),
 [archive/RELEASE-CANDIDATES.md](../archive/RELEASE-CANDIDATES.md),
