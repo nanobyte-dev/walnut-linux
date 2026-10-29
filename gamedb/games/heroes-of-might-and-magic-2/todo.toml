@@ -2,7 +2,21 @@
 # a session item's order is its place in the played-session queue (docs/TESTS.md's generated block).
 
 [[item]]
-kind = "benchmark"
-added = 2026-10-19
-source = "backlog/games.md rank 76 (game-reeval.md \"Merged ranking\")"
-text = "Try now: fheroes2, a first smoke with the HoMM2 demo data."
+kind = "package"
+added = 2026-10-29
+source = "games night 2026-10-28 (smoke)"
+text = """\
+Console defaults in our fheroes2: a fresh configuration opened a 640x480 window with the language and \
+"select a game resolution" dialogs; fullscreen at the screen's size by default (the questions skipped \
+or answered with it). Then a pad check (fheroes2 has controller support)."""
+
+[[item]]
+kind = "session"
+order = 21
+launcher = "fheroes2"
+pc = "needs the data"
+added = 2026-10-29
+source = "games night 2026-10-28 (smoke)"
+text = """\
+First played session with the player's Heroes II data: a standard game, a few turns, a battle, a save \
+and a load; the music and effects by ear."""

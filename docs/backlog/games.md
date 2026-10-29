@@ -32,7 +32,7 @@ they came from.
 | [Flare](../../gamedb/games/flare/todo.toml) | 1 | 1 benchmark |  |
 | [Freeciv](../../gamedb/games/freeciv/todo.toml) | 1 | 1 benchmark |  |
 | [FreeOrion](../../gamedb/games/freeorion/todo.toml) | 1 | 1 fix |  |
-| [Heroes of Might and Magic II (fheroes2)](../../gamedb/games/heroes-of-might-and-magic-2/todo.toml) | 1 | 1 benchmark |  |
+| [Heroes of Might and Magic II (fheroes2)](../../gamedb/games/heroes-of-might-and-magic-2/todo.toml) | 2 | 1 package, 1 session |  |
 | [LinCity-NG](../../gamedb/games/lincity-ng/todo.toml) | 1 | 1 benchmark |  |
 | [Luanti](../../gamedb/games/luanti/todo.toml) | 6 | 1 benchmark, 1 package, 3 research, 1 session | 2.6, 2.9, 3.12 |
 | [MegaGlest](../../gamedb/games/megaglest/todo.toml) | 1 | 1 fix |  |
