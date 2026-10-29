@@ -25,8 +25,8 @@ during() {
 	/usr/games/bzfs -p "$BZ_PORT" -ms 3 -j -t +r -a 50 38 2>/dev/null &
 	local srv=$!
 	trap 'kill $srv 2>/dev/null' TERM EXIT
-	if [ "$BZ_PAD" = 1 ]; then	# the virtual pad's own timeline (setup)
-		sleep 32; shot_mark
+	if [ "$BZ_PAD" = 1 ]; then	# the virtual pad's own timeline (setup): shots at 26 s (before the spawn
+		sleep 20; shot_mark	# ends), 34 s (driving), 40 s (the menu up) after the pad's call
 	else
 		# after joining the tank waits dead ("Press Right Mouse or "i" to start"): i spawns it, Up drives
 		smoke_xkeys BZFlag 10 i +3 Up Up Up; shot_mark
@@ -41,8 +41,10 @@ SHOT_FROM=mark
 BZ_PAD=0
 setup() {
 	[ "$BZ_PAD" = 1 ] || return 0
+	# a saved joystick choice would beat 0001's "auto" default (an earlier run's config.cfg)
+	sed -i '/joystickname/d' "$HOME"/.bzf/*/config.cfg 2>/dev/null
 	smoke_pad +25 triangle +3 ly=0 +4 ly=128 cross +1 cross +2 start +2 down +1 down +1 circle +2 cross
 }
 # The console's own DS3 (on USB) would be the first game controller "auto" takes: the virtual pad comes
 # under another ID (SMOKE_PAD=generic) and SDL hides the DS3's (054c:0268) for this run.
-variant_pad() { BZ_PAD=1; NEEDS+=(evemu-play); SMOKE_PAD=generic; ENV+=(SDL_GAMECONTROLLER_IGNORE_DEVICES=0x054c/0x0268); }
+variant_pad() { BZ_PAD=1; NEEDS+=(evemu-play); SMOKE_PAD=generic; ENV+=(SDL_GAMECONTROLLER_IGNORE_DEVICES=0x054c/0x0268); SHOT_POINTS="6 14 20"; }
