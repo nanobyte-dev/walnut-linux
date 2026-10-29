@@ -50,7 +50,7 @@ with its source), the medal comes from the game's played sessions on the
 | [Armagetron](https://walnut.nanobyte.dev/gamedb/games/armagetronad/) | Platinum · 95 | 83 | 0.1 s / 24.1 / 127 ms | 58 / 28 | right, right |
 | ClassiCube | not rated yet | 47 | 0 s / 30.7 / 65 ms | 53 / 60 | right, right |
 | [Extreme Tux Racer](https://walnut.nanobyte.dev/gamedb/games/etr/) | Gold · 80 | 59 | 2.9 s / 27.3 / 483 ms | 29 / 58 | right, right |
-| [Luanti](https://walnut.nanobyte.dev/gamedb/games/luanti/) | Scrap · 56 | 46 | 3.5 s / 19.1 / 724 ms | 19 / 63 | right, no underruns |
+| [Luanti](https://walnut.nanobyte.dev/gamedb/games/luanti/) | Rust · 60 | 46 | 3.5 s / 19.1 / 724 ms | 19 / 63 | right, no underruns |
 | [dsda-doom](https://walnut.nanobyte.dev/gamedb/games/dsda-doom/) | Gold · 90 | 55.9 | 0 s / 40.3 / 34 ms | 43 / 65 | right, music chops |
 | [BananaBread](https://walnut.nanobyte.dev/gamedb/games/bananabread/) | Scrap · 51 | 39.1 | 0.05 s / 25.6 / 103 ms | 25 / 117 | right, 60-181 underruns a run |
 | [Neverball](https://walnut.nanobyte.dev/gamedb/games/neverball/) | Gold · 87 | 66.5 | 2 s / 41.3 / 3.9 s | 58 / 34 | right, 118 underruns |

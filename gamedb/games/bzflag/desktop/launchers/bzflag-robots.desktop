@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=BZFlag (robots)
+Comment=Tank battle with three computer tanks: use Start Server in the menu, then Connect
+Exec=ps3-game bzflag -solo 3
+Icon=bzflag
+Terminal=false
+Categories=Game;ActionGame;
+Keywords=tank;battle;capture the flag;robots;offline;

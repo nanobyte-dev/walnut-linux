@@ -46,6 +46,31 @@ Triangle never spawned the tank (three presses from 40 s, `ps3-bench-20261029T05
 the start line kept naming "i". Open: whether the virtual pad's Triangle arrives as SDL's Y there (the
 generic ID maps BTN_WEST as Y on the PC), or the spawn binding; a real DS3 in a played session decides.
 
+## Robots and public servers
+
+Robots are client-side: `bzflag -solo N` makes the client, after it has joined a server, open N more
+connections to it as computer players (playing.cxx `addRobots`, called once the main tank is accepted; a
+server started with `-disableBots` refuses them). It does not matter how the server was reached, so the
+menu's Start Server (which runs `bzfs` itself, ServerStartMenu.cxx) followed by Connect gets the robots too.
+Our launcher "BZFlag (robots)" ([desktop/launchers/bzflag-robots.desktop](desktop/launchers/bzflag-robots.desktop))
+starts `ps3-game bzflag -solo 3`; "BZFlag" starts without them.
+
+Public servers (the Join Game > Find Server list, 244 listed on 2026-10-29) often require a registered
+account: the session of 2026-10-29 was refused with "This callsign is registered. You must use global
+identification before playing", "This server may require identification before you can join" and "You are
+not allowed to spawn. Please contact an administrator". Robots on a local server are the offline way to play.
+
+## Played session 2026-10-29
+
+8.3 minutes, quit, one DualShock 3 (pad events through the session), the form: sound yes, controls full, no
+glitches, menus and modes worked. About 485 s of recorded play time, but the screenshots show the time:
+the Start Server and Join Game menus, the public server list (244 servers) and public servers that
+disconnected the player (callsign registered, or not allowed to spawn); one local match (the screenshot at 120 s: green team, flag grabbed, radar and HUD drawn). Median 70 fps, 1% low 27 (the frames
+counted are mostly menu frames), 6.8 s of stutter a minute, one 26.6 s frame at about 190 s: the client
+was connecting to a public server ("Downloading texture (11 of 11)", the screenshot at 180 s) and the frame timer
+saw no frame for that time (a wait in the menu, not a slow draw). Rating: Rust (72), smoothness 0 from that
+frame. Sound: 18 dropouts logged, 1 audible. The 2026-10-29 session's launcher was "BZFlag" (no robots).
+
 ## Research
 
 What the surveys and plans said about it, newest first; each line names its source, the section and the date.
