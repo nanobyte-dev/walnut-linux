@@ -19,6 +19,7 @@ on:
       - "pkg: bzflag"
       - "pkg: chromium-bsu"
       - "pkg: classicube"
+      - "pkg: colobot"
       - "pkg: crawl-walnut"
       - "pkg: cube2"
       - "pkg: darkplaces-gl2"

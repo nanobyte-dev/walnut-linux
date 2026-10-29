@@ -6,6 +6,7 @@ kind = "fix"
 added = 2026-10-29
 source = "games night 2026-10-28 (smoke)"
 text = """\
-Fullscreen and the config writer: the game ran windowed with `Fullscreen=1` in its colobot.ini and wrote \
-`Fullscreen=0` back; and the file it writes has a NUL in `ShadowMappingResolution` (big-endian, or a \
-string bug). A package of ours with fullscreen at the screen's size by default and the writer fixed."""
+Fullscreen: done in our colobot 0001 (a fresh configuration starts fullscreen at the desktop's mode; \
+the window came from the recipe's -resolution, now gone), pending its PS3 test: `run.sh smoke colobot \
+fresh`. The NUL byte in every 513th byte of what it writes (big-endian: colobot 0003) is fixed in the same \
+package, pending: the run's colobot.ini without a NUL."""

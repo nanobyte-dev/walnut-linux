@@ -1,0 +1,132 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Thu, 29 Oct 2026 01:58:00 +0200
+Subject: debian: build the colobot binary only, on Debian's data packages
+
+doxygen, a Build-Depends-Indep, isn't installable on debian-ports' ppc64
+(its libfmt10 is missing), so the arch:all packages (colobot-common,
+-common-sounds, -common-textures, -dev-doc) can't be built there. They are
+the same for every architecture: our colobot uses Debian's, and depends on
+them by upstream version (>= 0.2.2) instead of the source's full one. The
+data is still installed into debian/tmp, from which colobot.install picks
+the binary's files; dh_missing lists the rest instead of failing.
+
+diff --git a/debian/control b/debian/control
+--- a/debian/control
++++ b/debian/control
+@@ -24,10 +24,6 @@ Build-Depends:
+  perl,
+  po4a,
+  xmlstarlet,
+-Build-Depends-Indep:
+- doxygen,
+- graphviz,
+- vorbis-tools,
+ Vcs-Browser: https://salsa.debian.org/games-team/colobot
+ Vcs-Git: https://salsa.debian.org/games-team/colobot.git
+ Standards-Version: 4.7.3
+@@ -36,9 +32,9 @@ Homepage: https://colobot.info
+ Package: colobot
+ Architecture: any
+ Depends:
+- colobot-common (>= ${source:Version}),
+- colobot-common-sounds (>= ${source:Version}),
+- colobot-common-textures (>= ${source:Version}),
++ colobot-common (>= ${source:Upstream-Version}),
++ colobot-common-sounds (>= ${source:Upstream-Version}),
++ colobot-common-textures (>= ${source:Upstream-Version}),
+  fonts-dejavu-core,
+  fonts-dejavu-extra,
+  ${misc:Depends},
+@@ -48,70 +44,4 @@ Description: educational programming strategy game
+  programming through entertainment. You are playing as an astronaut on a
+  journey with robot helpers to find a planet for colonization. It features 3D
+  real-time graphics and a C++ and Java-like, object-oriented language, CBOT,
+- which can be used to program the robots available in the game.
+-
+-Package: colobot-common
+-Architecture: all
+-Multi-Arch: foreign
+-Depends:
+- ${misc:Depends},
+-Recommends:
+- colobot (>= ${source:Version}),
+-Description: educational programming strategy game - data
+- Colobot (Colonize with Bots) is an educational game aiming to teach
+- programming through entertainment. You are playing as an astronaut on a
+- journey with robot helpers to find a planet for colonization. It features 3D
+- real-time graphics and a C++ and Java-like, object-oriented language, CBOT,
+- which can be used to program the robots available in the game.
+- .
+- This package contains the architecture-independent game data.
+-
+-Package: colobot-common-sounds
+-Architecture: all
+-Multi-Arch: foreign
+-Depends:
+- ${misc:Depends},
+-Recommends:
+- colobot (>= ${source:Version}),
+-Description: educational programming strategy game - sounds and music
+- Colobot (Colonize with Bots) is an educational game aiming to teach
+- programming through entertainment. You are playing as an astronaut on a
+- journey with robot helpers to find a planet for colonization. It features 3D
+- real-time graphics and a C++ and Java-like, object-oriented language, CBOT,
+- which can be used to program the robots available in the game.
+- .
+- This package contains the sounds and music for the game.
+-
+-Package: colobot-common-textures
+-Architecture: all
+-Multi-Arch: foreign
+-Depends:
+- ${misc:Depends},
+-Recommends:
+- colobot (>= ${source:Version}),
+-Description: educational programming strategy game - textures
+- Colobot (Colonize with Bots) is an educational game aiming to teach
+- programming through entertainment. You are playing as an astronaut on a
+- journey with robot helpers to find a planet for colonization. It features 3D
+- real-time graphics and a C++ and Java-like, object-oriented language, CBOT,
+- which can be used to program the robots available in the game.
+- .
+- This package contains the textures for the game.
+-
+-Package: colobot-dev-doc
+-Architecture: all
+-Multi-Arch: foreign
+-Section: doc
+-Depends:
+- libjs-jquery,
+- ${misc:Depends},
+-Recommends:
+- colobot (>= ${source:Version}),
+-Description: educational programming strategy game - source doc
+- Colobot (Colonize with Bots) is an educational game aiming to teach
+- programming through entertainment. You are playing as an astronaut on a
+- journey with robot helpers to find a planet for colonization. It features 3D
+- real-time graphics and a C++ and Java-like, object-oriented language, CBOT,
+- which can be used to program the robots available in the game.
+- .
+- This package contains the doxygen documentation for the colobot source code.
++ which can be used to program the robots available in the game.
+\ No newline at end of file
+diff --git a/debian/rules b/debian/rules
+--- a/debian/rules
++++ b/debian/rules
+@@ -30,6 +30,15 @@ override_dh_auto_configure:
+ 	                     -DOPENAL_SOUND:BOOL=True \
+ 	                     -DCMAKE_VERBOSE_MAKEFILE=True
+ 
++# Walnut: only the colobot binary is built (debian/control); the data stays in debian/tmp for
++# colobot.install to pick from, as with Debian's several packages
++override_dh_auto_install:
++	dh_auto_install --destdir=debian/tmp
++
++# the data's files stay behind in debian/tmp on purpose (Debian's arch:all packages carry them)
++override_dh_missing:
++	dh_missing --list-missing
++
+ override_dh_auto_build-arch:
+ 	dh_auto_build -a
+ 

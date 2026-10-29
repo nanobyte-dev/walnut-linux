@@ -1,0 +1,38 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Thu, 29 Oct 2026 01:31:02 +0200
+Subject: app: a fresh configuration starts fullscreen at the desktop's mode
+
+Walnut is a console on a TV. Without a colobot.ini (a first start from the
+menu) Colobot opened an 800x600 window. Now, when the configuration has
+neither a Resolution nor a Fullscreen setting and no -resolution was
+given, it starts fullscreen at the desktop's mode (1920x1080 on the PS3:
+no mode change). A saved configuration, -resolution and the options menu
+still decide.
+
+Forwarded: not-needed
+
+diff --git a/src/app/app.cpp b/src/app/app.cpp
+--- a/src/app/app.cpp
++++ b/src/app/app.cpp
+@@ -600,6 +600,20 @@ bool CApplication::Create()
+         std::vector<Math::IntPoint> modes;
+         GetVideoResolutionList(modes);
+ 
++        // Walnut (a console on a TV): a fresh configuration starts fullscreen at the desktop's mode
++        // instead of an 800x600 window; a saved Resolution and Fullscreen, -resolution and the
++        // options menu still decide
++        if ( !m_resolutionOverride && !GetConfigFile().GetStringProperty("Setup", "Resolution", sValue) &&
++             !GetConfigFile().GetIntProperty("Setup", "Fullscreen", iValue) )
++        {
++            SDL_DisplayMode desktop;
++            if (SDL_GetDesktopDisplayMode(0, &desktop) == 0 && desktop.w > 0 && desktop.h > 0)
++            {
++                m_deviceConfig.size = Math::IntPoint(desktop.w, desktop.h);
++                m_deviceConfig.fullScreen = true;
++            }
++        }
++
+         if ( GetConfigFile().GetStringProperty("Setup", "Resolution", sValue) && !m_resolutionOverride )
+         {
+             std::istringstream resolution(sValue);

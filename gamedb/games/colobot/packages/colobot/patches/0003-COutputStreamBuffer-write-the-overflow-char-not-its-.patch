@@ -1,0 +1,30 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Thu, 29 Oct 2026 02:39:56 +0200
+Subject: COutputStreamBuffer: write the overflow char, not its int's first
+ byte
+
+overflow() wrote the character that didn't fit into the full buffer with
+PHYSFS_write(m_file, &ch, 1, 1), ch being the streambuf's int_type: the
+first byte of an int is the character on little-endian machines and 0 on
+big-endian ones. So on the PS3 every file Colobot wrote through it got a
+NUL for the 513th byte (and the one after each further 512): colobot.ini
+read "ShadowM\0ppingResolution=1024", and saved games and the player's
+programs would be cut the same way. Now the character itself is written.
+
+Forwarded: not-needed (to offer upstream: a plain big-endian bug)
+
+diff --git a/src/common/resources/outputstreambuffer.cpp b/src/common/resources/outputstreambuffer.cpp
+--- a/src/common/resources/outputstreambuffer.cpp
++++ b/src/common/resources/outputstreambuffer.cpp
+@@ -86,7 +86,9 @@ std::streambuf::int_type COutputStreamBuffer::overflow(std::streambuf::int_type
+     // write final char
+     if (ch != traits_type::eof())
+     {
+-        bytes_written = PHYSFS_write(m_file, &ch, 1, 1);
++        // the char itself, not the first byte of the int_type holding it (0 on big-endian)
++        const char c = traits_type::to_char_type(ch);
++        bytes_written = PHYSFS_write(m_file, &c, 1, 1);
+         if (bytes_written <= 0)
+             return traits_type::eof();
+     }
