@@ -1,0 +1,64 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Thu, 29 Oct 2026 15:02:59 +0200
+Subject: threads: background threads at nice 10 on Linux, the render thread
+ first (LU_NICE)
+
+Map generation (Emerge-N), meshing (MeshUpdate), the built-in server,
+the minimap and the async Lua workers prepare work for later frames;
+the render thread draws this one. On the PS3's two hardware threads,
+at viewing range 120, these threads and kswapd kept both busy, and in
+the frames over 100 ms the render thread ran only about a fifth of the
+time (perf samples against the stall recorder's frames). At nice 10
+the scheduler runs the render thread whenever it is ready, and the
+background work is done in its gaps.
+
+LU_NICE=N sets the value, LU_NICE=0 leaves the threads as upstream.
+
+Forwarded: not-needed
+
+diff --git a/src/threading/thread.cpp b/src/threading/thread.cpp
+--- a/src/threading/thread.cpp
++++ b/src/threading/thread.cpp
+@@ -44,6 +44,14 @@ DEALINGS IN THE SOFTWARE.
+ 	};
+ #endif
+ 
++// for the background threads' priority (LU_NICE)
++#if defined(__linux__)
++	#include <cstdlib>
++	#include <sys/resource.h>
++	#include <sys/syscall.h>
++	#include <unistd.h>
++#endif
++
+ // for bindToProcessor
+ #if __FreeBSD_version >= 702106
+ 	typedef cpuset_t cpu_set_t;
+@@ -184,6 +192,26 @@ void Thread::threadProc(Thread *thr)
+ 
+ 	thr->setName(thr->m_name);
+ 
++#if defined(__linux__)
++	// Walnut (PS3): the threads that only prepare work for later (map generation, meshing, the
++	// built-in server, the minimap, async Lua) run at nice LU_NICE (default 10; 0 or unset by
++	// "LU_NICE=0": as upstream). With two hardware threads and four busy threads, the render
++	// thread otherwise waits its turn: at viewing range 120 it ran a fifth of the time in its
++	// frames over 100 ms. Linux keeps a nice value per thread, and raising one's own needs no
++	// privilege; the work still gets done, in the render thread's gaps.
++	{
++		static const int bg_nice = [] {
++			const char *v = getenv("LU_NICE");
++			return v && *v ? atoi(v) : 10;
++		}();
++		const std::string &n = thr->m_name;
++		const bool background = n == "MeshUpdate" || n == "MinimapUpdate" || n == "Server" ||
++			n.rfind("Emerge-", 0) == 0 || n.rfind("AsyncWorker-", 0) == 0;
++		if (background && bg_nice > 0)
++			setpriority(PRIO_PROCESS, (id_t)syscall(SYS_gettid), bg_nice);
++	}
++#endif
++
+ 	g_logger.registerThread(thr->m_name);
+ 	thr->m_running = true;
+ 

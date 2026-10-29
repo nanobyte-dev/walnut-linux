@@ -9,8 +9,11 @@ pc = "ready"
 added = 2026-10-24
 source = "TESTS.md played sessions"
 text = """\
-Played 2026-10-24: Scrap (25 s of stutter a minute, frames up to 4.3 s). Next after the package fix \
-in its todo.toml; the stutter (map generation and meshing) is the real problem."""
+Played 2026-10-24: Scrap (25 s of stutter a minute, frames up to 4.3 s). Next with luanti 0010 and 0011 \
+(the background threads at nice 10, the server's blocks unloaded after 5 s: the bench flight at 120 went \
+from 20 to 38 fps and from 32 to 1-2 s of stalls): pop-in while walking, any lag digging and placing, \
+and memory over a long session (the client keeps up to 7500 blocks for 10 minutes, which a 135 s \
+flight never reaches)."""
 
 [[item]]
 kind = "benchmark"
@@ -64,9 +67,19 @@ kind = "research"
 added = 2026-10-29
 source = "the user, 2026-10-29"
 text = """\
-Smoothness at view 120: find the cause of the stalls (profile), don't lower quality. The default is 120 \
-(luanti 0009, the user: never below 120). Baseline, 3 runs, one boot: 20 fps steady, 36 s of stalls in \
-the 135 s window (35.7-41.0), 1% low 4 fps, longest frame 1.0-3.8 s (60: 46 fps, 4.5 s, 16.8). \
-`run.sh bench luanti view120 3` with `STALLS=1`, then `PERF=1`/`MEM=1`; candidates: mesh and map-block \
-churn, the merged mesh buffers (nomerge, meshchunk2), the server's generation, swap (vmswap 60-100 MB \
-at the end)."""
+Smoothness at view 120, what is left after luanti 0010 and 0011 (investigations/2026-10-29-view120-stalls.md): \
+the bench flight is at 38 fps with 1-2 s of stalls in 135 s. The main thread's own frame holds the rate: \
+renderMap's ~180 draw calls a frame and the driver under them, updateDrawList's 15-40 ms four times a \
+second (half of it occlusion raycasts, isMeshOccluded); the stalls left come in bursts with kswapd. \
+Profile first (`PERF=1`, bench/analysis/stallperf.py), quality kept (range 120, smooth lighting)."""
+
+[[item]]
+kind = "benchmark"
+added = 2026-10-29
+source = "investigations/2026-10-29-view120-stalls.md"
+text = """\
+The flight path runs through a mountain: shots 15 s into loops 2 and 3 are black (the camera in rock), \
+the warm-up's at 20 and 30 s grey (in blocks not generated yet), only the 100 s shot shows the world. \
+The frames are still drawn behind the black, a little faster (21 against 28 ms), so the A/B numbers hold, \
+but the pictures can't be checked. Raise the altitude or move the path, as a new recipe version (the old \
+numbers stay comparable only among themselves)."""

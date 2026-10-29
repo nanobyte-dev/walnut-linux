@@ -391,6 +391,21 @@ gameplay stalls from 9-10 s to 0
 ([reload-stalls](../gamedb/games/openarena/investigations/2026-10-17-reload-stalls.md)). Current
 numbers per game are in [games/README.md](games/README.md).
 
+## What the recorder found in a game: Luanti
+
+[Luanti](../gamedb/games/luanti/) at viewing range 120 had 35 s of stalls in its 135 s window, and the recorder put two thirds of
+them on `cpu`: the main thread in state R. That reads as the render thread working, but `cpu` only
+means running *or waiting to run*; `runq` needs the whole process to have been starved, and Luanti's
+mesh, map generation and server threads kept the process busy. Perf samples placed in the same stall
+frames (`bench/analysis/stallperf.py`, a run with `STALLS=1` and `PERF=1`) showed the main thread on
+the CPU 22% of its stall time, against 46% in the other frames, while MeshUpdate (28%), kswapd0 (27%),
+Emerge-0 (25%) and Server (14%) had the two PPE threads. The stall's evidence line says the same
+(`cpu 1824 ms (main user 100 sys 190)` for a 1.6 s frame: the process got 1.8 s of CPU, the main
+thread 0.29 s). luanti 0010 puts those threads at nice 10 and 0011 lets the built-in server drop the
+map blocks it no longer uses after 5 s: 30.9 s of stalls became 1.8 s, 21 fps became 38
+([the investigation](../gamedb/games/luanti/investigations/2026-10-29-view120-stalls.md)). So for a
+game with busy worker threads, a `cpu` stall wants stallperf.py before the main thread's code is blamed.
+
 ## Game prefetch
 
 `ps3-game-prefetch` (ps3-desktop; code in `files/libexec/ps3_game_prefetch.py`, its header has the

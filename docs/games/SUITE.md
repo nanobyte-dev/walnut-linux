@@ -34,6 +34,7 @@ run.sh's summary, perf-post.sh's profiles), `tests/` checks all of it without th
 | `analysis/matrix.py` | puts runs into the benchmark records: a batch per tested configuration in gamedb/benchmarks/batches.toml, each game's numbers in its `benchmark/results/<batch>.toml`; `--csv DIR` (`make bench-matrix`) the CSV matrices, one per metric |
 | `analysis/benchrecords.py` | reads and writes those records (gamedb/benchmarks/README.md; gamedb/benchmarks/interfered.txt lists runs left out) |
 | `analysis/stalls.py`, `passsplit.py` | why frames stall, from `ps3-stallrec`'s record; the stalls of a looped demo split into reload and play |
+| `analysis/stallperf.py` | a run with `STALLS=1` and `PERF=1`: each thread's CPU seconds inside the stall frames and outside, and the main thread's functions there (perf samples on the recorder's clock); tells a main thread that waited for the CPU from one that worked ([STALLS.md](../STALLS.md#what-the-recorder-found-in-a-game-luanti)) |
 | `analysis/shots.py` | the screenshots ([below](#screenshots)): `cost` (what a capture cost in frames), `convert` (xwd to PNG), `sheet` and `post` (the PS3 \| PC sheet), `pending` (sheets nobody reviewed) |
 | `analysis/logscan.py` | the errors and warnings in the runs' logs, grouped by game and message, with a new-since flag ([LOG-FINDINGS.md](LOG-FINDINGS.md)) |
 | `analysis/interference-scan.py`, `tests/intfcheck.py` | the retro-scan for runs before the interference detector; its selftest part |
@@ -191,7 +192,7 @@ started, parsed and what its variants do is in its technical notes.
 | [ClassiCube](../../gamedb/games/classicube/technical.md) | `/usr/games/classicube "$CC_DIR/maps/bench.cw"` | passes (the game repeats its demo) | the game's own line (`FPS_RE`) | [25](../../gamedb/games/classicube/benchmark/recipe.sh) |
 | [dsda-doom](../../gamedb/games/dsda-doom/technical.md) | set in `setup()` | passes (the game repeats its demo) | the game's own line (`FPS_RE`) | [21](../../gamedb/games/dsda-doom/benchmark/recipe.sh) |
 | [Extreme Tux Racer](../../gamedb/games/etr/technical.md) | `/usr/games/etr` | the window (`WINDOW_STOP`) | the Gallium HUD | [13](../../gamedb/games/etr/benchmark/recipe.sh) |
-| [Luanti](../../gamedb/games/luanti/technical.md) | `/usr/games/luanti --go --world "$LU_WORLD" --config "$LU_CONF"` | its own last line (`END_RE`) | the Gallium HUD | [47](../../gamedb/games/luanti/benchmark/recipe.sh) |
+| [Luanti](../../gamedb/games/luanti/technical.md) | `/usr/games/luanti --go --world "$LU_WORLD" --config "$LU_CONF"` | its own last line (`END_RE`) | the Gallium HUD | [57](../../gamedb/games/luanti/benchmark/recipe.sh) |
 | [Neverball](../../gamedb/games/neverball/technical.md) | `/usr/games/neverball --replay /usr/share/games/neverball/gui/demo1.nbr` | passes (the game repeats its demo) | the game's own line (`FPS_RE`) | [7](../../gamedb/games/neverball/benchmark/recipe.sh) |
 | [OpenArena](../../gamedb/games/openarena/technical.md) | set in `setup()` | passes (the game repeats its demo) | the game's own line (`FPS_RE`) | [54](../../gamedb/games/openarena/benchmark/recipe.sh) |
 | [OpenTTD](../../gamedb/games/openttd/technical.md) | set in `setup()` | the window (`WINDOW_STOP`) | the Gallium HUD | [20](../../gamedb/games/openttd/benchmark/recipe.sh) |

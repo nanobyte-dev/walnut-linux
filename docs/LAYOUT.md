@@ -116,7 +116,7 @@ gamedb/README.md.
 | `games/etr/packages/etr/` | [Extreme Tux Racer](../gamedb/games/etr/) | Debian's `extremetuxracer` 0.8.4-2 | 8 |
 | `games/hedgewars/packages/hedgewars/` | [Hedgewars](../gamedb/games/hedgewars/) | Debian's `hedgewars` 1.0.3-5 | 1 (+ `packaging/`) |
 | `games/heroes-of-might-and-magic-2/packages/fheroes2/` | [Heroes of Might and Magic II (fheroes2)](../gamedb/games/heroes-of-might-and-magic-2/) | Debian's `fheroes2` 1.1.17+dfsg-1 | 1 |
-| `games/luanti/packages/luanti/` | [Luanti](../gamedb/games/luanti/) | Debian's `luanti` 5.15.2+dfsg-2 | 8 (+ `packaging/`) |
+| `games/luanti/packages/luanti/` | [Luanti](../gamedb/games/luanti/) | Debian's `luanti` 5.15.2+dfsg-2 | 10 (+ `packaging/`) |
 | `games/megaglest/packages/megaglest/` | [MegaGlest](../gamedb/games/megaglest/) | Debian's `megaglest` 3.13.0-10.1 | 1 |
 | `games/mrboom/packages/mrboom/` | [Mr.Boom](../gamedb/games/mrboom/) | Debian's `mrboom` 5.5+ds-1 | 1 |
 | `games/neverball/packages/neverball/` | [Neverball](../gamedb/games/neverball/) | Debian's `neverball` 1.6.0+git20180603-3 | 4 |

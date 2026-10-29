@@ -71,6 +71,8 @@ parse() {
 	done < "$D/game.log"
 	[ "$max_rss" -gt 0 ] && echo "mem_max_vmrss=$max_rss"
 	[ "$max_lua" -gt 0 ] && echo "mem_max_lua=$max_lua"
+	[ "${LU_PROF:-0}" = 1 ] && [ -f "$LU_DIR/debug.txt" ] && gzip -c "$LU_DIR/debug.txt" > "$D/luanti-debug.txt.gz"
+	return 0
 }
 # the map from the previous run: loaded from disk instead of generated
 variant_saved() { LU_FRESH=0; }
@@ -148,6 +150,54 @@ variant_meshdelay() { LU_SET+=("mesh_generation_interval = 10"); }
 variant_meshchunk2() { LU_SET+=("client_mesh_chunk = 2"); }
 # Occlusion culling by raycasts in the render thread, every time the draw list is rebuilt.
 variant_noraycull() { LU_SET+=("enable_raytraced_culling = false"); }
+
+# Luanti's own profiler (the F6 numbers: updateDrawList, renderMap's collecting and drawing, merged
+# buffers and their cache hit rate, blocks drawn, mesh queue) printed every 5 s into a log file at
+# info level on the disk ($LU_DIR, not the run directory in RAM), gzipped into the run directory as
+# luanti-debug.txt.gz after the run. For a diagnosis, not for fps: info level logs more.
+variant_prof() {
+	LU_SET+=("profiler_print_interval = 5" "debug_log_level = info")
+	CMD+=(--logfile "$LU_DIR/debug.txt")
+	rm -f -- "$LU_DIR/debug.txt"
+	LU_PROF=1
+}
+variant_v120prof() { variant_view120; variant_prof; }
+
+# The render thread first (2026-10-29): in the view-120 stall frames the main thread ran only about a
+# fifth of the time while MeshUpdate, Emerge-0, Server and kswapd0 had both PPE threads (perf against
+# the stall recorder; the recorder's runq rule can't see it, as the process as a whole got its CPU).
+# lu_renice N NAME...: the game's threads of those names (and any made later in the first minute)
+# get nice N, so the scheduler runs the render thread whenever it is ready; the background work is
+# the same, done in the render thread's gaps. From outside, without a rebuild: the A/B for luanti
+# 0010, which does the same inside the engine (LU_NICE).
+lu_renice() {
+	local n=$1 pid= i t name; shift
+	for i in $(seq 300); do read -r pid < "$D/.pid" 2>/dev/null && [ -d "/proc/$pid" ] && break; sleep 0.2; done
+	[ -n "$pid" ] || return 0
+	for i in $(seq 30); do
+		for t in /proc/"$pid"/task/*; do
+			read -r name < "$t/comm" 2>/dev/null || continue
+			case " $* " in *" ${name%%-*} "*|*" $name "*)
+				[ "$(awk '{print $19}' "$t/stat" 2>/dev/null)" = "$n" ] || renice -n "$n" -p "${t##*/}" > /dev/null ;;
+			esac
+		done
+		sleep 2
+	done
+}
+variant_v120nice() { variant_view120; during() { lu_renice 10 MeshUpdate Emerge Server MinimapUpdate AsyncWorker; }; }
+# the server dropping blocks it has not used for 10 s instead of 29 (4128 server blocks in memory at
+# 120, about half the heap): less to swap, more blocks loaded again from the world database. luanti
+# 0011 (ps3.1125 on) makes 10 the default: v120srv29 is its off-switch, v120old both 0010's and
+# 0011's (the game as ps3.1123 ran it), v120srv5 a shorter timeout still
+variant_v120srv10() { variant_view120; LU_SET+=("server_unload_unused_data_timeout = 10"); }
+variant_v120srv29() { variant_view120; LU_SET+=("server_unload_unused_data_timeout = 29"); }
+variant_v120srv5() { variant_view120; LU_SET+=("server_unload_unused_data_timeout = 5"); }
+variant_v120old() { variant_v120srv29; ENV+=(LU_NICE=0); }
+# luanti 0010 (ps3.1124 on) sets nice 10 inside the engine (LU_NICE, default 10): v120nonice is the
+# game as before it, the off-switch for the same-boot A/B
+variant_v120nonice() { variant_view120; ENV+=(LU_NICE=0); }
+# two mesh threads instead of one (Luanti's automatic count is a quarter of the CPUs, at least 1)
+variant_v120mesh2() { variant_view120; LU_SET+=("mesh_generation_threads = 2"); }
 
 # Post-processing (variant nopp above) renders the scene into a 1920x1080 colour and depth texture
 # (~16 MB of VRAM) and draws it back through the second_stage shader; the post-processing

@@ -1,10 +1,11 @@
 # Luanti: technical notes
 
 Luanti 5.15.2 with LuaJIT and Minetest Game runs on our own build, since Debian builds none for ppc64.
-It flies the bench path at about 46 steady fps with 1.5-3.5 s of gameplay stalls and keeps only 13-21 MB
-of RAM free: the suite's most memory-hungry engine on the CPU side. Its played session (2026-10-24) had a
-35 fps median with 25 s of stutter a minute and frames up to 4.3 s, as new map blocks were generated and
-meshed: that stutter is the real problem, more than the frame rate.
+At the package's viewing range of 120 it flies the bench path at about 38 steady fps with 1-2 s of
+stalls in the 135 s window (since luanti 0010 and 0011, 2026-10-29: before them 20 fps and 30-36 s);
+at the recipe's 60 at about 46 fps. It keeps only 11-15 MB of RAM free: the suite's most memory-hungry
+engine on the CPU side. Its played session (2026-10-24, before 0010 and 0011) had a 35 fps median with
+25 s of stutter a minute and frames up to 4.3 s, as new map blocks were generated and meshed.
 
 ## Packages and patches
 
@@ -12,7 +13,7 @@ meshed: that stutter is the real problem, more than the frame rate.
   Debian's source with ppc64 added to the Architecture of `luanti` and `luanti-server` (Debian's control
   lists only LuaJIT architectures). `luanti-data` is ours too, because `luanti` depends on its exact
   version; `luanti-game-minetest` is Debian's. `CHECK=1` in package.conf runs `--run-unittests` in the
-  build (under qemu: a failure may be qemu's); the 330 unit tests pass. The release candidate is ps3.405.
+  build (under qemu: a failure may be qemu's); the 330 unit tests pass. The release candidate is ps3.405; the PS3 runs ps3.1124~dev (with 0010 and 0011, 2026-10-29).
   Luanti is in no suite: it deploys by name.
 - `libluajit-5.1-2`, `luajit` (`2.1.0+openresty20251030-1+ps3.N`, packages/patched/libs/luajit/): 0001
   makes ppc64 big-endian allocate in the low 2 GB where LuaJIT checks the state
@@ -31,7 +32,9 @@ meshed: that stutter is the real problem, more than the frame rate.
 | [0006](packages/luanti/patches/0006-Sky-quads-in-one-draw-LU_GL_SKY-equal-materials-set-.patch) | the sky quads in one draw; equal materials set once | `LU_GL_SKY`, `LU_GL_MATREUSE` |
 | [0007](packages/luanti/patches/0007-porting-malloc_trim-threshold-from-LU_TRIM_MB-defaul.patch) | the `malloc_trim` threshold in MiB (Luanti trims only after 256 MiB of blocks and meshes were freed, which a 217 MB machine rarely reaches) | `LU_TRIM_MB` (256 when unset) |
 | [0008](packages/luanti/patches/0008-settings-fullscreen-by-default-Walnut-is-a-console-o.patch) | fullscreen by default, at the screen's mode (a fresh configuration started in a 1024x600 window) | the `fullscreen` setting |
-| [0009](packages/luanti/patches/0009-settings-viewing-range-120-by-default-on-the-PS3-not-.patch) | a viewing range of 120 by default, not 190: at 190 the bench flight ran at 15 fps with 56 s of stalls in its 135 s window, at 120 at 20 fps with 36 s, at 60 at 46 fps with 4.5 s; 120 is the floor the user set, not the smoothest (gamedb:batch/2026-10-29-luanti-view120) | the `viewing_range` setting |
+| [0009](packages/luanti/patches/0009-settings-viewing-range-120-by-default-on-the-PS3-not-.patch) | a viewing range of 120 by default, not 190: at 190 the bench flight ran at 15 fps with 56 s of stalls in its 135 s window, at 120 at 20 fps with 36 s, at 60 at 46 fps with 4.5 s (before 0010 and 0011); 120 is the floor the user set (gamedb:batch/2026-10-29-luanti-view120) | the `viewing_range` setting |
+| [0010](packages/luanti/patches/0010-threads-background-threads-at-nice-10-on-Linux-the-r.patch) | the threads that prepare later frames (MeshUpdate, Emerge-N, Server, MinimapUpdate, AsyncWorker-N) at nice 10, so the render thread runs whenever it is ready: at 120 it had run a fifth of the time in its stall frames ([the investigation](investigations/2026-10-29-view120-stalls.md)) | `LU_NICE` (10; 0 as upstream) |
+| [0011](packages/luanti/patches/0011-settings-the-server-unloads-unused-map-blocks-after-.patch) | the built-in server unloads map blocks unused for 5 s, not 29: it held about 4000 of them at 120, half the heap, swapped out and back; the client keeps its own copies, so nothing visible changes | the `server_unload_unused_data_timeout` setting |
 
 ## How it performs
 
@@ -43,9 +46,24 @@ meshed: that stutter is the real problem, more than the frame rate.
 | base with force-DXT off, opaque, opaque+NEAREST (n=2 each) | 46.5 / 46.0 / 46.0 | 3.3 / 3.3 / 3.9 s | 61-62 MB | gamedb:batch/2026-10-20-ssdroot8-force-dxt |
 | `view40` (one run) | 59 | 0.9 s / 29.2 / 362 ms | 19 / 55 MB | gamedb:batch/2026-10-18-luanti-memory |
 | `view190`, Luanti's own default before 0009 (one run, against base 46 / 2.3 s the same boot) | 15 | 55.8 s / 3.0 / 642 ms | 11 / 93 MB | gamedb:batch/2026-10-28-luanti-view190 |
-| **`view120`, the default since 0009 and the baseline for the smoothness work** (3 runs, one boot, 2026-10-29; the base run beside them, 60: 46 fps / 4.5 s / 16.8 / 500 ms) | 20 (19-20) | 36.2 s (35.7-41.0) / 4.0 (3.9-4.3) / 995-3825 ms | 11-13 MB free | gamedb:batch/2026-10-29-luanti-view120 |
+| `view120` before 0010 and 0011 (3 runs, one boot, 2026-10-29; the base run beside them, 60: 46 fps / 4.5 s / 16.8 / 500 ms) | 20 (19-20) | 36.2 s (35.7-41.0) / 4.0 (3.9-4.3) / 995-3825 ms | 11-13 MB free | gamedb:batch/2026-10-29-luanti-view120 |
+| `view120` with 0010 only, against `v120nonice` (its off-switch) (3 runs each, one boot) | 30 against 20 | 10.7 s against 30.1 / 8.5 against 4.2 / 516 against 1218 ms | 11 MB free | gamedb:batch/2026-10-29-luanti-nice |
+| **`view120` as built, 0010 and 0011 at 5 s, against `v120old` (both off)** (3 runs each, one boot, 2026-10-29) | **38 (38-39)** against 21 (19-21) | **1.8 s (1.3-2.4) / 16.7 / 210 ms** against 30.9 s (30.8-35.1) / 4.3 / 1409 ms | 12.6 MB free, 49-53 MB swapped at the end (97-105) / 72 MB VRAM (86) | gamedb:batch/2026-10-29-luanti-shipped |
 
-- **View 120 is the default and the baseline (the user, 2026-10-29: never below 120, lower graphics quality is not the fix).** The same boot's runs: 60 gives 46 fps and 4.5 s of stalls, 120 gives 20 fps and 36 s (35.7, 36.2, 41.0), 1% low 4 fps, longest frames 1.0-3.8 s; one 120 run showed an empty black world (the HUD only) in its screenshot at 100 s, when the meshes had not caught up. Every run was fullscreen 1920x1080 (`geom=`); the process list before the runs (`ps-before.txt` in the run directories) held only system services. The cause of the stalls is open (todo.toml): profile it, do not lower the range.
+- **View 120 is the default (the user, 2026-10-29: never below 120, lower graphics quality is not the
+  fix), and its stalls had two causes** ([the investigation](investigations/2026-10-29-view120-stalls.md)).
+  The render thread waited for the CPU: in its stall frames it ran 22% of the time while MeshUpdate,
+  Emerge-0, Server and kswapd0 had both PPE threads (perf samples placed in the stall recorder's
+  frames, `bench/analysis/stallperf.py`; the recorder itself said `cpu`). And memory: the built-in
+  server kept about 4000 map blocks for 29 s after their last use, half the heap, and the game swapped
+  80-105 MB. 0010 (threads at nice 10) took 120 from 20 to 30 fps and from 30 to 11 s of stalls; 0011
+  (the server's timeout 5 s) from there to 38 fps and 1.8 s. A second mesh thread was worse (28 fps,
+  12.8 s). The steady rate is now held by the render thread's own work: ~180 draw calls a frame and
+  updateDrawList's 15-40 ms four times a second (todo.toml).
+- **The flight path runs through a mountain** (found 2026-10-29): screenshots 15 s into a loop are black
+  (the camera in rock), those in the first loop grey (blocks not generated yet), the 100 s one shows
+  the world. The frames are drawn behind the black, a little faster; the A/B numbers hold, the pictures
+  don't (todo.toml).
 - Picture right. Sound plays with no underruns; it was not judged by ear in a bench run, and the webcam
   mic hears only the room.
 - **The load** is 25.0 s on the SSD root against 40.8 s on USB: the main thread's disk wait went from
@@ -78,7 +96,8 @@ the game down; fps from the Gallium HUD, `WARMUP=45` from "path start", `MEASURE
 same terrain flown again). The world is made new every run from `fixed_map_seed = 20261017` (mapgen v7)
 in `/var/tmp/ps3-bench/luanti` (the player's `~/.minetest` untouched); `viewing_range = 60` (variant `view120` is the package default, 0009), no vsync,
 `fps_max = 1000`, creative, no damage. The mod's memory lines (`vmrss`, `rssanon`, `rssfile`,
-`vmswap`) never come out: it reads `/proc/self/status` wrongly.
+`vmswap`, every 5 s) become bench.txt's `mem_start_*`, `mem_end_*` and `mem_max_*`. Variant `prof`
+(and `v120prof`) logs Luanti's own profiler every 5 s into `luanti-debug.txt.gz`.
 
 ## Known problems
 
@@ -88,7 +107,8 @@ in `/var/tmp/ps3-bench/luanti` (the player's `~/.minetest` untouched); `viewing_
   empty configuration starts fullscreen at 1920x1080 with the Settings dialog working (`run.sh smoke luanti
   freshmenu`, 2026-10-28). Irrlicht's "Could not create window and context!" ERROR line before that is its
   fallback from the GL profiles nv30 lacks (GLXBadFBConfig), not a failure.
-- The stutter in play: map generation and meshing on the PPE, with the RAM at its floor.
+- The stutter in play (the 2026-10-24 session, before 0010 and 0011): map generation and meshing on the
+  PPE, with the RAM at its floor. Not played again yet (todo.toml).
 - Log noise from minetest_game itself: `Maximum lag peaked`, `active block modifiers took Nms`, `Field
   "image" on TileDef is deprecated`.
 - About one run in twenty played through OpenAL lost its sound to the sound card's DMA stopping, fixed
@@ -102,7 +122,10 @@ The memory variants: [2026-10-18 the memory variants](investigations/2026-10-18-
 against `allbatchoff`: 45.0 against 46.0 steady, 6.25 against 9.1 s of stalls, kept on
 (gamedb:batch/2026-10-17-luanti-neverball-batching); `vm.watermark_boost_factor=0`: 12.5 / 0.8 / 2.0 /
 2.1 s of stalls in four runs (15000/0/15000/0), no clear gain (gamedb:batch/2026-10-18-smoke-reruns-watermark);
-game prefetch: the load +1-4 s, worse (gamedb:batch/2026-10-18-batch16).
+game prefetch: the load +1-4 s, worse (gamedb:batch/2026-10-18-batch16). At view 120 (2026-10-29): two
+mesh threads (`v120mesh2`, with 0010) 28 fps and 12.8 s of stalls against 30 and 10.7 with one; the
+server's timeout at 10 s 34 fps and 3.8 s, at 5 s 38 fps and 1.2 s, at 29 s 31 fps and 9.1-9.6 s
+(gamedb:batch/2026-10-29-luanti-srvunload).
 
 ## Investigations
 
@@ -110,6 +133,8 @@ game prefetch: the load +1-4 s, worse (gamedb:batch/2026-10-18-batch16).
 - [2026-10-18 the memory variants](investigations/2026-10-18-memory-variants.md).
 - [2026-10-18 malloc_trim](investigations/2026-10-18-malloc-trim.md).
 - [the menu freeze](investigations/2026-10-18-menu-freeze.md).
+- [2026-10-28 the Settings menu and string.lower](investigations/2026-10-28-settings-menu-string-lower.md).
+- [2026-10-29 the stalls at viewing range 120](investigations/2026-10-29-view120-stalls.md).
 
 ## Research
 

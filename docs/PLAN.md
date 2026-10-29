@@ -228,7 +228,7 @@ backlog, the played-session queue's place included, is its todo.toml. The full l
 | [ClassiCube](../gamedb/games/classicube/todo.toml) | 4 | 1 fix, 2 package, 1 research | 3.12 |
 | [dsda-doom](../gamedb/games/dsda-doom/todo.toml) | 2 | 1 research, 1 session | 2.8 |
 | [Extreme Tux Racer](../gamedb/games/etr/todo.toml) | 3 | 1 benchmark, 1 research, 1 session | 2.6 |
-| [Luanti](../gamedb/games/luanti/todo.toml) | 6 | 1 benchmark, 1 package, 3 research, 1 session | 2.6, 2.9, 3.12 |
+| [Luanti](../gamedb/games/luanti/todo.toml) | 8 | 2 benchmark, 1 package, 4 research, 1 session | 2.6, 2.9, 3.12 |
 | [Neverball](../gamedb/games/neverball/todo.toml) | 2 | 1 benchmark, 1 session | 3.10 |
 | [Nexuiz Classic](../gamedb/games/nexuiz/todo.toml) | 1 | 1 benchmark | 1.12 |
 | [OpenArena](../gamedb/games/openarena/todo.toml) | 6 | 2 benchmark, 2 fix, 1 package, 1 session | 3.7 |

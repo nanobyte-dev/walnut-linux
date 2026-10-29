@@ -1,0 +1,82 @@
+# luanti's numbers in batch 2026-10-29-luanti-renice (gamedb/benchmarks/README.md)
+batch = "2026-10-29-luanti-renice"
+
+[variant."v120nice@rec10+shot"]
+fps = 34
+cpu = 313.4
+underruns = 0
+ram_free = 10.8
+vram = 79.3
+fps_steady = 30
+low1 = 8.4
+stalls = 66
+longest_ms = 811.3
+stall_disk_s = 0.2
+stall_swap_s = 2.1
+stall_reclaim_s = 0.0
+stall_gpu_s = 0
+stall_cpu_s = 8.1
+stalls_play = 66
+stall_play_s = 10.2
+low1_play = 8.4
+longest_play_ms = 811.3
+
+[variant."v120prof@rec10+perf+shot"]
+fps = 19
+cpu = 299.9
+underruns = 0
+ram_free = 18.9
+vram = 79.0
+fps_steady = 14
+low1 = 2.1
+stalls = 242
+longest_ms = 2669.0
+stall_disk_s = 1.4
+stall_swap_s = 17.3
+stall_reclaim_s = 11.1
+stall_gpu_s = 0
+stall_cpu_s = 25.5
+stalls_play = 242
+stall_play_s = 58.7
+low1_play = 2.1
+longest_play_ms = 2669.0
+
+[variant."view120@rec10+perf+shot"]
+fps = 17
+cpu = 298.8
+underruns = 0
+ram_free = 15.2
+vram = 80.5
+fps_steady = 14
+low1 = 3.2
+stalls = 307
+longest_ms = 2017.0
+stall_disk_s = 0.7
+stall_swap_s = 16.8
+stall_reclaim_s = 0.2
+stall_gpu_s = 0
+stall_cpu_s = 36.7
+stalls_play = 307
+stall_play_s = 55.9
+low1_play = 3.2
+longest_play_ms = 2017.0
+
+[variant."view120@rec10+shot"]
+fps = 23
+cpu = 309.2
+underruns = 0
+ram_free = 11.0
+vram = 83.6
+fps_steady = 20
+low1 = 4.1
+stalls = 183
+longest_ms = 1937.0
+stall_disk_s = 0.7
+stall_swap_s = 9.3
+stall_reclaim_s = 0.2
+stall_gpu_s = 0
+stall_cpu_s = 23.3
+stalls_play = 183
+stall_play_s = 35.1
+low1_play = 4.1
+longest_play_ms = 1937.0

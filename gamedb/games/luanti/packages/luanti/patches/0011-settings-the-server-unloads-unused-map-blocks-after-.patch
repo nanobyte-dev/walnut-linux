@@ -1,0 +1,44 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Thu, 29 Oct 2026 16:18:04 +0200
+Subject: settings: the server unloads unused map blocks after 5 s on the PS3,
+ not 29
+
+In singleplayer the built-in server shares the process and its 217 MB
+of RAM with the client. At viewing range 120 it held about 4000 map
+blocks during the benchmark flight (the server log: "4128 blocks in
+memory"), most of them 16 KiB of nodes each, sent to the client long
+before and kept only for the 29 s timeout. The game swapped 80-105 MB
+by the end, and kswapd took a quarter of both hardware threads in the
+frames over 100 ms. With 0010 in, the flight (3 runs each, 2 at 29 s; same
+boot) ran at:
+
+  timeout  steady fps  1% low  stalls in 135 s  game swapped at the end
+  29 s     31          9.0     9.1-9.6 s        80-92 MB
+  10 s     34          13.2    3.8 s            52-56 MB
+   5 s     38          16.9    1.2 s            50-56 MB
+
+The client keeps its own copy of every block it was sent, so nothing
+visible changes; a block the server needs again is read back from the
+world database. Blocks near the player stay active and loaded, and a
+modified block is saved when it is unloaded, as before.
+
+Forwarded: not-needed
+
+diff --git a/src/defaultsettings.cpp b/src/defaultsettings.cpp
+--- a/src/defaultsettings.cpp
++++ b/src/defaultsettings.cpp
+@@ -482,7 +482,12 @@ void set_default_settings()
+ 	settings->setDefault("max_clearobjects_extra_loaded_blocks", "4096");
+ 	settings->setDefault("time_speed", "72");
+ 	settings->setDefault("world_start_time", "6125");
+-	settings->setDefault("server_unload_unused_data_timeout", "29");
++	// Walnut (PS3): 5 s, not 29: the built-in server held about 4000 map blocks at viewing range 120
++	// (half the game's heap, swapped out and back in while the player flies); the bench flight ran at
++	// 38 fps with 1.2 s of stalls in 135 s at 5, 34 fps and 3.8 s at 10, 31 fps and 9.1-9.6 s at 29
++	// (2026-10-29, with 0010). The client keeps its own copies: nothing visible changes; blocks needed
++	// again come from the world database
++	settings->setDefault("server_unload_unused_data_timeout", "5");
+ 	settings->setDefault("max_objects_per_block", "256");
+ 	settings->setDefault("server_map_save_interval", "5.3");
+ 	settings->setDefault("chat_message_max_size", "500");

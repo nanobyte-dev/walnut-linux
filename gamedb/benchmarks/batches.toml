@@ -1177,6 +1177,46 @@ observations = "Luanti's viewing_range 120 (variant view120, three runs) next to
 source = "bench/analysis/matrix.py"
 
 [[batch]]
+name = "2026-10-29-luanti-renice"
+order = 110
+kind = "run"
+title = "Mesa ps3.924 + kernel .874, luajit ps3.931~dev (0002), luanti ps3.1123, background threads reniced"
+date = 2026-10-29
+runs = 8
+observations = "Luanti at viewing range 120: why the frames stall. Two profiled runs first (STALLS=1, PERF=1, MEM=1; view120 and v120prof, Luanti's own profiler in a log; their fps don't count): perf samples placed in the stall recorder's stall frames (bench/analysis/stallperf.py) show the main thread on the CPU only 22% of its 55.9 s of stall frames (46% in the other frames), while MeshUpdate (28%), kswapd0 (27%), Emerge-0 (25%) and Server (14%) had the two PPE threads; the recorder called it cpu, as the process as a whole got its CPU. The server held 4128 map blocks, malloc 152-177 MB in use. Then view120 against v120nice (MeshUpdate, Emerge, Server, MinimapUpdate and AsyncWorker threads at nice 10 from outside, recipe lu_renice), 3 runs each, alternating, same boot, STALLS=1, SHOTS=100: 30 fps steady against 20, 1% low 8.4 against 4.1, 10.2 s of stalls in 135 s against 35.1, longest frame 811 against 1937 ms, swap stalls 2.1 against 9.3 s. Every run fullscreen 1920x1080, no interference, process lists before the runs held system services only. Screenshots: the world drawn in every run; the one black frame (a 120 run of the earlier batch too) is most likely the camera inside the mountain the path flies through (the sky is black too: Luanti blacks out the whole screen when the camera is in a solid node, and the other runs' 100 s shots are at that mountain's face), not missing meshes."
+source = "bench/analysis/matrix.py"
+
+[[batch]]
+name = "2026-10-29-luanti-nice"
+order = 111
+kind = "run"
+title = "Mesa ps3.924 + kernel .874, luajit ps3.931~dev (0002), luanti ps3.1124~dev (0010: background threads at nice 10)"
+date = 2026-10-29
+runs = 12
+observations = "luanti 0010 (the MeshUpdate, Emerge, Server, MinimapUpdate and AsyncWorker threads set themselves to nice 10, LU_NICE) at viewing range 120 against its off-switch v120nonice (LU_NICE=0), two mesh threads (v120mesh2) and the server unloading blocks after 10 s instead of 29 (v120srv10), 3 rounds alternating, same boot, STALLS=1, SHOTS=100. 0010: 30 fps steady (27-31), 1% low 8.5, 10.7 s of stalls in 135 s, longest 516 ms; without it 20 fps, 4.2, 30.1 s, 1218 ms: the renice of the earlier batch, now in the engine (threads.tsv shows nice 10 on those threads). Two mesh threads are worse (28 fps, 12.8 s). srv10 is the best: 35 fps (34-35), 1% low 11.1, 5.3 s (3.5-6.2), swap stalls 0.7 s against 2.1, lowest MemAvailable 14.6 MB against 11.0, the game's swap at the end 57-65 MB against 77-105. Every run fullscreen 1920x1080, no interference, process lists before the runs held system services only; the world drawn in every 100 s screenshot."
+source = "bench/analysis/matrix.py"
+
+[[batch]]
+name = "2026-10-29-luanti-srvunload"
+order = 112
+kind = "run"
+title = "Mesa ps3.924 + kernel .874, luajit ps3.931~dev (0002), luanti ps3.1124~dev (0010, 0011 at 10 s)"
+date = 2026-10-29
+runs = 11
+observations = "luanti with 0010 (background threads at nice 10) and 0011 (the built-in server unloads map blocks unused for 10 s instead of 29) at viewing range 120: view120 (both on) against v120old (both off: LU_NICE=0 and the timeout at 29, the game as ps3.1123 ran it), v120srv29 (0011 off) and v120srv5 (5 s), 3 rounds alternating, same boot, STALLS=1, the screenshot at 30 s in the warm-up (outside the window: a capture costs 4-9 s of Xorg time and 1-3 s of stalls at this load). view120: 34 fps steady, 1% low 13.2, 3.8 s of stalls in 135 s (3.3-4.4), longest 230-800 ms; v120old: 21 fps, 4.7, 31.6 s (26.7-35.0), longest up to 2.8 s; v120srv29: 31 fps, 9.0, 9.1-9.6 s (one run left out: nm-dispatcher ran during it, the process check); v120srv5: 38 fps, 16.9, 1.2 s (1.1-2.2), swap stalls 0.1 s; the game's swap at the end 50-56 MB at 5 and 10 s against 80-101 MB at 29. Every run fullscreen 1920x1080, the world drawn in every 30 s screenshot, no input or SSH interference. luanti 0011's default became 5 s on these numbers."
+source = "bench/analysis/matrix.py"
+
+[[batch]]
+name = "2026-10-29-luanti-shipped"
+order = 113
+kind = "run"
+title = "Mesa ps3.924 + kernel .874, luajit ps3.931~dev (0002), luanti ps3.1124~dev (0010, 0011 at 5 s)"
+date = 2026-10-29
+runs = 8
+observations = "The luanti build with 0010 (background threads at nice 10) and 0011 at its final 5 s (the server unloads unused map blocks after 5 s) against both switched off (v120old: LU_NICE=0 and the timeout at 29, the game as ps3.1123 ran it) at viewing range 120, 3 rounds alternating, same boot, STALLS=1, the screenshot at 20 s in the warm-up; then one more round with three screenshots inside the window (60, 100, 150 s; @shot) to look at the picture. view120: 38 fps steady (38-39), 1% low 16.7, 1.8 s of stalls in 135 s (1.3-2.4), longest 210 ms, swap stalls 0.1 s, the game's swap at the end 49-53 MB; v120old: 21 fps (19-21), 4.3, 30.9 s (30.8-35.1), longest 1409 ms, swap stalls 8.2 s, 97-105 MB. Every run fullscreen 1920x1080, no interference, the process check clean. Pictures: the 100 s shot of the shipped build is the world (the mountain ahead, sea, sky); the 60 and 150 s shots of both builds and the 100 s shot of the old one are black, and the 20 s warm-up shots grey with a black hand: the flight path runs through a mountain, the camera in its rock (black) or in blocks not yet generated (grey), the same for both builds (gamedb:luanti todo.toml)."
+source = "bench/analysis/matrix.py"
+
+[[batch]]
 name = "suite-summary-2026-10"
 kind = "summary"
 title = "The suite's numbers, 2026-10: the rules-1 calibration"

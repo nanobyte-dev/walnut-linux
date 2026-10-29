@@ -6,3 +6,5 @@
 0007-porting-malloc_trim-threshold-from-LU_TRIM_MB-defaul.patch
 0008-settings-fullscreen-by-default-Walnut-is-a-console-o.patch
 0009-settings-viewing-range-120-by-default-on-the-PS3-not-.patch
+0010-threads-background-threads-at-nice-10-on-Linux-the-r.patch
+0011-settings-the-server-unloads-unused-map-blocks-after-.patch
