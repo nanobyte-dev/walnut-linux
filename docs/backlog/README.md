@@ -40,7 +40,7 @@ game's backlog, `gamedb/games/<id>/todo.toml`, where its details are.
 | 9 | [SuperTuxKart's missing sound](../../gamedb/games/supertuxkart/todo.toml) | a playable game; unblocks D4 | S-M | user | 2.1 | #26 |
 | 10 | [dsda-doom's chopping music](../../gamedb/games/dsda-doom/todo.toml) | two games' music; unblocks D3 | S-M | PS3, user | 2.8 | #8 |
 | 11 | [XMB-side backups](hardware.md#xmb-side-backups) | a way back: the EEPROM half has no backup | S | user | 4.1 | - |
-| 12 | [Validator checks for the vertex texture methods](graphics.md#validator-checks-for-the-vertex-texture-methods) | closes a wedge any client can cause | S | host, PS3 | 4.6 | #20 |
+| 12 | [Validator checks for the vertex texture methods](graphics.md#validator-checks-for-the-vertex-texture-methods) | closes a wedge any client can cause | S (built) | PS3 | 4.6 | #20 |
 | 13 | [Start-up and warm-up after the disk](smoothness.md#start-up-and-warm-up-after-the-disk) | seconds off loads, fewer warm-up stalls | S-M | host, PS3 | 1.7 | #27 |
 | 14 | [Long-session soak](smoothness.md#long-session-soak) | stalls and growth only long play shows | S-M | PS3, user nearby | 2.7 | - |
 | 15 | [Power paths of local/0041](platform.md#power-paths-of-local0041) | a shutdown that can't hang | S | user | 1.8 | - |
@@ -107,7 +107,7 @@ game's backlog, `gamedb/games/<id>/todo.toml`, where its details are.
 | 76 | [Games to smoke next, and Wesnoth's music](games.md#every-games-open-items) | novel games for the suite | S each | PS3 | - | - |
 | 77 | [The SSD root image is nearly full](platform.md#the-ssd-root-image-is-nearly-full) | room for more games | M | user | - | - |
 | 78 | [ps3disk multi-region (packages/patched/kernel/linux/patches/ps3/0010): two bugs](platform.md#ps3disk-multi-region-packagespatchedkernellinuxpatchesps30010-two-bugs) | a failed probe and a remove that are safe | S | host, user | - | - |
-| 79 | [ps3fb's exception dump prints the wrong FIFO entries](graphics.md#ps3fbs-exception-dump-prints-the-wrong-fifo-entries) | wedges diagnosable from one dump | S | host, a reboot | - | - |
+| 79 | [ps3fb's exception dump prints the wrong FIFO entries](graphics.md#ps3fbs-exception-dump-prints-the-wrong-fifo-entries) | wedges diagnosable from one dump | S (built) | a reboot | - | - |
 | 80 | [Skia on big-endian](platform.md#skia-on-big-endian) | WebKitGTK 2.54+ and its security fixes, Ladybird | L? | host | 4.16 | - |
 | 72 | [Host tests run automatically](platform.md#host-tests-run-automatically) | tests that run without someone remembering | S-M | host | 5.9 | - |
 

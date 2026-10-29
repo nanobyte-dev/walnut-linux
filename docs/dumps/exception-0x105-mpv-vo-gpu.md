@@ -17,7 +17,7 @@ is ruled out or in by step 2b of the morning test.
 
 GET is entry 0x138 (312) and PUT 0x139, so one entry was pending and DMA get equals put: the
 FIFO had fetched everything, and entry 311 is the last one PGRAPH took. ps3fb prints entries
-4i..4i+3 for i = 0, 4, ..., 28 (task #29), which are entries 0-3, 16-19, ..., 112-115. In time
+4i..4i+3 for i = 0, 4, ..., 28 (task #29; kernels with local/0051 print the 32 ending at GET), which are entries 0-3, 16-19, ..., 112-115. In time
 order that is 196 to 312 entries before GET:
 
 | entries | words (subchannel `(a>>13)&7`, method `a & 0x1ffc`) | what it is |

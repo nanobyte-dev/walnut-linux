@@ -13,23 +13,25 @@ until a console reboot (a trip through the XMB), so risky GPU tests go last in a
 
 ### Validator checks for the vertex texture methods
 
-Rank 12. ps3rsx checks the vertex texture units (methods 0x900-0x97c) as it checks the fragment
-units.
+Rank 12. ps3rsx checks every word of the vertex texture units (methods 0x900-0x97c) against what
+libgcm writes for vertex texture fetch, as it checks the fragment units.
 
-**Why.** The validator lets 0x900-0x97c through with unchecked data (`packages/walnut/drivers/ps3rsx/src/validate.c:47`).
-Any client can send a bad vertex texture format or offset there and wedge the RSX. Nothing uses
-them today (Mesa's vertex sampler count is 0), which is why it is cheap to close now and required
-before vertex texture fetch.
+**Why.** Before ps3rsx 0.1077 the validator let 0x900-0x97c through with only the offset alignment
+and the X16 format checked, so any client could send a bad vertex texture word and wedge the RSX.
+Nothing uses them today (Mesa's vertex sampler count is 0), which made it cheap to close now, and
+it has to be in place before vertex texture fetch.
 
 - **Payoff:** removes a wedge any client can cause. **Effort:** S.
 - **Risk:** low (a reject path; test it with rejects, not with a real wedge).
-- **Needs:** host, then PS3 (`rsx-suite.sh all` and a raw-command test that expects the reject).
-- **Status:** never tried.
+- **Needs:** PS3 (the regression check in [TESTS.md](../TESTS.md) Next).
+- **Status:** built and host-tested (ps3rsx 0.1077, 2026-10-29; `validate-test`); the rule is in
+  [DRIVER.md, "The validator"](../DRIVER.md#the-validator): 2D fp32 formats only, offsets aligned
+  and below 256 MiB, sizes 1 to 4096, wrap, LOD and bias fields in range. Not done: the offset plus
+  the texture's size against its buffer, which no texture unit has (the bounds checks at trigger
+  methods are not written). `rsxdrm-smoke reject` can't carry the PS3 reject test as it is: it
+  sends all its bad pushes on one channel, and since ps3rsx 0.1036 the first rejection refuses the
+  channel, so the later cases get -EIO, not -EINVAL.
 - **Source:** PLAN 4.6, the old work-queue item 6; [archive/RSX-SPU-FEASIBILITY.md, "Vertex texture fetch"](../archive/RSX-SPU-FEASIBILITY.md#vertex-texture-fetch).
-
-**To start.** The checks the research lists: FORMAT's location bits like the other DMA fields; only
-the two fp32 formats (2D, no mipmap) when CONTROL0 enables a unit; OFFSET plus size bounds-checked
-against the owning buffer, like the fragment textures.
 
 ## Fewer CPU cycles per frame
 
@@ -233,7 +235,7 @@ Rank 51. DRIVER-PLAN.md's "Later" rows that stay open.
 | 1 MB IO pages (flags 0x820) | flag 0x2 (64 KB pages) for finer GART allocations |
 | One boot hung at 11 s (netconsole?) | reproduce; delay netconsole until userspace if it recurs |
 | Completion only by polling fences | lv1's "user command" completion interrupt (speculative) |
-| ps3fb's GPU error dump prints badly (session task #29) | fix its printing; not done |
+| ps3fb's GPU error dump printed the wrong FIFO entries (task #29) | fixed in kernel local/0051 (below) |
 
 Whether a Petitboot-only reboot clears a wedge, and kexec from our Linux, are
 [platform.md, "Dev loop questions"](platform.md#dev-loop-questions).
@@ -260,14 +262,15 @@ Rank 52. Fixed only once a game needs one; every game that hit them has a workar
 
 ### ps3fb's exception dump prints the wrong FIFO entries
 
-Rank 79. A graph exception dump (`ps3fb`, docs/dumps/) prints entries 4i..4i+3 for i = 0, 4, ...,
-28 of the 512-entry cache, not the ones around GET, and its G/P markers compare GET and PUT with i.
-It should print the 32 entries ending at GET. Details and how to read today's dumps: [RSX.md,
-"Errors and what wedges the GPU"](../RSX.md#errors-and-what-wedges-the-gpu) (task #29). Fixing it
-makes the next wedge diagnosable from one dump.
+Rank 79. A graph exception dump (`ps3fb`, docs/dumps/) printed entries 4i..4i+3 for i = 0, 4, ...,
+28 of the 512-entry cache, not the ones around GET, and its G/P markers compared GET and PUT with
+i. Kernel patch local/0051 (task #29, 2026-10-29) prints the 32 entries ending at GET instead,
+GET and PUT marked, rate-limited; how to read both layouts: [RSX.md, "Errors and what wedges the
+GPU"](../RSX.md#errors-and-what-wedges-the-gpu). It makes the next wedge diagnosable from one dump.
 
-- **Payoff:** diagnosis. **Effort:** S (ps3fb is in the kernel patches; a reboot to test).
-  **Needs:** host, a reboot. **Status:** not done.
+- **Payoff:** diagnosis. **Effort:** S. **Needs:** a reboot into the new kernel (the user).
+- **Status:** built (kernel 6.12.111+ps3.1076, not installed or published); the check on the
+  PS3 is in [TESTS.md](../TESTS.md) Next.
 
 ### A failed buffer allocation must not crash
 
