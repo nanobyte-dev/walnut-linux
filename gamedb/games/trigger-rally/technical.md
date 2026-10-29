@@ -54,8 +54,74 @@ menus held still: 0054 works (`dri3: no memory for back buffer 3, keeping 2` onc
 The player's notes: no textures, a grey gradient sky, a black car, no gamepad at all, the menus mouse-only. The
 screenshots agree: the terrain, the HUD, the minimap and the co-driver signs are textured; the car, the buildings
 and rocks and the sky are not. dmesg has a steady stream of `ps3rsx: out of VRAM` (about 400 a second; printed:
-252 of 5464 KiB, a 1024x1024 RGBA texture with its mips, 144 of 1368 KiB, 104 of 344 KiB). Both are open
-items in todo.toml.
+252 of 5464 KiB, a 1024x1024 RGBA texture with its mips, 144 of 1368 KiB, 104 of 344 KiB). Why, and the
+fixes: the two sections below.
+
+## Textures missing: the menu thumbnails fill the VRAM (Mesa 0055, package patch 0002)
+
+Not a regression of Mesa 0052 or 0054. 0052 only refuses the 16-bit L16/A16/I16/R16 sampler formats, and the
+game's textures are L8, L8A8, RGB8 and RGBA8 (`PTexture::load`); 0054 saves VRAM. The game simply wants more
+VRAM than a session leaves it:
+
+- At startup it loads every level's menu screenshot and minimap (`main.cpp` `loadLevel`, about 380 images of
+  256x256, all with mipmaps, kept for the whole run), then the fonts, HUD, co-driver signs, and at a race the
+  stage's maps, sky, vegetation and car. The session's 427 texture loads come to 174 MiB with mipmaps (RGB is
+  stored as X8R8G8B8 on the RSX), plus two 8 MB back buffers and the depth buffer.
+- ps3rsx's CPU-visible VRAM is 215 MB; in a session X keeps 19 MB of it and the VRAM swap is down to 3 MB
+  (it gave the rest back, as designed). The game peaked at 181 MB, and the textures loaded last (the
+  car's 1024x1024 RGB, the 512x512 sky, the buildings) found no room. nv30 asked for VRAM only, so they
+  had no storage, drew untextured, and the state tracker retried them at every draw (the dmesg stream).
+- The smoke runs stop the desktop, so X held less and the game's 197-205 MB fitted: last night's desert
+  race was fully textured with Mesa ps3.924 for that reason, not because of the stage.
+
+Reproduced on the PC with the mesa-shim, whose heaps now behave like ps3rsx's (first fit, `ENOSPC` when full,
+`PS3SHIM_VRAM_CPU_KB` and friends shrink them) and `texload.c`, which replays the session's 427 loads in order
+(list made from the game log and the data's image sizes) and draws the last 40 for 20 frames, the CPU-visible
+VRAM held to 190,000 KiB: with Mesa ps3.1139 (the PS3's), 2 textures fail at load (5464 and 1368 KiB, the car
+and the sky) and 80 retries fail in the frames, `GL_OUT_OF_MEMORY` every frame.
+
+Two fixes, each enough for this game:
+
+- **Mesa 0055** (generic, docs/DRIVER.md's table): a texture whose VRAM allocation fails goes to GART (main
+  memory, RAM while it lives) instead of failing; the RSX samples it through TEX_FORMAT's DMA1, and renders
+  into it with the surface DMAs pointed at GART. `NV30_GART_TEXTURES=0` turns it off (the same-boot A/B). In
+  the shim with the same limit: 0 failed textures, both sampled from GART, GART's peak 4.8 to 11.6 MB, every
+  push accepted by ps3rsx's validator; with `TEXLOAD_GENMIP=6` the mipmap generation renders into the GART
+  textures (DMA_COLOR0 0xfeed0001) and is accepted too. Built as Mesa ps3.1148~dev (0052, 0054, 0055;
+  0053 left out like the PS3's ps3.1139).
+- **Our package's patch 0002** (packages/trigger-rally): the menu keeps only the thumbnails' paths and loads a
+  level's pair when its screen shows it, freeing the pair before; a race frees them. About 127 MiB of VRAM
+  less, and 380 fewer images decoded at startup. Nothing else used those textures (the race's map is the
+  terrain's own). No quality change.
+
+## The gamepad: a built-in DualShock scheme (package patch 0001)
+
+Trigger Rally 0.6.6.1 reads joysticks only through the `<joystick>` blocks of its configuration, and the default
+configuration ships both with `enable="no"`; its menus are mouse-only. On top of that, with SDL3 under
+sdl2-compat the joystick events' `which` is an instance id counted from 1, which the game used as an index
+into its joystick array (out of bounds for the first pad). Patch 0001 (gamedb:trigger-rally's package) adds a
+fixed scheme through SDL's game controller API (the DS3 by button names, no raw indices), pad 1, hot-plug,
+keyboard and mouse working alongside, nothing written to the user's configuration:
+
+| Pad | Race | Menus |
+|---|---|---|
+| left stick, d-pad | steer (stick analog) | move the focus to the nearest widget that way (repeats when held) |
+| R2 (analog), Cross | throttle | Cross: press the focused widget |
+| L2 (analog), Square | brake, reverse |  |
+| R1, Circle | handbrake | Circle: back (No on the quit questions, where the focus starts) |
+| Triangle | recover the car |  |
+| R3 | back to the last checkpoint |  |
+| L1 | camera | L1/R1: previous/next page |
+| Select | map on/off |  |
+| right stick | look left/right |  |
+| Start | pause (the pause screen lists the scheme; Circle there leaves the race) | press the screen's default (race), else the focus |
+
+The focus shows in the mouse-hover colour, and the pointer hides while the pad is used. The car choice takes
+the d-pad or stick, Cross or Start, Circle back. Tested on the PC (an amd64 build under Xvfb with SDL's virtual
+game controller, scripted presses, screenshots looked at): hot-plug, the focus on every screen tried, the car
+choice, driving at 44 mph with R2 and the stick, the pause text, leaving a race, the mouse and Escape still
+working; the startup loaded no thumbnails. Not tested: a real DS3 (hid-sony's trigger rest values, Cross and
+Circle not swapped), the right stick's direction, keyboard driving (that code is unchanged).
 
 ## Threads in the stall frames
 

@@ -1,0 +1,744 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Fri, 30 Oct 2026 00:47:14 +0200
+Subject: Game controllers: a fixed built-in scheme next to the keyboard and
+ mouse
+
+The first game controller SDL knows drives the game, with no setup and
+nothing in the config file (a DualShock 3 is "PS3 Controller", whatever
+its raw button numbers). The keys, the mouse and a joystick configured in
+trigger-rally.config keep working at the same time.
+
+  R2 (analog), Cross     accelerate
+  L2 (analog), Square    brake, reverse
+  left stick (analog)    steer; the d-pad steers like the arrow keys
+  R1, Circle             handbrake
+  Triangle               recover the car
+  R3                     back to the last checkpoint
+  L1                     next camera
+  Select                 show or hide the map
+  right stick            look left and right
+  Start                  pause; while paused, Circle leaves the race
+
+The menus answer the pad: the d-pad or the left stick moves a focus
+between the clickable widgets (the nearest one that way; it is the mouse's
+highlight, so it shows the same), Cross presses it, Start presses the
+screen's default ("race") or else the focus, Circle goes back (Escape,
+and "No" on the quit and leave-event questions), L1/R1 page back and
+forward (the arrow keys). On a new screen the focus starts on the default
+widget, else the topmost; on the prev/next arrows it stays on the arrow.
+The mouse pointer hides while the pad drives the menus and comes back
+when the mouse moves. In the car choice the d-pad or stick picks the car,
+Cross or Start takes it, Circle goes back. The pause screen lists the
+scheme.
+
+A controller plugged in later is opened when none is; an unplugged one is
+closed and the next one present takes over.
+
+The joystick events looked up sdl_joy by the event's "which", which is
+the joystick's instance id, not its index (SDL3, under sdl2-compat,
+counts instance ids from 1 among other objects): a DualShock's axis
+events wrote past the end of sdl_joy. They now find the joystick by its
+instance id and skip any they don't know.
+
+Forwarded: not-needed
+
+diff --git a/src/PEngine/app.cpp b/src/PEngine/app.cpp
+--- a/src/PEngine/app.cpp
++++ b/src/PEngine/app.cpp
+@@ -370,6 +370,8 @@ int PApp::run(int argc, char *argv[])
+   }
+   
+   SDL_JoystickEventState(SDL_ENABLE);
++
++  padOpen();
+   
+   int err = glewInit();
+ 
+@@ -538,27 +540,57 @@ int PApp::run(int argc, char *argv[])
+         mouseButtonEvent(event.button);
+         break;
+ 
+-      case SDL_JOYAXISMOTION:
+-        sdl_joy[event.jaxis.which].axis[event.jaxis.axis] =
+-          ((float)event.jaxis.value + 0.5f) / 32767.5f;
+-        break;
++      // "which" is the joystick's instance id, not its place in sdl_joy (SDL3 counts
++      // instance ids from 1, among other objects): look it up, and skip joysticks
++      // plugged in after the start
++      case SDL_JOYAXISMOTION: {
++        const int j = joyIndex(event.jaxis.which);
++        if (j >= 0 && event.jaxis.axis < sdl_joy[j].axis.size())
++          sdl_joy[j].axis[event.jaxis.axis] =
++            ((float)event.jaxis.value + 0.5f) / 32767.5f;
++        } break;
+ 
+       case SDL_JOYBUTTONDOWN:
+-        sdl_joy[event.jbutton.which].button[event.jbutton.button] = true;
+-        joyButtonEvent(event.jbutton.which,event.jbutton.button,true);
++      case SDL_JOYBUTTONUP: {
++        const int j = joyIndex(event.jbutton.which);
++        const bool down = event.type == SDL_JOYBUTTONDOWN;
++        if (j >= 0 && event.jbutton.button < sdl_joy[j].button.size()) {
++          sdl_joy[j].button[event.jbutton.button] = down;
++          joyButtonEvent(j, event.jbutton.button, down);
++        }
++        } break;
++
++      case SDL_JOYHATMOTION: {
++        const int j = joyIndex(event.jhat.which);
++        if (j < 0 || event.jhat.hat >= sdl_joy[j].hat.size())
++          break;
++        vec2i &hat = sdl_joy[j].hat[event.jhat.hat];
++        hat = vec2i::zero();
++        if (event.jhat.value & SDL_HAT_RIGHT) hat.x = 1;
++        else if (event.jhat.value & SDL_HAT_LEFT) hat.x = -1;
++        if (event.jhat.value & SDL_HAT_UP) hat.y = 1;
++        else if (event.jhat.value & SDL_HAT_DOWN) hat.y = -1;
++        } break;
++
++      case SDL_CONTROLLERDEVICEADDED:
++        padOpen();
+         break;
+ 
+-      case SDL_JOYBUTTONUP:
+-        sdl_joy[event.jbutton.which].button[event.jbutton.button] = false;
+-        joyButtonEvent(event.jbutton.which,event.jbutton.button,false);
++      case SDL_CONTROLLERDEVICEREMOVED:
++        if (sdl_pad != nullptr &&
++          event.cdevice.which == SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(sdl_pad))) {
++          PUtil::outLog() << "Game controller removed" << std::endl;
++          SDL_GameControllerClose(sdl_pad);
++          sdl_pad = nullptr;
++          padOpen(); // another one present takes over
++        }
+         break;
+ 
+-      case SDL_JOYHATMOTION:
+-        sdl_joy[event.jhat.which].hat[event.jhat.hat] = vec2i::zero();
+-        if (event.jhat.value & SDL_HAT_RIGHT) sdl_joy[event.jhat.which].hat[event.jhat.hat].x = 1;
+-        else if (event.jhat.value & SDL_HAT_LEFT) sdl_joy[event.jhat.which].hat[event.jhat.hat].x = -1;
+-        if (event.jhat.value & SDL_HAT_UP) sdl_joy[event.jhat.which].hat[event.jhat.hat].y = 1;
+-        else if (event.jhat.value & SDL_HAT_DOWN) sdl_joy[event.jhat.which].hat[event.jhat.hat].y = -1;
++      case SDL_CONTROLLERBUTTONDOWN:
++      case SDL_CONTROLLERBUTTONUP:
++        if (sdl_pad != nullptr &&
++          event.cbutton.which == SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(sdl_pad)))
++          padButtonEvent(event.cbutton.button, event.type == SDL_CONTROLLERBUTTONDOWN);
+         break;
+ 
+       case SDL_QUIT:
+@@ -860,4 +892,34 @@ void PApp::joyButtonEvent(int which, int button, bool down)
+   which = which; button = button; down = down;
+ }
+ 
++void PApp::padButtonEvent(int button, bool down)
++{
++  button = button; down = down;
++}
++
++/// Opens the first game controller when none is open (the built-in pad scheme).
++void PApp::padOpen()
++{
++  if (sdl_pad != nullptr)
++    return;
++
++  for (int i = 0; i < SDL_NumJoysticks() && sdl_pad == nullptr; i++)
++    if (SDL_IsGameController(i))
++      sdl_pad = SDL_GameControllerOpen(i);
++
++  if (sdl_pad != nullptr) {
++    const char *name = SDL_GameControllerName(sdl_pad);
++    PUtil::outLog() << "Game controller: " << (name ? name : "(no name)") << std::endl;
++  }
++}
++
++int PApp::joyIndex(SDL_JoystickID id) const
++{
++  for (unsigned int i = 0; i < sdl_joy.size(); i++)
++    if (sdl_joy[i].sdl_joystick != nullptr &&
++      SDL_JoystickInstanceID(sdl_joy[i].sdl_joystick) == id)
++      return i;
++  return -1;
++}
++
+ 
+diff --git a/src/Trigger/main.cpp b/src/Trigger/main.cpp
+--- a/src/Trigger/main.cpp
++++ b/src/Trigger/main.cpp
+@@ -1522,10 +1522,12 @@ void MainApp::tick(float delta)
+     break;
+ 
+   case AS_LEVEL_SCREEN:
++    padMenuTick(delta);
+     tickStateLevel(delta);
+     break;
+ 
+   case AS_CHOOSE_VEHICLE:
++    padMenuTick(delta);
+     tickStateChoose(delta);
+     break;
+ 
+@@ -1567,6 +1569,7 @@ void MainApp::tickStateGame(float delta)
+ 
+     switch(ctrl.map[a].type) {
+     case UserControl::TypeUnassigned:
++      ctrl.map[a].value = 0.0f; // the pad below may have set it last frame
+       break;
+ 
+     case UserControl::TypeKey:
+@@ -1588,6 +1591,42 @@ void MainApp::tickStateGame(float delta)
+     }
+   }
+ 
++  // The built-in pad scheme, next to the keys (and a configured joystick): R2 and Cross
++  // accelerate, L2 and Square brake and reverse, R1 and Circle the handbrake, the d-pad
++  // steers like the keys, the left stick steers analog (below), the right stick looks
++  // left and right. The triggers and sticks are analog above a dead zone.
++
++  float padsteer = 0.0f;
++
++  if (havePad()) {
++    auto deadzone = [](float v) {
++      const float dz = 0.15f;
++      return v > dz ? (v - dz) / (1.0f - dz) : v < -dz ? (v + dz) / (1.0f - dz) : 0.0f;
++    };
++    auto atleast = [](float &value, float pad) {
++      if (pad > value) value = pad;
++    };
++    auto button = [this](SDL_GameControllerButton b) {
++      return getPadButton(b) ? 1.0f : 0.0f;
++    };
++
++    atleast(ctrl.map[ActionForward].value, deadzone(getPadAxis(SDL_CONTROLLER_AXIS_TRIGGERRIGHT)));
++    atleast(ctrl.map[ActionForward].value, button(SDL_CONTROLLER_BUTTON_A));
++    atleast(ctrl.map[ActionBack].value, deadzone(getPadAxis(SDL_CONTROLLER_AXIS_TRIGGERLEFT)));
++    atleast(ctrl.map[ActionBack].value, button(SDL_CONTROLLER_BUTTON_X));
++    atleast(ctrl.map[ActionHandbrake].value, button(SDL_CONTROLLER_BUTTON_RIGHTSHOULDER));
++    atleast(ctrl.map[ActionHandbrake].value, button(SDL_CONTROLLER_BUTTON_B));
++    atleast(ctrl.map[ActionLeft].value, button(SDL_CONTROLLER_BUTTON_DPAD_LEFT));
++    atleast(ctrl.map[ActionRight].value, button(SDL_CONTROLLER_BUTTON_DPAD_RIGHT));
++
++    // the keys' "camleft" (.) turns the view to the right, "camright" (,) to the left
++    const float look = deadzone(getPadAxis(SDL_CONTROLLER_AXIS_RIGHTX));
++    atleast(ctrl.map[ActionCamLeft].value, look);
++    atleast(ctrl.map[ActionCamRight].value, -look);
++
++    padsteer = deadzone(getPadAxis(SDL_CONTROLLER_AXIS_LEFTX));
++  }
++
+   // Bit of a hack for turning, because you simply can't handle analogue
+   // and digital steering the same way, afaics
+ 
+@@ -1620,6 +1659,10 @@ void MainApp::tickStateGame(float delta)
+     }
+   }
+ 
++  // the pad's left stick steers analog, over the digital steering
++  if (padsteer != 0.0f)
++    vehic->ctrl.turn.z = padsteer;
++
+   // Computer aided steering
+   if (vehic->forwardspeed > 1.0f)
+     vehic->ctrl.turn.z -= vehic->body->getAngularVel().z * cfg_drivingassist / (1.0f + vehic->forwardspeed);
+@@ -2260,6 +2303,82 @@ void MainApp::joyButtonEvent(int which, int button, bool down)
+   }
+ }
+ 
++///
++/// @brief The built-in pad scheme's buttons (PApp's game controller, pad 1), next to the
++///   keyboard and a configured joystick; nothing of it is in the config file.
++///   In the race: Start pauses, Triangle recovers the car, R3 puts it back at the
++///   checkpoint, L1 changes the camera, Select shows or hides the map, and while paused
++///   Circle leaves the race. Driving is read in tickStateGame, the menus in padMenuButton.
++///
++void MainApp::padButtonEvent(int button, bool down)
++{
++  if (!down) return;
++
++  switch (appstate) {
++  case AS_LOAD_3:
++    levelScreenAction(AA_INIT, 0);
++    return;
++
++  case AS_LEVEL_SCREEN:
++    padMenuButton(button);
++    return;
++
++  case AS_CHOOSE_VEHICLE:
++    switch (button) {
++    case SDL_CONTROLLER_BUTTON_A:
++    case SDL_CONTROLLER_BUTTON_START:
++      padMenuKey(SDLK_RETURN);
++      break;
++    case SDL_CONTROLLER_BUTTON_B:
++      padMenuKey(SDLK_ESCAPE);
++      break;
++    }
++    return;
++
++  case AS_IN_GAME:
++    switch (button) {
++    case SDL_CONTROLLER_BUTTON_START:
++      toggleSounds(pauserace);
++      pauserace = !pauserace;
++      break;
++    case SDL_CONTROLLER_BUTTON_B:
++      if (pauserace)
++        padMenuKey(SDLK_ESCAPE); // leave the race
++      break;
++    case SDL_CONTROLLER_BUTTON_Y:
++      game->vehicle[0]->doReset();
++      break;
++    case SDL_CONTROLLER_BUTTON_RIGHTSTICK:
++      game->resetAtCheckpoint(game->vehicle[0]);
++      break;
++    case SDL_CONTROLLER_BUTTON_LEFTSHOULDER:
++      cameraview = (cameraview + 1) % 5;
++      camera_user_angle = 0.0f;
++      break;
++    case SDL_CONTROLLER_BUTTON_BACK:
++      showmap = !showmap;
++      break;
++    }
++    return;
++
++  case AS_END_SCREEN:
++    requestExit();
++    return;
++  }
++}
++
++/// A key press for the pad: what the keyboard does with that key in this state.
++void MainApp::padMenuKey(SDL_Keycode sym)
++{
++  SDL_KeyboardEvent ke = SDL_KeyboardEvent();
++
++  ke.type = SDL_KEYDOWN;
++  ke.state = SDL_PRESSED;
++  ke.keysym.sym = sym;
++  ke.keysym.scancode = SDL_GetScancodeFromKey(sym);
++  keyEvent(ke);
++}
++
+ int main(int argc, char *argv[])
+ {
+     return MainApp("Trigger Rally", ".trigger-rally").run(argc, argv);
+diff --git a/src/Trigger/menu.cpp b/src/Trigger/menu.cpp
+--- a/src/Trigger/menu.cpp
++++ b/src/Trigger/menu.cpp
+@@ -302,9 +302,9 @@ void MainApp::levelScreenAction(int action, int index)
+     gui.makeClickable(
+       gui.addLabel(300.0f,250.0f, "Yes", PTEXT_HZA_CENTER | PTEXT_VTA_TOP, 40.0f),
+       AA_GO_EVT, 0);
+-    gui.makeClickable(
++    gui.makePadStart(gui.makeClickable(
+       gui.addLabel(500.0f,250.0f, "No", PTEXT_HZA_CENTER | PTEXT_VTA_TOP, 40.0f),
+-      AA_RESUME_EVT, 0);
++      AA_RESUME_EVT, 0));
+     break;
+   case AM_TOP_PRAC:
+   {
+@@ -515,9 +515,9 @@ void MainApp::levelScreenAction(int action, int index)
+     gui.makeClickable(
+       gui.addLabel(300.0f,250.0f, "Yes", PTEXT_HZA_CENTER | PTEXT_VTA_TOP, 40.0f),
+       AA_QUIT_CONFIRM, 0);
+-    gui.makeClickable(
++    gui.makePadStart(gui.makeClickable(
+       gui.addLabel(500.0f,250.0f, "No", PTEXT_HZA_CENTER | PTEXT_VTA_TOP, 40.0f),
+-      AA_GO_TOP, 0);
++      AA_GO_TOP, 0));
+     break;
+ 
+     case AM_TOP_LVL_TIMES:
+@@ -886,12 +886,132 @@ void MainApp::finishRace(Gamefinish state, float coursetime)
+ 
+ void MainApp::tickStateLevel(float delta)
+ {
++  // while the pad drives the menus its focus shows, and the mouse pointer doesn't
++  const bool pad = pad_menu && havePad();
++
++  if (pad && !gui.hasFocus())
++    gui.focusStart();
++
++  if (SDL_ShowCursor(SDL_QUERY) != (pad ? SDL_DISABLE : SDL_ENABLE))
++    SDL_ShowCursor(pad ? SDL_DISABLE : SDL_ENABLE);
++
+   gui.tick(delta);
+ }
+ 
++///
++/// @brief The pad's d-pad and left stick in the menus and the car choice: a direction
++///   acts when it is pressed, and again while held (after 0.4 s, every 0.12 s).
++///
++void MainApp::padMenuTick(float delta)
++{
++  int dx = 0, dy = 0;
++
++  if (havePad()) {
++    const float lx = getPadAxis(SDL_CONTROLLER_AXIS_LEFTX);
++    const float ly = getPadAxis(SDL_CONTROLLER_AXIS_LEFTY);
++
++    if (getPadButton(SDL_CONTROLLER_BUTTON_DPAD_UP) || ly < -0.5f) dy = 1;
++    else if (getPadButton(SDL_CONTROLLER_BUTTON_DPAD_DOWN) || ly > 0.5f) dy = -1;
++    if (getPadButton(SDL_CONTROLLER_BUTTON_DPAD_LEFT) || lx < -0.5f) dx = -1;
++    else if (getPadButton(SDL_CONTROLLER_BUTTON_DPAD_RIGHT) || lx > 0.5f) dx = 1;
++
++    // one direction at a time: the stronger one of the stick, else up/down
++    if (dx != 0 && dy != 0) {
++      if (fabsf(lx) > fabsf(ly)) dy = 0;
++      else dx = 0;
++    }
++  }
++
++  if (dx != pad_dir_x || dy != pad_dir_y) {
++    pad_dir_x = dx;
++    pad_dir_y = dy;
++    pad_dir_repeat = 0.4f;
++    if (dx != 0 || dy != 0)
++      padDirection(dx, dy);
++  } else if (dx != 0 || dy != 0) {
++    pad_dir_repeat -= delta;
++    if (pad_dir_repeat <= 0.0f) {
++      pad_dir_repeat += 0.12f;
++      padDirection(dx, dy);
++    }
++  }
++}
++
++void MainApp::padDirection(int dx, int dy)
++{
++  switch (appstate) {
++  case AS_LEVEL_SCREEN:
++    pad_menu = true;
++    if (!gui.hasFocus())
++      gui.focusStart(); // the first press shows where the focus is
++    else
++      gui.moveFocus(dx, dy);
++    break;
++
++  case AS_CHOOSE_VEHICLE:
++    if (dx < 0 && --choose_type < 0)
++      choose_type = (int)game->vehiclechoices.size() - 1;
++    if (dx > 0 && ++choose_type >= (int)game->vehiclechoices.size())
++      choose_type = 0;
++    break;
++  }
++}
++
++///
++/// @brief The pad's buttons in the menus: Cross presses the widget with the focus, Start
++///   the screen's default ("race") or else the focus, Circle goes back (Escape; "No" on
++///   the quit and leave-event questions), L1/R1 page back and forward (the arrow keys).
++///
++void MainApp::padMenuButton(int button)
++{
++  int data1, data2;
++  const bool hadfocus = gui.hasFocus();
++
++  pad_menu = true;
++
++  switch (button) {
++  case SDL_CONTROLLER_BUTTON_START:
++    if (gui.getDefaultAction(data1, data2)) {
++      levelScreenAction(data1, data2);
++      break;
++    }
++    // fall through
++  case SDL_CONTROLLER_BUTTON_A:
++    if (hadfocus && gui.getFocusAction(data1, data2))
++      levelScreenAction(data1, data2);
++    else
++      gui.focusStart();
++    break;
++
++  case SDL_CONTROLLER_BUTTON_B:
++    if (lss.state == AM_TOP_QUIT)
++      levelScreenAction(AA_GO_TOP, 0);
++    else if (lss.state == AM_TOP_EVT_ABANDON)
++      levelScreenAction(AA_RESUME_EVT, 0);
++    else
++      padMenuKey(SDLK_ESCAPE);
++    break;
++
++  case SDL_CONTROLLER_BUTTON_LEFTSHOULDER:
++    padMenuKey(SDLK_LEFT);
++    break;
++
++  case SDL_CONTROLLER_BUTTON_RIGHTSHOULDER:
++    padMenuKey(SDLK_RIGHT);
++    break;
++  }
++}
++
+ // TODO: fix this code
+ void MainApp::cursorMoveEvent(int posx, int posy)
+ {
++  // the mouse drives the menus now, when it moves (SDL reports where the pointer is
++  // when the window opens: that isn't a move)
++  if (pad_mouse_x != -1 && (posx != pad_mouse_x || posy != pad_mouse_y))
++    pad_menu = false;
++  pad_mouse_x = posx;
++  pad_mouse_y = posy;
++
+   if (appstate != AS_LEVEL_SCREEN) return;
+ 
+   const GLdouble margin = (800.0 - 600.0 * cx / cy) / 2.0;
+@@ -1370,6 +1490,100 @@ bool Gui::getDefaultAction(int &data1, int &data2)
+   return true;
+ }
+ 
++///
++/// @brief Puts the pad's focus on a new screen: on the button pressed last, if the new
++///   screen has it at the same place (the prev/next arrows), else the screen's pad start,
++///   its default widget or its topmost clickable widget.
++///
++void Gui::focusStart()
++{
++  int pick = -1;
++
++  if (padkeep) {
++    padkeep = false;
++    for (unsigned int i = 0; i < widget.size(); i++)
++      if (widget[i].clickable && widget[i].type == GWT_GRAPHIC &&
++        fabsf(widget[i].pos.x - padkeeppos.x) < 1.0f &&
++        fabsf(widget[i].pos.y - padkeeppos.y) < 1.0f)
++        pick = i;
++  }
++
++  if (pick == -1 && padstart != -1 && widget[padstart].clickable)
++    pick = padstart;
++
++  if (pick == -1 && defwidget != -1 && widget[defwidget].clickable)
++    pick = defwidget;
++
++  for (unsigned int i = 0; pick == -1 && i < widget.size(); i++) {
++    if (!widget[i].clickable) continue;
++    float top = widget[i].pos.y + widget[i].dims_min.y;
++    bool better = true;
++    for (unsigned int k = 0; k < widget.size(); k++) {
++      if (k == i || !widget[k].clickable) continue;
++      float ktop = widget[k].pos.y + widget[k].dims_min.y;
++      if (ktop > top || (ktop == top && widget[k].pos.x < widget[i].pos.x)) {
++        better = false;
++        break;
++      }
++    }
++    if (better) pick = i;
++  }
++
++  highlight = pick;
++}
++
++///
++/// @brief Moves the pad's focus to the nearest clickable widget in a direction
++///   (dx, dy: -1, 0 or 1; y up, as the menu's coordinates).
++///
++void Gui::moveFocus(int dx, int dy)
++{
++  if (highlight == -1 || !widget[highlight].clickable) {
++    focusStart();
++    return;
++  }
++
++  const vec2f from = widget[highlight].pos + widget[highlight].dims_min * 0.5f;
++  int best = -1;
++  float bestscore = 0.0f;
++
++  for (unsigned int i = 0; i < widget.size(); i++) {
++    if ((int)i == highlight || !widget[i].clickable) continue;
++
++    const vec2f d = widget[i].pos + widget[i].dims_min * 0.5f - from;
++    const float along = dx != 0 ? d.x * dx : d.y * dy;
++    const float across = dx != 0 ? fabsf(d.y) : fabsf(d.x);
++
++    if (along < 1.0f) continue;
++
++    // straight ahead first: a widget off to the side counts as farther
++    const float score = along + across * 2.0f;
++    if (best == -1 || score < bestscore) {
++      best = i;
++      bestscore = score;
++    }
++  }
++
++  if (best != -1)
++    highlight = best;
++}
++
++///
++/// @brief The action of the widget the pad's focus is on.
++///
++bool Gui::getFocusAction(int &data1, int &data2)
++{
++  if (highlight == -1 || !widget[highlight].clickable) return false;
++
++  data1 = widget[highlight].d1;
++  data2 = widget[highlight].d2;
++
++  padkeep = widget[highlight].type == GWT_GRAPHIC;
++  padkeeppos = widget[highlight].pos;
++
++  return true;
++}
++
+ void Gui::render()
+ {
+   for (unsigned int i = 0; i < widget.size(); i++) {
+diff --git a/src/Trigger/render.cpp b/src/Trigger/render.cpp
+--- a/src/Trigger/render.cpp
++++ b/src/Trigger/render.cpp
+@@ -1819,6 +1819,29 @@ void MainApp::renderStateGame(float eyetranslation)
+             glScalef(0.25f, 0.25f, 1.0f);
+             getSSRender().drawText("PAUSED", PTEXT_HZA_CENTER | PTEXT_VTA_CENTER);
+             glPopMatrix(); // 2
++
++            // the built-in pad scheme (MainApp::padButtonEvent, tickStateGame), read only
++            if (havePad())
++            {
++                static const char *const padscheme[] = {
++                    "Start: resume    Circle: leave the race",
++                    "",
++                    "R2, Cross: accelerate    L2, Square: brake, reverse",
++                    "Left stick, D-pad: steer    R1, Circle: handbrake",
++                    "Triangle: recover    R3: back to the checkpoint",
++                    "L1: camera    Select: map    Right stick: look around"
++                };
++
++                glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
++                for (unsigned int i = 0; i < sizeof padscheme / sizeof padscheme[0]; i++)
++                {
++                    glPushMatrix(); // 2
++                    glTranslatef(0.0f, -0.25f - 0.08f * i, 0.0f);
++                    glScalef(0.05f, 0.05f, 1.0f);
++                    getSSRender().drawText(padscheme[i], PTEXT_HZA_CENTER | PTEXT_VTA_CENTER);
++                    glPopMatrix(); // 2
++                }
++            }
+         }
+ 
+       glPopMatrix(); // 1
+diff --git a/src/include/app.h b/src/include/app.h
+--- a/src/include/app.h
++++ b/src/include/app.h
+@@ -68,6 +68,13 @@ class PApp
+         uint8 sdl_mousemap;
+         std::vector<joystick_s> sdl_joy;
+ 
++        /// The built-in pad scheme: the first game controller SDL knows (a DualShock 3 is
++        /// "PS3 Controller"), opened at start and on hot-plug, whatever the config says.
++        SDL_GameController *sdl_pad = nullptr;
++
++        void padOpen();
++        int joyIndex(SDL_JoystickID id) const;
++
+         bool exit_requested, screenshot_requested;
+ 
+         PSSRender *ssrdr;
+@@ -91,7 +98,7 @@ class PApp
+             best_times("/players")
+         {
+             //PUtil::outLog() << "Initialising SDL" << std::endl;
+-            const int si = SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER | SDL_INIT_JOYSTICK);
++            const int si = SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER | SDL_INIT_JOYSTICK | SDL_INIT_GAMECONTROLLER);
+ 
+             if (si < 0)
+             {
+@@ -163,6 +170,26 @@ class PApp
+             return (sdl_joy[j].hat[h]);
+         }
+ 
++        bool havePad() const
++        {
++            return sdl_pad != nullptr;
++        }
++
++        /// The pad's axis: the sticks -1..1 (down and right positive), the triggers 0..1.
++        float getPadAxis(SDL_GameControllerAxis a) const
++        {
++            if (sdl_pad == nullptr)
++                return 0.0f;
++
++            const float v = SDL_GameControllerGetAxis(sdl_pad, a) / 32767.0f;
++            return v < -1.0f ? -1.0f : v;
++        }
++
++        bool getPadButton(SDL_GameControllerButton b) const
++        {
++            return sdl_pad != nullptr && SDL_GameControllerGetButton(sdl_pad, b) != 0;
++        }
++
+         PSSRender & getSSRender()
+         {
+             return *ssrdr;
+@@ -312,5 +339,6 @@ class PApp
+         virtual void mouseMoveEvent(int dx, int dy);
+         virtual void cursorMoveEvent(int posx, int posy);
+         virtual void joyButtonEvent(int which, int button, bool down);
++        virtual void padButtonEvent(int button, bool down);
+ };
+ 
+diff --git a/src/include/main.h b/src/include/main.h
+--- a/src/include/main.h
++++ b/src/include/main.h
+@@ -485,6 +485,17 @@ private:
+ 	// for level screen
+ 	Gui gui;
+ 
++	// the built-in pad scheme (PApp's game controller; padButtonEvent and padMenuTick)
++	bool pad_menu = true;       ///< the pad drives the menus: the focus shows (the mouse ends it)
++	int pad_dir_x = 0, pad_dir_y = 0;
++	float pad_dir_repeat = 0.0f;
++	int pad_mouse_x = -1, pad_mouse_y = -1;
++
++	void padMenuTick(float delta);
++	void padDirection(int dx, int dy);
++	void padMenuKey(SDL_Keycode sym);
++	void padMenuButton(int button);
++
+ public:
+ 
+ 	LevelState lss;
+@@ -642,6 +653,7 @@ public:
+ 	void cursorMoveEvent(int posx, int posy);
+ 	void mouseButtonEvent(const SDL_MouseButtonEvent &mbe);
+ 	void joyButtonEvent(int which, int button, bool down);
++	void padButtonEvent(int button, bool down);
+ 
+     std::unordered_map<std::string, PAudioSample *> getCodriverWords() const
+     {
+diff --git a/src/include/menu.h b/src/include/menu.h
+--- a/src/include/menu.h
++++ b/src/include/menu.h
+@@ -178,6 +178,11 @@ private:
+   int highlight, defwidget;
+   
+   float defflash;
++
++  // the pad's focus (MainApp::padButtonEvent): it is the highlight the mouse sets too
++  int padstart = -1;          ///< where the focus starts on this screen, if not the default
++  bool padkeep = false;       ///< a button was pressed with the pad: keep the focus on it
++  vec2f padkeeppos;
+   
+   PTexture *fonttex;
+   
+@@ -211,12 +216,18 @@ public:
+   
+   bool getClickAction(int &data1, int &data2);
+   bool getDefaultAction(int &data1, int &data2);
++
++  bool hasFocus() const { return highlight != -1; }
++  void focusStart();
++  void moveFocus(int dx, int dy);
++  bool getFocusAction(int &data1, int &data2);
++  void makePadStart(int w) { padstart = w; }
+   
+   void doLayout();
+   
+   void render();
+   
+-  void clear() { widget.clear(); highlight = -1; defwidget = -1; }
++  void clear() { widget.clear(); highlight = -1; defwidget = -1; padstart = -1; }
+   
+   int addContainer(int parent, float minwidth, float minheight, bool vert);
+   

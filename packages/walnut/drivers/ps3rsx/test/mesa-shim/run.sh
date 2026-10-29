@@ -10,7 +10,9 @@
 #                                      (Badwolf with GPU compositing: its header says what it needs)
 # Outputs: OUT (every push Mesa submitted), OUT.bos, OUT.gpu (what ps3rsx would send to the GPU:
 # the shim runs its validator and answers like it, wrap.c) and OUT.log (its verdicts). Environment
-# passed in: MPVMSG, PS3SHIM_RECOVER, PS3SHIM_REJECT, PS3SHIM_VALIDATE, NV30_PS3_RECOVER.
+# passed in: MPVMSG, PS3SHIM_RECOVER, PS3SHIM_REJECT, PS3SHIM_VALIDATE, NV30_PS3_RECOVER,
+# PS3SHIM_VRAM_CPU_KB, PS3SHIM_VRAM_GPU_KB, PS3SHIM_GART_KB (wrap.c's heaps), NV30_GART_TEXTURES,
+# TEXLOAD_GENMIP (texload.c).
 # Runs in the deb builder (privileged docker, as tools/deb-build.sh does); DIR under build/tmp.
 # The chroot is root-owned: remove it with run.sh DIR sh 'true' && docker ... rm, or make
 # clean-ephemeral.
@@ -21,11 +23,12 @@ here=$(dirname "$(realpath "$0")"); top=$(realpath "$here/../../../../../..")
 img=$(docker images --format '{{.Repository}}:{{.Tag}}' | grep '^ps3-deb-builder:' | head -1)
 [ -n "$img" ] || { echo "no ps3-deb-builder image (make builder)" >&2; exit 1; }
 mkdir -p "$D/in"
-cp "$here"/wrap.c "$here"/ps3val.c "$here"/player.c "$here"/browser.sh "$here"/../../src/validate.c \
+cp "$here"/wrap.c "$here"/ps3val.c "$here"/player.c "$here"/texload.c "$here"/browser.sh "$here"/../../src/validate.c \
 	"$here"/../../src/ps3rsx.h "$D/in/"
 rm -rf "$D/in/inc"; cp -r "$here"/../inc "$D/in/inc"
 envs=()
-for v in MPVMSG PS3SHIM_RECOVER PS3SHIM_REJECT PS3SHIM_VALIDATE NV30_PS3_RECOVER; do
+for v in MPVMSG PS3SHIM_RECOVER PS3SHIM_REJECT PS3SHIM_VALIDATE NV30_PS3_RECOVER \
+	PS3SHIM_VRAM_CPU_KB PS3SHIM_VRAM_GPU_KB PS3SHIM_GART_KB NV30_GART_TEXTURES TEXLOAD_GENMIP; do
 	[ -z "${!v:-}" ] || envs+=("$v=${!v}")
 done
 inside() {

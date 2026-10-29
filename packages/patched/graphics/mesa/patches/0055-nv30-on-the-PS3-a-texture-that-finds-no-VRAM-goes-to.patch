@@ -1,0 +1,308 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Fri, 30 Oct 2026 00:36:54 +0200
+Subject: nv30: on the PS3, a texture that finds no VRAM goes to GART
+ (NV30_GART_TEXTURES)
+
+The CPU-visible VRAM (215 MB less X's buffers) can fill up: Trigger Rally keeps
+every level's menu thumbnails, and the textures loaded last (its car, sky and
+buildings) failed to allocate, drew untextured, and state tracker retried the
+allocation at every draw (about 400 failed GEM_NEW a second). ps3rsx has
+already given back the VRAM swap's chunks by then.
+
+The RSX samples from main memory (TEX_FORMAT DMA1) and renders into it (the
+blit's GART destinations, 0007). When the VRAM allocation fails, a miptree
+that isn't a depth buffer, scanout, shared or display target is placed in GART
+(it costs RAM while it lives); one warning on stderr. The domain is taken from
+the buffer wherever a texture is referenced (fragment textures, the transfer
+rects, render targets, clears), and the surface context DMAs (COLOR0-3, ZETA)
+point at GART while a render target is there (state.fb_dma_gart: otherwise
+the stream is unchanged). NV30_GART_TEXTURES=0 turns it off.
+
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_clear.c b/src/gallium/drivers/nouveau/nv30/nv30_clear.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_clear.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_clear.c
+@@ -170,10 +170,22 @@ nv30_clear_render_target(struct pipe_context *pipe, struct pipe_surface *ps,
+       rt_format |= NV30_3D_RT_FORMAT_TYPE_LINEAR;
+    }
+ 
+-   if (!PUSH_SPACE_EX(push, 32, 1, 0) ||
+-       PUSH_REF1(push, mt->base.bo, NOUVEAU_BO_VRAM | NOUVEAU_BO_WR))
++   if (!PUSH_SPACE_EX(push, 40, 1, 0) ||
++       PUSH_REF1(push, mt->base.bo, nv30_bo_domain(mt->base.bo) | NOUVEAU_BO_WR))
+       return;
+ 
++   /* PS3: a texture in GART (nv30_miptree_create) is cleared where it is */
++   if (nv30->screen->base.is_ps3) {
++      struct nv04_fifo *fifo = push->channel->data;
++      bool gart = nv30_bo_domain(mt->base.bo) == NOUVEAU_BO_GART;
++
++      if (gart || nv30->state.fb_dma_gart) {
++         BEGIN_NV04(push, NV30_3D(DMA_COLOR0), 1);
++         PUSH_DATA (push, gart ? fifo->gart : fifo->vram);
++         nv30->state.fb_dma_gart |= gart;
++      }
++   }
++
+    origin = nv30_clear_origin(push, ps);
+    BEGIN_NV04(push, NV30_3D(RT_ENABLE), 1);
+    PUSH_DATA (push, NV30_3D_RT_ENABLE_COLOR0);
+@@ -235,10 +247,18 @@ nv30_clear_depth_stencil(struct pipe_context *pipe, struct pipe_surface *ps,
+    if (buffers & PIPE_CLEAR_STENCIL)
+       mode |= NV30_3D_CLEAR_BUFFERS_STENCIL;
+ 
+-   if (!PUSH_SPACE_EX(push, 32, 1, 0) ||
+-       PUSH_REF1(push, mt->base.bo, NOUVEAU_BO_VRAM | NOUVEAU_BO_WR))
++   if (!PUSH_SPACE_EX(push, 40, 1, 0) ||
++       PUSH_REF1(push, mt->base.bo, nv30_bo_domain(mt->base.bo) | NOUVEAU_BO_WR))
+       return;
+ 
++   /* PS3: ZETA may point at a GART colour target's buffer (nv30_validate_fb) */
++   if (nv30->screen->base.is_ps3 && nv30->state.fb_dma_gart) {
++      struct nv04_fifo *fifo = push->channel->data;
++
++      BEGIN_NV04(push, NV30_3D(DMA_ZETA), 1);
++      PUSH_DATA (push, nv30_bo_domain(mt->base.bo) == NOUVEAU_BO_GART ? fifo->gart : fifo->vram);
++   }
++
+    origin = nv30_clear_origin(push, ps);
+    BEGIN_NV04(push, NV30_3D(RT_ENABLE), 1);
+    PUSH_DATA (push, 0);
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_context.h b/src/gallium/drivers/nouveau/nv30/nv30_context.h
+--- a/src/gallium/drivers/nouveau/nv30/nv30_context.h
++++ b/src/gallium/drivers/nouveau/nv30/nv30_context.h
+@@ -57,6 +57,8 @@ struct nv30_context {
+       unsigned vtxfmt_nr;
+       int index_bias;
+       uint8_t prim_restart;	/* 2: unknown */
++      /* PS3: a surface context DMA (COLOR0-3, ZETA) may point at GART (nv30_validate_fb) */
++      bool fb_dma_gart;
+       struct nv30_fragprog *fragprog;
+    } state;
+ 
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_fragtex.c b/src/gallium/drivers/nouveau/nv30/nv30_fragtex.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_fragtex.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_fragtex.c
+@@ -126,9 +126,9 @@ nv30_fragtex_validate(struct nv30_context *nv30)
+ 
+          BEGIN_NV04(push, NV30_3D(TEX_OFFSET(unit)), 8);
+          PUSH_MTHDl(push, NV30_3D(TEX_OFFSET(unit)), BUFCTX_FRAGTEX(unit),
+-                          mt->base.bo, 0, NOUVEAU_BO_VRAM | NOUVEAU_BO_RD);
++                          mt->base.bo, 0, nv30_bo_domain(mt->base.bo) | NOUVEAU_BO_RD);
+          PUSH_MTHDs(push, NV30_3D(TEX_FORMAT(unit)), BUFCTX_FRAGTEX(unit),
+-                          mt->base.bo, format, NOUVEAU_BO_VRAM | NOUVEAU_BO_RD,
++                          mt->base.bo, format, nv30_bo_domain(mt->base.bo) | NOUVEAU_BO_RD,
+                           NV30_3D_TEX_FORMAT_DMA0,
+                           NV30_3D_TEX_FORMAT_DMA1);
+          PUSH_DATA (push, sv->wrap | (ss->wrap & sv->wrap_mask));
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_miptree.c b/src/gallium/drivers/nouveau/nv30/nv30_miptree.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_miptree.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_miptree.c
+@@ -27,6 +27,8 @@
+ #include "util/u_inlines.h"
+ #include "util/u_surface.h"
+ #include "util/os_time.h"
++#include "util/log.h"
++#include "util/u_atomic.h"
+ 
+ #include "nv_m2mf.xml.h"
+ #include "nv_object.xml.h"
+@@ -121,7 +123,7 @@ define_rect(struct pipe_resource *pt, unsigned level, unsigned z,
+    }
+ 
+    rect->bo     = mt->base.bo;
+-   rect->domain = NOUVEAU_BO_VRAM;
++   rect->domain = nv30_bo_domain(mt->base.bo);
+    rect->offset = layer_offset(pt, level, z);
+    rect->cpp    = util_format_get_blocksize(pt->format);
+ 
+@@ -847,12 +849,35 @@ nv30_miptree_create(struct pipe_screen *pscreen,
+    ret = nouveau_bo_new(dev, NOUVEAU_BO_VRAM |
+                         (nv30_screen(pscreen)->base.is_ps3 ? NOUVEAU_BO_MAP : 0),
+                         256, size, NULL, &mt->base.bo);
++   mt->base.domain = NOUVEAU_BO_VRAM;
++
++   /* PS3: the CPU-visible VRAM (215 MB less X's buffers) is full, and ps3rsx has already
++    * taken back what the VRAM swap held. A game whose textures don't fit (Trigger Rally keeps
++    * every level's menu thumbnails) then drew untextured whatever came last (its car, sky and
++    * buildings), and st retried the allocation at every draw. The RSX samples from main
++    * memory too, and renders into it (the blit's GART destinations, 0007): put the texture in
++    * GART, which costs RAM while it lives. Depth buffers and window/shared buffers stay in
++    * VRAM (the scanout and DRI3 back buffers have their own fallback, 0054). */
++   if (ret && nv30_screen(pscreen)->gart_textures &&
++       !(pt->bind & (PIPE_BIND_DEPTH_STENCIL | PIPE_BIND_SCANOUT | PIPE_BIND_SHARED |
++                     PIPE_BIND_DISPLAY_TARGET))) {
++      ret = nouveau_bo_new(dev, NOUVEAU_BO_GART | NOUVEAU_BO_MAP, 256, size, NULL,
++                           &mt->base.bo);
++      if (!ret) {
++         struct nv30_screen *screen = nv30_screen(pscreen);
++
++         mt->base.domain = NOUVEAU_BO_GART;
++         if (p_atomic_inc_return(&screen->gart_textures_made) == 1)
++            mesa_logw("nv30: no VRAM for a %u KiB texture, placed in GART "
++                      "(and the next ones that don't fit; NV30_GART_TEXTURES=0: off)",
++                      size >> 10);
++      }
++   }
+    if (ret) {
+       FREE(mt);
+       return NULL;
+    }
+ 
+-   mt->base.domain = NOUVEAU_BO_VRAM;
+    return &mt->base.base;
+ }
+ 
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_screen.c b/src/gallium/drivers/nouveau/nv30/nv30_screen.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_screen.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_screen.c
+@@ -556,6 +556,7 @@ nv30_screen_create(struct nouveau_device *dev)
+     */
+    const bool ps3 = screen->base.is_ps3;
+    screen->ps3_vbo_fifo = ps3 && debug_get_bool_option("NV30_PS3_VBO_FIFO", false);
++   screen->gart_textures = ps3 && debug_get_bool_option("NV30_GART_TEXTURES", true);
+    screen->tex_invalidate_always = debug_get_bool_option("NV30_TEX_INVALIDATE_ALWAYS", false);
+    screen->vtx_invalidate_draw = debug_get_bool_option("NV30_VTX_INVALIDATE_DRAW", false);
+    screen->vtxfmt_always = debug_get_bool_option("NV30_VTXFMT_ALWAYS", false);
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_screen.h b/src/gallium/drivers/nouveau/nv30/nv30_screen.h
+--- a/src/gallium/drivers/nouveau/nv30/nv30_screen.h
++++ b/src/gallium/drivers/nouveau/nv30/nv30_screen.h
+@@ -28,6 +28,12 @@ struct nv30_screen {
+ 
+    bool ps3_vbo_fifo; /* PS3: push vertices inline instead of fetching (NV30_PS3_VBO_FIFO) */
+ 
++   /* PS3: a texture that finds no room in the CPU-visible VRAM goes to GART instead of
++    * failing (NV30_GART_TEXTURES, default on); gart_textures counts them, for the one-time
++    * warning */
++   bool gart_textures;
++   uint32_t gart_textures_made;
++
+    /* Bumped (atomically, by any context) whenever texture memory may have changed: a copy
+     * into or out of a texture, a new framebuffer (what was rendered may be sampled now), a
+     * flush (another context may sample what this one rendered). Each context invalidates the
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_state_validate.c b/src/gallium/drivers/nouveau/nv30/nv30_state_validate.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_state_validate.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_state_validate.c
+@@ -41,6 +41,8 @@ nv30_validate_fb(struct nv30_context *nv30)
+    struct pipe_framebuffer_state *fb = &nv30->framebuffer;
+    struct nouveau_pushbuf *push = nv30->base.pushbuf;
+    struct nouveau_object *eng3d = nv30->screen->eng3d;
++   /* the buffers behind COLOR0 to COLOR3 and ZETA, for their context DMAs on the PS3 */
++   struct nouveau_bo *dma_bo[5] = { NULL };
+    uint32_t rt_format;
+    int h = fb->height;
+    int w = fb->width;
+@@ -144,9 +146,11 @@ nv30_validate_fb(struct nv30_context *nv30)
+          PUSH_DATA (push, (zsf->pitch << 16) | rsf->pitch);
+       }
+       PUSH_MTHDl(push, NV30_3D(COLOR0_OFFSET), BUFCTX_FB, rbo, rsf->offset & ~63,
+-                       NOUVEAU_BO_VRAM | NOUVEAU_BO_RDWR);
++                       nv30_bo_domain(rbo) | NOUVEAU_BO_RDWR);
+       PUSH_MTHDl(push, NV30_3D(ZETA_OFFSET), BUFCTX_FB, zbo, zsf->offset & ~63,
+-                       NOUVEAU_BO_VRAM | NOUVEAU_BO_RDWR);
++                       nv30_bo_domain(zbo) | NOUVEAU_BO_RDWR);
++      dma_bo[0] = rbo;
++      dma_bo[4] = zbo;
+    }
+ 
+    if (nv30->state.rt_enable & NV30_3D_RT_ENABLE_COLOR1) {
+@@ -155,7 +159,8 @@ nv30_validate_fb(struct nv30_context *nv30)
+ 
+       BEGIN_NV04(push, NV30_3D(COLOR1_OFFSET), 2);
+       PUSH_MTHDl(push, NV30_3D(COLOR1_OFFSET), BUFCTX_FB, bo, sf->offset,
+-                       NOUVEAU_BO_VRAM | NOUVEAU_BO_RDWR);
++                       nv30_bo_domain(bo) | NOUVEAU_BO_RDWR);
++      dma_bo[1] = bo;
+       PUSH_DATA (push, sf->pitch);
+    }
+ 
+@@ -165,7 +170,8 @@ nv30_validate_fb(struct nv30_context *nv30)
+ 
+       BEGIN_NV04(push, NV40_3D(COLOR2_OFFSET), 1);
+       PUSH_MTHDl(push, NV40_3D(COLOR2_OFFSET), BUFCTX_FB, bo, sf->offset,
+-                       NOUVEAU_BO_VRAM | NOUVEAU_BO_RDWR);
++                       nv30_bo_domain(bo) | NOUVEAU_BO_RDWR);
++      dma_bo[2] = bo;
+       BEGIN_NV04(push, NV40_3D(COLOR2_PITCH), 1);
+       PUSH_DATA (push, sf->pitch);
+    }
+@@ -176,10 +182,40 @@ nv30_validate_fb(struct nv30_context *nv30)
+ 
+       BEGIN_NV04(push, NV40_3D(COLOR3_OFFSET), 1);
+       PUSH_MTHDl(push, NV40_3D(COLOR3_OFFSET), BUFCTX_FB, bo, sf->offset,
+-                       NOUVEAU_BO_VRAM | NOUVEAU_BO_RDWR);
++                       nv30_bo_domain(bo) | NOUVEAU_BO_RDWR);
++      dma_bo[3] = bo;
+       BEGIN_NV04(push, NV40_3D(COLOR3_PITCH), 1);
+       PUSH_DATA (push, sf->pitch);
+    }
++
++   /* PS3: a render target may be a texture that went to GART (nv30_miptree_create): point the
++    * surface's context DMA at GART. Only while one is there, or one was since the DMAs were
++    * last all VRAM (state.fb_dma_gart): otherwise the stream is unchanged. */
++   if (nv30->screen->base.is_ps3) {
++      struct nv04_fifo *fifo = push->channel->data;
++      bool gart = false;
++      uint32_t dma[5];
++      int i;
++
++      for (i = 0; i < 5; i++) {
++         dma[i] = (dma_bo[i] && nv30_bo_domain(dma_bo[i]) == NOUVEAU_BO_GART) ?
++                  fifo->gart : fifo->vram;
++         gart |= dma[i] == fifo->gart;
++      }
++      if (gart || nv30->state.fb_dma_gart) {
++         BEGIN_NV04(push, NV30_3D(DMA_COLOR1), 1);
++         PUSH_DATA (push, dma[1]);
++         BEGIN_NV04(push, NV30_3D(DMA_COLOR0), 2);
++         PUSH_DATA (push, dma[0]);
++         PUSH_DATA (push, dma[4]);	/* ZETA */
++         if (eng3d->oclass >= NV40_3D_CLASS) {
++            BEGIN_NV04(push, NV40_3D(DMA_COLOR2), 2);
++            PUSH_DATA (push, dma[2]);
++            PUSH_DATA (push, dma[3]);
++         }
++         nv30->state.fb_dma_gart = gart;
++      }
++   }
+ }
+ 
+ static void
+@@ -464,6 +500,7 @@ nv30_state_context_switch(struct nv30_context *nv30)
+       nv30->state.num_vtxelts = 16;
+       nv30->state.index_bias = INT32_MIN;
+       nv30->state.prim_restart = 2;
++      nv30->state.fb_dma_gart = true;	/* the surface DMAs: unknown */
+    }
+    nv30->dirty = NV30_NEW_ALL;
+ 
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_transfer.c b/src/gallium/drivers/nouveau/nv30/nv30_transfer.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_transfer.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_transfer.c
+@@ -181,7 +181,7 @@ nv30_transfer_rect_blit(XFER_ARGS)
+    struct nouveau_pushbuf_refn refs[] = {
+       { fp->bo, fp->domain | NOUVEAU_BO_RD },
+       { src->bo, src->domain | NOUVEAU_BO_RD },
+-      { dst->bo, NOUVEAU_BO_VRAM | NOUVEAU_BO_WR },
++      { dst->bo, dst->domain | NOUVEAU_BO_WR },
+    };
+    if (!PUSH_SPACE_EX(push, 512, 8, 0) ||
+        PUSH_REFN(push, refs, ARRAY_SIZE(refs)))
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_winsys.h b/src/gallium/drivers/nouveau/nv30/nv30_winsys.h
+--- a/src/gallium/drivers/nouveau/nv30/nv30_winsys.h
++++ b/src/gallium/drivers/nouveau/nv30/nv30_winsys.h
+@@ -21,6 +21,14 @@
+ #define NV40_3D_PRIM_RESTART_ENABLE 0x1dac
+ #define NV40_3D_PRIM_RESTART_INDEX  0x1db0
+ 
++/* Where a texture's buffer is: VRAM, or GART for a PS3 texture that found no VRAM
++ * (nv30_miptree_create) or an imported buffer the kernel placed there. As PUSH_MTHDs decides. */
++static inline uint32_t
++nv30_bo_domain(struct nouveau_bo *bo)
++{
++   return (bo->flags & NOUVEAU_BO_VRAM) ? NOUVEAU_BO_VRAM : NOUVEAU_BO_GART;
++}
++
+ static inline void
+ PUSH_RELOC(struct nouveau_pushbuf *push, struct nouveau_bo *bo, uint32_t offset,
+       uint32_t flags, uint32_t vor, uint32_t tor)

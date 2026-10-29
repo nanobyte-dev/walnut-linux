@@ -66,6 +66,7 @@ on:
       - "pkg: teeworlds"
       - "pkg: tk-html3"
       - "pkg: tkinterweb"
+      - "pkg: trigger-rally"
       - "pkg: uqm"
       - "pkg: walnut-games"
       - "pkg: warmux"

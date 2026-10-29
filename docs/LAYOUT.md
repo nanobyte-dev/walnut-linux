@@ -127,6 +127,7 @@ gamedb/README.md.
 | `games/scorched3d/packages/scorched3d/` | [Scorched3D](../gamedb/games/scorched3d/) | Debian's `scorched3d` 44+dfsg-8 | 1 |
 | `games/supertuxkart/packages/supertuxkart/` | [SuperTuxKart](../gamedb/games/supertuxkart/) | Debian's `supertuxkart` 1.5-2 | 7 |
 | `games/teeworlds/packages/teeworlds/` | [Teeworlds](../gamedb/games/teeworlds/) | Debian's `teeworlds` 0.7.5-3 | 1 |
+| `games/trigger-rally/packages/trigger-rally/` | [Trigger Rally](../gamedb/games/trigger-rally/) | Debian's `trigger-rally` 0.6.6.1-4 | 2 |
 | `games/uqm/packages/uqm/` | [The Ur-Quan Masters](../gamedb/games/uqm/) | Debian's `uqm` 0.8.0+dfsg-4 | none (+ `packaging/`) |
 | `games/warmux/packages/warmux/` | [Warmux](../gamedb/games/warmux/) | Debian's `warmux` 1:11.04.1+repack2-6 | 2 |
 | `games/warzone2100/packages/warzone2100/` | [Warzone 2100](../gamedb/games/warzone2100/) | upstream tarball (`upstream.mk`) | 10 (+ `debian/`) |

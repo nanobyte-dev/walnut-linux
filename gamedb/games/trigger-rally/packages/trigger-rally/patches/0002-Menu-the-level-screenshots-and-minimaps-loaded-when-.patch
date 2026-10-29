@@ -1,0 +1,192 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Fri, 30 Oct 2026 00:52:56 +0200
+Subject: Menu: the level screenshots and minimaps loaded when a level is shown
+
+loadLevel loaded every level's screenshot and minimap at the start, for
+the menu's level screens: about 190 levels (the single races and the
+events' own), some 380 pictures of 256x256, about 127 MB of textures with
+their mipmaps, decoded before the menu shows. On the PS3 that filled the
+GPU's memory, so the race's own textures (the car, the sky, the
+buildings) failed to allocate and the race drew without them.
+
+loadLevel now keeps the paths. The two level screens load their level's
+pair when they show it (MainApp::menuThumb: the same texture, mipmapped,
+as before), and the previous level's pair is freed; starting a race frees
+it too. Nothing else used the pictures (the race's map is the terrain's
+own HUD map). A level without a picture, or one that fails to load,
+shows the "no screenshot" / "no minimap" picture, as before.
+
+Forwarded: not-needed
+
+diff --git a/src/Trigger/main.cpp b/src/Trigger/main.cpp
+--- a/src/Trigger/main.cpp
++++ b/src/Trigger/main.cpp
+@@ -937,8 +937,8 @@ bool MainApp::loadLevel(TriggerLevel &tl)
+   tl.targettime = "";
+   tl.targettimeshort = "";
+   tl.targettimefloat = 0.0f;
+-  tl.tex_minimap = nullptr;
+-  tl.tex_screenshot = nullptr;
++  tl.minimap.clear();
++  tl.screenshot.clear();
+ 
+   XMLDocument xmlfile;
+   XMLElement *rootelem = PUtil::loadRootElement(xmlfile, tl.filename, "level");
+@@ -964,13 +964,14 @@ bool MainApp::loadLevel(TriggerLevel &tl)
+ 
+   val = rootelem->Attribute("screenshot");
+ 
++  // only the paths: the menu loads the pictures of the level it shows (menuThumb)
+   if (val != nullptr)
+-    tl.tex_screenshot = getSSTexture().loadTexture(PUtil::assemblePath(val, tl.filename));
++    tl.screenshot = PUtil::assemblePath(val, tl.filename);
+ 
+   val = rootelem->Attribute("minimap");
+ 
+   if (val != nullptr)
+-    tl.tex_minimap = getSSTexture().loadTexture(PUtil::assemblePath(val, tl.filename));
++    tl.minimap = PUtil::assemblePath(val, tl.filename);
+ 
+   for (XMLElement *walk = rootelem->FirstChildElement();
+     walk; walk = walk->NextSiblingElement()) {
+@@ -1278,6 +1279,8 @@ void MainApp::unload()
+ {
+   endGame(Gamefinish::not_finished);
+ 
++  menuThumbsFree();
++
+   delete psys_dirt;
+ }
+ 
+@@ -1289,6 +1292,12 @@ bool MainApp::startGame(const std::string &filename)
+ {
+   PUtil::outLog() << "Starting level \"" << filename << "\"" << std::endl;
+ 
++  // the race needs the video memory more than the menu's pictures; the menu's widgets
++  // go with them (the menu is made again after the race; were it drawn after a failed
++  // start, it would draw freed textures)
++  gui.clear();
++  menuThumbsFree();
++
+   // mouse is grabbed during the race
+   grabMouse(true);
+ 
+diff --git a/src/Trigger/menu.cpp b/src/Trigger/menu.cpp
+--- a/src/Trigger/menu.cpp
++++ b/src/Trigger/menu.cpp
+@@ -402,15 +402,10 @@ void MainApp::levelScreenAction(int action, int index)
+     gui.addLabel(700.0f, 462.5f, events[lss.currentevent].levels[lss.currentlevel].targettimeshort,
+         PTEXT_HZA_RIGHT | PTEXT_VTA_TOP, 20.0f);
+ 
+-    if (events[lss.currentevent].levels[lss.currentlevel].tex_screenshot != nullptr)
+-        gui.addGraphic(100, 175, 250.0f * 4/3, 250, events[lss.currentevent].levels[lss.currentlevel].tex_screenshot);
+-    else
+-        gui.addGraphic(100, 175, 250.0f * 4/3, 250, tex_race_no_screenshot);
+-
+-    if (events[lss.currentevent].levels[lss.currentlevel].tex_minimap != nullptr)
+-        gui.addGraphic(450, 175, 250, 250, events[lss.currentevent].levels[lss.currentlevel].tex_minimap);
+-    else
+-        gui.addGraphic(450, 175, 250, 250, tex_race_no_minimap);
++    gui.addGraphic(100, 175, 250.0f * 4/3, 250,
++        menuThumb(0, events[lss.currentevent].levels[lss.currentlevel].screenshot, tex_race_no_screenshot));
++    gui.addGraphic(450, 175, 250, 250,
++        menuThumb(1, events[lss.currentevent].levels[lss.currentlevel].minimap, tex_race_no_minimap));
+ 
+     gui.addLabel(100.0f,150.0f, events[lss.currentevent].levels[lss.currentlevel].description,
+         PTEXT_HZA_LEFT | PTEXT_VTA_TOP, 20.0f);
+@@ -493,15 +488,10 @@ void MainApp::levelScreenAction(int action, int index)
+         PTEXT_HZA_LEFT | PTEXT_VTA_TOP, 20.0f, LabelStyle::Weak);
+     gui.addLabel(700.0f, 462.5f, levels[lss.currentlevel].targettimeshort, PTEXT_HZA_RIGHT | PTEXT_VTA_TOP, 20.0f);
+ 
+-    if (levels[lss.currentlevel].tex_screenshot != nullptr)
+-        gui.addGraphic(100, 175, 250.0f * 4/3, 250, levels[lss.currentlevel].tex_screenshot);
+-    else
+-        gui.addGraphic(100, 175, 250.0f * 4/3, 250, tex_race_no_screenshot);
+-
+-    if (levels[lss.currentlevel].tex_minimap != nullptr)
+-        gui.addGraphic(450, 175, 250, 250, levels[lss.currentlevel].tex_minimap);
+-    else
+-        gui.addGraphic(450, 175, 250, 250, tex_race_no_minimap);
++    gui.addGraphic(100, 175, 250.0f * 4/3, 250,
++        menuThumb(0, levels[lss.currentlevel].screenshot, tex_race_no_screenshot));
++    gui.addGraphic(450, 175, 250, 250,
++        menuThumb(1, levels[lss.currentlevel].minimap, tex_race_no_minimap));
+ 
+     gui.addLabel(100.0f,150.0f, levels[lss.currentlevel].description, PTEXT_HZA_LEFT | PTEXT_VTA_TOP, 20.0f);
+     gui.makeDefault(
+@@ -825,6 +815,46 @@ void MainApp::levelScreenAction(int action, int index)
+   //gui.doLayout();
+ }
+ 
++///
++/// @brief The level picture the menu shows in a slot (0 the screenshot, 1 the minimap),
++///   loaded when the menu shows it, as loadLevel did for every level at the start
++///   (the same texture, mipmapped): one level's pair is in memory, not all ~190 levels'.
++///   The fallback when the level has none or it fails to load.
++///
++PTexture *MainApp::menuThumb(int slot, const std::string &path, PTexture *fallback)
++{
++  if (path.empty())
++    return fallback;
++
++  if (path != thumb_path[slot]) {
++    // the menu's widgets were cleared before the screen is made again: the old one is unused
++    delete thumb_tex[slot];
++    thumb_tex[slot] = nullptr;
++    thumb_path[slot] = path;
++
++    try
++    {
++      thumb_tex[slot] = new PTexture(path, true, false);
++    }
++    catch (PException &e)
++    {
++      if (PUtil::isDebugLevel(DEBUGLEVEL_ENDUSER))
++        PUtil::outLog() << "Failed to load " << path << ": " << e.what() << std::endl;
++    }
++  }
++
++  return thumb_tex[slot] != nullptr ? thumb_tex[slot] : fallback;
++}
++
++void MainApp::menuThumbsFree()
++{
++  for (int i = 0; i < 2; i++) {
++    delete thumb_tex[i];
++    thumb_tex[i] = nullptr;
++    thumb_path[i].clear();
++  }
++}
++
+ void MainApp::finishRace(Gamefinish state, float coursetime)
+ {
+ 	switch (lss.state)
+diff --git a/src/include/main.h b/src/include/main.h
+--- a/src/include/main.h
++++ b/src/include/main.h
+@@ -251,8 +251,8 @@ struct TriggerLevel {
+ 
+ 	float targettimefloat;
+ 
+-	PTexture *tex_minimap = nullptr;
+-	PTexture *tex_screenshot = nullptr;
++	/// the menu's pictures of the level, loaded when the menu shows it (MainApp::menuThumb)
++	std::string minimap, screenshot;
+ };
+ 
+ ///
+@@ -496,6 +496,13 @@ private:
+ 	void padMenuKey(SDL_Keycode sym);
+ 	void padMenuButton(int button);
+ 
++	// the level screenshot (0) and minimap (1) the menu shows, loaded when it shows them
++	PTexture *thumb_tex[2] = { nullptr, nullptr };
++	std::string thumb_path[2];
++
++	PTexture *menuThumb(int slot, const std::string &path, PTexture *fallback);
++	void menuThumbsFree();
++
+ public:
+ 
+ 	LevelState lss;

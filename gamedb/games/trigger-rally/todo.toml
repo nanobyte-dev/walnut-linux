@@ -31,7 +31,11 @@ text = """\
 Textures missing in the race: the car black, buildings and rocks flat grey, the sky a grey gradient, while the \
 terrain and the HUD are textured; dmesg has a stream of `ps3rsx: out of VRAM` failures for 1024x1024 (5464 KiB \
 with mips), 512x512 and 256x256 textures. The game's textures don't fit the CPU-visible VRAM next to Xorg, and \
-nv30 asks for VRAM only (technical.md "Textures missing")."""
+nv30 asks for VRAM only (technical.md "Textures missing"). Fixes: Mesa 0055 (a texture that finds no VRAM goes to \
+GART; ps3.1148~dev) and our package's patch 0002 (the menu thumbnails loaded when shown). Test on the PS3: the car, \
+sky and buildings textured, dmesg without a stream of `out of VRAM` lines; with Debian's game and the new Mesa one \
+`nv30: no VRAM for a ... texture, placed in GART` line, and `NV30_GART_TEXTURES=0` brings the missing textures back \
+(the same-boot A/B)."""
 
 [[item]]
 kind = "fix"
@@ -40,4 +44,6 @@ source = "played session 2026-10-29 (ps3-bench-20261029T221408Z-session-trigger-
 text = """\
 The DualShock 3 drives nothing and the menus answer only the mouse: the game's default configuration ships \
 both joystick blocks with enable="no" (upstream). Console default: a pad scheme like our other games' \
-(technical.md "The gamepad")."""
+(technical.md "The gamepad"). Fix: our package's patch 0001, a built-in scheme through SDL's game controllers \
+(0.6.6.1-4+ps3.931~dev). Test on the PS3: "Game controller: PS3 Controller" in the log, the menus by d-pad and \
+Cross/Circle, a race with R2/L2 at rest doing nothing, steering, handbrake, Start pausing with the scheme shown."""

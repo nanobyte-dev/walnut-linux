@@ -51,3 +51,4 @@
 0052-nv30-no-A16-X16-textures-on-the-PS3.patch
 0053-nouveau-nv30-recover-from-a-submission-ps3rsx-cancel.patch
 0054-loader-dri3-keep-the-back-buffers-we-have-when-anoth.patch
+0055-nv30-on-the-PS3-a-texture-that-finds-no-VRAM-goes-to.patch
