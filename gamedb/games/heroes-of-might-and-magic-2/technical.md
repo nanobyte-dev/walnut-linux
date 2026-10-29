@@ -1,5 +1,12 @@
 # Heroes of Might and Magic II (fheroes2): technical notes
 
+## Status
+
+Our `fheroes2` 1.1.17+dfsg-1+ps3.N ([packages/fheroes2](packages/fheroes2/)): Debian's contrib source built for
+ppc64 unchanged (debian-ports builds nothing from contrib). Built on 2026-10-29; not run on the PS3 yet. The
+engine reads the player's Heroes II data from `~/.local/share/fheroes2` or `/usr/share/games/fheroes2` (its
+`DATA/` and `MAPS/` folders: HEROES2.AGG and the maps from the original game, GOG's install or the demo).
+
 Also known as: fheroes2 (the engine).
 
 ## Research

@@ -27,6 +27,7 @@ on:
       - "pkg: dsda-doom"
       - "pkg: endless-sky"
       - "pkg: etr"
+      - "pkg: fheroes2"
       - "pkg: fluidsynth"
       - "pkg: game-data-packager"
       - "pkg: hedgewars"

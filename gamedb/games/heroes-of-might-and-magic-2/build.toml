@@ -1,0 +1,4 @@
+# How Heroes of Might and Magic II is built, installed and integrated (gamedb/README.md "build.toml").
+# The engine is fheroes2 (Debian contrib 1.1.17, which debian-ports doesn't build: ours for ppc64,
+# packages/fheroes2); the game data is the player's own (the original CD or GOG install, or the demo).
+packages = ["fheroes2"]
