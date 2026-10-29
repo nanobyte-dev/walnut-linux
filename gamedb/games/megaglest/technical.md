@@ -38,7 +38,9 @@ Xvfb, "forced change of resolution to desktop values"). After that the player's 
 on the PS3 on one scenario (`--load-scenario=amazones`, 2026-10-29): Debian's settings 22 fps with 29.3 s of
 stalls in 90; `Shadows=Disabled` 23 fps / 25.9 s; that plus `NV30_FORCE_DXT=all` 22 fps / 31.6 s with 16 MB
 less VRAM: within one run's noise, so neither is shipped. The stalls are the swap (~150 MB of the game on
-disk): a memory job, not a GPU setting. State: the entry built (ps3-games-integration), pending its PS3 test.
+disk): a memory job, not a GPU setting. Checked on the PS3 with megaglest 0001 (2026-10-29): the entry's
+start writes the glestuser.ini and the main menu comes up fullscreen 1920x1080 in game mode, still up at
+110 s.
 
 ## Research
 
