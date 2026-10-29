@@ -30,8 +30,9 @@ a fresh configuration started in a 640x480 window and asked for a game resolutio
 run, 2026-10-29); now fullscreen is the default and the first run picks the resolution as fheroes2 does on
 handheld devices (the widest at the original's height, scaled to the screen) without the dialog; the
 greeting and the language list (English preselected) stay. On the PC (amd64 build, Xvfb 1920x1080, the
-player's data): fullscreen 1920x1080 with the game's 4:3 picture in the middle, the language list up.
-Pending its PS3 test (recipe variant `fresh`).
+player's data): fullscreen 1920x1080 with the game's 4:3 picture in the middle, the language list up. On
+the PS3 (2026-10-29, `ps3-bench-20261029T050424Z-smoke-heroes-of-might-and-magic-2-fresh`, no config):
+fullscreen 1920x1080, the 4:3 picture scaled up in the middle, English preselected, no resolution question.
 
 ## Research
 

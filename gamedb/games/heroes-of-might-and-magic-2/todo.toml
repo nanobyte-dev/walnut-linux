@@ -6,10 +6,8 @@ kind = "package"
 added = 2026-10-29
 source = "games night 2026-10-28 (smoke)"
 text = """\
-Console defaults in our fheroes2: done in 0001 (fullscreen by default, the first run picks the \
-resolution without its dialog; the language list stays, English preselected; technical.md \"Our \
-package\"), pending its PS3 test: `run.sh smoke heroes-of-might-and-magic-2 fresh`. Then a pad check \
-(fheroes2 has controller support)."""
+A pad check: fheroes2 has controller support (the cursor on the stick); with the virtual DS3 \
+(smoke.inc smoke_pad) or in a played session. The console defaults are done (0001, checked)."""
 
 [[item]]
 kind = "session"
