@@ -232,7 +232,23 @@ responsiveness. The `dcbz` memcpy trap is [graphics.md](graphics.md#the-dcbz-mem
 
 - **Effort:** M. **Needs:** PS3. **Status:** never measured.
 - **Source:** PLAN 4.14.
-- **A browser with JavaScript:** [research/BROWSERS.md](../research/BROWSERS.md) (2026-10-28). The user picked WebKitGTK; the shell is packaged (`badwolf`, PLAN 4.16), but Debian's WebKitGTK 2.52.6 aborts on nearly every page on the PS3 (big-endian CompactVariant, WebKit bug 300442) and 2.54 has no big-endian build at all. The choices (our own WebKitGTK 2.52 build with a fix, NetSurf with DOM-driven relayout, ...) wait for the user.
+- **A browser with JavaScript:** [research/BROWSERS.md](../research/BROWSERS.md) (2026-10-28). The user picked WebKitGTK and then our own 2.52.6 build (PLAN 4.16): `webkit2gtk` with the big-endian fixes and the `badwolf` shell are packaged and measured on the PC; the PS3 test is next. Video in the browser after the RSX 0x105 fix; Skia on big-endian (WebKitGTK 2.54+) below.
+
+### Skia on big-endian
+
+Rank 80. WebKitGTK 2.52 is the last branch with a Cairo renderer; from 2.54 Skia is the only one, and
+Skia stops a big-endian build in its config header ("not endian-savvy enough"). Our browser engine
+(`webkit2gtk 2.52.6-1+ps3.N`, [research/BROWSERS.md](../research/BROWSERS.md)) therefore gets no
+upstream security fixes. A big-endian Skia would unlock WebKitGTK 2.54 and later (and WPE), and
+Ladybird, whose other blockers (Qt 6, memory) are smaller.
+
+- **Effort:** unknown, probably L. **Needs:** host, then PS3. **Status:** not started; research first.
+- **Start with:** what Firefox does (it byte-swaps around Skia's little-endian-only code,
+  Mozilla bug 1504834) and the 69 patches of [zeldin/chromium_be](https://github.com/zeldin/chromium_be),
+  which carry Skia for Chromium on big-endian; the size of Skia's pixel-format and SkRasterPipeline code
+  that assumes BGRA/RGBA byte order; whether WebKit's Skia use (CPU raster, no GPU on GL 2.1) needs only
+  a subset; whether upstream Skia takes such patches.
+- **Source:** the user, 2026-10-28 (to the backlog, for later).
 
 ### GameOS auto-mount at boot
 

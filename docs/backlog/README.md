@@ -108,6 +108,7 @@ game's backlog, `gamedb/games/<id>/todo.toml`, where its details are.
 | 77 | [The SSD root image is nearly full](platform.md#the-ssd-root-image-is-nearly-full) | room for more games | M | user | - | - |
 | 78 | [ps3disk multi-region (packages/patched/kernel/linux/patches/ps3/0010): two bugs](platform.md#ps3disk-multi-region-packagespatchedkernellinuxpatchesps30010-two-bugs) | a failed probe and a remove that are safe | S | host, user | - | - |
 | 79 | [ps3fb's exception dump prints the wrong FIFO entries](graphics.md#ps3fbs-exception-dump-prints-the-wrong-fifo-entries) | wedges diagnosable from one dump | S | host, a reboot | - | - |
+| 80 | [Skia on big-endian](platform.md#skia-on-big-endian) | WebKitGTK 2.54+ and its security fixes, Ladybird | L? | host | 4.16 | - |
 | 72 | [Host tests run automatically](platform.md#host-tests-run-automatically) | tests that run without someone remembering | S-M | host | 5.9 | - |
 
 Parked by CLAUDE.md, not ranked: [video decoding on the SPEs](spu.md#video-decoding-on-the-spes)

@@ -55,11 +55,11 @@ NetSurf 3.11 (`netsurf-gtk`, in the image's base layer) is the browser: the defa
 The user picked WebKitGTK as Walnut's browser on 2026-10-28. Its shell is packaged: `badwolf` (Badwolf 1.4.0 with
 our patches, `packages/patched/desktop/badwolf/`): tabs, a location bar that also searches, back, forward, reload,
 a start page, downloads, the usual shortcuts, every tab in one web process, hardware acceleration off, JavaScript
-on, "Walnut" in the User-Agent, walnut:// links to the desktop. It is not the default and not in the image. On the
-PS3, Debian's WebKitGTK 2.52.6 crashes on nearly every page: its web process aborts in WebKit's CompactVariant
-code, which does not work on big-endian (WebKit bug 300442, open since 2.50), and WebKitGTK 2.54 dropped the Cairo
-renderer, the only one that builds on big-endian. The ways on are in
-[research/BROWSERS.md](research/BROWSERS.md#what-happened-on-the-ps3); they wait for the user. The desktop's side is ready for
+on, "Walnut" in the User-Agent, walnut:// links to the desktop. It is not the default and not in the image. Debian's
+WebKitGTK 2.52.6 crashes on nearly every page on the PS3 (big-endian bugs; 2.54 has no big-endian renderer at all), so
+the engine is our own build of 2.52.6, `webkit2gtk` (`packages/patched/desktop/webkit2gtk/`): the big-endian fixes,
+the GTK 3 flavour only, and no WebGL, WebRTC, WebAudio, speech synthesis and the like. It is built and waits for
+its PS3 test, which the user schedules ([research/BROWSERS.md](research/BROWSERS.md#where-it-stands)). The desktop's side is ready for
 the switch: ps3-game-detect never takes `badwolf` for a game, and switching is `mimeapps.list`, a tint2 launcher
 and the image list.
 

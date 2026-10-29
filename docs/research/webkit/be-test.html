@@ -1,0 +1,52 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>BE self-test</title>
+<style>body{font:20px sans-serif;margin:2em} .ok{color:#080} .bad{color:#c00} div.r{border-radius:12px;width:40%;padding:4px;border:2px solid #888}</style>
+<h1>WebKit big-endian self-test</h1>
+<div class="r">rounded corners, 40% width (CompactVariant)</div>
+<ol id="out"></ol>
+<canvas id="c" width="4" height="4"></canvas>
+<script>
+const out = document.getElementById("out");
+function check(name, got, want) {
+  const li = document.createElement("li");
+  const ok = got === want;
+  li.className = ok ? "ok" : "bad";
+  li.textContent = (ok ? "OK " : "FAIL ") + name + ": " + got + (ok ? "" : " (want " + want + ")");
+  out.appendChild(li);
+  document.title = document.title.replace(/ \d+\/\d+$/, "");
+}
+// 1. innerHTML from a 16-bit string (HTML fast parser, findInterleaved)
+const d = document.createElement("div");
+d.innerHTML = "☃ snow <b>bold</b> &amp; <i title=\"q☼\">it</i>" + " padding".repeat(8);
+check("innerHTML UTF-16 parse", d.querySelectorAll("b,i").length + " elements, " + d.textContent.slice(0, 18), "2 elements, ☃ snow bold & it p");
+// 2. Uint8Array hex (8-bit vector path)
+if (Uint8Array.prototype.toHex) {
+  const a = new Uint8Array([0x12, 0x34, 0xab, 0xcd, 0xef, 0x01, 0x23, 0x45, 0x67, 0x89, 0xfe, 0xdc, 0xba, 0x98, 0x76, 0x54, 0x32, 0x10]);
+  check("toHex", a.toHex(), "1234abcdef0123456789fedcba9876543210");
+  check("fromHex", Array.from(Uint8Array.fromHex("1234abcdef0123456789fedcba9876543210")).join(","), Array.from(a).join(","));
+} else check("toHex", "missing", "present");
+// 3. canvas readback (Cairo ARGB32 vs RGBA on big-endian)
+const cx = document.getElementById("c").getContext("2d");
+cx.fillStyle = "rgba(255,0,0,1)"; cx.fillRect(0, 0, 2, 4);
+cx.fillStyle = "rgba(0,0,255,0.5)"; cx.fillRect(2, 0, 2, 4);
+const px = cx.getImageData(0, 0, 4, 1).data;
+check("getImageData red", [px[0], px[1], px[2], px[3]].join(","), "255,0,0,255");
+check("getImageData half blue", [px[8], px[9], px[10], px[11]].join(","), "0,0,255,128");
+cx.putImageData(new ImageData(new Uint8ClampedArray([0, 255, 0, 255]), 1, 1), 0, 0);
+const g = cx.getImageData(0, 0, 1, 1).data;
+check("putImageData green", [g[0], g[1], g[2], g[3]].join(","), "0,255,0,255");
+// 4. typed arrays and DataView byte order
+const dv = new DataView(new ArrayBuffer(4)); dv.setUint32(0, 0x11223344);
+check("DataView big-endian read", new Uint8Array(dv.buffer)[0].toString(16), "11");
+check("typed arrays in native byte order (" + navigator.platform + ")", new Uint8Array(new Uint32Array([1]).buffer)[3] === 1 ? "big" : "little", /ppc|s390/.test(navigator.platform) && !/le$/.test(navigator.platform) ? "big" : "little");
+// 5. view transitions off without compositing
+check("startViewTransition offered", typeof document.startViewTransition, "undefined");
+// 6. JSON, Intl, regexp, Math
+check("JSON round trip", JSON.stringify(JSON.parse('{"a":[1,2.5,"é"]}')), '{"a":[1,2.5,"é"]}');
+check("Intl number", new Intl.NumberFormat("de-DE").format(1234567.891), "1.234.567,891");
+check("regexp unicode", "Grüße 😀".match(/\p{L}+/gu).join("|"), "Grüße");
+check("float to string", (0.1 + 0.2).toString(), "0.30000000000000004");
+const fails = document.querySelectorAll(".bad").length, all = document.querySelectorAll("li").length;
+document.title = "BE self-test " + (all - fails) + "/" + all;
+</script>

@@ -1,58 +1,79 @@
 # A browser with JavaScript on the PS3 (research, 2026-10-28)
 
 Walnut ships NetSurf 3.11 with JavaScript off. The user finds a browser without JavaScript of little use, and on
-2026-10-28 picked WebKitGTK as Walnut's browser (path A below). This note looks at what could run JavaScript on
-Debian sid ppc64 (big-endian, debian-ports) with 256 MB of XDR, the in-order Cell PPE and a GL 2.1 GPU, and at the
-two ways to make one fit: slim WebKitGTK, or teach NetSurf to redraw pages that scripts change. Ladybird was ruled
-out earlier (Skia has no big-endian support, Qt 6, memory) and is not repeated here.
+2026-10-28 picked WebKitGTK as Walnut's browser, then our own build of it (below). This note looks at what could run
+JavaScript on Debian sid ppc64 (big-endian, debian-ports) with 256 MB of XDR, the in-order Cell PPE and a GL 2.1
+GPU, and at the two ways to make one fit: slim WebKitGTK, or teach NetSurf to redraw pages that scripts change.
+Ladybird was ruled out earlier (Skia has no big-endian support, Qt 6, memory) and is not repeated here.
 
 ## Where it stands
 
-**WebKitGTK does not work on the PS3 as Debian ships it, and has no future on big-endian upstream.** The shell is
-done and packaged; the engine under it is the problem.
+**Our own WebKitGTK 2.52.6 build, with the big-endian fixes, is built and waits for its PS3 test.** The user chose
+it on 2026-10-28 over NetSurf with a relayout patch of ours ("I'd trust an unpatched WebKit more"), and asked for
+the features we don't need to be left out where that saves memory or attack surface.
 
+- **The engine:** `webkit2gtk 2.52.6-1+ps3.N` (`packages/patched/desktop/webkit2gtk/`): Debian's 2.52.6-1 source
+  (fetched from the 2026-09-25 snapshot; sid has moved to 2.54), only the GTK 3 (4.1 API) flavour Badwolf needs,
+  with the cuts in [Our build](#our-build) and seven patches of ours:
+  1. CompactVariant keeps a small payload in the storage's low-order bytes on big-endian (the abort on nearly
+     every page, WebKit [bug 300442](https://bugs.webkit.org/show_bug.cgi?id=300442); no patch upstream);
+  2. the LLInt read the callee at `Callee + PayloadOffset` when WebAssembly is off: fine where PayloadOffset is
+     0, but 4 on 64-bit big-endian, so every caught exception crashed (`try { null.x } catch {}` in `jsc`,
+     Wikipedia in the browser). Found by running our ppc64 build under qemu-user (below);
+  3. Cairo's ARGB32 pixels are native-endian words (A, R, G, B in memory on big-endian) but the canvas pixel
+     conversions read them as BGRA bytes: `getImageData` gave opaque red as transparent black;
+  4. the HTML fast parser's UTF-16 de-interleave (`SIMD::findInterleaved`) took the high bytes for the low ones on
+     big-endian, so `innerHTML` from a 16-bit string read tags as text;
+  5. `Uint8Array.fromHex`/`toHex` swapped nibbles on big-endian;
+  6. no view transitions without accelerated compositing: `document.startViewTransition()` forced compositing
+     mode, and a UI process without an accelerated backing store (Badwolf: acceleration NEVER, no DMA-BUF
+     renderer) crashed. YouTube took Badwolf down in seconds on the PC, with Debian's build too;
+  7. a missing include the smaller feature set exposes.
+  Built on the dev PC (`BUILD=xcc`, [PACKAGING.md](../PACKAGING.md#built-on-the-dev-pc)), never by CI; published
+  to testing from there once the PS3 test passes.
+- **Tested so far:** on the PC (amd64) the whole build, Badwolf on it and every page below. On ppc64, without
+  the PS3: fixes 1, 4 and 5 with standalone tests of the patched headers under qemu-user (the stock CompactVariant
+  aborts, the patched one passes; the stock `findInterleaved` missed '<' in 31 of 33 positions); then the ppc64
+  packages themselves in a ppc64 chroot under qemu-user with Xvfb, the way the PS3 runs them: `jsc` runs a set
+  of checks (JSON, Intl, BigInt, typed arrays, the hex methods) on the C_LOOP interpreter; Badwolf draws the
+  GameDB home (rounded corners, the filter's script running, "23 of 23 games"), the `?q=doom` page and the
+  [self-test page](webkit/be-test.html), whose canvas lines failed until fix 3; Wikipedia crashed the web process
+  until fix 2 (found from the qemu core: the faulting load was `convertJSCalleeToVM` on a half-pointer). How the
+  bugs were found besides: Debian's crash report, and a read of WTF, JSC and WebCore for the same class of bug
+  (a smaller value packed into the start of a wider word, byte-wise SIMD on 16-bit data, BGRA bytes).
+- **Not tested yet: the PS3.** The first PS3 session (2026-10-28) only got as far as the video baseline in mpv,
+  whose `--vo=gpu` wedged the RSX (graph exception 0x105, [RSX.md](../RSX.md#errors-and-what-wedges-the-gpu),
+  being fixed separately). The browser itself draws without GL (acceleration NEVER, no DMA-BUF renderer, no
+  GStreamer GL), so it does not use that path; video in the browser waits for that fix. The test plan is
+  [below](#ps3-test-plan).
 - **The shell:** `badwolf` 1.4.0-1+ps3.N (`packages/patched/desktop/badwolf/`, [DESKTOP.md](../DESKTOP.md#the-browser)),
-  built for ppc64 by CI, its unit tests passing on big-endian under qemu. Not the default and not in the image.
-  Why Badwolf and what the patches do: [The shell](#the-shell-badwolf).
-- **The engine:** Debian's `libwebkit2gtk-4.1-0` 2.52.6-1 installs on ppc64, but its web process aborts on nearly
-  every page. On the PS3 (2026-10-28) the GameDB home page stayed white; the web process died 29 s after the start
-  with SIGABRT in `WTF::CompactVariantOperations::encodedPayload`, reached from the style builder converting a
-  `border-radius` length ([What happened on the PS3](#what-happened-on-the-ps3)). It is WebKit
-  [bug 300442](https://bugs.webkit.org/show_bug.cgi?id=300442), "Crashes on ppc64 due to failed assertion in
-  wtf/CompactVariantOperations.h", filed by Debian's WebKit maintainer in October 2025 against 2.50.0 and still
-  NEW; nothing in WebKit's main branch handles byte order there.
+  built for ppc64 by CI. Not the default and not in the image. Why Badwolf and what the patches do:
+  [The shell](#the-shell-badwolf). It needs no rebuild for our engine (same API and soname).
 - **No newer engine:** WebKitGTK 2.54 removed the Cairo renderer, and Skia, the only one left, does not build on
   big-endian. Debian closed its ppc64 crash report ([#1117148](https://bugs.debian.org/1117148)) with "WebKitGTK no
-  longer supports big-endian architectures" and is removing webkit2gtk from s390x and the big-endian ports
-  ([#1148038](https://bugs.debian.org/1148038)). 2.52 is the last branch that builds here, and it is out of
-  upstream support now that 2.54 is out: no more security fixes.
+  longer supports big-endian architectures" and is removing webkit2gtk from the big-endian ports
+  ([#1148038](https://bugs.debian.org/1148038)). Porting Skia is in the backlog
+  ([platform.md](../backlog/platform.md#skia-on-big-endian)).
 
-**The cause, and a fix.** A CompactVariant packs a small value (at most 4 bytes: a float length, a percentage)
-into a `uint64_t` next to an 8-bit type index in bits 48-55, by placement-constructing the value at the start of
-the `uint64_t` (`new (&data) T(payload)`) and asserting that the top byte stays clear. On little-endian the start
-is the low-order bytes; on big-endian it is the high-order ones, so any non-zero float lands in the top byte and
-`RELEASE_ASSERT(!(data & topByteMask))` aborts. Constructing and reading the value at byte offset
-`sizeof(uint64_t) - sizeof(T)` on big-endian (in `encodedPayload`, `encodedPayloadFromArguments`,
-`decodedPayload` and `decodedConstPayload`) is a fix of about ten lines. Whether other big-endian faults follow
-is unknown: s390x was the only big-endian machine WebKit tested, and that stopped with 2.50.
+**Security: we carry 2.52 alone.** 2.52.6 is the last 2.52 release; WebKitGTK's security advisories now name
+2.54.x, and their fixes will not be backported to 2.52 by anyone but us. Each advisory's CVEs need reading against
+2.52, and the ones that apply (and are small enough) need porting into this package, for as long as we ship it.
+What makes the gap smaller: no JIT and no WebAssembly on ppc64 (the C_LOOP interpreter), which rules out the JIT
+bugs that make up much of WebKit's advisories; the features we leave out ([Our build](#our-build)); and our pages,
+the GameDB, being the main target. What makes it bigger: no sandbox (the bubblewrap sandbox needs user namespaces
+our kernel lacks, and the GTK 3 API never turns it on), so a web process runs with the user's rights; and the
+media stack (GStreamer, libav) parses whatever a page plays. A browser for our own pages and the occasional site is
+reasonable; daily browsing of arbitrary sites on an unmaintained engine is not, and the docs for users should say so.
 
-**The choices, for the user:**
-
-| Path | What it takes | Then |
-|---|---|---|
-| **A1. Our own WebKitGTK 2.52.6 build**, Debian's source plus the CompactVariant fix, as `webkit2gtk 2.52.6-1+ps3.N` (the 4.1 flavour only) | Debian's ppc64 buildd needed 3-5 h for both flavours on POWER; under qemu-user, most of a day per build, so in practice a cross build (two to four days to set up); 7-10 GB of tree in the overflow area; then a PS3 test to find what else breaks | A browser on an engine nobody upstream maintains for big-endian, without security fixes from now on; the shell, measurements and the default switch are ready |
-| **B. NetSurf with DOM-driven relayout** (section 5, a prototype that runs the GameDB filter) | 1-2 weeks | ES5 pages only, but light (84-90 MB) and ours |
-| C. Stay with NetSurf without JavaScript | nothing | as today |
-
-The original verdict below (path A first, "2-3 days") assumed Debian's 2.52 worked; it doesn't.
+The paths not taken (NetSurf with DOM-driven relayout, 1-2 weeks; NetSurf as it is; WPE with cog) stay below as
+background.
 
 | Path | What it gets us | Memory (PC, GameDB home) | Effort | Main risk |
 |---|---|---|---|---|
-| **A. A small shell on Debian's WebKitGTK, tuned at run time** | The real web: modern JavaScript, CSS grid, everything | 241 MB PSS, 200 MB without llvmpipe; 69 MB of it anonymous | Shell done (`badwolf`); **the engine needs our own build (A1)** | Big-endian WebKit is unmaintained upstream; CLoop speed on the PPE |
-| **B. NetSurf with DOM-driven relayout, minimal version** (prototype below, works on the PC) | Our own pages and simple ES5 scripts: filters, tabs, menus | 84-90 MB PSS with JavaScript on | **1-2 weeks** to ship as `netsurf 3.11-4+ps3.N` with the polyfills our site needs | ES5 only (Duktape): most of today's web still fails; a whole rebuild per change costs seconds on big pages on the PPE |
-| B2. NetSurf with incremental restyle and relayout | B, fast on big pages | as B | **2-4 months**, high risk | It is the dynamic layout engine NetSurf has planned since 2013 and never built |
-| C. Our own slimmed WebKitGTK build | A, minus a few MB and ~100 MB of disk | a few MB below A | as A1, plus the build options | Build time and disk (below); we would own a browser engine |
-| D. WPE + cog with an X11 platform | A without GTK in the UI process | not measured; perhaps 30-60 MB below A | **1 week** (rebuild cog), on the same broken engine | Same engine; no window manager integration |
+| **A. Our WebKitGTK 2.52 build, the Badwolf shell** (chosen) | The real web: modern JavaScript, CSS grid, everything | 208 MB PSS, 55 MB of it anonymous (Debian's build: 216 and 69) | Built; the PS3 test is next | Big-endian WebKit is unmaintained upstream, no security fixes; CLoop speed on the PPE |
+| B. NetSurf with DOM-driven relayout, minimal version (prototype below, works on the PC) | Our own pages and simple ES5 scripts: filters, tabs, menus | 84-90 MB PSS with JavaScript on | 1-2 weeks to ship as `netsurf 3.11-4+ps3.N` with the polyfills our site needs | ES5 only (Duktape): most of today's web still fails; a whole rebuild per change costs seconds on big pages on the PPE |
+| B2. NetSurf with incremental restyle and relayout | B, fast on big pages | as B | 2-4 months, high risk | It is the dynamic layout engine NetSurf has planned since 2013 and never built |
+| D. WPE + cog with an X11 platform | A without GTK in the UI process | not measured; perhaps 30-60 MB below A | 1 week (rebuild cog) | Same engine; no window manager integration |
 
 The memory numbers in this note were measured on the PC (amd64, Debian sid in a container, Xvfb, Mesa llvmpipe
 for GL): a guide to the order of magnitude, not PS3 numbers. ppc64 ELFv1 code is larger (libwebkit2gtk is 131 MB
@@ -315,41 +336,109 @@ credentials". So on our kernel the rule is simple: stay on the GTK 3 API and do 
 set `WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1` for a GTK 4 shell. Debian's package still depends on
 bubblewrap and xdg-dbus-proxy (disk only).
 
-### Build options, and building it ourselves
+### Our build
 
-Every WebKit option is an ordinary cmake cache variable; "private" ones are only hidden from the GUI, so
-`-DENABLE_WEBGL=OFF` works without patches. The ones that change memory at run time are few, because shared
-libraries are paged in on use:
+Every WebKit option is an ordinary cmake cache variable ("private" ones are only hidden from the GUI), so the
+cuts are `-D` flags in `debian/rules` (`packages/patched/desktop/webkit2gtk/packaging/`). What each one is in
+2.52's cmake (`Source/cmake/OptionsGTK.cmake`, `WebKitFeatures.cmake`, `GStreamerDefinitions.cmake`,
+`GStreamerDependencies.cmake`), and why it goes:
 
-- `ENABLE_WEBGL=OFF` also drops ANGLE and turns hardware acceleration off for good
-  (`HardwareAccelerationManager.cpp`: `#if !ENABLE(WEBGL)`), the build-time twin of the policy setting.
-- `USE_GSTREAMER=OFF` (takes `ENABLE_VIDEO`, `ENABLE_WEB_AUDIO`, WebCodecs and speech synthesis with it)
-  is the only way to keep the GStreamer libraries out of the processes and out of the image.
-- The rest mostly saves disk: `ENABLE_SPELLCHECK`, `ENABLE_INTROSPECTION`/`ENABLE_DOCUMENTATION`,
-  `ENABLE_JOURNALD_LOG`, `ENABLE_GAMEPAD`, `ENABLE_WEBDRIVER`, `ENABLE_MINIBROWSER`, `ENABLE_PDFJS`,
-  `ENABLE_SPEECH_SYNTHESIS`/`USE_FLITE`, `USE_LCMS`, `USE_JPEGXL`, `USE_AVIF`, `USE_WOFF2`,
-  `USE_LIBHYPHEN`, `ENABLE_MEDIA_STREAM`, `ENABLE_GEOLOCATION`. GTK has no switch for accessibility
-  (`USE_ATSPI` is hard-wired on); it costs nothing until an assistive tool connects.
-- `ENABLE_RESOURCE_USAGE` and `ENABLE_PERIODIC_MEMORY_MONITOR` are small; keep the latter, it drives the
-  memory pressure handler. WebAssembly and the JIT are already off on ppc64.
-- `CMAKE_BUILD_TYPE=MinSizeRel` is what meta-webkit's `reduce-size` PACKAGECONFIG does
-  ([meta-webkit](https://github.com/Igalia/meta-webkit)); smaller text, slower code, and CLoop speed is
-  already a worry. Buildroot's [wpewebkit.mk](https://github.com/buildroot/buildroot/blob/master/package/wpewebkit/wpewebkit.mk)
-  is the closest published minimal configuration (documentation, introspection, MiniBrowser, WebRTC and
-  ATK off; media, WebDriver, AVIF, JPEG XL and the like by option); its Config.in says big-endian PowerPC is
-  "pending runtime testing".
+| Left out | What it is in 2.52 | Memory | Attack surface it removes | Needed for ordinary browsing? |
+|---|---|---|---|---|
+| `ENABLE_WEBGL` (and `USE_ANGLE` with it; `ENABLE_WEBGPU` is off on GTK anyway) | WebGL 1 and 2 through ANGLE, linked into libwebkit2gtk; `HardwareAccelerationManager` turns acceleration off for good without it | nothing until a page uses WebGL | ANGLE's shader translator, and a path from any page to the GL driver: on the PS3, Mesa nv30 and the RSX, where one bad command wedges the GPU until a reboot | no: 3D games and demos |
+| `ENABLE_WEB_RTC`, `USE_GSTREAMER_WEBRTC` (off on GTK by default; kept off), `ENABLE_MEDIA_STREAM`, `ENABLE_MEDIA_RECORDER` | peer connections, camera and microphone capture, recording | small | ICE/STUN networking and device access from script | video calls only |
+| `ENABLE_WEB_AUDIO` | the audio graph API (needs GStreamer) | small | DSP and decoders driven from script; a fingerprinting source | some games and music sites; `<video>` sound does not need it |
+| `ENABLE_WEB_CODECS` | decoders and encoders called from script | small | codec input straight from script | rare |
+| `ENABLE_SPEECH_SYNTHESIS` (flite) | `speechSynthesis`, with flite's voices | **the biggest item:** flite and its voices are mapped into every web process (16 MB PSS on the PC) and set up at start (about 13 MB anonymous) | a C speech engine | no |
+| `ENABLE_ENCRYPTED_MEDIA` (off on GTK by default) | EME (DRM) | - | - | Netflix and the like, impossible here anyway |
+| `USE_GSTREAMER_GL` | GStreamer's GL sink for video | libgstgl and a GL context | GL again | no: frames go through the software path |
+| `ENABLE_GAMEPAD` | the Gamepad API through libmanette (evdev) | small | input devices | browser games |
+| `ENABLE_GEOLOCATION` | GeoClue over D-Bus | none until used | a D-Bus service | no |
+| `ENABLE_SPELLCHECK` | enchant and hunspell dictionaries in text fields | dictionaries when a field has focus | dictionary parsing | no, on a console |
+| `USE_LIBSECRET` | HTTP-auth passwords in the keyring over D-Bus | small | - | no keyring daemon on Walnut |
+| `USE_AVIF`, `USE_JPEGXL` | libavif (dav1d, aom) and libjxl decoders | none until an image comes | two large image decoders | no: sites send AVIF or JPEG XL only when the Accept header offers them, and send WebP or JPEG otherwise |
+| `ENABLE_PDFJS` | pdf.js, the PDF viewer in the library's resources | disk | a JavaScript application in the engine | no: PDFs download |
+| `ENABLE_WEBDRIVER`, `ENABLE_MINIBROWSER` | separate programs (`WebKitWebDriver`, MiniBrowser) | disk | an automation server | no |
+| `ENABLE_REMOTE_INSPECTOR` | the inspector server (`WEBKIT_INSPECTOR_SERVER`) | small | a debugging socket | no (whether Badwolf's local inspector, `WALNUT_BROWSER_DEVTOOLS`, still opens is not checked) |
+| `ENABLE_WAYLAND_TARGET` | WebKit's Wayland code; GTK 3 still links libwayland | small | - | no: Walnut is X11 |
+| `ENABLE_JOURNALD_LOG` | logging to journald instead of stderr | - | - | no |
+| `ENABLE_INTROSPECTION`, `ENABLE_DOCUMENTATION` | GObject introspection data and API docs | disk, build time | - | no: Badwolf is C |
+| `ENABLE_BUBBLEWRAP_SANDBOX` | the bwrap launcher for web processes | - | none: the sandbox needs user namespaces our kernel lacks and the GTK 3 API never turns it on, so it protected nothing here | drops the bubblewrap and xdg-dbus-proxy dependencies |
 
-So a slimmed build would save a few MB of mapped GStreamer and ANGLE and roughly 100 MB of disk (the
-GStreamer closure and friends), not a different class of memory. The cost is real: Debian's ppc64 buildd
-took 3 h 19 min to 4 h 56 min for 2.52.x on POWER hardware, with 14 GB of disk, for both GTK flavours
-([build logs](https://buildd.debian.org/status/logs.php?pkg=webkit2gtk&arch=ppc64)). Our native builds run
-in a ppc64 chroot under qemu-user (Mesa: 25 minutes cold); WebKit there would take most of a day per
-build. A cross build (our `gcc-16-powerpc64-linux-gnu`, the chroot as sysroot, cmake's toolchain file) would
-take one to two hours on the 24-core PC, but it is a new kind of build for us and two to four days to set
-up and package. Either way the tree (7-10 GB for one flavour, plus ccache) belongs in the overflow area
-`/mnt/data_linux/Temp/ps3`, since /home is 80% full. And a browser engine of our own means following
-WebKitGTK's security releases (about monthly) for as long as we ship it. Not worth it unless the PS3 test
-shows that the few MB matter.
+Kept: `<video>` and Media Source with GStreamer, the user's decision of 2026-10-28 (video in the browser is tried
+on the PS3 before deciding), with `gstreamer1.0-libav` recommended for H.264, AAC, Opus, VP8 and VP9 and no
+`gstreamer1.0-plugins-bad` (Debian's package recommends it) or `gstreamer1.0-gl`. Accessibility has no switch
+(`USE_ATK` and `USE_ATSPI` are hard-wired for GTK 3); it maps 0.7 MB, the web process sets `NO_AT_BRIDGE` itself,
+and the UI process talks to an AT-SPI bus only if one runs. The allocator stays glibc's: libpas is enabled only
+on x86-64 and ARM64 Linux (`bmalloc/BPlatform.h`), every CPU without a JIT builds with `USE_SYSTEM_MALLOC`, and
+the old bmalloc has never run on big-endian. On the PC, Debian's build with `Malloc=1` (glibc in place of libpas
+at run time) took the same memory within the noise (216 against 218 MB on the GameDB home, 297 against 301 on
+Wikipedia), so nothing is lost there. Code is scheduled for the PPE (`-mtune=cell`; the instruction set stays
+the baseline, no AltiVec).
+
+**Measured on the PC** (amd64, Debian sid at the 2026-09-25 snapshot in a container, Xvfb, our Badwolf build;
+PSS of all processes 60 s after the start, anonymous in brackets; the variants interleaved per page). Debian's
+2.52.6-1 binaries against two builds of ours: as shipped, and with GStreamer (and so video and MSE) left out too.
+
+| Page | Debian 2.52.6-1 | Ours | Ours without GStreamer |
+|---|---:|---:|---:|
+| GameDB home | 216 (69) | 208 (55) | 190 (52) |
+| GameDB game page (OpenArena) | 215 (65) | 197 (51) | 185 (50) |
+| GameDB `?q=doom` | 224 (68) | 196 (54) | 159 (51) |
+| Wikipedia, "PlayStation 3" | 297 (127) | 270 (113) | 259 (110) |
+| BBC News | 402 (228) | 369 (221) | 373 (219) |
+| YouTube watch page (the consent dialog over the player) | Badwolf crashed (view transitions) | 728 (521) | 485 (312), "Your browser can't play this video" |
+
+The file-backed part moves by 10-30 MB between runs (how much of the library a run has touched: the `?q=doom`
+row); the anonymous memory is the steadier number. Ours saves 13-14 MB of anonymous memory on simple pages and
+7 MB on heavy ones, most of it flite's. Leaving out GStreamer saves about 3 MB of mapped libraries and 1-4 MB
+anonymous on pages without media, and 210 MB on YouTube, whose player fills media buffers in the web process
+(the PC's YouTube numbers include the x86 JIT; the PPE has none). YouTube on the PS3 is out of reach either way:
+its page alone is several times the console's memory.
+
+On disk (amd64) `libwebkit2gtk-4.1-0` installs 78.8 MB against Debian's 96.2 (74.7 MB without GStreamer);
+JavaScriptCore is unchanged at 32 MB. Its dependencies lose flite, libavif, libjxl, enchant, libmanette,
+libsecret, libseccomp, libsystemd's journald use, libgstreamer-gl, the Wayland libraries of its own,
+bubblewrap, xdg-dbus-proxy, `gstreamer1.0-plugins-bad` and the portal.
+
+### What the browser adds to the image
+
+Against the 0.1.0 image's package list (its MANIFEST), resolved with apt against the pinned ppc64 index:
+
+| | Packages | Installed |
+|---|---:|---:|
+| Badwolf on Debian's 2.52.6-1, no Recommends | 29 | 181 MB |
+| Badwolf on Debian's 2.52.6-1, with Recommends (as an image build would install it) | 89 | 253 MB |
+| Badwolf on ours, no Recommends | 24 | 154 MB |
+| Badwolf on ours, with Recommends (`gstreamer1.0-libav` and the rest) | 30 | 157 MB |
+
+`libwebkit2gtk-4.1-0` itself installs 105.5 MB on ppc64 against Debian's 131.1 MB; JavaScriptCore 23.5 MB
+against 24.1. Of the 154 MB, GStreamer is about 24 MB: `gstreamer1.0-plugins-good` (12 MB), `-base` (4 MB) and
+the libraries they pull in (TagLib, libcaca, v4l, libvisual, Theora, WavPack, AMR, DV, libshout, cdparanoia,
+aalib). `gstreamer1.0-libav` adds one package of 0.6 MB: the image already has FFmpeg's libraries for the games.
+Debian's Recommends that ours no longer brings: `gstreamer1.0-plugins-bad` and its closure (ImageMagick,
+TensorFlow Lite through zxing), `xdg-desktop-portal` with its GTK backend (a resident service), `gstreamer1.0-gl`.
+
+**Dropping video (a proposal for after the PS3 test):** 2.52 does not even build with `ENABLE_VIDEO` off
+(`JSHTMLMediaElementCustom.cpp` lacks its guard: one `#if`), and then `<video>` and `<audio>` are unknown
+elements: YouTube says "Your browser can't play this video", sites with a GIF-like `<video>` show nothing. It saves
+little memory on ordinary pages (above) but the whole GStreamer closure on disk and the media parsers' attack
+surface (demuxers, libav's decoders), the largest native parsing code left in the browser. If the PS3 cannot play
+a 360p H.264 clip smoothly in the browser, drop it.
+
+**Building it.** Debian's ppc64 buildd needed 3-5 h for both flavours on POWER hardware. Ours is one flavour,
+built with `BUILD=xcc` ([PACKAGING.md](../PACKAGING.md#kinds-of-source-packages)): the ppc64 chroot under qemu,
+the x86-64 cross compiler inside it. A heavy file compiles in 2 s that way against 22 s under qemu-user, so a
+qemu-only build would have taken most of a day; amd64 with clang on 20 cores took 20 minutes. The ppc64 release
+build took 73 minutes at 12 jobs under `nice` on a PC busy with other builds (a third of the objects from
+ccache); the tree is about 15 GB, on the overflow disk (`XCC_ROOT`). The packages: `libwebkit2gtk-4.1-0` 21 MB
+(its `-dbgsym` 204 MB), `libjavascriptcoregtk-4.1-0` 4.6 MB.
+
+**Testing without the PS3.** The ppc64 packages run in a ppc64 chroot under qemu-user with Xvfb, as the PS3 would
+run them, just slowly (a page takes a few minutes). That is how fixes 2 and 3 were found: the web process's
+qemu core and a copy of `/proc/<pid>/maps` taken while it ran give each frame's library and offset, and gdb in
+the chroot with the `-dbgsym` packages names them. A build tree kept in such a chroot, where `ninja JavaScriptCore` alone
+rebuilds the interpreter, turns a JSC fix around in about half an hour instead of a whole package build.
 
 ## 4. WPE WebKit and cog
 
@@ -520,7 +609,7 @@ possible; it does not say today's one will be comfortable.
 
 ## What happened on the PS3
 
-2026-10-28, kernel .874, the desktop up (Openbox at 1920x1080, a terminal of the user's open), swap 127 MB used
+**Debian's build, 2026-10-28,** kernel .874, the desktop up (Openbox at 1920x1080, a terminal of the user's open), swap 127 MB used
 in the VRAM tier at the start. Installed: `badwolf 1.4.0-1+ps3.931~dev` and the 28 Debian packages it lacked (183 MB,
 WebKitGTK 2.52.6, JavaScriptCore, GStreamer base and good, fonts-liberation; from the pinned snapshot with
 `dpkg -i`, since apt must not solve against Debian's full lists on the PS3). With Recommends, as an image build
@@ -544,26 +633,41 @@ The measurements the plan below asks for (memory, load time, scrolling, the Game
 were not taken: every page with a rounded corner or similar length crashes the engine. The packages were removed
 again; the PS3 is as before.
 
-## PS3 test plan (for a working engine)
+**Our build:** not on the PS3 yet. The session that was to test it started with the video baseline in mpv (the
+bar the browser's video is judged against), and mpv's `--vo=gpu` wedged the RSX 7 frames into a 360p clip
+(graph exception 0x105, [TESTS.md](../TESTS.md), [dump](../dumps/exception-0x105-mpv-vo-gpu.txt)); the user
+rebooted the console and moved the browser and video tests to a session with them.
+
+## PS3 test plan
 
 The rules: not while the user plays or a benchmark or another agent's batch runs ([TESTS.md](../TESTS.md)
-queue; check nobody is at the console first). The desktop is up, since a browser lives there. Nothing else
-runs: no game, no deploy, no ssh scans during a measured load. Swap empty at the start (`swapoff -a; swapon
--a`, as in the measurement protocol), the same boot for every candidate, one candidate at a time, and each
+queue, the PS3 lock), and video only once the 0x105 fix is in. The desktop is up, since a browser lives there.
+Nothing else runs: no game, no deploy, no ssh scans during a measured load. Swap empty at the start (`swapoff -a;
+swapon -a`, as in the measurement protocol), the same boot for every candidate, one candidate at a time, and each
 run checked by an `xwd` screenshot read by eye (a black or half-drawn page is not a result).
+
+**Install.** `webkit2gtk` (our `libwebkit2gtk-4.1-0` and `libjavascriptcoregtk-4.1-0`) and `badwolf` by `make
+deploy`, the Debian packages they lack from the pinned snapshot with `dpkg -i` (apt must not solve against
+Debian's full lists on the PS3). The `-dbgsym` packages go on too, so a crash symbolises on the console. Against
+the 0.1.0 image the closure is [the list below](#what-the-browser-adds-to-the-image).
 
 **Candidates, in order.**
 
 1. NetSurf 3.11 (baseline, JavaScript off), already installed.
-2. WebKitGTK through `badwolf`, once an engine that renders is installed: its defaults, then
-   `WALNUT_BROWSER_ACCEL=ondemand` and `WALNUT_BROWSER_CACHE=viewer` on the same pages to settle the defaults;
-   three tabs to see the one web process; a game started through `ps3-game` with the browser open (game mode
-   freezes it with the desktop slice; the game's fps against a run without it, the browser answering after).
-   Watch for a WebKitGPUProcess in `ps`.
-3. NetSurf with the relayout patch, JavaScript on, the GameDB home built for ES5 with the test shim: the
+2. Our WebKitGTK through `badwolf`: first [webkit/be-test.html](webkit/be-test.html) (every line green; canvas
+   readback is the open question), then its defaults on the pages below, then `WALNUT_BROWSER_ACCEL=ondemand` and
+   `WALNUT_BROWSER_CACHE=viewer` on the same pages to settle the defaults; three tabs to see the one web
+   process; a game started through `ps3-game` with the browser open (game mode freezes it with the desktop
+   slice; the game's fps against a run without it, the browser answering after). Watch for a WebKitGPUProcess
+   in `ps`, and for an AT-SPI bus (`at-spi-bus-launcher`) started for it.
+3. Video, after the 0x105 fix: the same H.264 clips (Big Buck Bunny at 360p, 480p and 720p) in mpv
+   (`--vo=xv` first, then `gpu`) as the baseline, then opened in Badwolf from a file: plays or not, dropped
+   frames (mpv's counters; for the browser, `xwd` sequences or GStreamer's stats), CPU and memory. A YouTube
+   watch page if the page loads at all.
+4. NetSurf with the relayout patch, JavaScript on, the GameDB home built for ES5 with the test shim: the
    rebuild time per change (from the log: "box tree rebuilt in N ms, reflowed in M ms") on GameDB and on
    the Wikipedia article with a class toggler.
-4. Only if 2 nearly fits: cog with its X11 platform.
+5. Only if 2 nearly fits: cog with its X11 platform.
 
 **Pages.** The GameDB home (`https://walnut.nanobyte.dev/gamedb/`, and the same page with `?q=doom`), one
 game page (OpenArena), and a busy site (the English Wikipedia article "PlayStation 3"). If WebKit survives
