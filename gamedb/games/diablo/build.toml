@@ -1,0 +1,15 @@
+# How Diablo (DevilutionX) is built, installed and integrated (gamedb/README.md "build.toml").
+# The engine is under the Sustainable Use License 1.0 (non-commercial, non-free); it is not game data, so the
+# package is public. DIABDAT.MPQ is the player's own.
+packages = ["devilutionx"]
+suite = "none"
+needs_data = true
+
+[data_setup]
+gdp = "diablo"
+original = "Diablo"
+required = ["diablo-data"]
+optional = ["diablo-hellfire-data"]
+hint = "DIABDAT.MPQ from your own Diablo (the CD, or GOG's installer or installed copy); Hellfire's hf*.mpq files for the expansion. The free shareware version's spawn.mpq also works if you put it in the game folder by hand."
+# what each package holds (X-Walnut-Edition of the package import-data builds)
+editions = { "diablo-data" = "full", "diablo-hellfire-data" = "expansion" }

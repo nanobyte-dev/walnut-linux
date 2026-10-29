@@ -1,0 +1,41 @@
+Source: devilutionx
+# Section stays games on purpose: non-free/* marks licensed game data here (docs/PACKAGING.md). The licence
+# (Sustainable Use License 1.0, non-commercial) is said in the description, README.Debian and copyright.
+Section: games
+Priority: optional
+Maintainer: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Build-Depends:
+ cmake,
+ debhelper-compat (= 13),
+ libbz2-dev,
+ libfmt-dev,
+ libsdl2-dev,
+ libsdl2-image-dev,
+ libsimpleini-dev,
+ libsodium-dev,
+ ninja-build,
+ pkgconf,
+ zlib1g-dev,
+Standards-Version: 4.7.0
+Homepage: https://github.com/diasurgical/devilutionX
+Rules-Requires-Root: no
+
+Package: devilutionx
+Architecture: any
+Depends: ${misc:Depends}, ${shlibs:Depends}
+Description: engine for Diablo and Hellfire (needs the game's data)
+ DevilutionX runs Diablo (1996) and its expansion Hellfire on modern systems:
+ an 8-bit software renderer scaled to the screen, gamepad support (SDL game
+ controllers), widescreen views, LAN multiplayer over TCP and many fixes to
+ the original game.
+ .
+ It needs the original game's data, which is not part of this package:
+ DIABDAT.MPQ from your own copy of Diablo (CD or GOG), the hf*.mpq files for
+ Hellfire, or spawn.mpq from the free shareware version. Put them in
+ ~/.local/share/diasurgical/devilutionx/ (or /usr/share/diasurgical/devilutionx/).
+ .
+ Non-free licence: the Sustainable Use License 1.0 allows personal and
+ non-commercial use and free-of-charge distribution only (see
+ /usr/share/doc/devilutionx/copyright). This is a modified build (README.Debian).
+ .
+ This build has no ZeroTier (online) multiplayer and no Discord integration.

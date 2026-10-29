@@ -23,7 +23,7 @@ they came from.
 | [Chromium B.S.U.](../../gamedb/games/chromium-bsu/todo.toml) | 2 | 1 benchmark, 1 session |  |
 | [ClassiCube](../../gamedb/games/classicube/todo.toml) | 4 | 1 fix, 2 package, 1 research | 3.12 |
 | [Colobot: Gold Edition](../../gamedb/games/colobot/todo.toml) | 1 | 1 session |  |
-| [Diablo (DevilutionX)](../../gamedb/games/diablo/todo.toml) | 2 | 1 package, 1 session |  |
+| [Diablo (DevilutionX)](../../gamedb/games/diablo/todo.toml) | 1 | 1 session |  |
 | [dsda-doom](../../gamedb/games/dsda-doom/todo.toml) | 2 | 1 research, 1 session | 2.8 |
 | [Duke Nukem 3D](../../gamedb/games/duke-nukem-3d/todo.toml) | 1 | 1 benchmark |  |
 | [Dungeon Crawl Stone Soup](../../gamedb/games/crawl-tiles/todo.toml) | 1 | 1 session |  |

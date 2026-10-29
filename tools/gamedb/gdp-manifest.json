@@ -1,6 +1,40 @@
 {
  "gdp_version": "89",
  "packages": {
+  "diablo-data": {
+   "conflicts": [],
+   "edition": "full",
+   "game": "diablo",
+   "launchers": false,
+   "replaces": [],
+   "required": ["usr/share/games/diablo/DIABDAT.MPQ"],
+   "symlinks": {},
+   "version": "89",
+   "files": {
+    "usr/share/doc/diablo-data/MANUAL.PDF": [{"sha256": "af45c45e07d57f4662d7325fc17e5dcddcdb099693d59ba73b17c20362868fc5", "size": 23597268}],
+    "usr/share/doc/diablo-data/MANUAL_DE.PDF": [{"sha256": "a61bc68f3ec20bee56683ad1a4715cc9229100ace724cba8d2c9ff9a6e65beda", "size": 3928909}],
+    "usr/share/doc/diablo-data/MANUAL_FR.PDF": [{"sha256": "18de1e257bb920552e82f90c968a342d4a9724159b832ff920bf57f6128985ce", "size": 6003380}],
+    "usr/share/doc/diablo-data/MANUAL_IT.PDF": [{"sha256": "6d66d781438831c7f4e461416d9dd6e84944e94e4df10a83725f80ec46c25abb", "size": 5520433}],
+    "usr/share/doc/diablo-data/Readme.txt": [{"sha256": "59fee3333f387e9f56326b97cd88eb39528937c77d986be75afa2f6c77f219a3", "size": 22519}],
+    "usr/share/games/diablo/DIABDAT.MPQ": [{"sha256": "63fb47d9c76484024c7640d90ab6b7ec5e13f567a7e1a917b6c03a6631d3f2b0", "size": 517501282}]
+   }
+  },
+  "diablo-hellfire-data": {
+   "conflicts": [],
+   "edition": "expansion",
+   "game": "diablo",
+   "launchers": false,
+   "replaces": [],
+   "required": ["usr/share/games/diablo/hellfire.mpq", "usr/share/games/diablo/hfmonk.mpq", "usr/share/games/diablo/hfmusic.mpq", "usr/share/games/diablo/hfvoice.mpq"],
+   "symlinks": {},
+   "version": "89",
+   "files": {
+    "usr/share/games/diablo/hellfire.mpq": [{"sha256": "bbbd3e4b09db3c16d72e3f8503058dd09a8aaecccf486c3b6a0fca270cef9ba8", "size": 65502336}],
+    "usr/share/games/diablo/hfmonk.mpq": [{"sha256": "5358fa2aa6c7bfdd3bfdd07b0457807d3220a60cfe8b1967a0938b433a9b33c5", "size": 37658368}],
+    "usr/share/games/diablo/hfmusic.mpq": [{"sha256": "2d719ef13502bf3c68eb4771411391bd37bb420d753eb6239becb063c6918de1", "size": 34379360}],
+    "usr/share/games/diablo/hfvoice.mpq": [{"sha256": "243fec5f04710ba316b9f61065a257e47c1404b13f63c52541ed4eb714267b72", "size": 37743520}]
+   }
+  },
   "doom-wad": {
    "conflicts": [],
    "edition": "full",

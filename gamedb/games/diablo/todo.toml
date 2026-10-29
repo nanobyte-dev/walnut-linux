@@ -2,16 +2,6 @@
 # a session item's order is its place in the played-session queue (docs/TESTS.md's generated block).
 
 [[item]]
-kind = "package"
-added = 2026-10-28
-source = "games night 2026-10-28 (smoke)"
-text = """\
-The user's decision: DevilutionX's licence (Sustainable Use License 1.0: non-commercial, not DFSG-free) \
-against the public suites. The package (gamedb/games/diablo/packages/devilutionx, built and smoke-tested \
-on the PS3) is not committed until then; if it goes in, a build.toml (`packages = [\"devilutionx\"]`, \
-`needs_data`, a `[data_setup]` for game-data-packager's diablo) and the CI workflow."""
-
-[[item]]
 kind = "session"
 order = 18
 launcher = "DevilutionX"

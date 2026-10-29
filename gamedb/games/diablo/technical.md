@@ -4,10 +4,10 @@ Also known as: DevilutionX (the engine); Hellfire (the expansion, also played by
 
 ## Status
 
-DevilutionX 1.5.5 built by us (`devilutionx` `1.5.5-1+ps3.N`, a dev build from
-`gamedb/games/diablo/packages/devilutionx/`, made on 2026-10-28 and not committed: DevilutionX is under the
-Sustainable Use License 1.0, non-commercial and not DFSG-free, so whether it goes into the repository and the
-public suites is the user's decision). One patch: 0001 opens the audio device in the host byte order
+DevilutionX 1.5.5 built by us (`devilutionx` `1.5.5-1+ps3.N`, built from
+`gamedb/games/diablo/packages/devilutionx/`: DevilutionX is under the Sustainable Use License 1.0, non-commercial
+and not DFSG-free; the user accepted that on 2026-10-29 ("I'm not using it commercially"), so it is public in the
+testing suite, marked non-free in its description, README.Debian and the GameDB page, Section still `games`). One patch: 0001 opens the audio device in the host byte order
 (`AUDIO_S16SYS`; `AUDIO_S16` is little-endian, so the PPE swapped every sample twice). Upstream's defaults are
 already console-like: fullscreen at the screen's mode (`SDL_WINDOW_FULLSCREEN_DESKTOP`, the picture widened to
 16:9 and scaled up), SDL game controllers on.

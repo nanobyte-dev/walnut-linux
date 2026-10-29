@@ -1,0 +1,31 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Wed, 28 Oct 2026 23:00:00 +0200
+Subject: Sound: open the audio device in the host's byte order (AUDIO_S16SYS)
+
+snd_init asked SDL_audiolib for AUDIO_S16, which in SDL2 is AUDIO_S16LSB:
+little-endian samples whatever the host. That is correct on a big-endian
+host too (SDL_audiolib converts its float mix with floatToS16LSB, and SDL
+or the sound server swaps the bytes back), but on the PS3's PPE every
+sample is then swapped twice: once into little-endian by the mixer and
+once back by whoever feeds the big-endian sound hardware. AUDIO_S16SYS is
+the same 16-bit signed format in native order (AUDIO_S16LSB on x86, so
+nothing changes there); SDL_audiolib handles AUDIO_S16MSB already
+(floatToS16MSB).
+
+Forwarded: no
+
+--- a/Source/engine/sound.cpp
++++ b/Source/engine/sound.cpp
+@@ -212,9 +212,9 @@
+ 	gbMusicOn = *sgOptions.Audio.musicVolume > VOLUME_MIN;
+ 
+ 	// Initialize the SDL_audiolib library. Set the output sample rate to
+-	// 22kHz, the audio format to 16-bit signed, use 2 output channels
++	// 22kHz, the audio format to 16-bit signed in the host's byte order, use 2 output channels
+ 	// (stereo), and a 2KiB output buffer.
+-	if (!Aulib::init(*sgOptions.Audio.sampleRate, AUDIO_S16, *sgOptions.Audio.channels, *sgOptions.Audio.bufferSize, *sgOptions.Audio.device)) {
++	if (!Aulib::init(*sgOptions.Audio.sampleRate, AUDIO_S16SYS, *sgOptions.Audio.channels, *sgOptions.Audio.bufferSize, *sgOptions.Audio.device)) {
+ 		LogError(LogCategory::Audio, "Failed to initialize audio (Aulib::init): {}", SDL_GetError());
+ 		return;
+ 	}

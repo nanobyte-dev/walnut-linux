@@ -1,0 +1,51 @@
+#!/usr/bin/make -f
+# DevilutionX 1.5.5 for the PS3 (big-endian ppc64): 8-bit software renderer, scaled to the screen by the
+# SDL renderer.
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+# the Cell PPE (same flags as the other ps3 packages)
+export DEB_CFLAGS_MAINT_APPEND = -mcpu=cell -mtune=cell
+export DEB_CXXFLAGS_MAINT_APPEND = -mcpu=cell -mtune=cell
+
+# CMake 4 refuses the old cmake_minimum_required of bundled libraries
+export CMAKE_POLICY_VERSION_MINIMUM = 3.5
+
+%:
+	dh $@ --buildsystem=cmake+ninja
+
+# RelWithDebInfo: -O2 -DNDEBUG with upstream's LTO; not Release's -O3, where gcc 16's vectorizer with
+# -mcpu=cell has miscompiled loops (docs/PACKAGING.md, "Base and toolchain"). The dependencies upstream's
+# offline tarball carries in dist/ (asio, libmpq, libsmackerdec, SDL_audiolib, simpleini when Debian's is
+# not found) build from there, everything else is Debian's; nothing is downloaded. devilutionx.mpq is
+# upstream's pre-built one (dist/devilutionx.mpq: no smpq). CPACK=ON gives upstream's Linux install
+# rules (binary, devilutionx.mpq, .desktop, icons, metainfo). ZeroTier, Discord and the tests are off;
+# libstdc++ is linked as a shared library and dh_strip makes the debug symbols.
+override_dh_auto_configure:
+	dh_auto_configure -- \
+		-DCMAKE_BUILD_TYPE=RelWithDebInfo \
+		-DFETCHCONTENT_FULLY_DISCONNECTED=ON \
+		-DBUILD_TESTING=OFF \
+		-DDISABLE_ZERO_TIER=ON \
+		-DDISCORD_INTEGRATION=OFF \
+		-DBUILD_ASSETS_MPQ=OFF \
+		-DCPACK=ON \
+		-DDEVILUTIONX_SYSTEM_SDL2=ON \
+		-DDEVILUTIONX_SYSTEM_ZLIB=ON \
+		-DDEVILUTIONX_SYSTEM_BZIP2=ON \
+		-DDEVILUTIONX_SYSTEM_LIBFMT=ON \
+		-DDEVILUTIONX_SYSTEM_LIBSODIUM=ON \
+		-DDEVILUTIONX_STATIC_CXX_STDLIB=OFF \
+		-DDEVILUTIONX_DISABLE_STRIP=ON
+
+# upstream's tests are off (they need googletest and, partly, the game's data)
+override_dh_auto_test:
+
+# upstream installs to /usr/bin; Debian's games go to /usr/games. Hellfire's menu entry and icon are left
+# out: Hellfire needs its own data (hf*.mpq), and the entry would only open the "insert CD" dialog.
+DST = debian/devilutionx
+override_dh_auto_install:
+	dh_auto_install --destdir=$(DST)
+	mkdir -p $(DST)/usr/games
+	mv $(DST)/usr/bin/devilutionx $(DST)/usr/games/
+	rmdir $(DST)/usr/bin
+	rm -f $(DST)/usr/share/applications/devilutionx-hellfire.desktop \
+		$(DST)/usr/share/icons/hicolor/512x512/apps/devilutionx-hellfire.png

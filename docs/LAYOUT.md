@@ -110,6 +110,7 @@ gamedb/README.md.
 | `games/colobot/packages/colobot/` | [Colobot: Gold Edition](../gamedb/games/colobot/) | Debian's `colobot` 0.2.2-4 | 2 (+ `packaging/`) |
 | `games/crawl-tiles/packages/crawl-walnut/` | [Dungeon Crawl Stone Soup](../gamedb/games/crawl-tiles/) | native (ours) | none (+ `debian/`) |
 | `games/ddnet/packages/ddnet/` | [DDNet](../gamedb/games/ddnet/) | Debian's `ddnet` 20.1.1+ds-1 | 1 |
+| `games/diablo/packages/devilutionx/` | [Diablo (DevilutionX)](../gamedb/games/diablo/) | upstream tarball (`upstream.mk`) | 1 (+ `debian/`) |
 | `games/dsda-doom/packages/dsda-doom/` | [dsda-doom](../gamedb/games/dsda-doom/) | Debian's `dsda-doom` 0.30.0+dfsg-1 | 7 |
 | `games/endless-sky/packages/endless-sky/` | [Endless Sky](../gamedb/games/endless-sky/) | Debian's `endless-sky` 0.11.2-1 | 11 (+ `packaging/`) |
 | `games/etr/packages/etr/` | [Extreme Tux Racer](../gamedb/games/etr/) | Debian's `extremetuxracer` 0.8.4-2 | 8 |

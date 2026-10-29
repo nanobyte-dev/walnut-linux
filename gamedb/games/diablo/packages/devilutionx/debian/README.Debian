@@ -1,0 +1,36 @@
+DevilutionX for Debian (Walnut / PS3)
+=====================================
+
+Licence: NOT free software
+--------------------------
+DevilutionX is under the Sustainable Use License 1.0 (the full text is in
+/usr/share/doc/devilutionx/copyright). It allows use, copying and
+modification for your own internal business purposes or for non-commercial
+or personal use, and distribution only free of charge and for
+non-commercial purposes. That is not an OSI or DFSG free licence, so this
+package is non-free in Debian's terms. It is built and distributed here
+free of charge, for non-commercial use only. Do not sell it, bundle it in a
+product, or offer it for money.
+
+The package's Section stays "games" on purpose: in this repository a
+Section of non-free/* or local/* marks licensed game data that is never
+public, and this package is the engine only.
+
+This is a modified version
+--------------------------
+This package is NOT the unmodified upstream DevilutionX 1.5.5. It carries
+patches of ours (see the source package):
+
+  0001  sound: open the audio device in the host byte order
+        (AUDIO_S16SYS), so the engine plays on big-endian machines.
+
+It is also built without ZeroTier (online) multiplayer and without Discord
+integration. Problems with this build are not upstream's: report them to
+the packager, not to the DevilutionX project.
+
+Game data
+---------
+No game data is part of this package. Diablo's DIABDAT.MPQ (and Hellfire's
+hf*.mpq) belong to Blizzard and come from your own copy of the game; the
+free shareware version's spawn.mpq also works. Put the files in
+~/.local/share/diasurgical/devilution/ (or /usr/share/diasurgical/devilution/).
