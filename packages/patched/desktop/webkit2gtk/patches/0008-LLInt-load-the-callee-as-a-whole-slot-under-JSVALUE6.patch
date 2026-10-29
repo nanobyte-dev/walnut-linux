@@ -1,0 +1,34 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Thu, 29 Oct 2026 02:10:48 +0200
+Subject: LLInt: load the callee as a whole slot under JSVALUE64
+
+getVMFromCallFrame, used on every exception unwind, read the callee with 'loadp Callee + PayloadOffset[cfr]' when WebAssembly is off: harmless where PayloadOffset is 0, but on 64-bit big-endian (ppc64, s390x: C_LOOP builds without WebAssembly) PayloadOffset is 4, so it loaded half the callee pointer and half the next slot, and the VM lookup from that crashed. Every caught exception killed the process: try { null.x } catch {} in jsc, Wikipedia in the browser. op_super_construct's callee cache had the same offset. Under JSVALUE64 both now load the whole slot.
+
+diff --git a/Source/JavaScriptCore/llint/LowLevelInterpreter.asm b/Source/JavaScriptCore/llint/LowLevelInterpreter.asm
+--- a/Source/JavaScriptCore/llint/LowLevelInterpreter.asm
++++ b/Source/JavaScriptCore/llint/LowLevelInterpreter.asm
+@@ -1617,7 +1617,13 @@ if WEBASSEMBLY
+         loadp JSWebAssemblyInstance::m_vm[vm], vm
+     .loaded:
+ else
+-    loadp Callee + PayloadOffset[cfr], vm
++    # The callee is a whole 64-bit slot under JSVALUE64: PayloadOffset (4 on big-endian) is for
++    # 32-bit values only.
++    if JSVALUE64
++        loadp Callee[cfr], vm
++    else
++        loadp Callee + PayloadOffset[cfr], vm
++    end
+     convertJSCalleeToVM(vm)
+ end
+ end
+@@ -2603,7 +2609,7 @@ commonCallOp(op_super_construct, OpSuperConstruct, prepareForRegularCall, invoke
+         lshifti 3, t1
+         negp t1
+         addp cfr, t1
+-        loadp ThisArgumentOffset + PayloadOffset[t1], t1
++        loadp ThisArgumentOffset[t1], t1
+         loadp OpSuperConstruct::Metadata::m_cachedCallee[t5], t2
+         bqeq t1, t2, .done
+         btqz t2, .store

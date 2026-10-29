@@ -3,3 +3,5 @@
 0004-Uint8Array-fromHex-toHex-the-vector-paths-on-big-end.patch
 0005-DocumentLoader.cpp-include-EventLoop.h.patch
 0006-GTK-no-view-transitions-without-accelerated-composit.patch
+0007-Cairo-canvas-pixel-conversions-on-big-endian.patch
+0008-LLInt-load-the-callee-as-a-whole-slot-under-JSVALUE6.patch
