@@ -37,7 +37,7 @@ the features we don't need to be left out where that saves memory or attack surf
   packages themselves in a ppc64 chroot under qemu-user with Xvfb, the way the PS3 runs them: `jsc` runs a set
   of checks (JSON, Intl, BigInt, typed arrays, the hex methods) on the C_LOOP interpreter; Badwolf draws the
   GameDB home (rounded corners, the filter's script running, "23 of 23 games"), the `?q=doom` page and the
-  [self-test page](webkit/be-test.html), whose canvas lines failed until fix 3; Wikipedia crashed the web process
+  [self-test page](webkit/be-test.html) (13 of 13 with `2.52.6-1+ps3.1062`; its canvas lines failed until fix 3); Wikipedia crashed the web process
   until fix 2 (found from the qemu core: the faulting load was `convertJSCalleeToVM` on a half-pointer). How the
   bugs were found besides: Debian's crash report, and a read of WTF, JSC and WebCore for the same class of bug
   (a smaller value packed into the start of a wider word, byte-wise SIMD on 16-bit data, BGRA bytes).
@@ -431,7 +431,7 @@ built with `BUILD=xcc` ([PACKAGING.md](../PACKAGING.md#kinds-of-source-packages)
 the x86-64 cross compiler inside it. A heavy file compiles in 2 s that way against 22 s under qemu-user, so a
 qemu-only build would have taken most of a day; amd64 with clang on 20 cores took 20 minutes. The ppc64 release
 build took 73 minutes at 12 jobs under `nice` on a PC busy with other builds (a third of the objects from
-ccache); the tree is about 15 GB, on the overflow disk (`XCC_ROOT`). The packages: `libwebkit2gtk-4.1-0` 21 MB
+ccache), 42 minutes when only a few files had changed; it runs on the overflow disk (`XCC_ROOT`). The packages: `libwebkit2gtk-4.1-0` 21 MB
 (its `-dbgsym` 204 MB), `libjavascriptcoregtk-4.1-0` 4.6 MB.
 
 **Testing without the PS3.** The ppc64 packages run in a ppc64 chroot under qemu-user with Xvfb, as the PS3 would
