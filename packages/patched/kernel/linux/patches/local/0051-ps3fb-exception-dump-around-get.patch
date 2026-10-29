@@ -1,0 +1,79 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Thu, 29 Oct 2026 04:03:33 +0200
+Subject: ps3fb: print the FIFO cache entries ending at GET in an exception
+ dump
+
+The graph exception dump printed entries 4i..4i+3 for i = 0, 4, ..., 28
+of the 512-entry PFIFO cache (0-3, 16-19, ..., 112-115), whatever GET
+was, and its G and P markers compared GET and PUT with i, so they matched
+almost never. The command that faulted sits just before or at GET, and
+was usually not among the printed entries.
+
+Print the 32 entries ending at GET instead, wrapping at the end of the
+cache, each line starting with its first entry's index, and mark the
+entry at GET with G, the one at PUT with P (B when they are equal). The
+raw get and put words stay on their own line. The dump is rate-limited
+to two per 10 s; it runs in the interrupt handler and only reads the
+driver info area and calls printk, as before.
+
+diff --git a/drivers/video/fbdev/ps3fb.c b/drivers/video/fbdev/ps3fb.c
+--- a/drivers/video/fbdev/ps3fb.c
++++ b/drivers/video/fbdev/ps3fb.c
+@@ -2089,25 +2089,44 @@ static void StartStopTask(int val)
+ 	}
+ }
+ 
++/*
++ * The FIFO cache holds the last 512 method:data pairs PFIFO fetched; GET is the next entry PGRAPH
++ * would take and PUT the next one PFIFO fills. Print the 32 entries ending at GET (wrapping),
++ * which hold the command that faulted, with GET and PUT marked: G, P, or B when they are equal.
++ * Hard IRQ context: plain reads and printk only, at most 2 dumps per 10 s.
++ */
++#define PS3FB_FIFO_CACHE_ENTRIES	512
++
+ static void ps3fb_print_graph_exception_info(struct device *dev, struct gpu_graph_exception_info *info)
+ {
+-	int i;
+-
++	static DEFINE_RATELIMIT_STATE(rs, 10 * HZ, 2);
++	const u32 mask = PS3FB_FIFO_CACHE_ENTRIES - 1;
++	u32 get_raw = info->fifo_get, put_raw = info->fifo_put;
++	u32 get = get_raw & mask, put = put_raw & mask;
++	u32 first = (get - 31) & mask;
++	int i, j;
++
++	if (!__ratelimit(&rs))
++		return;
+ 	dev_err(dev, "channel id 0x%08x cause 0x%08x\n", info->channel_id, info->cause);
+-	/* print FIFO info */
+ 	dev_err(dev, "fifo:\n");
+ 	dev_err(dev, "\tdma get 0x%08x dma put 0x%08x\n", info->dma_get, info->dma_put);
+ 	dev_err(dev, "\tcall 0x%08x jump 0x%08x\n", info->call, info->jump);
+-	dev_err(dev, "\tget 0x%08x put 0x%08x ref 0x%08x\n", info->fifo_get, info->fifo_put, info->fifo_ref);
++	dev_err(dev, "\tget 0x%08x put 0x%08x ref 0x%08x\n", get_raw, put_raw, info->fifo_ref);
++	dev_err(dev, "\tcache %03x-%03x (G %03x, P %03x)\n", first, get, get, put);
+ 	for (i = 0; i < 32; i += 4) {
+-		dev_err(dev, "\t%s %s [%03x] %08x:%08x %08x:%08x %08x:%08x %08x:%08x\n",
+-			(((info->fifo_put & ~0x3) == i) ? "P" : " "),
+-			(((info->fifo_get & ~0x3) == i) ? "G" : " "),
+-			i,
+-			info->fifo_cache[i * 4 + 0], info->graph_fifo[i * 4 + 0],
+-			info->fifo_cache[i * 4 + 1], info->graph_fifo[i * 4 + 1],
+-			info->fifo_cache[i * 4 + 2], info->graph_fifo[i * 4 + 2],
+-			info->fifo_cache[i * 4 + 3], info->graph_fifo[i * 4 + 3]);
++		u32 e[4];
++		char m[4];
++
++		for (j = 0; j < 4; j++) {
++			e[j] = (first + i + j) & mask;
++			m[j] = e[j] == get ? (e[j] == put ? 'B' : 'G') : e[j] == put ? 'P' : ' ';
++		}
++		dev_err(dev, "\t[%03x] %c%08x:%08x %c%08x:%08x %c%08x:%08x %c%08x:%08x\n", e[0],
++			m[0], info->fifo_cache[e[0]], info->graph_fifo[e[0]],
++			m[1], info->fifo_cache[e[1]], info->graph_fifo[e[1]],
++			m[2], info->fifo_cache[e[2]], info->graph_fifo[e[2]],
++			m[3], info->fifo_cache[e[3]], info->graph_fifo[e[3]]);
+ 	}
+ }
+ 

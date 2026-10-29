@@ -25,6 +25,8 @@
 #   ps3_gelic.rx_watchdog_test=N simulates N faults; docs/release/TESTING-0.1.md 22).
 # local/0050: hid-sony starts the DS3's sticks centered (128), not at 0 (fully up/left) until the pad's first report; an
 #   inactive pad on the cable ran Quake's menu up by itself (linux/tests/sixaxis-idle-axes.sh, ds3-idle-check.py on the PS3).
+# local/0051: ps3fb's graph exception dump prints the 32 FIFO cache entries ending at GET, GET and PUT marked, rate-limited
+#   (docs/RSX.md "Reading ps3fb's dump").
 ps3/0020-ps3stor-send-cmd-timeout.patch
 ps3/0035-ps3flash.patch
 ps3/0040-ps3-partition.patch
@@ -90,3 +92,4 @@ local/0047-snd-ps3-dma-watchdog.patch
 local/0048-ps3disk-probe-unwind-and-remove-order.patch
 local/0049-gelic-rx-watchdog.patch
 local/0050-hid-sony-sixaxis-center-sticks.patch
+local/0051-ps3fb-exception-dump-around-get.patch
