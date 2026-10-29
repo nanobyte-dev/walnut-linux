@@ -25,9 +25,10 @@ of any object, `toCommonEndian` calls it on big-endian machines, and the CRC cac
 were reversed. 0001 returns a string unchanged. On the PS3 (2026-10-29, `ps3-bench-20261029T044952Z-smoke-megaglest-menu`):
 the main menu stays up and animated past 100 s, 38 fps, no crash. The auto-test's exit no longer throws
 "about to destroy mutex refCount = 1" but doesn't end within the harness's 220 s
-(`ps3-bench-20261029T045225Z-smoke-megaglest-autotest`): likely the same CRC thread, which now runs to its
-end (the CRCs of the whole data set on the PPE) and is waited for at exit, where before it was destroyed
-running; open.
+(`ps3-bench-20261029T045225Z-smoke-megaglest-autotest`): the same CRC thread, which now runs to its end
+(the CRCs of the whole data set on the PPE, ~80 s past the test, at 114% CPU) and is waited for at exit,
+where before it was destroyed running. With a longer cap the game exits by itself, rc 0, no throw
+(`ps3-bench-20261029T052419Z-smoke-megaglest-autotest`).
 
 ## Our defaults
 
