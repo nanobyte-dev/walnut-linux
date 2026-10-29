@@ -1,0 +1,7 @@
+# How SuperTux is built, installed and integrated (gamedb/README.md "build.toml").
+# Debian's supertux; our menu entry (desktop/launchers/supertux2-walnut.desktop, Debian's diverted) starts it
+# with --fullscreen: a fresh start opened a 1280x800 window; --fullscreen alone takes the desktop's size
+# (fullscreen_width/height 0 in its config) and is saved there.
+packages = ["supertux"]
+desktop = ["supertux2-walnut.desktop"]
+divert = ["/usr/share/applications/supertux2.desktop"]

@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=SuperTux 2
+Comment=Classic 2D jump'n run sidescroller with Tux, fullscreen at the TV's size
+Exec=ps3-game supertux2 --fullscreen
+Icon=supertux2
+Terminal=false
+Categories=Game;ArcadeGame;
