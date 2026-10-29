@@ -28,6 +28,15 @@ was saved (`single_0.sv`, an MPQ the game writes). DevilutionX found the DualSho
 mapping); the pad is not tried. Its `--demo`/`--timedemo` options would make a benchmark once a demo is
 recorded.
 
+Played session `ps3-bench-20261029T213401Z` (ps3.931~dev, 2026-10-29): 21.5 min, quit, 1273 s of play, fullscreen
+1920x1080 (21 shots: Tristram at dusk, then the cathedral levels, the inventory open; in proportion, no bars). Median
+59.3 fps, 1% low 23.9, longest frame 2.3 s, 1.8 s a minute of stutter, load 15 s, 47 MB RSS, 11 xruns, 3 audible dropouts
+by the form's count. The form: sound and music heard, controls full, pad menus worked, play seamless, no glitches; its
+note: "Very minor issue, cursor is semitransparent". The cursor is an X pointer (XFixes saw it in 16 of 21 shots), and
+X cursors are not in the xwd captures, so the shots can't show it; reviewed as wrong colours or blending (-25, the
+only category near it). No PC reference sheet: DevilutionX isn't in Debian, so play-pc.sh had no PC side and upstream's
+x86_64 release was run by hand. Rated Gold 80, provisional (0.35 h of play): smoothness 62 is the weakest aspect.
+
 ## Engine options
 
 - DevilutionX (the pick: complete, very active, 9.9k stars, BE prior art)

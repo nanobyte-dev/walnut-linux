@@ -1,14 +1,21 @@
-# Diablo (DevilutionX): the backlog (gamedb/README.md, "games/<id>/todo.toml"): [[item]] with kind, text, added, source;
+# Diablo (DevilutionX): the backlog (gamedb/README.md, "games/<id>/todo.toml"): with kind, text, added, source;
 # a session item's order is its place in the played-session queue (docs/TESTS.md's generated block).
 
 [[item]]
-kind = "session"
-order = 18
-launcher = "DevilutionX"
-pc = "needs the data"
-added = 2026-10-28
-source = "games night 2026-10-28 (smoke)"
+kind = "fix"
+added = 2026-10-29
+source = "played session 2026-10-29 (the player's form note)"
 text = """\
-First played session with the player's DIABDAT.MPQ: the DualShock 3 through the menus (it fills in the \
-hero's name) and in the dungeon, the sound by ear (8 audible dropouts in the smoke run), a save and a \
-load. The smoke run gave 58 fps in town."""
+The mouse cursor draws semitransparent on the PS3 (session 2026-10-29 note: "Very minor issue, cursor is \
+semitransparent"). Likely a big-endian alpha byte-order issue in the colour cursor (SDL_CreateColorCursor / \
+X ARGB cursor) or DevilutionX's cursor surface format: check against the PC. The xwd captures can't show it \
+(X cursors are not in the framebuffer)."""
+
+[[item]]
+kind = "fix"
+added = 2026-10-29
+source = "played session 2026-10-29 (no PC reference)"
+text = """\
+tools: play-pc.sh can't build a PC side for DevilutionX because it isn't in Debian, so the session had no PC \
+reference (upstream's x86_64 release was run by hand). Add a REF_IMAGE to the recipe (our amd64 build, like \
+the other games we patch, e.g. warzone2100's) so the comparison works next time."""

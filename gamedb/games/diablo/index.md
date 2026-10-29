@@ -12,5 +12,5 @@ data_steps = [
 ]
 draft = true
 status = "tried"
-status_note = "Smoke runs on the PS3 on 2026-10-28 with a DevilutionX 1.5.5 build of ours (licence decided on 2026-10-29: the Sustainable Use License 1.0, non-commercial use, is accepted; published in the testing suite as non-free) and the player's own Diablo 1.09 DIABDAT.MPQ: a new Warrior in Tristram, fullscreen 1920x1080, 58 fps steady (1% low 25), the colours right, the hero saved (technical.md); no played session yet."
+status_note = "Played session 2026-10-29 on our package (ps3.931~dev, 21.5 min of play, quit): Gold 80 (provisional, under an hour), 59 fps median, 1% low 24, one 2.3 s freeze, fullscreen 1920x1080, sound and music heard, 3 audible dropouts, DualShock and mouse worked, no glitches but a semitransparent mouse cursor (the player's note); the smoke runs of 2026-10-28 gave 58 fps in town (technical.md)."
 +++
