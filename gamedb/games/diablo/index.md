@@ -13,6 +13,10 @@ data_steps = [
   "The data is installed as diablo-data; DevilutionX reads DIABDAT.MPQ from its data folder, and Diablo then appears in Play.",
   "The free shareware version's spawn.mpq also works: put it in `~/.local/share/diasurgical/devilution/` by hand.",
 ]
-status = "tried"
-status_note = "Played session 2026-10-29 on our package (ps3.931~dev, 21.5 min of play, quit): Gold 80 (provisional, under an hour), 59 fps median, 1% low 24, one 2.3 s freeze, fullscreen 1920x1080, sound and music heard, 3 audible dropouts, DualShock and mouse worked, no glitches but a semitransparent mouse cursor (the player's note); the smoke runs of 2026-10-28 gave 58 fps in town (technical.md)."
+known_issues = [
+  "The mouse cursor draws semitransparent instead of solid.",
+  "One pause of about 2 s in a 20-minute session, and a few short sound dropouts.",
+]
 +++
+
+Diablo runs through DevilutionX 1.5.5, a source-available engine rebuilt from the original game, with the player's own DIABDAT.MPQ (the Guides tab has the ways to add it). A played session held about 59 frames a second (1% low 24) at 1920x1080, with the DualShock through the menus and the dungeon. DevilutionX's licence allows free non-commercial use and sharing, but it isn't an open-source licence.

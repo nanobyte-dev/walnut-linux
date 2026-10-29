@@ -6,6 +6,6 @@ tags = ["sports", "single-player", "local-multiplayer", "3d"]
 license = "GPL-2.0-or-later"
 homepage = "https://neverball.org/"
 controller = "full"
-status = "tried"
-status_note = "Played session 2026-10-29 on our package (ps3.931~dev, 5.5 min of play, quit): Platinum 96 (provisional, under an hour), 60 fps median, 1% low 44, fullscreen 1920x1080 in proportion, sound and music heard, 0 audible dropouts, DualShock full, no glitches; the smoke run of 2026-10-29 reached hole 1 at 129 fps (technical.md)."
 +++
+
+Neverputt, the mini-golf game that comes with Neverball, runs fullscreen at 1920x1080 on Walnut's package at about 60 frames a second (1% low 44), with its music and effects. It plays with the DualShock or the mouse.

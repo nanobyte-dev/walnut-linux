@@ -7,6 +7,11 @@ license = "GPL-2.0-or-later"
 homepage = "https://trigger-rally.sourceforge.io/"
 controller = "keyboard"
 designed_for = "keyboard-mouse"
-status = "tried"
-status_note = "Smoke runs on the PS3 on 2026-10-28 (Debian's 0.6.6.1, the menus clicked through XTEST): a race on Aegyptian fullscreen at 1920x1080, 65 fps steady on the recipe's cheap settings, 58 on the game's own defaults (1% low 30); a fresh configuration is fullscreen by itself (technical.md); no played session yet."
+known_issues = [
+  "On bigger stages, such as the city, the textures don't fit in video memory: buildings and the sky draw untextured and the car black. A fix is being worked on.",
+  "The DualShock doesn't work in the game yet; it plays with the keyboard. A fix is being worked on.",
+  "The menus flashed between two screens; Walnut's Mesa fixes this (patch 0054, in testing).",
+]
 +++
+
+Trigger Rally 0.6.6.1 runs fullscreen at 1920x1080. On the desert stages it races at about 58 frames a second on the game's own settings, with the picture right.
