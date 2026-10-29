@@ -21,6 +21,11 @@ a player points "Add Game" at; never in the repository), recipe variants `dott` 
   SMUSH intro skipped, the alley by the dumpster in play, right (`ps3-bench-20261029T023527Z-smoke-scummvm-ft`). 282 MB of data, removed from the
   console after the run for the disk.
 
+- Indiana Jones and the Fate of Atlantis, floppy, Spanish (`ATLANTIS.000` sha256 `ee30779f...a9b8d1`; variant
+  `atlantis`, started with `--auto-detect`: the game id alone was "Unrecognized"): Indy in the college's store
+  room with his first line, colours right (`ps3-bench-20261029T051807Z-smoke-scummvm-atlantis`).
+- Loom, EGA floppy, Spanish (variant `loom`): the difficulty choice (Estándar, Práctica, Experto), right (`ps3-bench-20261029T051548Z-smoke-scummvm-loom`).
+
 The Gallium HUD numbers (6-9 fps, "stalls") mean nothing here: ScummVM presents a frame only when the picture
 changes. Beneath a Steel Sky (the base recipe) was not re-run: its data package isn't installed and the disk
 was at 1.9 GB free.
