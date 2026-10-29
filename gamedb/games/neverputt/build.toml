@@ -1,3 +1,5 @@
 # How Neverputt is built, installed and integrated (gamedb/README.md "build.toml"). Its packages come from
 # the neverball source package (gamedb/games/neverball/packages/neverball).
 packages = ["neverputt", "neverputt-data"]
+suite = "free"
+needs_data = false

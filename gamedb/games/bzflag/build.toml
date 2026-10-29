@@ -1,3 +1,5 @@
 # How BZFlag is built, installed and integrated (gamedb/README.md "build.toml").
 # bzflag-server: the client's "Start Server" menu runs bzfs, the only way to play offline (with robots)
 packages = ["bzflag-client", "bzflag-server"]
+suite = "free"
+needs_data = false

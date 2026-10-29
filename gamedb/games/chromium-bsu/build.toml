@@ -1,2 +1,4 @@
 # How Chromium B.S.U. is built, installed and integrated (gamedb/README.md "build.toml").
 packages = ["chromium-bsu", "chromium-bsu-data"]
+suite = "free"
+needs_data = false

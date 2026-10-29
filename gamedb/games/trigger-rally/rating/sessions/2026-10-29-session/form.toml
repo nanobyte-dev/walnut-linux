@@ -1,0 +1,16 @@
+# the end-of-session form (bench/harness/session-form.py)
+form_version = 2
+sound = "yes"
+music = "none"
+glitches = "broken"
+pad_menus = "didnt"
+pad_play = "didnt"
+keyboard_mouse = "worked"
+menus_modes = "yes"
+saves_load = "na"
+controls = "keyboard-mouse"
+notes = "No textures, skybox is a grayscale gradient, car renders completely black. No gamepad support at all, menu navigation only works with mouse."
+saved = "2026-10-29T22:20:49Z"
+form = "tk"
+game = "trigger-rally"
+variant = "base"
