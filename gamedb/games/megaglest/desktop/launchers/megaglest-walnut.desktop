@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=MegaGlest
+Comment=Real-time strategy in a fantasy world; a first start plays fullscreen at the TV's size
+Exec=ps3-game sh -c "test -e ~/.megaglest/glestuser.ini || { mkdir -p ~/.megaglest && echo AutoMaxFullScreen=true > ~/.megaglest/glestuser.ini; }; exec megaglest"
+Icon=megaglest
+Terminal=false
+Categories=Game;StrategyGame;

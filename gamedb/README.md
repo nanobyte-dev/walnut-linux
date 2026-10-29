@@ -249,7 +249,7 @@ its own bundle's build.toml.
 How the game is integrated into the PS3 desktop, as files (`tools/gamedb/check.py` allows only these):
 
 - `launchers/*.desktop`: our menu entries, one per way to start the game (OpenArena's two renderers); the
-  Exec starts it through `ps3-game` (game mode). `pack-integration.py` adds `TryExec=` the program Exec runs
+  Exec starts it through `ps3-game` (game mode). `pack-integration.py` adds `TryExec=` the program Exec runs (in an `sh -c` script, the first one it `exec`s)
   (past `env` and `VAR=value`), so the entry shows only when the game is installed, and `X-Walnut-Game=<id>`:
   the Walnut Games app (`play_commands`) and `bench/harness/launcher.py --game` keep only a game's own
   stamped entries, so games on one engine (dsda-doom: Freedoom, Doom, Heretic) don't list each other's.

@@ -1,1 +1,7 @@
+# How MegaGlest is built, installed and integrated (gamedb/README.md "build.toml").
 packages = ["megaglest"]
+# our menu entry (desktop/launchers/megaglest-walnut.desktop: Debian's name is diverted): a first start writes ~/.megaglest/glestuser.ini with
+# AutoMaxFullScreen=true (Debian's glest.ini says 800x600, a mode change on the TV); after that the
+# player's settings decide. (Shadows off and DXT textures were measured too: within noise, not shipped.)
+desktop = ["megaglest-walnut.desktop"]
+divert = ["/usr/share/applications/megaglest.desktop"]

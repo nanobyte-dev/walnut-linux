@@ -74,8 +74,9 @@ def program(argv):
     while i < len(argv) and ASSIGN_RE.match(argv[i]):
         i += 1
     if i + 2 < len(argv) and argv[i] == "sh" and argv[i + 1] == "-c":
-        # a shell only to expand ~ in an argument: the program is the one the script execs
-        m = re.match(r"exec\s+(\S+)", argv[i + 2])
+        # a shell to expand ~ or to prepare a first start: the program is the first one the script execs
+        # (OpenTTD's "test ... && exec openttd ...", MegaGlest's "test ... || {...}; exec megaglest")
+        m = re.search(r"(?:^|[;&|{]\s*)exec\s+(\S+)", argv[i + 2])
         return m.group(1) if m else argv[i]
     return argv[i] if i < len(argv) else None
 

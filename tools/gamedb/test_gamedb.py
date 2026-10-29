@@ -1056,6 +1056,11 @@ class PackIntegration(unittest.TestCase):
         self.assertEqual(pr(["ps3-game", "sh", "-c", "exec openttd -c ~/x.cfg -I y"]), "openttd")
         self.assertEqual(pr(["ps3-game", "env", "A=1", "openttd", "-c", "x"]), "openttd")
         self.assertEqual(pr(["ps3-game", "sh", "-c", "echo hi"]), "sh")
+        # a script that prepares a first start, or picks a variant, before it execs the game
+        self.assertEqual(pr(["ps3-game", "sh", "-c", "test -e ~/.x/y.ini || { mkdir -p ~/.x; }; exec megaglest"]),
+                         "megaglest")
+        self.assertEqual(pr(["ps3-game", "sh", "-c", "test -e /a && exec openttd -r 1; exec openttd"]), "openttd")
+        self.assertEqual(pr(["ps3-game", "sh", "-c", "echo notexec megaglest"]), "sh")
 
     def test_tree(self):
         self.game("a", 'packages = ["a", "a-data"]\nsuite = "free"\n'

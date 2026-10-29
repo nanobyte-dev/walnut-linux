@@ -13,6 +13,17 @@ after throwing ... megaglest_runtime_error: In [thread.cpp::~Mutex Line: 534] ab
 1`, and the harness killed it at 200 s. Runs, needs performance work (a profile first) and the exit fixed.
 
 
+## Our defaults
+
+The menu entry is ours (`desktop/launchers/megaglest-walnut.desktop`, Debian's diverted): a first start writes
+`~/.megaglest/glestuser.ini` with `AutoMaxFullScreen=true`, since Debian's `glest.ini` says 800x600 (a mode
+change on the TV); with it the game takes the desktop's size (checked on the PC: 1280x720 on a 1280x720
+Xvfb, "forced change of resolution to desktop values"). After that the player's settings decide. Measured
+on the PS3 on one scenario (`--load-scenario=amazones`, 2026-10-29): Debian's settings 22 fps with 29.3 s of
+stalls in 90; `Shadows=Disabled` 23 fps / 25.9 s; that plus `NV30_FORCE_DXT=all` 22 fps / 31.6 s with 16 MB
+less VRAM: within one run's noise, so neither is shipped. The stalls are the swap (~150 MB of the game on
+disk): a memory job, not a GPU setting. State: the entry built (ps3-games-integration), pending its PS3 test.
+
 ## Research
 
 What the surveys and plans said about it, newest first; each line names its source, the section and the date.
