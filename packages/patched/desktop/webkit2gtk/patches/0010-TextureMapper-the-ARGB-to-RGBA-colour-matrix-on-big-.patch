@@ -1,0 +1,29 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Thu, 29 Oct 2026 12:39:03 +0200
+Subject: [PATCH 10/11] TextureMapper: the ARGB-to-RGBA colour matrix on
+ big-endian
+
+Tiles and images reach TextureMapper as Cairo ARGB32, native-endian words: on big-endian the bytes A, R, G, B, uploaded as RGBA, so the texel is (A, R, G, B) and the shader's u_textureColorSpaceMatrix has to give (y, z, w, x). The matrix was the transpose of that one (the matrix goes to the shader column by column), so every composited tile came out as (B, A, R, G). The BGRA case of little-endian is its own transpose and was right.
+---
+ Source/WebCore/platform/graphics/texmap/TextureMapper.cpp | 7 +++++--
+ 1 file changed, 5 insertions(+), 2 deletions(-)
+
+diff --git a/Source/WebCore/platform/graphics/texmap/TextureMapper.cpp b/Source/WebCore/platform/graphics/texmap/TextureMapper.cpp
+index 4cd6079..4a5eb17 100644
+--- a/Source/WebCore/platform/graphics/texmap/TextureMapper.cpp
++++ b/Source/WebCore/platform/graphics/texmap/TextureMapper.cpp
+@@ -466,8 +466,11 @@ static TransformationMatrix colorSpaceMatrixForFlags(OptionSet<TextureMapperFlag
+     TransformationMatrix matrix;
+     if (flags.contains(TextureMapperFlags::ShouldConvertTextureBGRAToRGBA))
+         matrix.setMatrix(0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0);
+-    else if (flags.contains(TextureMapperFlags::ShouldConvertTextureARGBToRGBA))
+-        matrix.setMatrix(0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 0.0);
++    else if (flags.contains(TextureMapperFlags::ShouldConvertTextureARGBToRGBA)) {
++        // ARGB bytes uploaded as RGBA give the texel (A, R, G, B): the result takes its y, z, w and
++        // x. The matrix goes to the shader column by column (m11 to m14 are the first column).
++        matrix.setMatrix(0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0);
++    }
+ 
+     return matrix;
+ }

@@ -1,0 +1,31 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Thu, 29 Oct 2026 12:39:03 +0200
+Subject: [PATCH 11/11] AcceleratedSurface: shared-memory frames in Cairo's
+ byte order on big-endian
+
+In the shared-memory mode the web process reads each composited frame back with glReadPixels(GL_BGRA, GL_UNSIGNED_BYTE), the bytes B, G, R, A, and the UI process wraps the buffer as CAIRO_FORMAT_ARGB32, a native-endian word: A, R, G, B in memory on big-endian. On big-endian each pixel's bytes are now reversed after the read.
+---
+ .../WebPage/CoordinatedGraphics/AcceleratedSurface.cpp   | 9 +++++++++
+ 1 file changed, 9 insertions(+)
+
+diff --git a/Source/WebKit/WebProcess/WebPage/CoordinatedGraphics/AcceleratedSurface.cpp b/Source/WebKit/WebProcess/WebPage/CoordinatedGraphics/AcceleratedSurface.cpp
+index fc00aa6..95297b3 100644
+--- a/Source/WebKit/WebProcess/WebPage/CoordinatedGraphics/AcceleratedSurface.cpp
++++ b/Source/WebKit/WebProcess/WebPage/CoordinatedGraphics/AcceleratedSurface.cpp
+@@ -514,6 +514,15 @@ AcceleratedSurface::RenderTargetSHMImage::~RenderTargetSHMImage()
+ void AcceleratedSurface::RenderTargetSHMImage::didRenderFrame(Vector<IntRect, 1>&& damageRects)
+ {
+     glReadPixels(0, 0, m_bitmap->size().width(), m_bitmap->size().height(), GL_BGRA, GL_UNSIGNED_BYTE, m_bitmap->mutableSpan().data());
++#if CPU(BIG_ENDIAN)
++    // GL_BGRA gives the bytes B, G, R, A; the UI process takes the buffer as Cairo's ARGB32, a
++    // native-endian word: the bytes A, R, G, B on big-endian.
++    auto pixels = m_bitmap->mutableSpan();
++    for (size_t i = 0; i + 4 <= pixels.size(); i += 4) {
++        std::swap(pixels[i], pixels[i + 3]);
++        std::swap(pixels[i + 1], pixels[i + 2]);
++    }
++#endif
+     RenderTargetShareableBuffer::didRenderFrame(WTF::move(damageRects));
+ }
+ 

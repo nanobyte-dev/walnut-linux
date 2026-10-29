@@ -1,0 +1,30 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Thu, 29 Oct 2026 12:37:21 +0200
+Subject: [PATCH 09/11] GTK: accelerated compositing without WebGL
+
+HardwareAccelerationManager turned hardware acceleration off for good when WebGL was left out of the build, so a build without WebGL (and so without ANGLE) could never composite, whatever the policy said: TextureMapper and the threaded compositor are built on GTK either way, on GLES 2 through EGL and libepoxy, and need nothing of WebGL. Without WebGL the same checks now decide as with it: WEBKIT_DISABLE_COMPOSITING_MODE and AcceleratedBackingStore::checkRequirements().
+---
+ Source/WebKit/UIProcess/gtk/HardwareAccelerationManager.cpp | 6 ++----
+ 1 file changed, 2 insertions(+), 4 deletions(-)
+
+diff --git a/Source/WebKit/UIProcess/gtk/HardwareAccelerationManager.cpp b/Source/WebKit/UIProcess/gtk/HardwareAccelerationManager.cpp
+index 8cf5b24..7a523b8 100644
+--- a/Source/WebKit/UIProcess/gtk/HardwareAccelerationManager.cpp
++++ b/Source/WebKit/UIProcess/gtk/HardwareAccelerationManager.cpp
+@@ -42,13 +42,11 @@ HardwareAccelerationManager::HardwareAccelerationManager()
+     : m_canUseHardwareAcceleration(true)
+     , m_forceHardwareAcceleration(true)
+ {
+-#if !ENABLE(WEBGL)
+-    m_canUseHardwareAcceleration = false;
+-#else
++    // Accelerated compositing (TextureMapper on GLES 2 through EGL) does not need WebGL: without
++    // it, only the GL requirements decide, as with WebGL.
+     const char* disableCompositing = getenv("WEBKIT_DISABLE_COMPOSITING_MODE");
+     if ((disableCompositing && strcmp(disableCompositing, "0")) || !AcceleratedBackingStore::checkRequirements())
+         m_canUseHardwareAcceleration = false;
+-#endif
+ 
+     const char* forceCompositing = getenv("WEBKIT_FORCE_COMPOSITING_MODE");
+     if (forceCompositing && !strcmp(forceCompositing, "0"))
