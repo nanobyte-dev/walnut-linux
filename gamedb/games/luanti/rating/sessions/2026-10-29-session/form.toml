@@ -1,0 +1,16 @@
+# the end-of-session form (bench/harness/session-form.py)
+form_version = 2
+sound = "yes"
+music = "yes"
+glitches = "none"
+pad_menus = "na"
+pad_play = "na"
+keyboard_mouse = "worked"
+menus_modes = "yes"
+saves_load = "yes"
+controls = "keyboard-mouse"
+notes = ""
+saved = "2026-10-29T20:20:28Z"
+form = "tk"
+game = "luanti"
+variant = "base"

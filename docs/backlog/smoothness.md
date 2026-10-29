@@ -246,6 +246,10 @@ Rank 48. Small fixes and checks that make the numbers trustworthy.
   /dev/shm/ps3-bench-<stamp>/.pid: No such file or directory` 4-9 times (16 runs; check the load
   profile has its pid), and bench.txt should carry the scan's verdict (a crash, a GART failure, an
   OpenAL wedge) so report.py can mark such a run like `!INTERFERED`.
+- **geom= empty in a session.** The geometry probe at SOUND_AT (15 s, client.sh) ran before Luanti's
+  window existed (luanti session 2026-10-29: `geom=-x-+-+- fs=-`, one dash row in the run's
+  geometry.tsv); the shots' rows (shots/geometry.tsv) were right (fullscreen 1920x1080). Harness fix
+  later: retry until a window row exists, and take bench.txt's `geom=` from the last row with a window.
 - **perf's own cost.** The rule is a same-boot A/B (`PERF=0` against `PERF=1`, three rounds) before
   reading fps off profiled runs at all; it has never run. One profiling batch had [OpenArena](../../gamedb/games/openarena/) at
   50.7, 50.5, 52.7 fps profiled against 52.7 and 50.2 without: one game, not interleaved.

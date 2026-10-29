@@ -83,3 +83,10 @@ the warm-up's at 20 and 30 s grey (in blocks not generated yet), only the 100 s 
 The frames are still drawn behind the black, a little faster (21 against 28 ms), so the A/B numbers hold, \
 but the pictures can't be checked. Raise the altitude or move the path, as a new recipe version (the old \
 numbers stay comparable only among themselves)."""
+
+[[item]]
+kind = "research"
+added = 2026-10-29
+source = "played session 2026-10-29"
+text = """\
+Exploring: stalls and swap grow away from spawn in a played session (12.9 s/min, session 2026-10-29); investigate later."""
