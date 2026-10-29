@@ -61,14 +61,16 @@ edit the todo.toml, not the table.
 | 21 | Heroes of Might and Magic II (fheroes2) | not rated yet | fheroes2 | needs the data | First played session with the player's Heroes II data: a standard game, a few turns, a battle, a save and a load; the music and effects by ear. |
 <!-- /gamedb:session-queue -->
 
-### Process check on every run (the user, 2026-10-29; built, PS3 smoke pending until the console is free)
+### Process check on every run (the user, 2026-10-29; built, smoke done)
 
 Every bench and session run keeps `processes-{start,mid,end}.txt` (one `ps` each) and checks them against
 `bench/harness/allowed-processes.txt`; a browser, a compiler, a second game or any unknown process over
 2% CPU or 20 MB marks the run `unexpected=<names>` (counted like an interfered run: SUITE.md "Process
-check"). Needs `make bench-push`. Test: one short X-Moto base run on a clean desktop, expect `procs=ok`
-and the three files; a run with a browser open should say `unexpected=badwolf`. The allowlist may need
-a name or two the first real lists show.
+check"). Needs `make bench-push`. Smoke 2026-10-29 (.874 walnut, `run.sh smoke xmoto`): the four files appeared, `procs=ok`,
+`interfered=0` (the bench session has the desktop stopped, so the list is short: systemd, journald, udev,
+NetworkManager, bluetoothd, mpris-proxy, gvfs, sshd, the harness, X-Moto). The browser and compiler cases are
+in selftest.py only (not run on the PS3). The allowlist may need a name or two when the full desktop (played
+sessions) shows up in a list.
 
 ### Next batches (SSD root, kernel .472, ps3-gpu-tools 0.477~dev)
 

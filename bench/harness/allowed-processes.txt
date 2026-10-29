@@ -84,6 +84,8 @@ systemd-*
 dbus-daemon
 dbus-broker*
 NetworkManager
+bluetoothd
+mpris-proxy
 wpa_supplicant
 dhclient
 avahi-daemon
