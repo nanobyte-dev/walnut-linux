@@ -26,8 +26,10 @@ random-number table shrank from 32 MB to 64 KB, and its played session had a 60 
   jumps, Circle crouches, L1/R1 the previous/next weapon, Square uses the item, Triangle the inventory,
   the D-pad left/right selects an item, up the help computer, down drops the item, Select the score;
   Start is the menu already. A saved `config.cfg` keeps its own bindings (Yamagi writes them all), so a
-  home that has played keeps E/S/D/F until Options, Customize controls, "reset to defaults". State:
-  built for the PS3 test (pending).
+  home that has played keeps E/S/D/F until Options, Customize controls, "reset to defaults". Checked on
+  the PS3 (2026-10-29, a fresh home): the config.cfg the game writes has `bind w "+forward"`,
+  `bind e "use power shield"`, `bind BTN_SOUTH "+moveup"`, `bind TRIG_RIGHT "+attack"`; the pad by hand is
+  for a played session.
 - Two menu entries of ours ([desktop/launchers](desktop/launchers/)), the gl1 renderer fullscreen at the
   desktop's resolution (`r_mode -2`): "Quake II (demo)", `-datadir /usr/share/games/quake2-demo`, and
   "Quake II", the full game, `-datadir /usr/share/games/quake2`. Both are packed hidden (`NoDisplay=true`)
@@ -68,7 +70,7 @@ starts the demo cold. Each pass also prints "ERROR: Disconnected from server". V
   PS3_ABI 2 fixes it, checked with dev builds on 2026-10-27; the release check is docs/TESTS.md's
   batch mesa-0051.
 - Movement shipped bound to E/S/D/F (Yamagi's defaults) and the pad's buttons unbound: 0003 gives W/A/S/D
-  and a pad scheme to new homes (pending its PS3 test). The menu and HUD text is small at 1080p (the
+  and a pad scheme to new homes (checked on the PS3). The menu and HUD text is small at 1080p (the
   automatic scale is 3 there: 1920/640).
 - `Sys_LoadLibrary failed: libcurl.so.4`: the optional download library, harmless.
 
