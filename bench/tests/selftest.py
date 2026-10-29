@@ -38,6 +38,8 @@
  11. the interference detector (intfcheck.py, docs/STALLS.md "Interference"): ps3-intfwatch's input
      filter on recorded event streams in both byte orders, its process, session, VT and kernel log
      rules live on this machine, report.py's intf column and matrix.py's skip, interference-scan.py
+ 11b. the process check (client.sh's processes-{start,mid,end}.txt, proccheck.py, allowed-processes.txt): a fake
+     ps with a clean desktop, a browser, a compiler, an unknown big process; procs=/unexpected= and report.py's intf/unx
  12. the start-up profile (docs/PROFILING.md "Start-up profiling"): perfprof.py collapse --load and
      loadprof.py on made-up stacks (one per group, the load and the warm-up), I/O snapshots, ld.so
      statistics and a stalls.rec, every number by hand, report.py's lp_* columns and --load;
@@ -409,6 +411,7 @@ MAXMS_RE='^pass: .* max ([0-9]+) ms'; PASSES=1; WARMUP=3; MEASURE=4; DURATION=25
 during() { :; }
 variant_ok() { NEEDS=(sh); }""",
     "fakewedge": """CMD=("$FAKE" --fake-game wedge); COMM=python3; DURATION=6; WARMUP=1; MEASURE=2""",
+    "fakeprocs": """CMD=("$FAKE" --fake-game wedge); COMM=python3; DURATION=6; WARMUP=1; MEASURE=2; SOUND_AT=2""",
     "fakecrash": """CMD=("$FAKE" --fake-game crash); COMM=python3; DURATION=8; WARMUP=1; MEASURE=2""",
     "fakeown": """CMD=("$FAKE" --fake-game own); STEADY_RE='^own: steady [0-9]+ frames in [0-9]+ ms: ([0-9.]+) fps'
 STEADY_MAXMS_RE='^own: steady .* longest ([0-9]+) ms'; WARMUP=1; MEASURE=1; DURATION=25
@@ -732,6 +735,77 @@ echo "fake gdb backtraces"\n''')
     check("dump: a game dying of SIGSEGV: exit 0, rc=139, dump= crash or none (host core_pattern), setup.txt names it",
           p.returncode == 0 and b.get("rc") == "139" and b.get("dump") in ("crash", "none")
           and "core_pattern=" in (d / "dump" / "setup.txt").read_text(), (b, p.stdout[-300:]))
+
+
+def client_procs(tmp):
+    """the process check (docs/games/SUITE.md "Process check"): client.sh's three ps snapshots with a fake ps
+    (a clean desktop; a browser; a compiler; an unknown big process; the harness's own children), bench.txt's
+    procs= / unexpected=, the warning, report.py's intf and unx, proccheck.py's rules"""
+    bindir = tmp / "procbin"
+    bindir.mkdir()
+    base = ("  PID  PPID   RSS %CPU STAT COMMAND         COMMAND\n"
+            "    1     0  9000  0.1 Ss   systemd         /sbin/init\n"
+            "    2     0     0  0.0 S    kthreadd        [kthreadd]\n"
+            "   30     2     0  5.0 I    kworker/0:1     [kworker/0:1-events]\n"
+            "  400     1 90000  3.0 Ssl  Xorg            /usr/bin/Xorg :0\n"
+            "  410     1 20000  0.5 Ssl  openbox         openbox\n"
+            "  411     1 30000  0.4 Ssl  tint2           tint2\n"
+            "  412     1 41000  0.2 Ssl  pcmanfm         pcmanfm --desktop\n"
+            "  413     1 23000  0.1 Ssl  nm-applet       nm-applet\n"
+            "  414     1  9000  0.0 S    python3         /usr/bin/python3 -I /usr/lib/ps3/desktop/ps3-pad-escape\n"
+            "  500     1  5000  0.0 Ss   sshd            sshd: root@pts/0\n")
+    extra = {"clean": "", "browser": "  900     1  3000  0.0 S    badwolf         badwolf https://example.org\n",
+             "compiler": "  901   410 80000 95.0 R    cc1plus         /usr/lib/gcc/cc1plus big.cc\n",
+             "unknown": "  902     1 52000  0.1 S    mystery         /opt/mystery --serve\n",
+             "quiet": "  903     1  1000  0.2 S    mystery         /opt/mystery\n"}
+    for k, v in extra.items():
+        write(tmp / ("ps-" + k + ".txt"), base.replace("\\n", "\n") + v.replace("\\n", "\n"))
+    write(bindir / "ps", "#!/bin/sh\ncat \"$FAKE_PS\"\n")
+    (bindir / "ps").chmod(0o755)
+    env = {k: v for k, v in os.environ.items() if k not in ("DISPLAY", "WAYLAND_DISPLAY", "GALLIUM_HUD",
+                                                            "GALLIUM_HUD_DUMP_DIR")}
+    env.update(BENCH_RECIPES=str(tmp / "recipes"), BENCH_BACKUP=str(tmp / "backup"),
+               PATH="%s:%s" % (bindir, os.environ["PATH"]))
+
+    def run(n, kind):
+        d = tmp / ("ps3-bench-20261018T0600%02dZ-fakeprocs-base" % n)
+        p = subprocess.run(["bash", str(HARNESS / "client.sh"), "fakeprocs", "base"],
+                           env=dict(env, BENCH_DIR=str(d), FAKE_PS=str(tmp / ("ps-%s.txt" % kind))),
+                           capture_output=True, text=True)
+        return p, d, report.kv(d / "bench.txt") if (d / "bench.txt").exists() else {}
+    p, d, b = run(0, "clean")
+    check("procs: clean desktop: three snapshots, procs=ok, no unexpected=, no warning",
+          all((d / ("processes-%s.txt" % w)).exists() for w in ("start", "mid", "end")) and b.get("procs") == "ok"
+          and "unexpected" not in b and "UNEXPECTED" not in p.stdout, (b, p.stdout[-400:], p.stderr[-300:]))
+    check("procs: the snapshot is ps's own output (header and columns)", "PID  PPID   RSS" in (d / "processes-start.txt").read_text())
+    r = report.run(d)
+    check("procs: report.py: a clean run is intf=0 with no unx", r.get("intf") in (0, None) and "unx" not in r, r)
+    p, d, b = run(1, "browser")
+    check("procs: a browser (idle, tiny) is unexpected by name: unexpected=badwolf, warning in the log",
+          b.get("procs") == "unexpected" and b.get("unexpected") == "badwolf" and "UNEXPECTED PROCESSES" in p.stdout
+          and "badwolf" in (d / "processes-check.txt").read_text(), (b, p.stdout[-400:]))
+    r = report.run(d)
+    check("procs: report.py: such a run is intf=1 with unx and the reason", r.get("intf") == 1 and r.get("unx") == "badwolf"
+          and "unexpected processes: badwolf" in r.get("intf_why", ""), r)
+    p, d, b = run(2, "compiler")
+    check("procs: a compiler at 95% CPU (a child of the desktop) is unexpected", b.get("unexpected") == "cc1plus", b)
+    p, d, b = run(3, "unknown")
+    check("procs: an unknown 52 MB process is unexpected; the same name at 1 MB and 0.2% CPU is not",
+          b.get("unexpected") == "mystery", b)
+    p, d, b = run(4, "quiet")
+    check("procs: an unknown small, idle process passes", b.get("procs") == "ok", b)
+    p = subprocess.run(["python3", "-I", str(HARNESS / "proccheck.py"), str(HARNESS / "allowed-processes.txt"), "700",
+                        str(tmp / "ps-clean.txt")], capture_output=True, text=True)
+    check("procs: proccheck.py alone: clean list, empty first line", p.returncode == 0 and p.stdout == "\n", (p.stdout, p.stderr))
+    own = tmp / "ps-own.txt"
+    write(own, base.replace("\\n", "\n") + "  700   500  1000  0.0 Ss   client.sh       bash client.sh\n"
+          "  701   700 90000 99.0 R    badwolf         badwolf\n  702   701 90000 99.0 R    WebKitWebProces WebKitWebProcess\n")
+    p = subprocess.run(["python3", "-I", str(HARNESS / "proccheck.py"), str(HARNESS / "allowed-processes.txt"), "700", str(own)],
+                       capture_output=True, text=True)
+    check("procs: the harness's own descendants (the game under test) are exempt even when heavy", p.stdout == "\n", p.stdout)
+    p = subprocess.run(["python3", "-I", str(HARNESS / "proccheck.py"), str(HARNESS / "allowed-processes.txt"), "700",
+                        str(tmp / "ps-none.txt")], capture_output=True, text=True)
+    check("procs: no readable snapshot: exit 2", p.returncode == 2, p.returncode)
 
 
 def client_libenv(tmp):
@@ -2228,6 +2302,7 @@ if __name__ == "__main__":
         client(tmp)
         client_gprefetch(tmp)
         client_libenv(tmp)
+        client_procs(tmp)
         client_dump(tmp)
         client_shots(tmp)
         client_ssdarm(tmp)

@@ -1,0 +1,121 @@
+# allowed-processes.txt: what a standard Walnut desktop runs while a benchmark or session runs
+# (checked by proccheck.py on processes-{start,mid,end}.txt; docs/games/SUITE.md "Process check").
+#
+# One entry a line, matched against the process name (ps comm, 15 characters, shell-style globs):
+#   name            allowed, whatever it uses
+#   name ~ REGEX    allowed when the command line matches REGEX (for interpreters: python3, sh)
+#   !name           never allowed (a browser, a second game, a package manager, a compiler): the run is
+#                   marked unexpected= even when the process is idle
+# A process that is none of these is unexpected when it uses more than 2% CPU (ps's pcpu: the share
+# since the process started) or 20 MB of RSS. Always allowed without an entry: kernel threads, the
+# harness itself (the shell that runs client.sh, its ancestors, everything it started: the game under
+# test and its helpers).
+
+# --- never allowed: GUI browsers
+!badwolf
+!WebKit*
+!netsurf*
+!firefox*
+!chrom*
+!epiphany
+!midori
+!dillo
+!falkon
+!qutebrowser
+!surf
+# --- never allowed: a second game or an emulator (the game under test is the harness's own child)
+!ps3-game
+!wine*
+!scummvm
+!retroarch
+!dosbox*
+# --- never allowed: package managers and builds
+!apt
+!apt-get
+!aptitude
+!dpkg
+!packagekitd
+!unattended-upgr*
+!gcc
+!g++
+!cc1*
+!clang*
+!make
+!ninja
+!ld
+!ld.*
+!as
+!rustc
+!cargo
+!cmake
+!meson
+
+# --- the desktop session (ps3-session: openbox, tint2, pcmanfm --desktop, nm-applet, pnmixer,
+# lxpolkit, dunst, jgmenu)
+Xorg
+Xwayland
+openbox
+tint2
+pcmanfm
+nm-applet
+pnmixer
+lxpolkit
+dunst
+jgmenu
+hsetroot
+aplay
+xbindkeys
+# gvfs and udisks helpers, the user bus' services
+gvfsd*
+gvfs-*
+udisksd
+upowerd
+polkitd
+at-spi*
+dconf-service
+xdg-*
+# --- Walnut's own services and the game mode machinery (ps3-desktop, ps3-system)
+ps3-*
+python3 ~ /usr/lib/ps3/|/usr/lib/walnut/|ps3-|/var/tmp/bench/
+# --- the system: init, the buses, the network, the clock, logging, login, ssh
+systemd
+systemd-*
+(sd-pam)
+dbus-daemon
+dbus-broker*
+NetworkManager
+wpa_supplicant
+dhclient
+avahi-daemon
+chronyd
+rtkit-daemon
+rsyslogd
+cron
+agetty
+login
+sshd
+sshd-session
+udevd
+kworker*
+pipewire*
+wireplumber
+pulseaudio
+# --- shells and the small tools the harness and a login use
+bash
+sh
+dash
+sleep
+cat
+awk
+sed
+grep
+tee
+ps
+cut
+sudo
+ssh-agent
+dmesg
+vmstat
+iostat
+perf
+evemu-*

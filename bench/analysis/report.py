@@ -58,6 +58,8 @@ stall causes (runs with a stalls.rec: ps3-bench.sh BENCH_STALLS=1, run.sh STALLS
           not only stall frames), warm_disk_s the warm-up's stall frames' disk seconds,
           warmup_disk_s the warm-up's (load_end to the window's start) seconds waiting on the disk
   snd     the sound card state(s) at SOUND_AT seconds; end: how the run ended (exit, end, duration)
+  unx     the unexpected processes (bench.txt unexpected=: names off bench/harness/allowed-processes.txt that
+          ran beside the run, processes-check.txt); such a run is intf=1 too
   intf    1: somebody disturbed the run (ps3-bench.sh's detector: bench.txt interfered=1, or the
           retro-scan's list gamedb/benchmarks/interfered.txt for runs from before it; docs/STALLS.md
           "Interference"), 0: watched and clean, -: not watched. An interfered run is marked
@@ -147,6 +149,12 @@ def interference(d, b, r):
     if d.name in RETRO:
         r["intf"] = 1
         r["intf_why"] = "interfered.txt: " + RETRO[d.name]
+    # the process check (client.sh, proccheck.py): something off the allowlist ran beside the game; the
+    # run counts as disturbed (left out of the medians, refused by import-run) and the names are shown
+    if b.get("unexpected"):
+        r["unx"] = b["unexpected"]
+        r["intf"] = 1
+        r["intf_why"] = "; ".join(x for x in (r.get("intf_why"), "unexpected processes: " + b["unexpected"]) if x)
 
 
 def kv(path):
@@ -599,7 +607,7 @@ def steady(d, b, r):
 COLS = ["load", "fps", "maxms", "hud", "steady", "src", "low1", "stalls", "smooth", "stall_s", "longest", "stalls_play", "stall_play_s", "longest_play", "low1_play", "win_play",
         "reload_s", "win", "passes", "stalls_warm", "stall_warm_s", "longest_warm",
         "ftdrift", "cpu", "rss", "vram", "gart", "avail", "so_load", "so_all",
-        "vsw_peak", "vsw_wb", "xrun", "xaud", "wedge", "sstall", "dump", "tmax", "tcell", "trsx", "snd", "end", "intf", "stall_disk_s", "stall_swap_s", "stall_reclaim_s",
+        "vsw_peak", "vsw_wb", "xrun", "xaud", "wedge", "sstall", "dump", "tmax", "tcell", "trsx", "snd", "end", "intf", "unx", "stall_disk_s", "stall_swap_s", "stall_reclaim_s",
         "stall_gpu_s", "stall_cpu_s", "stall_io_s", "stall_wait_s", "stall_other_s", "stall_why",
         "load_disk_s", "warm_disk_s", "warmup_disk_s"]
 # the profiles' columns: printed only for the runs that have them
@@ -625,7 +633,7 @@ RANGED = ("load", "fps", "maxms", "hud_med", "steady", "low1", "smooth", "stall_
 
 
 def show(r):
-    return "  ".join("%s=%s" % (c, r.get(c, "-")) for c in COLS if c not in PROF_COLS or c in r)
+    return "  ".join("%s=%s" % (c, r.get(c, "-")) for c in COLS if (c not in PROF_COLS and c != "unx") or c in r)
 
 
 def bad(r):
@@ -656,6 +664,7 @@ def main(dirs):
                 shown[c] = "%s [%s..%s]" % (shown[c], min(vals), max(vals))
         shown["hud"] = shown.pop("hud_med", "-")
         shown.pop("intf", None)
+        shown.pop("unx", None)
         left = len([r for r in allruns if (r["group"], r["variant"]) == key and bad(r)])
         print("%-24s n=%d%s %s" % ("%s-%s" % key, len(rs), " (+%d interfered left out)" % left if left else "", show(shown)))
 

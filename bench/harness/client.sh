@@ -717,6 +717,11 @@ fi
 [ -n "${DISPLAY:-}" ] && [ "$SESSION" != 1 ] && xset s off -dpms 2>/dev/null
 
 helpers=()
+# The process list (docs/games/SUITE.md "Process check"): one ps at the start (before the game), at SOUND_AT
+# and at the end, into processes-{start,mid,end}.txt; proccheck.py compares them with allowed-processes.txt
+# when bench.txt is written (BENCH_PROCS=0: none)
+proc_snap() { [ "${BENCH_PROCS:-1}" = 1 ] && ps -eo pid,ppid,rss,pcpu,stat,comm,args 2> /dev/null | cut -c1-200 > "$D/processes-$1.txt"; return 0; }
+proc_snap start
 # snd_ps3's interrupt counters and DMA watchdog restarts (kernel local/0047; absent on older kernels)
 SND_STATS=$KPARAM_SND_DIR/dma_stats; SND_PRE=
 [ -r "$SND_STATS" ] && read -r SND_PRE < "$SND_STATS"
@@ -885,7 +890,7 @@ fi
 # (geom.py, as after a screenshot, at nice 19) unless BENCH_GEOM=0: bench.txt's geom=WxH+X+Y fs=0|1
 # screen=WxH (fs=1: fullscreen or covering the screen), the row in $D/geometry.tsv, so a run that came up
 # windowed (a config left at 640x480) is seen and not counted
-(sleep "$SOUND_AT"; cat /proc/asound/card*/pcm*p/sub*/status 2>/dev/null |
+(sleep "$SOUND_AT"; proc_snap mid; cat /proc/asound/card*/pcm*p/sub*/status 2>/dev/null |
 	awk '$1 == "state:" { s = s (s ? "," : "") $2 } END { print s ? s : "none" }' > "$D/.sound"
 	[ -s "$D/.pid" ] && sched_probe "$(cat "$D/.pid")"
 	if [ "${BENCH_GEOM:-1}" = 1 ] && command -v xwininfo > /dev/null && command -v python3 > /dev/null; then
@@ -1117,6 +1122,7 @@ for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do [ -e "$D/.markbu
 stop_game
 while IFS= read -r -t 2 -u 3 l; do l=$part$l; part=; printf '%s\n' "$l"; printf '%s\n' "$l" >> "$D/game.log"; done
 wait "$gp" 2>/dev/null; rc=$?
+proc_snap end
 [ "$DUMPON" = 1 ] && [ "$rc" -gt 128 ] && [ "$rc" -ne 143 ] && [ "$rc" -ne 137 ] && dump_crash
 exec 3<&-; rm -f "$fifo"
 kill "${helpers[@]}" $wm 2>/dev/null; wait 2>/dev/null
@@ -1178,8 +1184,21 @@ fi
 [ -n "$load_us" ] && secs load_end "$load_us"; [ -n "$hud_us" ] && secs hud_t1 "$hud_us"
 secs measured "$measured"
 [ -n "$RESULT_FILE" ] && for f in $RESULT_FILE; do [ -e "$f" ] && cp -p "$f" "$D/"; done
+# the process list against the allowlist: bench.txt procs=ok|unexpected|none (no snapshot or checker),
+# unexpected=<names>, the reasons in processes-check.txt and a warning in the run log
+PROCS=none; UNEXPECTED=
+if [ "${BENCH_PROCS:-1}" = 1 ] && command -v python3 > /dev/null && [ -s "$D/processes-start.txt" ] &&
+		python3 -I "$here/proccheck.py" "$here/allowed-processes.txt" $$ "$D"/processes-{start,mid,end}.txt > "$D/processes-check.txt" 2> /dev/null; then
+	UNEXPECTED=$(head -1 "$D/processes-check.txt")
+	if [ -n "$UNEXPECTED" ]; then
+		PROCS=unexpected
+		echo "!! UNEXPECTED PROCESSES beside the benchmark: $UNEXPECTED (processes-check.txt). THIS RUN IS NOT CLEAN"
+		sed 1d "$D/processes-check.txt" | sed 's/^/!!   /'
+	else PROCS=ok; fi
+fi
 { echo "game=$GAME"; echo "recipe=$GAME"; echo "variant=$VARIANT"; echo "comm=$COMM"
   echo "ended=$ended"; echo "rc=$rc"; echo "seconds=$t_run"
+  echo "procs=$PROCS"; [ -n "$UNEXPECTED" ] && echo "unexpected=$UNEXPECTED"
   echo "fps=$($pick "$FPS_RE")"; echo "maxms=$($pick "$MAXMS_RE")"; echo "load=$load"
   # steady state: settings, the load's end and the HUD's first value (s from the start), the window
   echo "warmup=$WARMUP"; echo "measure=$MEASURE"; echo "load_end=${load_end:-}"; echo "hud_t1=${hud_t1:-}"

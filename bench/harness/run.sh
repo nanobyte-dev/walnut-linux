@@ -77,6 +77,9 @@
 # disturbed (input, a VT switch, a device, an SSH login or command); run.sh prints a warning after it,
 # report.py marks it and leaves it out of the medians, matrix.py skips it. RERUN_INTERFERED=1 runs
 # such a run once more right away (both directories stay; the clean one counts).
+# Process check (docs/games/SUITE.md "Process check"): client.sh keeps ps lists (processes-{start,mid,end}.txt)
+# and checks them against allowed-processes.txt; bench.txt unexpected=<names> (a browser, a compiler, a
+# second game...) marks the run like an interfered one (BENCH_PROCS=0: off).
 # SHOTS="30 90" (an ENVS token with commas: SHOTS=70,130): screenshots of the screen (xwd, client.sh BENCH_SHOTS) at those
 # seconds after the game state the recipe names (SHOT_FROM: the load's end by default); auto: the
 # recipe's SHOT_POINTS; off: none. Smoke runs take them by default (auto), bench and suite runs only
@@ -155,6 +158,10 @@ one() {	# one LABEL GAME VARIANT [ENVTOKEN]: one run, its directory appended to 
 			RERUN=1 one "$@"
 			return
 		fi
+	fi
+	if [ -n "$d" ] && grep -q '^unexpected=' "$d/bench.txt" 2>/dev/null; then
+		echo "!! UNEXPECTED PROCESSES in ${d##*/}: $(sed -n 's/^unexpected=//p' "$d/bench.txt" | tail -1) (${d##*/}/processes-check.txt)"
+		echo "!! this run doesn't count (report.py and matrix.py leave it out)"
 	fi
 	return 0
 }
