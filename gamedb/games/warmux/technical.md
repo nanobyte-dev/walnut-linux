@@ -36,5 +36,11 @@ unchanged (`ps3-bench-20261029T033532Z-smoke-warmux-play`); under perf libSDL3 5
 which spent 27% in the same loop, stays at its 45 fps cap with the picture right. Next in the profile
 (`ps3-bench-20261029T034148Z`): `ConvertAltivec32to32_prefetch` 11% (a whole-frame 32-bit format conversion,
 already AltiVec: sdl12-compat's screen surface into its texture, probably a format mismatch to remove) and
-the blit itself 8%. A lower resolution scaled by sdl12-compat is the other lever.
+the blit itself 8%. That conversion was sdl12-compat's: its screen texture was always in the renderer's
+first format (ARGB8888) against the 32-bit screen's XRGB8888;
+[sdl12-compat 0001](../../../packages/patched/graphics/sdl12-compat/patches/0001-video-the-window-texture-in-the-application-s-format.patch)
+makes it in the application's format. With both (2026-10-29, same boot,
+`ps3-bench-20261029T040111Z-smoke-warmux-play`): 17.5 fps on the game's counter (7.0 with neither, 9.8 with
+libsdl3 0003 alone), 38.6 s of stalls in 90 (51-57 before), the picture and colours right; Frozen Bubble,
+BomberClone and Pingus look right too. A lower resolution scaled by sdl12-compat is the lever left.
 
