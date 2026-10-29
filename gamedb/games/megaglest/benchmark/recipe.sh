@@ -10,6 +10,10 @@ MG_DIR=$HOME/.megaglest
 BACKUP=("$MG_DIR")
 setup() {
 	mkdir -p "$MG_DIR"
-	printf '%s\n' "Windowed=false" "ScreenWidth=1920" "ScreenHeight=1080" "CheckGlCaps=false" > "$MG_DIR/glestuser.ini"
+	printf '%s\n' "Windowed=false" "ScreenWidth=1920" "ScreenHeight=1080" "CheckGlCaps=false" "${MG_INI[@]}" > "$MG_DIR/glestuser.ini"
 }
+MG_INI=()	# more glestuser.ini lines (variants)
 CMD=(/usr/games/megaglest --auto-test=150,,exit)
+# VRAM ran full (220 of 220 MB) and the VRAM swap thrashed (2026-10-29): Mesa's DXT at upload, and shadows off
+variant_dxt() { ENV+=(NV30_FORCE_DXT=all); }
+variant_lean() { ENV+=(NV30_FORCE_DXT=all); MG_INI+=("Shadows=Disabled"); }
