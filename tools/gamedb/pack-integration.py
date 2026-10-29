@@ -12,7 +12,9 @@ Design
                                     Exec runs through ps3-game (so a launcher of a game that isn't installed
                                     stays out of the menu) and X-Walnut-Game=<id> (the Walnut Games app and
                                     bench/harness/launcher.py keep a game's own: games sharing an engine
-                                    don't see each other's); every launcher starts its game through ps3-game
+                                    don't see each other's); every launcher starts its game through ps3-game,
+                                    except one marked X-Walnut-GameMode=false: a game's tool that is no game
+                                    (ScummVM's own launcher), which ps3-game-menu leaves as it is
     tree/<path>                     desktop/files/<path>: config files installed as they are
     tree/usr/share/ps3-games/divert.list        the divert paths, one per line (ps3-games-integration's
                                     preinst diverts each one; ps3-desktop's tests/menu-check.sh reads it)
@@ -90,7 +92,12 @@ def launcher(gid, path):
     if len(execs) != 1:
         raise Error("%s: %s needs exactly one Exec line" % (gid, path.name))
     argv = shlex.split(execs[0][len("Exec="):])
-    if not argv or argv[0] != "ps3-game":
+    if "X-Walnut-GameMode=false" in lines:
+        # no game: no game mode (ps3-game-menu leaves it as it is); its program is read the same way
+        if not argv or argv[0] == "ps3-game":
+            raise Error("%s: %s: X-Walnut-GameMode=false, but Exec starts it through ps3-game" % (gid, path.name))
+        argv = ["ps3-game"] + argv
+    elif not argv or argv[0] != "ps3-game":
         raise Error("%s: %s: Exec must start the game through ps3-game (game mode)" % (gid, path.name))
     prog = program(argv)
     if not prog:

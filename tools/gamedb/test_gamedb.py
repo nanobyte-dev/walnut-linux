@@ -1141,6 +1141,21 @@ class PackIntegration(unittest.TestCase):
         with self.assertRaisesRegex(self.pi.Error, "X-Walnut-Requires must be an absolute path"):
             self.pack()
 
+    def test_no_game_mode_launcher(self):
+        """an entry marked X-Walnut-GameMode=false (ScummVM's own launcher, no game) starts without ps3-game,
+        and its TryExec is the program past env; through ps3-game it is refused"""
+        self.game("scummvm", 'packages = ["scummvm"]\n', draft=True, launchers=[(
+            "scummvm.desktop", "[Desktop Entry]\nName=ScummVM\nExec=env PS3_GAME_MODE=off scummvm\n"
+            "Categories=Game;\nX-Walnut-GameMode=false\n")])
+        self.pack()
+        self.assertEqual(self.read("tree/usr/share/applications/scummvm.desktop"),
+                         "[Desktop Entry]\nName=ScummVM\nExec=env PS3_GAME_MODE=off scummvm\n"
+                         "TryExec=scummvm\nX-Walnut-Game=scummvm\nCategories=Game;\nX-Walnut-GameMode=false\n")
+        (self.root / "scummvm" / "desktop" / "launchers" / "scummvm.desktop").write_text(
+            "[Desktop Entry]\nName=ScummVM\nExec=ps3-game scummvm\nX-Walnut-GameMode=false\n")
+        with self.assertRaisesRegex(self.pi.Error, "X-Walnut-GameMode=false, but Exec starts it through ps3-game"):
+            self.pack()
+
     def test_this_gamedb(self):
         """the real gamedb packs, every launcher gets a TryExec and its game's stamp, nothing but the tree"""
         with tempfile.TemporaryDirectory() as t:

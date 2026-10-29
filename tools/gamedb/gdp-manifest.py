@@ -17,7 +17,9 @@ Design
   {path relative to /: [alternatives, each {size, the strongest checksum gdp has: sha256, else sha1,
   else md5, and release: gdp's name for that version of the file when it has one, the part after
   "?" in "doom.wad?1.9ud" (X-Walnut-Release)}]}, required (the paths of its install files; the
-  rest are optional; a file the game's plugin writes itself, its generated_files(package) {path under
+  rest are optional; an install file gdp puts under the name of whichever alternative it found,
+  install_as $alternative (Day of the Tentacle's monster.sou or monster.sof), is each alternative at
+  its own path, optional, since any one will do; a file the game's plugin writes itself, its generated_files(package) {path under
   install_to: bytes} (ttd's orig_win_fm.obm), is a required file with its size and sha256), conflicts and replaces (the deb's own, from gdp's control generation, kept only
   when they name another package of the same gdp game without a version: quake-registered and
   quake-shareware, not Team Arena's quake3-data (<< 77~), which is about older gdp builds; the
@@ -91,10 +93,30 @@ for name in want:
     files, required = {}, set()
     for tag, wanted in (("required", p.install_files), ("optional", p.optional_files)):
         for w in sorted(wanted, key=lambda w: w.name):
-            if w.install_as == "$alternative":
-                errs.append("%s: %s installs as $alternative" % (name, w.name))
-                continue
             to = install_to if w.install_to is None else deb.substitute(w.install_to, name, install_to=install_to)
+            if w.install_as == "$alternative":
+                # each alternative under its own name (Day of the Tentacle's monster.sou or its FLAC
+                # repack monster.sof): every one a file of its own, optional, since any one of them will do
+                # and the manifest has no "one of" (gdp itself builds the package only with one of them)
+                if not w.alternatives:
+                    errs.append("%s: %s installs as $alternative without alternatives" % (name, w.name))
+                for x in w.alternatives:
+                    a = g.files[x]
+                    k, v = strongest(a)
+                    apath = os.path.join(to.strip("/"), x.partition("?")[0]).strip("/")
+                    if a.size is None or k is None or a.alternatives:
+                        errs.append("%s: %s (%s) has no size or checksum" % (name, apath, a.name))
+                        continue
+                    if a.executable or w.executable:
+                        errs.append("%s: %s is executable" % (name, apath))
+                    alt = {"size": a.size, k: v}
+                    rel = a.name.partition("?")[2]
+                    if rel:
+                        alt["release"] = rel
+                    files.setdefault(apath, [])
+                    if alt not in files[apath]:
+                        files[apath] = sorted(files[apath] + [alt], key=lambda a: (a["size"], json.dumps(a, sort_keys=True)))
+                continue
             path = os.path.join(to.strip("/"), w.install_as).strip("/")
             alts = []
             for a in ([g.files[x] for x in w.alternatives] or [w]):
