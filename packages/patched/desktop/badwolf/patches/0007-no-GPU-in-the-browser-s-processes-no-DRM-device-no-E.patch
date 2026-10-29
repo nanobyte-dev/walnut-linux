@@ -1,0 +1,90 @@
+Subject: no GPU in the browser's processes (no DRM device, no EGL on the RSX)
+
+Hardware acceleration NEVER and WEBKIT_DISABLE_DMABUF_RENDERER=1 were thought to keep GL out of
+WebKit, but on the PS3 (WebKitGTK 2.52.6) both the UI process and the web process mapped Mesa's
+libgallium and held /dev/dri open: the UI process asks EGL for the main DRM device
+(drmMainDevice(), unconditionally with USE(GBM)), and the web process creates a surfaceless EGL
+display when it creates the page, because DrawingAreaCoordinatedGraphics::updatePreferences reads
+the compositing setting before the UI's preferences reach it (backtrace from gdb on the PS3,
+2026-10-29). Each is a Mesa nv30 screen with a channel on the RSX, for a browser that draws with
+Cairo on the CPU.
+
+WEBKIT_WEB_RENDER_DEVICE_FILE pointing at a device that doesn't exist ends the UI's search
+without EGL, and LIBGL_ALWAYS_SOFTWARE=1 gives the web process Mesa's software EGL display, which
+opens no device. Measured on the PS3: no /dev/dri descriptor in any of the three processes, the
+pages drawn as before, memory and scrolling unchanged. Both are set only when the user hasn't set
+them, and programs the browser starts (walnut:// links) get neither, so a game started from a
+GameDB page draws on the GPU as usual.
+diff --git a/badwolf.c b/badwolf.c
+--- a/badwolf.c
++++ b/badwolf.c
+@@ -345,6 +345,34 @@ WebViewCb_permission_request(WebKitWebView *UNUSED(web_view),
+ 	return TRUE; /* Stop other handlers */
+ }
+ 
++/* badwolf_setenv_own: sets an environment variable for WebKit's processes unless the user set it;
++ * the ones set here are kept out of the programs the browser starts (badwolf_launch_context) */
++static const char *badwolf_own_env[4];
++
++static void
++badwolf_setenv_own(const char *name, const char *value)
++{
++	if(g_getenv(name) != NULL) return;
++	g_setenv(name, value, TRUE);
++	for(size_t i = 0; i < G_N_ELEMENTS(badwolf_own_env) - 1; i++)
++		if(badwolf_own_env[i] == NULL)
++		{
++			badwolf_own_env[i] = name;
++			break;
++		}
++}
++
++/* badwolf_launch_context: a launch context without the browser's own environment (a game started
++ * from a walnut:// link must not get LIBGL_ALWAYS_SOFTWARE) */
++static GAppLaunchContext *
++badwolf_launch_context(void)
++{
++	GAppLaunchContext *context = g_app_launch_context_new();
++	for(size_t i = 0; badwolf_own_env[i] != NULL; i++)
++		g_app_launch_context_unsetenv(context, badwolf_own_env[i]);
++	return context;
++}
++
+ /* badwolf_hand_to_desktop: a link in a scheme WebKit doesn't load (walnut://, mailto:, ...) goes to
+  * the desktop's handler for it (x-scheme-handler/<scheme>, as xdg-open does); TRUE when it did */
+ static gboolean
+@@ -359,11 +387,13 @@ badwolf_hand_to_desktop(WebKitNavigationAction *navigation_action)
+ 	if(scheme != NULL && !g_strv_contains(web_schemes, scheme))
+ 	{
+ 		GError *err = NULL;
+-		if(!g_app_info_launch_default_for_uri(uri, NULL, &err))
++		GAppLaunchContext *context = badwolf_launch_context();
++		if(!g_app_info_launch_default_for_uri(uri, context, &err))
+ 		{
+ 			fprintf(stderr, "badwolf: no handler for <%s>: %s\n", uri, err->message);
+ 			g_error_free(err);
+ 		}
++		g_object_unref(context);
+ 		ours = TRUE;
+ 	}
+ 
+@@ -1264,7 +1294,18 @@ main(int argc, char *argv[])
+ 
+ 	/* WebKit's DMA-BUF renderer is for accelerated compositing, which hardware acceleration NEVER
+ 	 * doesn't use; off, the UI process maps no GBM/EGL (24 MB less on a PC) */
+-	g_setenv("WEBKIT_DISABLE_DMABUF_RENDERER", "1", FALSE);
++	badwolf_setenv_own("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
++	/* No GPU in any of the browser's processes. Even with acceleration NEVER and the DMA-BUF
++	 * renderer off, WebKitGTK 2.52 still asks EGL for the main DRM device in the UI process
++	 * (drmMainDevice(), Mesa on /dev/dri/card0), and the web process sets up a surfaceless EGL
++	 * display on /dev/dri/renderD128 when it creates the page (DrawingAreaCoordinatedGraphics::
++	 * updatePreferences reads the compositing setting before the UI's preferences arrive): on the
++	 * PS3 that is a Mesa nv30 screen and a channel on the RSX for nothing. A render device that
++	 * doesn't exist ends the UI's search without EGL; LIBGL_ALWAYS_SOFTWARE makes the web
++	 * process's EGL display Mesa's software one, which opens no device. Programs the browser
++	 * starts (badwolf_launch_context) get neither. */
++	badwolf_setenv_own("WEBKIT_WEB_RENDER_DEVICE_FILE", "/dev/dri/none");
++	badwolf_setenv_own("LIBGL_ALWAYS_SOFTWARE", "1");
+ 
+ 	gtk_init(&argc, &argv);
+ 

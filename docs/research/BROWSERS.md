@@ -8,9 +8,14 @@ Ladybird was ruled out earlier (Skia has no big-endian support, Qt 6, memory) an
 
 ## Where it stands
 
-**Our own WebKitGTK 2.52.6 build, with the big-endian fixes, is built and waits for its PS3 test.** The user chose
-it on 2026-10-28 over NetSurf with a relayout patch of ours ("I'd trust an unpatched WebKit more"), and asked for
-the features we don't need to be left out where that saves memory or attack surface.
+**Our own WebKitGTK 2.52.6 build runs on the PS3 (2026-10-29), right but slowly.** Every page we tried loads and
+draws correctly and the big-endian self-test passes 13 of 13, but the GameDB home takes about 20 s to appear,
+Wikipedia 28 s, a scroll step 0.3-0.9 s, and video plays as a slideshow ([what happened](#our-build-on-the-ps3-2026-10-29)).
+The cause is memory, not drawing: the browser's processes need 120-180 MB next to a desktop that leaves about 120 MB,
+so every load and scroll re-reads library code from the SSD and swaps.
+
+The user chose it on 2026-10-28 over NetSurf with a relayout patch of ours ("I'd trust an unpatched WebKit more"),
+and asked for the features we don't need to be left out where that saves memory or attack surface.
 
 - **The engine:** `webkit2gtk 2.52.6-1+ps3.N` (`packages/patched/desktop/webkit2gtk/`): Debian's 2.52.6-1 source
   (fetched from the 2026-09-25 snapshot; sid has moved to 2.54), only the GTK 3 (4.1 API) flavour Badwolf needs,
@@ -41,13 +46,14 @@ the features we don't need to be left out where that saves memory or attack surf
   until fix 2 (found from the qemu core: the faulting load was `convertJSCalleeToVM` on a half-pointer). How the
   bugs were found besides: Debian's crash report, and a read of WTF, JSC and WebCore for the same class of bug
   (a smaller value packed into the start of a wider word, byte-wise SIMD on 16-bit data, BGRA bytes).
-- **Not tested yet: the PS3.** The first PS3 session (2026-10-28) only got as far as the video baseline in mpv,
-  whose `--vo=gpu` wedged the RSX (graph exception 0x105, [RSX.md](../RSX.md#errors-and-what-wedges-the-gpu),
-  being fixed separately). The browser itself draws without GL (acceleration NEVER, no DMA-BUF renderer, no
-  GStreamer GL), so it does not use that path; video in the browser waits for that fix. The test plan is
-  [below](#ps3-test-plan).
+- **On the PS3:** installed by hand on 2026-10-29 with the 22 Debian packages it lacks (182 MB), not the default
+  browser and not in the image. Measured: memory, load times, scrolling and what limits it, the GameDB filter,
+  the run-time settings, video in the page, game mode with the browser open
+  ([Our build on the PS3](#our-build-on-the-ps3-2026-10-29)). Acceleration NEVER turned out not to keep the RSX out:
+  both the UI and the web process opened `/dev/dri` and made a Mesa screen until Badwolf's patch 0007.
 - **The shell:** `badwolf` 1.4.0-1+ps3.N (`packages/patched/desktop/badwolf/`, [DESKTOP.md](../DESKTOP.md#the-browser)),
-  built for ppc64 by CI. Not the default and not in the image. Why Badwolf and what the patches do:
+  built for ppc64 by CI. Not the default and not in the image. Since patch 0007 none of its processes opens a DRM
+  device. Why Badwolf and what the patches do:
   [The shell](#the-shell-badwolf). It needs no rebuild for our engine (same API and soname).
 - **No newer engine:** WebKitGTK 2.54 removed the Cairo renderer, and Skia, the only one left, does not build on
   big-endian. Debian closed its ppc64 crash report ([#1117148](https://bugs.debian.org/1117148)) with "WebKitGTK no
@@ -70,7 +76,7 @@ background.
 
 | Path | What it gets us | Memory (PC, GameDB home) | Effort | Main risk |
 |---|---|---|---|---|
-| **A. Our WebKitGTK 2.52 build, the Badwolf shell** (chosen) | The real web: modern JavaScript, CSS grid, everything | 208 MB PSS, 55 MB of it anonymous (Debian's build: 216 and 69) | Built; the PS3 test is next | Big-endian WebKit is unmaintained upstream, no security fixes; CLoop speed on the PPE |
+| **A. Our WebKitGTK 2.52 build, the Badwolf shell** (chosen) | The real web: modern JavaScript, CSS grid, everything | 208 MB PSS, 55 MB of it anonymous (Debian's build: 216 and 69) | Built; on the PS3 since 2026-10-29: right, but 20-30 s a page | Big-endian WebKit is unmaintained upstream, no security fixes; CLoop speed on the PPE |
 | B. NetSurf with DOM-driven relayout, minimal version (prototype below, works on the PC) | Our own pages and simple ES5 scripts: filters, tabs, menus | 84-90 MB PSS with JavaScript on | 1-2 weeks to ship as `netsurf 3.11-4+ps3.N` with the polyfills our site needs | ES5 only (Duktape): most of today's web still fails; a whole rebuild per change costs seconds on big pages on the PPE |
 | B2. NetSurf with incremental restyle and relayout | B, fast on big pages | as B | 2-4 months, high risk | It is the dynamic layout engine NetSurf has planned since 2013 and never built |
 | D. WPE + cog with an X11 platform | A without GTK in the UI process | not measured; perhaps 30-60 MB below A | 1 week (rebuild cog) | Same engine; no window manager integration |
@@ -300,10 +306,13 @@ Upstream's choices that did not fit, and the patches (`packages/patched/desktop/
 5. The usual shortcuts: Ctrl+W, Alt+Left/Right for back and forward (upstream: tabs), Ctrl+Tab, Alt+D and F6 for
    the location bar (upstream's Alt+D closed the tab), Alt+Home, Ctrl+plus/minus.
 6. Links in other schemes (walnut://, mailto:) go to the desktop's handler through GIO instead of failing.
+7. No GPU in any of its processes: `WEBKIT_WEB_RENDER_DEVICE_FILE` at a device that doesn't exist and
+   `LIBGL_ALWAYS_SOFTWARE=1`, unless the user set them, and neither passed to programs it starts (found on the PS3,
+   [GL](#our-build-on-the-ps3-2026-10-29)).
 
 Checked on the PC (WebKitGTK 2.54, Xvfb): the start page, three tabs in one web process, "Open in Walnut Games" on
-a GameDB game page from the User-Agent, walnut://game/openarena reaching a stand-in handler. On the PS3 it
-starts, draws its window and loads pages, and then the engine aborts (below).
+a GameDB game page from the User-Agent, walnut://game/openarena reaching a stand-in handler. On the PS3, on our
+engine, it runs every page we tried (below); three tabs and a walnut:// link were not tried there.
 
 ### Run-time knobs, for the shell
 
@@ -318,10 +327,11 @@ From the source at webkitgtk-2.52.6 (`Source/WTF/wtf/MemoryPressureHandler.cpp`,
 - JSC options read from `JSC_<name>` in release builds: `gcMaxHeapSize` (0, unlimited), `forceRAMSize`,
   `smallHeapRAMFraction` 0.25, `largeHeapSize` 32 MB, `useConcurrentGC` and `useGenerationalGC` (true),
   `numberOfGCMarkers`, `maxPerThreadStackUsage` 5 MB, `criticalGCMemoryThreshold` 0.80. Heap sizing is
-  derived from the RAM size, so on 217 MB JSC is already in its small-heap mode; whether `gcMaxHeapSize`
-  helps on a script-heavy page is untested.
-- `hardware-acceleration-policy` NEVER (the measured win), `WEBKIT_DISABLE_DMABUF_RENDERER=1` (another 24 MB
-  on the PC, mostly in the UI), `enable-page-cache` off (no effect at a capacity of 0, harmless).
+  derived from the RAM size, so on 217 MB JSC is already in its small-heap mode; `gcMaxHeapSize=32 MB` made
+  no measurable difference on Wikipedia on the PS3.
+- `hardware-acceleration-policy` NEVER (the measured win; on the PS3 it did not keep EGL out, see Badwolf's
+  patch 7), `WEBKIT_DISABLE_DMABUF_RENDERER=1` (another 24 MB on the PC, mostly in the UI), `enable-page-cache`
+  off (no effect at a capacity of 0, harmless).
 - Fonts: not measured; fontconfig's cache is shared, mapped files.
 
 ### The sandbox
@@ -633,12 +643,116 @@ The measurements the plan below asks for (memory, load time, scrolling, the Game
 were not taken: every page with a rounded corner or similar length crashes the engine. The packages were removed
 again; the PS3 is as before.
 
-**Our build:** not on the PS3 yet. The session that was to test it started with the video baseline in mpv (the
-bar the browser's video is judged against), and mpv's `--vo=gpu` wedged the RSX 7 frames into a 360p clip
-(graph exception 0x105, [TESTS.md](../TESTS.md), [dump](../dumps/exception-0x105-mpv-vo-gpu.txt)); the user
-rebooted the console and moved the browser and video tests to a session with them.
+### Our build on the PS3, 2026-10-29
+
+Kernel .874, Mesa ps3.924, the desktop up (Openbox at 1920x1080), nobody at the console. Installed with `dpkg -i`:
+`libwebkit2gtk-4.1-0` and `libjavascriptcoregtk-4.1-0` 2.52.6-1+ps3.1062, `badwolf` (1.4.0-1+ps3.931~dev, then
+ps3.1011~dev with patch 0007) and the 22 Debian packages they lack (GStreamer base, good and libav, fonts-liberation,
+libxslt, hyphen and the like): 182 MB, 1.55 GB left on the root. The `-dbgsym` packages stayed on the PC (they
+would have left less than 1.5 GB); crashes would be symbolised there. Swap could not be emptied first: with the
+desktop up its anonymous memory and swap (236 MB) exceed the RAM. Each run started with 107-150 MB in the VRAM
+tier and MemAvailable at 115-125 MB. Badwolf was started in `ps3-desktop.slice` as the menu starts it, one window,
+one tab, closed after each run (MemAvailable came back within a few MB every time). The installed ps3-desktop
+(0.1013, a build from before 41c44a9) still names Badwolf the web default, so `~/.config/mimeapps.list` keeps
+NetSurf the default for now (delete it to switch); `x-www-browser` points at Badwolf, the only browser that
+registers one.
+
+**Pages.** Every one drew right (each run's screenshots read by eye). Times from the command to the page on screen,
+measured with a light probe (three 4-pixel screen strips and `/proc` read every 0.5 s); memory 60-90 s after the
+start, PSS of the three processes with how much of it is anonymous, and what they had in swap.
+
+| Page | On screen | Web process idle | PSS (anon) | In swap | Notes |
+|---|---:|---:|---:|---:|---|
+| [be-test.html](webkit/be-test.html), page cache dropped first | 12-14 s | 14 s | 66 (27) MB | 33 MB | 13 of 13 OK, canvas readback included |
+| GameDB home | 18-20 s | 24-25 s | 61-68 (27) MB | 48-54 MB | "23 of 23 games", filters and medals |
+| GameDB `?q=doom` | 22 s | 26 s | 74 (32) MB | 42 MB | "6 of 23 games" |
+| GameDB `?tags=fps` | 20 s | 24 s | 70 (29) MB | 52 MB | "12 of 23 games", first-person ticked |
+| GameDB game page (OpenArena) | 18 s | 20 s | 47 (24) MB | 55 MB | tabs, rating table |
+| Wikipedia, "PlayStation 3" | 21 s first paint, 28 s complete | 45-50 s | 81-95 (54-63) MB | 80-87 MB | right, infobox and images |
+| BBC News | 26 s | not in 90 s | 92 (65) MB | 88 MB | most images still placeholders at 90 s; two cookie dialogs |
+
+The window is up in 5-6 s; the rest is the web process starting, the network and the page. What a page costs is
+PSS plus swap: about 120 MB for a GameDB page and 180 MB for Wikipedia or the BBC, against 115-125 MB available.
+MemAvailable fell to 50-80 MB, and a Wikipedia load swapped 116-130 MB back in, the BBC 184 MB. No WebKitGPUProcess
+and no AT-SPI bus appeared. The GameDB filter works from the link and from the boxes: the right counts, the box
+ticked, the cards narrowed; a medal select box draws its text light on white (the GTK theme).
+
+**Scrolling,** measured as the time from an XTest key or wheel event to the first change on screen, with the page
+loaded and idle:
+
+| Case | GameDB home | Wikipedia |
+|---|---:|---:|
+| Page Down, median of 6-8 | 0.36 s | 0.40-0.75 s (six runs) |
+| Wheel (3 clicks), median of 8 | 0.23 s | 0.67 s |
+| The first step after the page sat idle | 1.9 s | 1.7-3.6 s |
+| While the page is still loading (scripts running) | | over 6 s |
+| A flick of the wheel (15 clicks in 1.7 s) until the screen settles | | 2.6-4.0 s, 4-9 frames drawn |
+
+So the page follows a step in under a second once it is loaded, but the first scroll after a pause, and anything
+during a load, takes seconds, and fast wheel scrolling lags 1-2 s behind the hand. On the BBC page 30 scripted
+Page Downs took 78 s.
+
+**Where the time goes: paging.** During scrolls `vmstat` shows the CPU 40-60% idle, 45-87% system time when
+busy, 15-33 MB/s read from disk, a few MB/s swapped in and out, kswapd at 6-10%; `perf record -a -g` shows page
+faults in the web, UI and X processes and direct reclaim in Xorg. Over 40 s of scrolling Wikipedia the kernel
+refaulted 38,000-64,000 file pages (150-250 MB) against 5,000-13,000 anonymous ones: most of the waiting is
+library code and data (libwebkit2gtk is 105 MB) evicted and read back from the SSD, the rest swap. The work itself
+is small: pixman and Cairo 2-3% of the samples, WebKit's painting, style and layout about 8%, JavaScript under 1%.
+During a load the web process spends its time in style matching (`SelectorChecker`), inline layout and page faults.
+
+**What we tried against it** (Wikipedia, same boot, interleaved with the defaults; the noise between two default
+runs is about 0.3 s on the median):
+
+| Setting | Effect |
+|---|---|
+| `WALNUT_BROWSER_ACCEL=ondemand` | none, as expected: without WebGL our build's `HardwareAccelerationManager` turns acceleration off whatever the policy |
+| `WALNUT_BROWSER_CACHE=viewer` | none |
+| `WALNUT_BROWSER_MEMORY_LIMIT=60` | none measurable |
+| `JSC_gcMaxHeapSize=32 MB` | none measurable |
+| `MemoryLow=150M` on Badwolf's scope | none measurable (the whole user slice is already under its 176 MB protection) |
+| `vm.swappiness` 150 (runtime only, back to 60 after) | worse: a 1.2 s median, more of the page's own memory swapped |
+| No GL (patch 0007) | none on speed or memory; it is about the RSX (below) |
+
+Smooth scrolling was already off (patch 0002). What would help is less memory in use while the browser is in
+front, not a setting: the desktop's helpers, the library code WebKit touches, the three processes.
+
+**GL.** Hardware acceleration NEVER did not keep the browser off the GPU: the UI process mapped Mesa's
+`libgallium` and held `/dev/dri/card0` open (WebKit's `drmMainDevice()` asks EGL for the main device whatever the
+policy), and the web process held `/dev/dri/renderD128` (gdb on the PS3: `WebPage::updateAfterDrawingAreaCreation`,
+`DrawingAreaCoordinatedGraphics::updatePreferences`, `initializePlatformDisplayIfNeeded`,
+`PlatformDisplaySurfaceless::create`, `GLDisplay::create`: the compositing setting is read before the UI's
+preferences arrive). Each is a Mesa nv30 screen with a channel on the RSX. `GDK_GL=disable` and
+`WEBKIT_DISABLE_COMPOSITING_MODE=1` change nothing; without any EGL vendor the web process aborts ("Could not create
+default EGL display"). Badwolf's patch 0007 sets `WEBKIT_WEB_RENDER_DEVICE_FILE` to a device that doesn't exist (the
+UI process then skips EGL) and `LIBGL_ALWAYS_SOFTWARE=1` (the web process gets Mesa's software EGL, which opens no
+device), and keeps both out of programs started from a walnut:// link. With it no browser process has a DRM
+device open. The clean fix is in WebKit (read the setting from the preferences store there); not done yet.
+
+**Video** (after patch 0007, so no device open; `<video>` on a local page, muted, started by a click since
+autoplay is off): Big Buck Bunny H.264 at 480p showed about 0.2 frames a second, at 360p about 4 of 24; the web
+process used 90-110% of a PPE thread and the system was 87-97% busy. The picture is right (colours, size), but it
+is a slideshow. YouTube was not tried. By the rule of [What the browser adds to the image](#what-the-browser-adds-to-the-image),
+video in the browser should go.
+
+**Game mode** with the browser open on the GameDB home: Neverball's replay started through `ps3-game` froze
+`ps3-desktop.slice` (`frozen 1`) and pushed the browser out (2-3 MB resident per process). The replay ran at 58.4,
+59.9 and 59.9 fps (vsync on) against 59.9 three times without the browser; its first pass had a 120 ms frame
+against 21-24 ms. Game mode was off 2 s after the game, and the browser took a click and a typed address and loaded
+the page.
+
+**About the harness:** the first runs took an `xwd` of the whole screen every 2 s and gzipped it; `perf` showed
+that this took about a third of the CPU during a load. Their load times (22-36 s for the GameDB pages, Wikipedia
+busy past 90 s) are overstated; the table above uses the light probe where it was run (GameDB home, Wikipedia)
+and the heavy runs' times only for the other GameDB pages.
+
+The session of 2026-10-28 that was to test our build had started with the video baseline in mpv, whose
+`--vo=gpu` wedged the RSX (graph exception 0x105, [TESTS.md](../TESTS.md),
+[dump](../dumps/exception-0x105-mpv-vo-gpu.txt)); mpv was not run in this one.
 
 ## PS3 test plan
+
+Run on 2026-10-29 for candidate 2 and the video part of 3 ([above](#our-build-on-the-ps3-2026-10-29)); the NetSurf
+candidates (1, 4) and cog (5) were not, and mpv's baseline waits for the 0x105 fix.
 
 The rules: not while the user plays or a benchmark or another agent's batch runs ([TESTS.md](../TESTS.md)
 queue, the PS3 lock), and video only once the 0x105 fix is in. The desktop is up, since a browser lives there.
