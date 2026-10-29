@@ -6,7 +6,7 @@ kind = "fix"
 added = 2026-10-29
 source = "games night 2026-10-28 (smoke)"
 text = """\
-The load: about 5 minutes from the start to the flight on 2026-10-29 (the flight itself is smooth at 30 \
-fps, 1% low 25). A `BENCH_PERF_LOAD=1 BENCH_MEM=1` smoke run of the menu variant: the sprite decoding \
-and atlas building against the disk and the swap; game.log's `nv30-forcedxt:` line \
+The load: the menu is up 1 to 1.5 minutes after the start (2026-10-29; the flight itself is smooth at 30 \
+fps, 1% low 25). The start-up profile (`BENCH_PERF_LOAD=1`) leads with zlib's inflate and libjpeg; \
+the recipe's ES_LOAD_WAIT of 240 s can come down to about 120. game.log's `nv30-forcedxt:` line \
 (`NV30_FORCE_DXT_STATS=100`) for the VRAM it saves."""

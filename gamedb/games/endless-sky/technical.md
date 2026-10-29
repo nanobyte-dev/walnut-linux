@@ -11,12 +11,13 @@ hash dump. On the PS3 since ps3.624 (2026-10-20) it flies at smoke level: starfi
 the radar and the HUD text show, 480 s without an OOM ([the flight smoke](investigations/2026-10-20-flight-smoke.md)).
 
 Measured on 2026-10-29 (ps3.874 from the stable suite, kernel .874, Mesa ps3.924, the VRAM swap on, the stall
-recorder; `ps3-bench-20261029T000953Z-smoke-endless-sky-base`): the keys reach the flight 304 s after the start (the load and the menu: 5 minutes, the long
-part), then in flight, over the 90 s from 10 s after Depart (from the HUD's frame times; the run's own window
+recorder; `ps3-bench-20261029T000953Z-smoke-endless-sky-base`): the keys reach the flight 304 s after the start (the recipe's `ES_LOAD_WAIT` of 240 s, not the game:
+the menu is up between 58 and 98 s after the start, screenshots of a `menu` run, `ps3-bench-20261029T042726Z-smoke-endless-sky-menu`), then in flight, over the 90 s from 10 s after Depart (from the HUD's frame times; the run's own window
 measured the menu): 30 fps (the median frame 32.5 ms), 1% low 25, two frames over 100 ms (1.5 s, one of them
 the screenshot's capture). Smooth at 30. 122 MB peak RSS, no OOM, no "out of temps", sound running with no
 audible dropouts. The picture: the ship in deep space with the game's "Lost 1" message, the radar and the
-status panel drawn (xwd). What is left is the load: 5 minutes to fly.
+status panel drawn (xwd). The load to the menu, 1 to 1.5 minutes, is the part left to shorten: zlib's inflate and libjpeg lead its
+profile (`BENCH_PERF_LOAD=1`, the first 19 s), with the swap active.
 
 ## Research
 
