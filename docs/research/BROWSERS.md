@@ -12,7 +12,9 @@ Ladybird was ruled out earlier (Skia has no big-endian support, Qt 6, memory) an
 draws correctly and the big-endian self-test passes 13 of 13, but the GameDB home takes about 20 s to appear,
 Wikipedia 28 s, a scroll step 0.3-0.9 s, and video plays as a slideshow ([what happened](#our-build-on-the-ps3-2026-10-29)).
 The cause is memory, not drawing: the browser's processes need 120-180 MB next to a desktop that leaves about 120 MB,
-so every load and scroll re-reads library code from the SSD and swaps.
+so every load and scroll re-reads library code from the SSD and swaps. Linking the code a browsing session runs
+together at the start of the libraries halves what it reads into memory on the PC (76 to 35 MB on Wikipedia,
+[Making it fit](#making-it-fit)); the PS3 measurement is next.
 
 The user chose it on 2026-10-28 over NetSurf with a relayout patch of ours ("I'd trust an unpatched WebKit more"),
 and asked for the features we don't need to be left out where that saves memory or attack surface.
@@ -905,6 +907,104 @@ and the heavy runs' times only for the other GameDB pages.
 The session of 2026-10-28 that was to test our build had started with the video baseline in mpv, whose
 `--vo=gpu` wedged the RSX (graph exception 0x105, [TESTS.md](../TESTS.md),
 [dump](../dumps/exception-0x105-mpv-vo-gpu.txt)); mpv was not run in this one.
+
+### Making it fit
+
+The PS3 run above says the browser waits on the disk: in 40 s of scrolling Wikipedia the kernel read back
+150-250 MB of library pages. So the question for 2026-10-29 was how much of WebKit a browsing session pulls into
+memory, and how to make that less without freezing the desktop (the user declined a "browser mode") and without
+changing what pages look like. Everything here was measured on the PC; the PS3 measurement is the
+[TESTS.md](../TESTS.md) Next row "Browser library working set".
+
+**What the libraries hold** (ps3.1124, `size -A`, MB):
+
+| Section | libwebkit2gtk | libjavascriptcoregtk | Read when |
+|---|---:|---:|---|
+| whole file | 105.3 | 23.7 | |
+| `.text` (code) | 71.4 | 18.3 | the code that runs, plus readahead around it |
+| `.rodata` | 2.5 | 0.9 | mostly read |
+| `.rela.dyn` (relocations) | 13.2 | 1.6 | all of it, at every process start |
+| `.eh_frame` + `_hdr` (unwind tables) | 9.8 | 1.6 | only for a backtrace |
+| `.data.rel.ro` + `.opd` + `.got` | 6.0 | 0.7 | written by the loader in every process |
+| Web Inspector resources | 1.4 | | only with the inspector open |
+
+**How it was measured.** Badwolf ran our ppc64 build under qemu-user in a chroot, with the two libraries on a
+loop-mounted ext4 set to 128 KB of readahead (the kernel's default, which the PS3's disk also has; the PC's own
+disk has 8 MB) and evicted from the page cache before the start. What the page cache held of each library after
+the load and after 10 (GameDB home) or 15 (Wikipedia "PlayStation 3") Page Downs is the part a session has to keep
+in memory. qemu's own log (`in_asm,strace`) gives every block of code that ran: at -O2 two pages ran 14.0 MB of
+libwebkit2gtk's functions and 6.0 MB of JavaScriptCore's, yet with the readahead around each fault 62 and 14 MB of
+the two libraries' code ended up in memory. The code that runs is spread over the whole library, and each fault
+reads the 128 KB around it.
+
+**The options** (code of both libraries in memory after the scroll, MB; build time on the dev PC):
+
+| Option | `.text` size | In memory: Wikipedia | GameDB home | Cost | Verdict |
+|---|---:|---:|---:|---|---|
+| ps3.1124 (-O2) | 89.7 | 76.5 | 67.6 | | |
+| **The code that runs first in `.text`** (section ordering file) | +0.2 | **35.3** | **39.6** | relink 85 s, web process CPU +4% (noise) | **in packaging 0002** |
+| **Packed relocations** (`-z pack-relative-relocs`) | same | same | same | `.rela.dyn` 14.8 MB to 1.5 MB | **in packaging 0002** |
+| -Os everywhere | 53.8 (-40%) | 50.2 | 47.6 | full build 70 min; `jsc` 1.9x slower, web process CPU +60-70% (qemu) | no |
+| -Os and the ordering | 53.9 | 28.5 | 31.2 | the same CPU cost | no |
+| 32 KB readahead instead of 128 (ps3.1124's layout, a run-time knob) | same | 50.4 | | more, smaller reads | for the PS3 test |
+| Identical code folding | -1.2 at most | | | no linker for it | no |
+| LTO | not built | | | | no |
+
+- **Section ordering.** With `-ffunction-sections` (WebKit's default) every function is its own section, and ld
+  2.43+ takes a `--section-ordering-file`. Packaging patch 0002 lists the 21,897 libwebkit2gtk and 4,478
+  JavaScriptCore functions that ran in the traces (`debian/walnut-text-order.ld`, first-run order), so they sit
+  together at the start of `.text`; the code is unchanged and the screenshots match pixel for pixel, be-test 13 of
+  13. The list was made from two other pages (the GameDB OpenArena page, Wikipedia "Cell (processor)") and tested
+  on the GameDB home and Wikipedia "PlayStation 3": only 3% of the functions those ran were missing from it. The
+  shipped list adds the test pages' traces too. A new WebKit version needs new traces (tools/webkit-order/: the
+  recipe is in `tracefuncs.py`); until then, functions it adds or renames just stay in the default place.
+- **Packed relocations** (DT_RELR, glibc 2.36+): 13.3 MB less for the dynamic loader to read at each process start.
+  The three processes still write the same relocated pages.
+- **-Os** shrinks the code by 40% but makes it much slower: the JavaScript interpreter took 1.9 times as long on a
+  mixed benchmark under qemu and the web process used 60-70% more CPU on Wikipedia. The PPE is already the
+  bottleneck during page loads (style matching), so on top of the ordering the 6-7 MB it saves are not worth it.
+- **Identical code folding** would fold at most 1.1 MB of libwebkit2gtk (1.6%) and 0.1 MB of JavaScriptCore
+  (functions equal byte for byte once branch targets are resolved), and there is no linker for it: gold left
+  binutils, and lld has no big-endian ELFv1. **LTO** was not built: Debian turns it off for this package
+  (`optimize=-lto`) because the link runs out of memory on its builders, and it would trim a few percent of code
+  whose layout the ordering already fixes.
+- **Features still built in** were counted by symbol name: media (GStreamer, `<video>`, Media Source, tracks)
+  3.1 MB, service workers 1.6, IndexedDB 1.4, inspector 1.4 plus its 1.4 MB of resources, accessibility 1.0,
+  content filters 0.5, notifications 0.4, MathML 0.3 (Wikipedia's formulas). It is code that doesn't run, so after
+  the ordering it stays on disk; removing it saves disk, not memory. The public CMake options left on (`VIDEO`,
+  `TOUCH_EVENTS`, `DRAG_SUPPORT`, `LCMS`, `LIBHYPHEN`) are small or in use; the rest are private options that need
+  patches. Leaving out the unwind tables (`-fno-asynchronous-unwind-tables`) would save 11.4 MB on disk and none
+  in memory, and cost backtraces.
+
+**What no build option changes.** The loader writes the relocated part of each library (6.6 MB of libwebkit2gtk,
+mostly ELFv1 function descriptors and vtables, 0.9 MB of JavaScriptCore) in every process that maps it: Badwolf,
+the web process and the network process, about 20 MB of anonymous memory per browser. The PS3 run's network
+process (7.4 MB PSS plus 21.7 MB in swap) is mostly that. Only ELFv2, which Debian's ppc64 port does not use,
+would remove the descriptors.
+
+**The desktop the browser competes with** (no change made; ranked proposals). Today's bench runs had a bare X
+session (Xorg and Openbox only), so the helpers' sizes come from [DESKTOP.md](../DESKTOP.md); the next PS3
+session should record every desktop process's `smaps_rollup` with the desktop up. RSS from
+`build/bench/*-20261029T*/processes-start.txt`: Xorg 41-48 MB, Openbox 23.6, systemd 10.3, udisksd 8.7,
+journald 8.1, the user's systemd 7.5 (+2.1), udevd 6.5, polkitd 5.9, NetworkManager 5.0, logind 4.4,
+networkd 3.2, the two D-Bus daemons 5.4, timesyncd 2.4, mpris-proxy 2.0; about 77 MB of services. With the desktop
+up, PCManFM adds about 30 MB (PSS with swap) and the gvfs monitors 30 MB of RSS. The kernel keeps 22.5 MB
+([KERNEL-MEMORY.md](../KERNEL-MEMORY.md)) plus about 29 MB of slab, page tables and vmalloc. Swap: zram (384 MB,
+priority 100) stayed at 0 MB in every run, because the VRAM swap (priority 300) takes everything and spills to
+its disk backing; in the PS3 browser runs ps3vswap0 grew from 149 to 245 MB during a Wikipedia load.
+
+| # | Proposal | Saves | Risk to quality of life | How to check |
+|---|---|---|---|---|
+| 1 | Readahead 32 KB for the root disk (`read_ahead_kb`) | 26 MB of library code in memory on Wikipedia before the ordering; less after it (not measured together) | Sequential reads (game loads) top out at a smaller window | Same boot: refaults and scroll latency at 128 and 32, then a game's load time |
+| 2 | zram above the VRAM swap (`swapon -p 400`, maybe 192 MB) | none directly: anonymous pages come back from RAM (lzo-rle) instead of the disk the library faults also wait on | zram's own memory competes with the page cache; game mode may want it back at 100 | Same boot: `pswpin`, file refaults and disk reads during the scroll; one game run |
+| 3 | udisksd and polkitd exit when idle (both are D-Bus activated) | 10-14 MB RSS, less PSS | The first mount or password prompt after idle waits about a second | Time a USB mount after idle |
+| 4 | Reclaim the desktop's cold pages (`memory.reclaim` on ps3-desktop.slice, as game mode does, without the freeze) when the browser opens | 25-45 MB, estimated from game mode's reclaim | Helpers answer a little slower on their first use; close to the declined "browser mode", so only if the user wants it | MemAvailable before and after; panel, tray and PCManFM answer at once |
+| 5 | Openbox at 23.6 MB RSS: find out what it holds (`smaps`) | 5-15 MB, a guess | none until something changes | smaps on the PS3 |
+| 6 | mpris-proxy (2 MB) only while a Bluetooth audio device is connected | 2 MB | none | |
+
+Not proposed: dropping the gvfs MTP and gPhoto2 monitors (9 MB RSS; phones and cameras would vanish from PCManFM)
+and the zram/seccomp/cfg80211 trims KERNEL-MEMORY.md postpones. Already tried in the run above and no help:
+swappiness 150, `MemoryLow` on the browser, the JavaScript heap cap, the WebKit memory limit and cache model.
 
 ## PS3 test plan
 
