@@ -145,7 +145,11 @@ main.wrap { padding-bottom: rem(3); }
   padding: rem(0.45) rem(0.6);
   font: inherit;
 }
+.filters { position: relative; }
 .filters input { flex: 1 1 rem(14); }
+.filters button.filter-btn svg { vertical-align: -2px; }
+// the tag panel drops down under the bar (plain absolute positioning, CSS 2.1)
+.tag-drop { position: absolute; left: 0; right: 0; top: 100%; z-index: 20; margin-top: rem(0.3); padding: rem(0.8); background: $panel; border: 1px solid $border; border-radius: 10px; max-height: 70vh; overflow: auto; }
 .filters button.clear { cursor: pointer; }
 .filters button.clear:hover { border-color: $accent-deep; }
 // the tag panel: a box per group, a group's tags one per line (a subgroup's indented), Keywords folded

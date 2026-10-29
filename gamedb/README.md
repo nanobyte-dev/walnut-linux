@@ -110,8 +110,8 @@ the technical pages come from `data/technical.json`, below),
 ### Tags
 
 [tags.toml](tags.toml) is the list of tags, in groups: Genre (with subgroups: shooter has first-person and
-arena, strategy has real-time and management), Theme, Players, Input, View, Content, Needs, Family and
-Keywords (folded in the site's filter panel). Each tag has an `id` (unique across the groups, the URL of its
+arena, strategy has real-time and management), Theme, Players, Input, View, Content, Needs, Origin (remake or clone), Engine and
+Keywords (Engine and Keywords are folded in the site's filter panel). Each tag has an `id` (unique across the groups, the URL of its
 page, `tags/<id>/`), a `label` and optionally a `description`; a subgroup is a tag with `sub = [...]`.
 `index.md` lists ids, the most specific of a subgroup only (`"fps"`, which implies `shooter`); a
 published game has at least one genre. There is no `categories` key any more: the genres are tags.
@@ -120,7 +120,14 @@ Some tags are **automatic** (`automatic = true`): catalog.py derives them and `c
 index.md. Input: `gamepad` ("supports gamepad") for a controller badge of full or partial (the game page
 adds "(partial)"), `keyboard-mouse` for `designed_for = "keyboard-mouse"`. Needs: `own-data` for
 build.toml `needs_data`, `free-download` for a `[data_setup]` `fetch` package (a shareware or demo the app
-downloads), `low-memory` for a rating whose played sessions left under 10 MB free.
+downloads), `low-memory` for a rating whose played sessions left under 10 MB free. Engine: one tag per
+engine, labelled with its name, in subgroups by family (id Tech 1: DSDA-Doom; id Tech 2: QuakeSpasm, Yamagi
+Quake II, DarkPlaces; id Tech 3: ioquake3; Cube 2 on its own). An engine tag has `engine = "<id>"`: a
+`engines/<id>/` bundle, or a game bundle that is the engine itself (dsda-doom, quakespasm, yquake2). A game
+has the tag when its build.toml `engine` is that id, or its own id is, or the id is among its `packages`
+(the Doom games run `dsda-doom`); a game on no such engine has no engine tag. `check.py` refuses an engine
+tag without a bundle, an `engines/` bundle without a tag, or a label that differs from engine.md's title.
+The tag's page links the engine's page, and the engine's page the tag.
 
 The catalog carries each game's `tags` (with the implied parents and the automatic ones, in tags.toml's
 order), `tag_notes` (`{"gamepad": "partial"}`) and, for the desktop app until it reads the tags,

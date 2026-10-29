@@ -331,7 +331,7 @@ def rank(rating):
 
 def game_tags(fm, controller, rating, tax):
     """(the game's tags, their notes): index.md's tags with the parents they imply and the automatic ones
-    (check.AUTOMATIC_TAGS: from the controller support the badge shows, designed_for, needs_data, [data_setup]
+    (check.AUTOMATIC_TAGS and the engine group's: from the controller support the badge shows, designed_for, needs_data, [data_setup]
     fetch and the rating's low memory), in tags.toml's order"""
     have = set(fm.get("tags", []))
     have |= {tax["tags"][t]["parent"] for t in have if tax["tags"][t]["parent"]}
@@ -342,6 +342,11 @@ def game_tags(fm, controller, rating, tax):
             "low-memory": bool(rating.get("low_memory"))}
     assert set(auto) == set(check.AUTOMATIC_TAGS)
     have |= {t for t, on in auto.items() if on}
+    # the engine: build.toml's `engine`, the game's own id when it is an engine (dsda-doom), or an engine
+    # named among its packages (the Doom games run dsda-doom); the tag's subgroup parent follows
+    mine = {fm.get("engine"), fm.get("id")} | set(fm.get("packages", []))
+    eng = {i for i, t in tax["tags"].items() if t["engine"] and t["engine"] in mine}
+    have |= eng | {tax["tags"][i]["parent"] for i in eng if tax["tags"][i]["parent"]}
     notes = {"gamepad": "partial"} if controller == "partial" else {}
     return [t for t in tax["tags"] if t in have], notes
 

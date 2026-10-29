@@ -81,6 +81,7 @@ import evidence  # noqa: E402  (a session folder's evidence and its public-safe 
 TAGS_FILE = REPO / "gamedb" / "tags.toml"
 AUTOMATIC_TAGS = ("gamepad", "keyboard-mouse", "own-data", "free-download", "low-memory")
 GENRE = "genre"
+ENGINE = "engine"     # the group whose tags are automatic: each leaf names its engine bundle (`engine`)
 CONTROLLERS = ["full", "partial", "keyboard", "unknown"]
 ID_RE = re.compile(r"[a-z0-9][a-z0-9-]{0,63}\Z")
 PKG_RE = re.compile(r"[a-z0-9][a-z0-9+.-]*[a-z0-9]\Z")
@@ -380,6 +381,7 @@ def read_taxonomy(path=TAGS_FILE):
             for x, parent in [(t, None)] + [(s, t["id"]) for s in t.get("sub", [])]:
                 tags[x["id"]] = {"id": x["id"], "label": x["label"], "description": x.get("description"),
                                  "group": g["id"], "parent": parent, "automatic": x.get("automatic", False),
+                                 "engine": x.get("engine"),
                                  "sub": [s["id"] for s in x.get("sub", [])]}
                 ids.append(x["id"])
         groups.append({"id": g["id"], "label": g["label"], "description": g.get("description"),
@@ -400,7 +402,7 @@ def taxonomy(path=TAGS_FILE):
 def tags_errors(data):
     """the problems of gamedb/tags.toml's content: groups with id and label, tags with id (ID_RE, unique across
     groups) and label, closed key sets, subgroups one level deep, the automatic tags exactly AUTOMATIC_TAGS"""
-    errs, seen, auto = [], set(), set()
+    errs, seen, auto, auto_engine = [], set(), set(), set()
     if set(data) - {"group"} or not isinstance(data.get("group"), list) or not data["group"]:
         return ["tags.toml: [[group]] tables only"]
     gids = set()
@@ -422,8 +424,8 @@ def tags_errors(data):
             if not isinstance(subs, list):
                 errs.append("tags.toml: tag %r: sub is a list of tags" % (t.get("id"),))
                 subs = []
-            for x, keys in [(t, {"id", "label", "description", "sub", "automatic"})] + \
-                    [(s, {"id", "label", "description", "automatic"}) for s in subs]:
+            for x, keys in [(t, {"id", "label", "description", "sub", "automatic", "engine"})] + \
+                    [(s, {"id", "label", "description", "automatic", "engine"}) for s in subs]:
                 if not isinstance(x, dict):
                     errs.append("tags.toml: tag %r: a sub entry is not a table" % (t.get("id"),))
                     continue
@@ -441,10 +443,50 @@ def tags_errors(data):
                     auto.add(x.get("id"))
                 elif x.get("automatic", False) is not False:
                     errs.append("tags.toml: tag %r: automatic is true or false" % (x.get("id"),))
-    if auto != set(AUTOMATIC_TAGS):
-        errs.append("tags.toml: the automatic tags are %s, catalog.py derives %s" % (sorted(auto), sorted(AUTOMATIC_TAGS)))
+                if g.get("id") == ENGINE:
+                    auto_engine.add(x.get("id"))
+                    if x.get("automatic") is not True:
+                        errs.append("tags.toml: engine tag %r: automatic = true" % (x.get("id"),))
+                    if "sub" not in x and not isinstance(x.get("engine"), str):
+                        errs.append("tags.toml: engine tag %r: no `engine` (the bundle it stands for)" % (x.get("id"),))
+                elif "engine" in x:
+                    errs.append("tags.toml: tag %r: `engine` belongs to the engine group's tags" % (x.get("id"),))
+    if auto != set(AUTOMATIC_TAGS) | auto_engine:
+        errs.append("tags.toml: the automatic tags are %s, catalog.py derives %s and the engine group's"
+                    % (sorted(auto), sorted(AUTOMATIC_TAGS)))
     if GENRE not in gids:
         errs.append("tags.toml: no group %r" % GENRE)
+    return errs
+
+
+def engine_bundles(root=None):
+    """{engine id: where its page is} for gamedb/engines/<e>/ (an engine of its own) and the games that are an
+    engine themselves (a game bundle an engine tag names: dsda-doom, quakespasm, yquake2): "engines" or "games" """
+    root = Path(root) if root else REPO / "gamedb"
+    out = {d.name: "games" for d in sorted((root / "games").iterdir()) if (d / "index.md").is_file()} \
+        if (root / "games").is_dir() else {}
+    out.update({d.name: "engines" for d in sorted((root / "engines").iterdir()) if (d / "engine.md").is_file()}
+               if (root / "engines").is_dir() else {})
+    return out
+
+
+def engine_tags_errors(tax, root=None):
+    """the problems of the engine group against the bundles: every engine tag maps to an existing bundle
+    (engines/<e>/engine.md, else games/<e>/), an engines/ bundle's title is its tag's label, and every
+    engines/ bundle has a tag"""
+    errs, bundles = [], engine_bundles(root)
+    root = Path(root) if root else REPO / "gamedb"
+    seen = {}
+    for t in tax["tags"].values():
+        if t["group"] == ENGINE and t.get("engine"):
+            seen[t["engine"]] = t["id"]
+            if t["engine"] not in bundles:
+                errs.append("tags.toml: engine tag %r: no gamedb/engines/%s or gamedb/games/%s" % (t["id"], t["engine"], t["engine"]))
+            elif bundles[t["engine"]] == "engines":
+                title = front_matter(root / "engines" / t["engine"] / "engine.md").get("title")
+                if title != t["label"]:
+                    errs.append("tags.toml: engine tag %r: label %r, but engine.md's title is %r" % (t["id"], t["label"], title))
+    errs += ["tags.toml: engines/%s has no engine tag" % e for e, w in bundles.items() if w == "engines" and e not in seen]
     return errs
 
 
@@ -1006,6 +1048,8 @@ def check(content, repo=REPO, apt=None):
     ctx = context(repo, content, apt)
     try:
         errs = tags_errors(tomllib.loads(TAGS_FILE.read_text()))
+        if not errs and Path(content).resolve() == (REPO / "gamedb" / "games").resolve():
+            errs = engine_tags_errors(taxonomy(), Path(content).parent)
     except (OSError, tomllib.TOMLDecodeError) as e:
         errs = ["tags.toml: %s" % e]
     if errs:

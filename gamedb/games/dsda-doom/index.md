@@ -2,7 +2,7 @@
 id = "dsda-doom"
 title = "dsda-doom"
 summary = "A Doom source port with an OpenGL renderer, accurate demo playback and many mod features."
-tags = ["fps", "single-player", "first-person", "mods", "doom-engine"]
+tags = ["fps", "single-player", "first-person", "mods"]
 license = "GPL-2.0-or-later"
 homepage = "https://github.com/kraflab/dsda-doom"
 controller = "keyboard"

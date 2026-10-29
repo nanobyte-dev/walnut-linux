@@ -15,7 +15,8 @@
     bar.hidden = false;
     var search = control("f-search"), medal = control("f-medal"), count = control("f-count"),
         empty = control("f-empty");
-    var boxes = Array.prototype.slice.call(bar.querySelectorAll(".tag-panel input[type=checkbox]"));
+    var boxes = Array.prototype.slice.call(bar.querySelectorAll(".tag-drop input[type=checkbox]"));
+    var toggle = control("f-toggle"), drop = control("f-tags"), badge = control("f-badge");
     var tagsOf = cards.map(function (c) { return " " + c.getAttribute("data-tags") + " "; });
 
     // the state lives in the query string (?q=...&medal=...&tags=fps,local-multiplayer), so a filtered list can
@@ -61,6 +62,8 @@
         c.hidden = !ok;
         if (ok) shown++;
       });
+      var n = boxes.filter(function (b) { return b.checked; }).length;
+      badge.textContent = n ? " (" + n + ")" : "";
       count.textContent = shown + " of " + cards.length + " games";
       empty.hidden = shown > 0;
       write();
@@ -73,6 +76,22 @@
       search.value = ""; medal.value = "";
       boxes.forEach(function (b) { b.checked = false; });
       apply();
+    });
+    // the Filters button opens the panel as a dropdown under the bar; it closes with the button again, Escape
+    // (the focus back on the button) or a click outside. A page loaded with ?tags= stays closed, the badge
+    // showing how many are ticked
+    function open(on, focus) {
+      drop.hidden = !on;
+      toggle.setAttribute("aria-expanded", on ? "true" : "false");
+      if (on && focus) { var first = drop.querySelector("input[type=checkbox]"); if (first) first.focus(); }
+      if (!on && focus === "back") toggle.focus();
+    }
+    toggle.addEventListener("click", function () { open(drop.hidden, !drop.hidden ? "back" : true); });
+    document.addEventListener("keydown", function (e) {
+      if ((e.key === "Escape" || e.key === "Esc") && !drop.hidden) open(false, "back");
+    });
+    document.addEventListener("click", function (e) {
+      if (!drop.hidden && !bar.contains(e.target)) open(false);
     });
     window.addEventListener("popstate", function () { read(); apply(); });
     read();

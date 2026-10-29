@@ -6,6 +6,8 @@
 <article class="tech">
   <h1>{{ $e.title }}</h1>
   <p class="muted">{{ with $e.homepage }}<a href="{{ . }}">{{ . }}</a>{{ end }}{{ with $e.license }} · License: {{ . }}{{ end }}</p>
+  {{ $tag := "" }}{{ range $id, $t := hugo.Data.catalog.tags }}{{ if eq $t.engine $e.id }}{{ $tag = $id }}{{ end }}{{ end }}
+  {{ with $tag }}<p>Games on this engine, filtered: {{ partial "tag-link.html" (dict "id" .) }}</p>{{ end }}
   <section class="tech-notes prose">{{ .Content }}</section>
   <section>
     <h2>Games on it</h2>

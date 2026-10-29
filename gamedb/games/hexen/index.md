@@ -2,7 +2,7 @@
 id = "hexen"
 title = "Hexen: Beyond Heretic"
 summary = "Raven Software's 1995 sequel to Heretic, with three classes and hub levels, played with DSDA-Doom from your own copy."
-tags = ["fps", "fantasy", "single-player", "first-person", "doom-engine"]
+tags = ["fps", "fantasy", "single-player", "first-person"]
 license = "GPL-2.0-or-later engine, commercial game data"
 homepage = "https://doomwiki.org/wiki/Hexen"
 data_guide = "https://wiki.debian.org/Games/GameDataPackager"

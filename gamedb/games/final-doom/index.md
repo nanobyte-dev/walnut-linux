@@ -2,7 +2,7 @@
 id = "final-doom"
 title = "Final Doom"
 summary = "Two 32-level Doom II episodes from 1996, TNT: Evilution and The Plutonia Experiment, played with DSDA-Doom from your own copy."
-tags = ["fps", "sci-fi", "horror", "single-player", "first-person", "doom-engine"]
+tags = ["fps", "sci-fi", "horror", "single-player", "first-person"]
 license = "GPL-2.0-or-later engine, commercial game data"
 homepage = "https://doomwiki.org/wiki/Final_Doom"
 data_guide = "https://wiki.debian.org/Games/GameDataPackager"

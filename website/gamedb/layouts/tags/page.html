@@ -8,6 +8,7 @@
 <h1><span class="muted">{{ $t.group_label }}:</span> {{ $t.label }}{{ with $t.parent }} <span class="muted">{{ (index $cat.tags .).label }}</span>{{ end }}</h1>
 {{ with $t.description }}<p>{{ . }}</p>{{ end }}
 {{ if $t.automatic }}<p class="muted small">Set automatically from the game's facts, never by hand.</p>{{ end }}
+{{ with $t.engine }}{{ $ep := site.GetPage (printf "/engines/%s" .) }}{{ if not $ep }}{{ $ep = site.GetPage (printf "/games/%s" .) }}{{ end }}{{ with $ep }}<p>The engine's own page: <a href="{{ .RelPermalink }}">{{ .Title }}</a>.</p>{{ end }}{{ end }}
 {{ with $t.parent }}<p>Part of {{ partial "tag-link.html" (dict "id" .) }}.</p>{{ end }}
 {{ $subs := slice }}{{ range $t.sub }}{{ if gt (index $cat.tags .).games 0 }}{{ $subs = $subs | append . }}{{ end }}{{ end }}
 {{ with $subs }}<p>Narrower: {{ range . }}{{ partial "tag-link.html" (dict "id" .) }} {{ end }}</p>{{ end }}

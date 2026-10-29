@@ -195,21 +195,55 @@ description = "A played session left under 10 MB of the console's memory free."
 automatic = true
 
 [[group]]
-id = "lineage"
-label = "Family"
-
-[[group.tag]]
-id = "doom-engine"
-label = "Doom engine"
-
-[[group.tag]]
-id = "quake-engine"
-label = "Quake engine"
+id = "origin"
+label = "Origin"
 
 [[group.tag]]
 id = "remake"
 label = "remake or clone"
 description = "A free re-implementation or a clone of an older game."
+
+[[group]]
+id = "engine"
+label = "Engine"
+description = "The engine the game runs on, from its build.toml (`engine`, or the game's own bundle when it is the engine), never set by hand."
+collapsed = true
+
+[[group.tag]]
+id = "idtech1"
+label = "id Tech 1"
+description = "The Doom engine family."
+automatic = true
+sub = [
+  { id = "dsda-doom", label = "DSDA-Doom", engine = "dsda-doom", description = "The Doom port Walnut packages: Doom, Doom II, Final Doom, Heretic and Hexen run on it.", automatic = true },
+]
+
+[[group.tag]]
+id = "idtech2"
+label = "id Tech 2"
+description = "The Quake engine family."
+automatic = true
+sub = [
+  { id = "quakespasm", label = "QuakeSpasm", engine = "quakespasm", description = "A Quake engine.", automatic = true },
+  { id = "yquake2", label = "Yamagi Quake II", engine = "yquake2", description = "A Quake II engine.", automatic = true },
+  { id = "darkplaces", label = "DarkPlaces", engine = "darkplaces", description = "A Quake engine with a modern renderer.", automatic = true },
+]
+
+[[group.tag]]
+id = "idtech3"
+label = "id Tech 3"
+description = "The Quake III Arena engine family."
+automatic = true
+sub = [
+  { id = "ioquake3", label = "ioquake3", engine = "ioquake3", description = "The open Quake III Arena engine.", automatic = true },
+]
+
+[[group.tag]]
+id = "cube2"
+label = "Cube 2"
+engine = "cube2"
+description = "The Cube 2 engine (Sauerbraten)."
+automatic = true
 
 [[group]]
 id = "keywords"

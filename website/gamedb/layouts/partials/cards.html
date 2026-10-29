@@ -1,5 +1,5 @@
 {{/* the card grid of games: (dict "games" <catalog entries> "filters" <bool>). With filters, the filter bar above
-     it (search, medal, the tag panel: a group's ticked tags are ORed, the groups ANDed; assets/gamedb.js, which
+     it (search, medal, the tag panel, a dropdown under the Filters button: a group's ticked tags are ORed, the groups ANDed; assets/gamedb.js, which
      keeps the state in the query string). Without JavaScript the bar stays hidden: the full list, and the tag
      links (each tag's page, tags/) are the way in */}}
 {{ $games := .games }}
@@ -13,22 +13,25 @@
       {{ $medals := slice }}{{ range $games }}{{ $medals = $medals | append .rating.medal }}{{ end }}
       {{ range slice "Platinum" "Gold" "Silver" "Bronze" "Tin" "Rust" "Scrap" "Untested" }}{{ if or (ne . "Tin") (in $medals "Tin") }}<option value="{{ lower . }}">{{ . }}</option>{{ end }}{{ end }}
     </select>
+    <button type="button" id="f-toggle" class="clear filter-btn" aria-expanded="false" aria-controls="f-tags"><svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false"><path d="M1 2h14l-5.4 6.4V14l-3.2-1.8V8.4z" fill="currentColor"/></svg> Filters<span id="f-badge"></span></button>
     <button type="button" id="f-clear" class="clear">Clear</button>
     <span id="f-count" class="muted" aria-live="polite"></span>
   </div>
-  <div class="tag-panel" id="f-tags">
+  <div class="tag-drop" id="f-tags" hidden>
+  <div class="tag-panel">
   {{ range $cat.tag_groups }}
     {{ $used := slice }}{{ range .tags }}{{ if gt (index $cat.tags .).games 0 }}{{ $used = $used | append . }}{{ end }}{{ end }}
     {{ if $used }}
     <fieldset class="tag-group tag-group-{{ .id }}">
       <legend>{{ .label }}</legend>
       {{ $boxes := partial "tag-boxes.html" (dict "ids" $used "group" .id) }}
-      {{ if .collapsed }}<details class="tag-more" data-group="{{ .id }}"><summary>Show {{ len $used }} {{ lower .label }}</summary>{{ $boxes }}</details>{{ else }}{{ $boxes }}{{ end }}
+      {{ if .collapsed }}<details class="tag-more" data-group="{{ .id }}"><summary>Show {{ len $used }} {{ lower .label }}{{ if eq .id "engine" }} tags{{ end }}</summary>{{ $boxes }}</details>{{ else }}{{ $boxes }}{{ end }}
     </fieldset>
     {{ end }}
   {{ end }}
   </div>
   <p class="small tag-index-link"><a href="{{ "tags/" | relURL }}">All tags</a></p>
+  </div>
 </div>
 {{ end }}
 <ul class="cards" id="cards">

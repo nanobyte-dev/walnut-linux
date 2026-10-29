@@ -2,7 +2,7 @@
 id = "yquake2"
 title = "Yamagi Quake II"
 summary = "A modernised engine for id Software's Quake II, with the original single player and multiplayer game."
-tags = ["fps", "sci-fi", "single-player", "online-multiplayer", "3d", "first-person", "quake-engine"]
+tags = ["fps", "sci-fi", "single-player", "online-multiplayer", "3d", "first-person"]
 license = "GPL-2.0-or-later"
 homepage = "https://www.yamagi.org/quake2/"
 data_guide = "https://github.com/yquake2/yquake2#readme"

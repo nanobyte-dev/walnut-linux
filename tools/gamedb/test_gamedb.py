@@ -457,7 +457,10 @@ class Check(unittest.TestCase):
     def test_taxonomy_file(self):
         tax = check.taxonomy()
         self.assertEqual(tax["tags"]["fps"]["parent"], "shooter")
-        self.assertEqual({t for t, i in tax["tags"].items() if i["automatic"]}, set(check.AUTOMATIC_TAGS))
+        engine = {t for t, i in tax["tags"].items() if i["group"] == check.ENGINE}
+        self.assertEqual({t for t, i in tax["tags"].items() if i["automatic"]}, set(check.AUTOMATIC_TAGS) | engine)
+        self.assertEqual(tax["tags"]["quakespasm"]["parent"], "idtech2")
+        self.assertEqual(check.engine_tags_errors(tax), [])
         self.assertEqual(check.tags_errors(tomllib.loads(check.TAGS_FILE.read_text())), [])
         bad = {"group": [{"id": "genre", "label": "Genre", "tag": [
             {"id": "a", "label": "A", "sub": [{"id": "a", "label": "again", "sub": []}]},
@@ -465,6 +468,30 @@ class Check(unittest.TestCase):
         msg = " ".join(check.tags_errors(bad))
         for want in ("unique", "one level deep", "the automatic tags are"):
             self.assertIn(want, msg)
+
+    def test_engine_tags_map_to_bundles(self):
+        tax = check.taxonomy()
+        # every engines/ bundle has a tag and every engine tag a bundle
+        self.assertEqual({t["engine"] for t in tax["tags"].values() if t["engine"]} & set(check.engine_bundles()),
+                         {t["engine"] for t in tax["tags"].values() if t["engine"]})
+        broken = {"tags": {"x": {"id": "x", "group": "engine", "engine": "no-such-engine"}}}
+        self.assertIn("no gamedb/engines/no-such-engine", " ".join(check.engine_tags_errors(broken)))
+        data = {"group": [{"id": "genre", "label": "G", "tag": [{"id": "a", "label": "A", "engine": "x"}]},
+                          {"id": "engine", "label": "E", "tag": [{"id": "e", "label": "E"}]}]}
+        msg = " ".join(check.tags_errors(data))
+        self.assertIn("`engine` belongs to the engine group", msg)
+        self.assertIn("automatic = true", msg)
+        self.assertIn("no `engine`", msg)
+
+    def test_catalog_engine_tags(self):
+        tax = check.taxonomy()
+        for fm, want in (({"id": "g", "tags": ["fps"], "engine": "ioquake3"}, ["idtech3", "ioquake3"]),
+                         ({"id": "doom", "tags": ["fps"], "packages": ["dsda-doom"]}, ["idtech1", "dsda-doom"]),
+                         ({"id": "quakespasm", "tags": ["fps"]}, ["idtech2", "quakespasm"]),
+                         ({"id": "sauerbraten", "tags": ["fps"], "engine": "cube2"}, ["cube2"]),
+                         ({"id": "other", "tags": ["fps"], "packages": ["foo"]}, [])):
+            tags, _ = catalog.game_tags(fm, "keyboard", {"low_memory": False}, tax)
+            self.assertEqual([t for t in tags if tax["tags"][t]["group"] == "engine"], want, fm)
 
     def test_catalog_tags(self):
         tax = check.taxonomy()
