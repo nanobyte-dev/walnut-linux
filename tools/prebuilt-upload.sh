@@ -32,7 +32,13 @@ while read -r f; do
 	src+=("$p")
 done < <(sed -n '/^Files:/,/^[^ ]/p' "$dsc" | awk 'NF==3 {print $3}')
 python3 -I tools/leak-check.py debs "${debs[@]}"
-python3 -I tools/leak-check.py sources "$dsc"
+# the leak check reads the files next to the .dsc: a BUILD=xcc build links the orig tarball there by its
+# path inside the container (/work/...), dangling here, so it checks a copy of the .dsc beside links to
+# the files found above
+chk=$(mktemp -d build/tmp/prebuilt-check.XXXXXX)
+for f in "${src[@]}"; do ln -s "$(realpath "$f")" "$chk/${f##*/}"; done
+python3 -I tools/leak-check.py sources "$chk/${dsc##*/}"
+rm -r "$chk"
 tag="prebuilt-$pkg-${ver//[:~]/_}"
 if gh release view "$tag" -R "$repo" >/dev/null 2>&1; then
 	echo "!! release $tag exists in $repo: published files never change" >&2; exit 1

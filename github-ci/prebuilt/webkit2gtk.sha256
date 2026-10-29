@@ -1,0 +1,15 @@
+# webkit2gtk 2.52.6-1+ps3.1124, built on the dev PC (tools/xcc-build.sh), uploaded by tools/prebuilt-upload.sh
+# version 2.52.6-1+ps3.1124
+# url https://github.com/nanobyte-dev/walnut-linux/releases/download/prebuilt-webkit2gtk-2.52.6-1+ps3.1124
+85e3198ac5d403cf4dfca5875f9a22a38f36329b4f9614499c967eb3c8ca61a1 libjavascriptcoregtk-4.1-0_2.52.6-1+ps3.1124_ppc64.deb
+9c749ba19519d580a1c3652ef430cc90bba0f033b3983ec4603673b02c9b39f1 libjavascriptcoregtk-4.1-0-dbgsym_2.52.6-1+ps3.1124_ppc64.deb
+50ad2ddcaa8e999728b4c5289ad785180e131338e3086dd954b5ce096d4bf39e libjavascriptcoregtk-4.1-dev_2.52.6-1+ps3.1124_ppc64.deb
+43de813a8a4d11912cd60a4631eb8d84542f5ca1b736230e77bd82ff0e3dc3e1 libjavascriptcoregtk-bin_2.52.6-1+ps3.1124_ppc64.deb
+50ebb37f0255519ee29ac4053f9b9e691c8380d35cbdf82047553a9a627fc576 libjavascriptcoregtk-bin-dbgsym_2.52.6-1+ps3.1124_ppc64.deb
+f9e21ca2a7431215a3c335a3153eb6be2ab5f1d9460e3fe917b8349db8441eb3 libwebkit2gtk-4.1-0_2.52.6-1+ps3.1124_ppc64.deb
+fc5297200c29e8daa40fe16df5cde6e15c4a20a5976d106e4798da7e5928c3d4 libwebkit2gtk-4.1-0-dbgsym_2.52.6-1+ps3.1124_ppc64.deb
+0fb6c32b718e87782288aaa3947b8ff2de8e0f97d11ab7c2c21c0c3c619c954c libwebkit2gtk-4.1-dev_2.52.6-1+ps3.1124_ppc64.deb
+813519fdf30c6565d665f79518a8abdaa2f10b6e8ec404e383e7f7190b2d8997 webkit2gtk_2.52.6-1+ps3.1124.dsc
+179a2ea3f8f6edd4be7f31fdc55afc57bd0729f1fba648c61d4181539ac116fc webkit2gtk_2.52.6.orig.tar.xz
+6694b1f87b10c4b799f2aadf20da7a0b6725b9c3b41b598ecba8bc35d54e7090 webkit2gtk_2.52.6.orig.tar.xz.asc
+5186e81da00f0ea539c36eabd970169274cac071aefbe4bd99b9d2b51104c877 webkit2gtk_2.52.6-1+ps3.1124.debian.tar.xz
