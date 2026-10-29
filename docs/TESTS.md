@@ -117,6 +117,7 @@ in the batch's records (gamedb/benchmarks/batches.toml, `gamedb:batch/<name>`).
 
 | Date | Boot / root | Batch | Verdict | Commit |
 |---|---|---|---|---|
+| 10-29 07:55-08:00 | .874 walnut | games-night: ScummVM `dig` (The Dig, the player's CD copy from tibi-server, 245 MB, removed after) | **Runs:** past the SMUSH intro, the shuttle scene with subtitles, right. gamedb:scummvm | this commit |
 | 10-29 07:31-07:35 | .874 walnut | games-night: BZFlag `pad` with the Triangles moved to 40 s (98684c3) | The pad's Start, D-pad and Circle work in the menu; Triangle still doesn't spawn the tank (open, the fixer's). gamedb:bzflag | this commit |
 | 10-29 07:22-07:36 | .874 walnut | games-night: BZFlag `pad` with the saved joystickname cleared and three shots; MegaGlest 0001's auto-test exit with a 420 s cap | BZFlag: the pad's Start opens the menu, Triangle doesn't spawn (open). **MegaGlest exits cleanly** at 234 s (rc 0, no core), its CRC thread working until then. gamedb:bzflag, gamedb:megaglest | this commit |
 | 10-29 07:15-07:22 | .874 walnut | games-night: ScummVM with two more of the player's games from tibi-server: `atlantis` (Indiana Jones and the Fate of Atlantis, floppy; `--auto-detect`) and `loom` | **Both run**, pictures right. gamedb:scummvm | this commit |

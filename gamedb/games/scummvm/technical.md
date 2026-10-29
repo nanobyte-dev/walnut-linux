@@ -26,6 +26,10 @@ a player points "Add Game" at; never in the repository), recipe variants `dott` 
   room with his first line, colours right (`ps3-bench-20261029T051807Z-smoke-scummvm-atlantis`).
 - Loom, EGA floppy, Spanish (variant `loom`): the difficulty choice (Estándar, Práctica, Experto), right (`ps3-bench-20261029T051548Z-smoke-scummvm-loom`).
 
+- The Dig, CD, Spanish (`DIG.LA0` sha256 `0b21cf37...578027`, `DIG.LA1` `e6cf377b...74f1`; variant `dig`): past
+  the SMUSH intro, the astronauts at the shuttle with the first line, right (`ps3-bench-20261029T055448Z-smoke-scummvm-dig`); 245 MB, removed from the
+  console after the run for the disk.
+
 The Gallium HUD numbers (6-9 fps, "stalls") mean nothing here: ScummVM presents a frame only when the picture
 changes. Beneath a Steel Sky (the base recipe) was not re-run: its data package isn't installed and the disk
 was at 1.9 GB free.

@@ -59,3 +59,4 @@ variant_ft() { SV_ID=ft; SV_TITLE="Full Throttle"; SV_DIR=$HOME/Games/scummvm/FU
 # Indiana Jones and the Fate of Atlantis (floppy) and Loom (EGA floppy), the player's own too
 variant_atlantis() { SV_ID=--auto-detect; SV_TITLE="Indiana Jones and the Fate of Atlantis"; SV_DIR=$HOME/Games/scummvm/ATLANTIS; sv_cmd; }
 variant_loom() { SV_ID=loom; SV_TITLE="Loom"; SV_DIR=$HOME/Games/scummvm/LOOM; sv_cmd; }
+variant_dig() { SV_ID=--auto-detect; SV_TITLE="The Dig"; SV_DIR=$HOME/Games/scummvm/THEDIG; sv_cmd; }	# The Dig (CD: SMUSH video with MP3 audio), the player's own
