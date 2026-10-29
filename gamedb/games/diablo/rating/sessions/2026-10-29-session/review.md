@@ -15,13 +15,17 @@ garbage: no
 # a missing element (HUD, models, shadows, an effect) (-25)
 missing: no
 # wrong colours or blending (-25)
-colours: ps3: the mouse cursor draws semitransparent (the player's form note, 'very minor'); X cursors are not in the xwd captures, so the shots can't show it, the held item at the cursor in the 1200 s shot looks right
+colours: no
 # flicker, z-fighting or one-frame glitches (-15)
 flicker: no
 # lighting or shading differs (-10)
 lighting: no
 # softer or less detailed, from Walnut's own defaults (-5)
 softer: no
+# minor cosmetic: a small visual quirk that doesn't affect play or readability (e.g. a semitransparent cursor, a one-pixel seam, a slightly wrong shade in one UI element) (-5)
+minor: ps3: the mouse cursor draws semitransparent (the player's form note, 'very minor'); re-filed from colours 2026-10-30; X cursors are not in the xwd captures, so the shots can't show it
 # Anything broken on screen or in the notes (a menu, a mode, saves, the pad): none, or one line each
 # broken: <item> <pc|ps3>: <what>; items: pad_play, pad_setup, pad_menus, pad_hotplug, pad_players, no_keyboard, keyboard_mouse, menus_modes, saves_load, online
+# The player corrected this 2026-10-30: the hero name prompt has a usable default the pad accepts, so nothing needs the keyboard (the 32 key presses in the input log were typing a name).
+check: no_keyboard yes
 broken: none

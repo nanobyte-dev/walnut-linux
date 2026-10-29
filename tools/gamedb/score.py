@@ -33,7 +33,7 @@ fixed deductions per defect category (the reviewer's answers and the form's glit
 deductions off Display (stretched, a desktop pointer, small text: the reviewer's), count a hang on
 quit like a crash in Stability, add the level load to Load, and replace the weakest link by one rule: a
 broken core subsystem caps the medal (broken_v2): combine(tests, rules=2) and test_scores_v2(test).
-Formula 2.2 (2026-10-26): "more than half the sessions crash" needs two sessions (a single late crash in a
+Formula 2.3 (2026-10-30): Picture gets the `minor` category (5). Formula 2.2 (2026-10-26): "more than half the sessions crash" needs two sessions (a single late crash in a
 game's only session is Rust). Formula 2.1 (2026-10-26) redefines the medals of data version 2 (MEDALS_V2): Platinum to Bronze from the mean,
 no Tin; Rust for a playable game with a core subsystem broken (or a mean under Bronze's); Scrap only for a
 game that can't be played (scrap_floor_v2: won't start, crashes consistently, under 5 fps). A rating never mixes the two: catalog.py picks a launcher's newest data version
@@ -57,9 +57,9 @@ ASPECT_NAMES = {"frame": "Frame rate", "smooth": "Smoothness", "sound": "Sound",
 # thresholds for that data version, applied at catalog time to every test of it (a test stores its raw
 # numbers and answers, never only scores). A new criterion that needs new data is a new data version;
 # a changed weight or threshold, or a dropped aspect, is a new formula revision (bump FORMULA[data]).
-FORMULA = {1: 0, 2: 2}
+FORMULA = {1: 0, 2: 3}
 RULES = {1: {"date": "2026-10-24", "anchor": "rules-1"},
-         2: {"date": "2026-10-26", "anchor": "rules-2"}}
+         2: {"date": "2026-10-30", "anchor": "rules-2"}}
 CURRENT_DATA = 2
 
 
@@ -398,14 +398,18 @@ def combine(tests, fps_cap=None, rules=1, designed_for="pad"):
 # "PS3/Walnut only"; a game designed for keyboard and mouse is never marked down for weak pad support.
 
 # Picture: fixed deductions per defect category, each category counted once per launcher, from 100
-DEFECTS = {"garbage": 60, "missing": 25, "colours": 25, "flicker": 15, "lighting": 10, "softer": 5}
+DEFECTS = {"garbage": 60, "missing": 25, "colours": 25, "flicker": 15, "lighting": 10, "softer": 5,
+           "minor": 5}
 DEFECT_NAMES = {"garbage": "garbage textures or geometry",
                 "missing": "a missing element (HUD, models, shadows, an effect)",
                 "colours": "wrong colours or blending", "flicker": "flicker, z-fighting or one-frame glitches",
                 "lighting": "lighting or shading differs",
-                "softer": "softer or less detailed, from Walnut's own defaults"}
+                "softer": "softer or less detailed, from Walnut's own defaults",
+                "minor": "minor cosmetic: a small visual quirk that doesn't affect play or readability (e.g. a "
+                         "semitransparent cursor, a one-pixel seam, a slightly wrong shade in one UI element)"}
 DEFECT_ALIASES = {"colors": "colours", "colour": "colours", "color": "colours", "blending": "colours",
-                  "garbled": "garbage", "zfight": "flicker", "shading": "lighting", "soft": "softer"}
+                  "garbled": "garbage", "zfight": "flicker", "shading": "lighting", "soft": "softer",
+                  "cosmetic": "minor"}
 ORIGINS = {"pc": "also on the PC", "ps3": "PS3/Walnut only"}
 # the player's "Visual glitches" answer: a deduction unless a reviewer's defect already takes as much
 GLITCHES = {"none": 0, "minor": 10, "broken": 25}

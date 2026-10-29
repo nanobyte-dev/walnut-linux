@@ -82,4 +82,5 @@ stretched = "no"
 text_px = 26
 text_where = "the panel buttons CHAR/QUESTS/MAP/MENU labels (inventory item text not in shots)"
 pointer = "visible"
-defects = ["colours ps3: the mouse cursor draws semitransparent (the player's form note, 'very minor'); X cursors are not in the xwd captures, so the shots can't show it, the held item at the cursor in the 1200 s shot looks right"]
+defects = ["minor ps3: the mouse cursor draws semitransparent (the player's form note, 'very minor'); re-filed from colours 2026-10-30; X cursors are not in the xwd captures, so the shots can't show it"]
+checks = ["no_keyboard yes"]

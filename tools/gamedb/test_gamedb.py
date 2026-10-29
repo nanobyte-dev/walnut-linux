@@ -1674,6 +1674,7 @@ class RulesV2(unittest.TestCase):
         # each category once per launcher; two categories add up; floor 0
         self.assertEqual(p([("missing", "ps3", "HUD"), ("missing", "pc", "shadows"), ("flicker", "ps3", "")], None)[0], 60)
         self.assertEqual(p([("garbage", "ps3", ""), ("missing", "ps3", ""), ("colours", "pc", "")], None)[0], 0)
+        self.assertEqual(p([("minor", "ps3", "cursor")], None)[0], 95)
         self.assertEqual(p([("softer", "ps3", "DXT")], None)[0], 95)
         self.assertEqual(p([("lighting", "ps3", "")], None)[0], 90)
         # the player's answer: broken -25 unless a defect already takes 25 or more; minor -10 unless covered
@@ -1834,8 +1835,8 @@ class RulesV21Medals(unittest.TestCase):
     or a mean under 35; Scrap unplayable (won't start, consistent crashes, under 5 fps)"""
 
     def test_scale(self):
-        self.assertEqual(score.FORMULA[2], 2)
-        self.assertEqual(score.rules_label(2), "rules 2.2 (2026-10-26)")
+        self.assertEqual(score.FORMULA[2], 3)
+        self.assertEqual(score.rules_label(2), "rules 2.3 (2026-10-30)")
         self.assertNotIn("Tin", score.MEDALS_V2)
         self.assertIn("Tin", score.MEDALS)                         # rules 1's scale keeps it
         for mean, medal in ((100, "Platinum"), (90, "Platinum"), (89.9, "Gold"), (75, "Gold"), (74.9, "Silver"),
@@ -1920,17 +1921,17 @@ class RulesSelection(unittest.TestCase):
         self.assertEqual(rating["aspects"]["frame"]["score"], round(score.frame_score(40, 30)))
         v2 = dict(v2_session(), versions={"xmoto": "1.0", "walnut": "0.1"})
         rating, hist = catalog.rate_launcher([v1, v2], fm)
-        self.assertEqual((rating["rules"], rating["rules_data"]), ("2.2", 2))
+        self.assertEqual((rating["rules"], rating["rules_data"]), ("2.3", 2))
         self.assertEqual(rating["aspects"]["frame"]["score"], 100)     # the v1 session isn't merged in
         self.assertEqual(rating["basis"], {"tests": 1, "kind": "session", "minutes": 9})
         self.assertEqual(rating["hours"], 0.15)                       # its play alone
         self.assertEqual(list(rating["aspects"]), score.ASPECTS[2])
         # one version tested under both rules: a row for each, the newest rules first
-        self.assertEqual([(h["rules"], h["tests"]) for h in hist], [("2.2", 1), ("1.0", 1)])
+        self.assertEqual([(h["rules"], h["tests"]) for h in hist], [("2.3", 1), ("1.0", 1)])
         # a newer Walnut release under rules 2, the old one under rules 1: History shows both
         v2b = dict(v2, versions={"xmoto": "1.0", "walnut": "0.2"}, date="2026-11-01")
         _, hist = catalog.rate_launcher([v1, v2b], fm)
-        self.assertEqual([(h["walnut"], h["rules"]) for h in hist], [("0.2", "2.2"), ("0.1", "1.0")])
+        self.assertEqual([(h["walnut"], h["rules"]) for h in hist], [("0.2", "2.3"), ("0.1", "1.0")])
         # a version-2 capture doesn't move a version-1 launcher off rules 1 (graded tests decide)
         cap = {"id": "c", "date": "2026-10-28", "kind": "capture", "rules": "2.0", "picture": {"verdict": "ok"},
                "review": {}, "versions": {"walnut": "0.1"}}
@@ -1950,14 +1951,14 @@ class RulesSelection(unittest.TestCase):
             self.assertEqual([e for e in check.check_game(g, set(), REPO) if "2026-10-27" in e], [])
             out = catalog.build_game(g, REPO, {})
             gl12 = next(l for l in out["launchers"] if l["name"] == "OpenArena (GL 1.2)")
-            self.assertEqual(gl12["rating"]["rules"], "2.2")
-            self.assertEqual(next(x for x in out["tests"] if x["id"] == "2026-10-27-session")["rules"], "2.2")
+            self.assertEqual(gl12["rating"]["rules"], "2.3")
+            self.assertEqual(next(x for x in out["tests"] if x["id"] == "2026-10-27-session")["rules"], "2.3")
             if out["rating"]["launcher"] == "OpenArena (GL 1.2)":
                 self.assertIn("controller-full", out["badges"])
 
 
 REVIEW_OK = ("verdict: ok\nstretched: no\ntext_px: 24: the HUD\npointer: hidden\ngarbage: no\nmissing: no\n"
-             "colours: no\nflicker: no\nlighting: no\nsofter: no\nbroken: none\n")
+             "colours: no\nflicker: no\nlighting: no\nsofter: no\nminor: no\nbroken: none\n")
 
 
 class ImporterV2(Importer):
@@ -2078,7 +2079,7 @@ class ImporterV2(Importer):
             self.ir.import_run(self.run_dir, "ex", self.content)
         self.assertIn("verdict, stretched, text_px, garbage, missing, colours, flicker, lighting, softer, broken",
                       str(e.exception))
-        answered = re.sub(r"(?m)^(garbage|missing|colours|flicker|lighting|softer): \?$", r"\1: no", text)
+        answered = re.sub(r"(?m)^(garbage|missing|colours|flicker|lighting|softer|minor): \?$", r"\1: no", text)
         answered = answered.replace("verdict: ?", "verdict: ok").replace("stretched: ?", "stretched: no") \
             .replace("text_px: ?", "text_px: 20: menu").replace("broken: ?", "broken: none")
         (self.run_dir / "REVIEW.md").write_text(answered)

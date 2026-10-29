@@ -522,7 +522,8 @@ def input_numbers(d, play_from, until=None):
 
 REVIEW_RE = re.compile(r"^\s*[-*]?\s*([a-z_]+):\s*(.*?)\s*$", re.I)
 # the questionnaire of tools/gamedb/review.py's template: every one answered under rules 2
-REVIEW_REQUIRED = ["verdict", "stretched", "text_px", "pointer"] + list(score.DEFECTS) + ["broken"]
+# "minor" (rules 2.3) is optional: reviews written before it have no such line, and a missing one means none
+REVIEW_REQUIRED = ["verdict", "stretched", "text_px", "pointer"] + [c for c in score.DEFECTS if c != "minor"] + ["broken"]
 
 
 def answer_where(v):

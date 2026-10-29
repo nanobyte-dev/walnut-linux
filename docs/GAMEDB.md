@@ -67,7 +67,7 @@ only sessions count: scripted runs and unattended soaks add no hours.
 ## How a game is rated
 
 Each aspect gets a score from 0 to 100, on the same scale for every game; the medal comes from the
-weighted mean of the scores. The current rules, 2.2 (2026-10-26):
+weighted mean of the scores. The current rules, 2.3 (2026-10-30):
 
 | Aspect | Weight | Measured | 0 | 100 |
 |---|---|---|---|---|
@@ -113,6 +113,7 @@ The reviewer's answers (`<category>: no`, or `<category>: pc|ps3: where`):
 | `flicker`: flicker, z-fighting, one-frame glitches | 15 |
 | `lighting`: lighting or shading differs | 10 |
 | `softer`: softer or less detailed from Walnut's own defaults (DXT, lean settings); the where says why | 5 |
+| `minor`: minor cosmetic: a small visual quirk that doesn't affect play or readability (a semitransparent cursor, a one-pixel seam, a slightly wrong shade in one UI element) | 5 |
 
 The player's "Visual glitches" answer adds 25 for "broken" unless a reviewed defect already takes 25
 or more, and 10 for "minor" unless one takes 10 or more; "didn't notice any" adds nothing. A launcher
@@ -231,7 +232,7 @@ to play).
 
 ## Rules versions
 
-A rating says which rules made it ("rules 2.2 (2026-10-26)"), as `<data>.<formula>`:
+A rating says which rules made it ("rules 2.3 (2026-10-30)"), as `<data>.<formula>`:
 
 - **The data version** says which data points a test has. A test keeps the data version it was
   measured under (result.toml `rules = "2.0"`; a test without the field is 1.0) until it is re-tested.
@@ -252,7 +253,11 @@ from those tests alone: versions never merge. History has a row per Walnut and g
 data version, and the test list names each test's rules. The website's about page explains the
 current rules and links each rating's rules to its section.
 
-**Rules 2.2 (2026-10-26)**, current: the tables above. A formula revision (`FORMULA[2] = 2`): "crashes in
+**Rules 2.3 (2026-10-30)**, current: the tables above. A formula revision (`FORMULA[2] = 3`): a new Picture
+category, `minor` (5), for a small cosmetic quirk that doesn't affect play or readability, so one such note no
+longer costs the 25 of `colours` (the user, 2026-10-30). `colours` and the others stay for real defects.
+
+**Rules 2.2 (2026-10-26)**: a formula revision (`FORMULA[2] = 2`): "crashes in
 more than half the sessions" needs at least two sessions, so a single late crash in a game's only session
 is Rust until a second session shows whether it repeats (the user, 2026-10-26); an early crash (within
 the first 5 minutes of play) or one at startup is still Scrap with one session. No medal moved.
