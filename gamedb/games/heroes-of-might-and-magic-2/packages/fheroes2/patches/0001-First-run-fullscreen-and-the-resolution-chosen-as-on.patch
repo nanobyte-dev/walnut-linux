@@ -1,0 +1,63 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Thu, 29 Oct 2026 04:33:44 +0200
+Subject: First run: fullscreen, and the resolution chosen as on handheld
+ devices
+
+Walnut is a console on a TV. A fresh configuration opened a 640x480
+window, then asked for the language and a game resolution through the
+mouse. Now fullscreen is the default, and the first run takes the widest
+resolution at the original's height (scaled to the screen) without the
+resolution dialog, as fheroes2 already does on handheld devices; the
+greeting and the language choice stay. The options menu changes both.
+
+Forwarded: not-needed
+
+diff --git a/src/fheroes2/game/fheroes2.cpp b/src/fheroes2/game/fheroes2.cpp
+--- a/src/fheroes2/game/fheroes2.cpp
++++ b/src/fheroes2/game/fheroes2.cpp
+@@ -168,7 +168,9 @@ namespace
+             fheroes2::Display & display = fheroes2::Display::instance();
+             fheroes2::ResolutionInfo bestResolution{ conf.currentResolutionInfo() };
+ 
+-            if ( conf.isFirstGameRun() && System::isHandheldDevice() ) {
++            // Walnut (a console on a TV): no resolution dialog on the first run either; the widest
++            // resolution at the original's height, scaled to the screen, as on handheld devices.
++            if ( conf.isFirstGameRun() ) {
+                 // We do not show resolution dialog for first run on handheld devices. In this case it is wise to set 'widest' resolution by default.
+                 const std::vector<fheroes2::ResolutionInfo> resolutions = fheroes2::engine().getAvailableResolutions();
+ 
+diff --git a/src/fheroes2/game/game_mainmenu.cpp b/src/fheroes2/game/game_mainmenu.cpp
+--- a/src/fheroes2/game/game_mainmenu.cpp
++++ b/src/fheroes2/game/game_mainmenu.cpp
+@@ -240,15 +240,9 @@ fheroes2::GameMode Game::MainMenu( const bool isFirstGameRun )
+             }
+ 
+             // Handheld devices should use the minimal game's resolution. Users on handheld devices aren't asked to choose resolution.
+-            if ( !System::isHandheldDevice() ) {
+-                body += _( "\n\nBefore starting the game, please select a game resolution." );
+-            }
+-
++            // Walnut (a console on a TV): not asked either; the first run took the widest resolution at
++            // the original's height (DisplayInitializer), and the options menu changes it.
+             fheroes2::showStandardTextMessage( _( "Greetings!" ), std::move( body ), Dialog::OK );
+-
+-            if ( !System::isHandheldDevice() && Dialog::SelectResolution() ) {
+-                fheroes2::drawMainMenuScreen();
+-            }
+         }
+ 
+         conf.resetFirstGameRun();
+diff --git a/src/fheroes2/system/settings.cpp b/src/fheroes2/system/settings.cpp
+--- a/src/fheroes2/system/settings.cpp
++++ b/src/fheroes2/system/settings.cpp
+@@ -129,6 +129,9 @@ Settings::Settings()
+ 
+     _editorOptions.SetModes( EDITOR_ANIMATION );
+ 
++    // Walnut (a console on a TV): fullscreen by default, as on handheld devices.
++    _gameOptions.SetModes( GAME_FULLSCREEN );
++
+     if ( System::isHandheldDevice() ) {
+         // Due to the nature of handheld devices having small screens in general it is good to make fullscreen option by default.
+         _gameOptions.SetModes( GAME_FULLSCREEN );

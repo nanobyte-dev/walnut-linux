@@ -23,6 +23,16 @@ console default for our package (fullscreen at the screen's size, the first-run 
 
 Also known as: fheroes2 (the engine).
 
+## Our package
+
+`fheroes2` 1.1.17+dfsg-1+ps3.N, [0001](packages/fheroes2/patches/0001-First-run-fullscreen-and-the-resolution-chosen-as-on.patch):
+a fresh configuration started in a 640x480 window and asked for a game resolution (the tester's `fresh`
+run, 2026-10-29); now fullscreen is the default and the first run picks the resolution as fheroes2 does on
+handheld devices (the widest at the original's height, scaled to the screen) without the dialog; the
+greeting and the language list (English preselected) stay. On the PC (amd64 build, Xvfb 1920x1080, the
+player's data): fullscreen 1920x1080 with the game's 4:3 picture in the middle, the language list up.
+Pending its PS3 test (recipe variant `fresh`).
+
 ## Research
 
 What the surveys and plans said about it, newest first; each line names its source, the section and the date.
