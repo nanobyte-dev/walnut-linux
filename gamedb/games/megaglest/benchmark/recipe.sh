@@ -21,3 +21,4 @@ variant_autotest() { CMD=(/usr/games/megaglest --auto-test=150,,exit); }
 variant_dxt() { ENV+=(NV30_FORCE_DXT=all); }
 variant_lean() { ENV+=(NV30_FORCE_DXT=all); MG_INI+=("Shadows=Disabled"); }
 variant_noshadow() { MG_INI+=("Shadows=Disabled"); }
+variant_menu() { CMD=(/usr/games/megaglest); SHOT_STATIC=1; }	# the main menu (the way the menu entry starts it)
