@@ -32,7 +32,8 @@ Description: engine for Diablo and Hellfire (needs the game's data)
  It needs the original game's data, which is not part of this package:
  DIABDAT.MPQ from your own copy of Diablo (CD or GOG), the hf*.mpq files for
  Hellfire, or spawn.mpq from the free shareware version. Put them in
- ~/.local/share/diasurgical/devilutionx/ (or /usr/share/diasurgical/devilutionx/).
+ ~/.local/share/diasurgical/devilution/, or install game-data-packager's
+ diablo-data package (/usr/share/games/diablo/, linked from here).
  .
  Non-free licence: the Sustainable Use License 1.0 allows personal and
  non-commercial use and free-of-charge distribution only (see

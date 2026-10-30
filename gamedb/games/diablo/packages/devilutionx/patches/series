@@ -1,1 +1,2 @@
 0001-sound-open-the-audio-device-in-the-host-byte-order.patch
+0002-hwcursor-scale-the-cursor-in-BGRA32-alpha-in-byte-3-on-any-host.patch

@@ -1,0 +1,53 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Fri, 30 Oct 2026 12:00:00 +0200
+Subject: hwcursor: scale the cursor in BGRA32, so its alpha is byte 3 on any host
+
+When the renderer scales the picture up (the screen is bigger than the
+game's resolution), SetHardwareCursorFromSurface converts the 8-bit cursor
+to SDL_PIXELFORMAT_ARGB8888 and scales it with BilinearScale32, which reads
+and writes the alpha as byte 3 of each pixel. ARGB8888 is a packed format:
+on little-endian its bytes in memory are B, G, R, A, but on big-endian they
+are A, R, G, B, so byte 3 is blue. The scaler then takes the blue channel
+for the alpha: pixels with no blue (Diablo's browns and dark greys) become
+fully transparent and the rest blend wrongly, and the cursor looks
+see-through on a big-endian host (the PS3's PPE).
+
+SDL_PIXELFORMAT_BGRA32 is the byte-order format with the alpha in byte 3
+everywhere: it is ARGB8888 on little-endian (nothing changes on x86) and
+BGRA8888 on big-endian. SDL_CreateColorCursor converts the surface to what
+the video driver wants (X11: ARGB8888 in host order).
+
+Test: tests/hwcursor-alpha-test.cpp (the scaled path and the X cursor read
+back with XFixes, on amd64 and ppc64).
+
+Forwarded: no
+
+--- a/Source/hwcursor.cpp
++++ b/Source/hwcursor.cpp
+@@ -83,9 +83,11 @@
+ 		newCursor = SDLCursorUniquePtr { SDL_CreateColorCursor(surface, hotpoint.x, hotpoint.y) };
+ 	} else {
+ 		// SDL does not support BlitScaled from 8-bit to RGBA.
+-		SDLSurfaceUniquePtr converted { SDL_ConvertSurfaceFormat(surface, SDL_PIXELFORMAT_ARGB8888, 0) };
++		// BilinearScale32 reads the alpha from byte 3 of each pixel: BGRA32 has it there on any host
++		// (it is ARGB8888 on little-endian, BGRA8888 on big-endian, where ARGB8888's byte 3 is blue).
++		SDLSurfaceUniquePtr converted { SDL_ConvertSurfaceFormat(surface, SDL_PIXELFORMAT_BGRA32, 0) };
+ 
+-		SDLSurfaceUniquePtr scaledSurface = SDLWrap::CreateRGBSurfaceWithFormat(0, scaledSize.width, scaledSize.height, 32, SDL_PIXELFORMAT_ARGB8888);
++		SDLSurfaceUniquePtr scaledSurface = SDLWrap::CreateRGBSurfaceWithFormat(0, scaledSize.width, scaledSize.height, 32, SDL_PIXELFORMAT_BGRA32);
+ 		if (ShouldUseBilinearScaling()) {
+ #if LOG_HWCURSOR
+ 			Log("hwcursor: SetHardwareCursorFromSurface {}x{} scaled to {}x{} using bilinear scaling",
+--- a/Source/utils/sdl_bilinear_scale.hpp
++++ b/Source/utils/sdl_bilinear_scale.hpp
+@@ -15,7 +15,8 @@
+ 
+ /**
+  * @brief Bilinear 32-bit scaling.
+- * Requires `src` and `dst` to have the same pixel format (ARGB8888 or RGBA8888).
++ * Requires `src` and `dst` to have the same 32-bit pixel format with the alpha in byte 3 of each pixel
++ * in memory (BGRA32 or RGBA32, on any host's byte order).
+  */
+ void BilinearScale32(SDL_Surface *src, SDL_Surface *dst);
+ 

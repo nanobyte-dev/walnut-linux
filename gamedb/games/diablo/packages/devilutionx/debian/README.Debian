@@ -23,6 +23,9 @@ patches of ours (see the source package):
 
   0001  sound: open the audio device in the host byte order
         (AUDIO_S16SYS), so the engine plays on big-endian machines.
+  0002  hwcursor: scale the mouse cursor in BGRA32, so its alpha is
+        read from the right byte on big-endian machines (it was
+        see-through there).
 
 It is also built without ZeroTier (online) multiplayer and without Discord
 integration. Problems with this build are not upstream's: report them to
@@ -33,4 +36,7 @@ Game data
 No game data is part of this package. Diablo's DIABDAT.MPQ (and Hellfire's
 hf*.mpq) belong to Blizzard and come from your own copy of the game; the
 free shareware version's spawn.mpq also works. Put the files in
-~/.local/share/diasurgical/devilution/ (or /usr/share/diasurgical/devilution/).
+~/.local/share/diasurgical/devilution/, or install game-data-packager's
+diablo-data (and diablo-hellfire-data) package: it puts them in
+/usr/share/games/diablo/, which this package links into
+/usr/share/diasurgical/devilutionx/, where DevilutionX looks.

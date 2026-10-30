@@ -1,5 +1,5 @@
-# Diablo on DevilutionX 1.5.5 (our devilutionx package, gamedb/games/diablo/packages/devilutionx; never
-# public: its licence is not a free one) with the player's own DIABDAT.MPQ in
+# Diablo on DevilutionX 1.5.5 (our devilutionx package, gamedb/games/diablo/packages/devilutionx; public
+# as non-free: the Sustainable Use License) with the player's own DIABDAT.MPQ in
 # ~/.local/share/diasurgical/devilution/ (the game's own folder, SDL's pref path for "diasurgical",
 # "devilution": its settings and saves are there too; nothing of it is in the repository: its
 # sha256 is in technical.md): smoke test, not benchmarked. `-n` skips the intro videos; then Return
@@ -16,6 +16,12 @@ BACKUP=("$HOME/.local/share/diasurgical/devilution/diablo.ini")
 DX_SAVES=/var/tmp/ps3-bench/diablo-saves
 setup() { rm -rf -- "${DX_SAVES:?}"; mkdir -p "$DX_SAVES"; }
 CMD=(/usr/games/devilutionx --diablo -n --save-dir "$DX_SAVES")
+# The PC side (tools/play-pc.sh, tools/bench-ref.sh): DevilutionX isn't in Debian, so our amd64 build of the
+# package in the local image devilutionx-amd64 (tools/ref-image.sh devilutionx, after make devilutionx-src).
+# The data: diablo-data's .deb (DIABDAT.MPQ in /usr/share/games/diablo, which the package links into
+# DevilutionX's /usr/share/diasurgical/devilutionx/) or PLAY_PC_DATA_DIR=<the player's folder>, mounted there.
+REF_IMAGE=devilutionx-amd64
+REF_DATA_DIR=/usr/share/games/diablo
 DX_KEYS=(Return +4 Return +4 Return +4 W a l n u t +1 Return +5 Return +15)	# Single Player, New Hero, Warrior, a name (only a pad fills one in), OK, Normal: Tristram
 during() { smoke_xkeys DevilutionX 12 "${DX_KEYS[@]}"; shot_mark; }
 SHOT_FROM=mark

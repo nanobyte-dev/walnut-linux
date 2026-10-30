@@ -266,7 +266,10 @@ the PC, from Debian at the PS3's snapshot (the game's Walnut Games `packages`), 
 desktop's X server with Mesa's llvmpipe held to GL 2.1 (the RSX's rendering path) and sound through
 the desktop's PulseAudio/PipeWire. The player plays both side by side: the PC is the reference for the
 picture and behaviour, only the PS3 is measured. The game's PC home stays in `build/pc-play/GAME`.
-`PLAY_PC_LIST=1` lists the launchers.
+`PLAY_PC_LIST=1` lists the launchers. A game we build ourselves (not in Debian, or patched) plays from
+its recipe's `REF_IMAGE`, our amd64 build of its package (`tools/ref-image.sh PKG` after `make PKG-src`).
+Licensed data comes from the game's data `.deb` in build/, or from the player's folder with
+`PLAY_PC_DATA_DIR=<folder>` (mounted at the recipe's `REF_DATA_DIR`), e.g. Diablo's DIABDAT.MPQ.
 
 **Both sides from one command.** `tools/play-test.sh start GAME [LAUNCHER]` starts the PS3 session
 (first: it counts the load) and the PC copy; `PC=0` for the PS3 only. `play-test.sh stop GAME` ends a

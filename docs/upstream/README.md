@@ -38,6 +38,11 @@ the gain is mainly fewer patches for us to carry. Noted here, not worked on:
   joydev and raw evdev games all see it (Quakespasm's menu runs up by itself). A good candidate: a 20-line helper, a QEMU/uhid test
   that shows 0 before and 128 after (`packages/patched/kernel/linux/tests/sixaxis-idle-axes.sh`); rebase onto hid.git and check whether
   hid-playstation has taken the DS3 over first.
+- **DevilutionX: the scaled hardware cursor's alpha on big-endian** (`gamedb/games/diablo/packages/devilutionx/patches/0002`):
+  `BilinearScale32` reads byte 3 as alpha, but hwcursor.cpp gives it ARGB8888, where byte 3 is blue on big-endian;
+  master still has it, and upstream ships PowerPC Mac and Amiga builds. A two-line fix (BGRA32) with a host test
+  (`tests/hwcursor-alpha-test.cpp`, XFixes read-back under Xvfb, amd64 and ppc64 qemu-user); worth a PR once the
+  PS3 confirms it.
 - **GCC 16.2 wrong code** (Warzone patch 0007, PACKAGING.md): the loop vectorizer on AltiVec without VSX at `-O3`.
   Worth a GCC report only with a minimal reproducer and a check of GCC 14/15 (a regression gets triaged);
   the reproducer would also show which of our other `-O3 -mcpu=cell` builds could be hit.

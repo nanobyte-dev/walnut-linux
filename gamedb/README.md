@@ -431,7 +431,8 @@ passes and windows.
 | `SHOT_FROM` | what the shot points count from: `load` (default: the load's end as above), `mark` (when `during()` calls `shot_mark`, e.g. after its keys; the load's end if `during()` ends without it), `start` (the client's start) |
 | `SHOT_RE` | the shot points count from the first output line matching it (sets `SHOT_FROM=re`; Warzone 2100: the match's start) |
 | `SHOT_STATIC` | 1: the shots are of a static screen (menu, title): the sheet says a close comparison is fair (the `menu` variants) |
-| `REF_PKGS`, `REF_IMAGE`, `REF_ENV` | the PC reference (tools/bench-ref.sh): Debian packages with the game, or a local image with our amd64 build of it; extra `NAME=VALUE` for the PC run |
+| `REF_PKGS`, `REF_IMAGE`, `REF_ENV` | the PC reference (tools/bench-ref.sh, tools/play-pc.sh): Debian packages with the game, or a local image with our amd64 build of it (`tools/ref-image.sh <pkg>` makes one from build/src/<pkg>); extra `NAME=VALUE` for the PC run |
+| `REF_DATA_DIR` | where the game's data package puts its files: tools/play-pc.sh mounts `PLAY_PC_DATA_DIR=<folder>` (the player's own copy) there when the data deb isn't here |
 
 Each recipe's header says how its warm-up and window work (passes, the game's own window, or the
 HUD window, and what is not identical between runs). `bench.txt` gets `warmup`, `measure`,

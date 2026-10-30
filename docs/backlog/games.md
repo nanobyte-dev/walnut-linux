@@ -24,7 +24,7 @@ they came from.
 | [ClassiCube](../../gamedb/games/classicube/todo.toml) | 4 | 1 fix, 2 package, 1 research | 3.12 |
 | [Colobot: Gold Edition](../../gamedb/games/colobot/todo.toml) | 1 | 1 session |  |
 | [Day of the Tentacle](../../gamedb/games/day-of-the-tentacle/todo.toml) | 1 | 1 session |  |
-| [Diablo (DevilutionX)](../../gamedb/games/diablo/todo.toml) | 2 | 2 fix |  |
+| [Diablo (DevilutionX)](../../gamedb/games/diablo/todo.toml) | 1 | 1 fix |  |
 | [dsda-doom](../../gamedb/games/dsda-doom/todo.toml) | 2 | 1 research, 1 session | 2.8 |
 | [Duke Nukem 3D](../../gamedb/games/duke-nukem-3d/todo.toml) | 1 | 1 benchmark |  |
 | [Dungeon Crawl Stone Soup](../../gamedb/games/crawl-tiles/todo.toml) | 1 | 1 session |  |

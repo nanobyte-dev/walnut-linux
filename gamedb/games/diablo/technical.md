@@ -7,10 +7,38 @@ Also known as: DevilutionX (the engine); Hellfire (the expansion, also played by
 DevilutionX 1.5.5 built by us (`devilutionx` `1.5.5-1+ps3.N`, built from
 `gamedb/games/diablo/packages/devilutionx/`: DevilutionX is under the Sustainable Use License 1.0, non-commercial
 and not DFSG-free; the user accepted that on 2026-10-29 ("I'm not using it commercially"), so it is public in the
-testing suite, marked non-free in its description, README.Debian and the GameDB page, Section still `games`). One patch: 0001 opens the audio device in the host byte order
-(`AUDIO_S16SYS`; `AUDIO_S16` is little-endian, so the PPE swapped every sample twice). Upstream's defaults are
-already console-like: fullscreen at the screen's mode (`SDL_WINDOW_FULLSCREEN_DESKTOP`, the picture widened to
-16:9 and scaled up), SDL game controllers on.
+testing suite, marked non-free in its description, README.Debian and the GameDB page, Section still `games`). Two patches:
+0001 opens the audio device in the host byte order (`AUDIO_S16SYS`; `AUDIO_S16` is little-endian, so the PPE
+swapped every sample twice); 0002 fixes the see-through mouse cursor (below). Upstream's defaults are already
+console-like: fullscreen at the screen's mode (`SDL_WINDOW_FULLSCREEN_DESKTOP`, the picture widened to 16:9 and
+scaled up), SDL game controllers on. The package links game-data-packager's `diablo-data` files
+(`/usr/share/games/diablo/DIABDAT.MPQ`, Hellfire's `hellfire.mpq`, `hfmonk.mpq`, `hfmusic.mpq`, `hfvoice.mpq`)
+into `/usr/share/diasurgical/devilutionx/`, a folder DevilutionX searches (it never looks in /usr/share/games).
+The player's 1.09 DIABDAT.MPQ (517,501,242 bytes) is not the GOG file GDP knows (517,501,282), so GDP may
+not take it as it is.
+
+**The cursor (patch 0002, 2026-10-30).** DevilutionX draws a hardware cursor: `Source/hwcursor.cpp` hands SDL a
+colour cursor (`SDL_CreateColorCursor`; sdl2-compat on SDL3, whose X11 driver copies the ARGB8888 surface into
+an XcursorImage in host order: correct on big-endian). When the renderer scales the picture up (1920x1080 for
+the game's 854x480: 2.25), it first converts the 8-bit sprite to `SDL_PIXELFORMAT_ARGB8888` and scales it with
+its own `BilinearScale32` (`Source/utils/sdl_bilinear_scale.cpp`), which takes byte 3 of each pixel as the
+alpha. ARGB8888 is a packed format: byte 3 is alpha on little-endian, blue on big-endian. On the PPE the
+scaler used the blue channel as alpha, so Diablo's browns (no blue) went transparent and the rest blended
+wrong. Upstream master still has it. 0002 uses `SDL_PIXELFORMAT_BGRA32` for that path (ARGB8888 on x86, so
+nothing changes there; BGRA8888 on big-endian, alpha in byte 3). Checked on the PC with the X server's cursor
+read back (XFixesGetCursorImage) under Xvfb at 1920x1080, the main menu's 80x67 cursor: the shipped ppc64
+build (qemu-user) had 268 opaque, 1711 partly transparent and 3381 clear pixels; the patched ppc64 build and
+the amd64 build both 1733, 665 and 2962. The host test
+[packages/devilutionx/tests/hwcursor-alpha-test.cpp](packages/devilutionx/tests/hwcursor-alpha-test.cpp) runs
+the same path on a test sprite: on ppc64 1322 of 2401 inner pixels lose alpha with ARGB8888, none with BGRA32;
+none either way on amd64. Not seen on the PS3 yet (TESTS.md Next).
+
+**The PC side.** DevilutionX isn't in Debian, so `tools/play-pc.sh diablo` plays our amd64 build: the recipe's
+`REF_IMAGE=devilutionx-amd64`, made by `tools/ref-image.sh devilutionx` (after `make devilutionx-src`; a local
+image, rebuilt the same way when the package changes). The data: the `diablo-data` .deb if one is in build/,
+else `PLAY_PC_DATA_DIR=<folder with DIABDAT.MPQ>` mounted at `/usr/share/games/diablo` (the recipe's
+`REF_DATA_DIR`). Tried 2026-10-30 under Xvfb: the intro, then the main menu at 1920x1080 with the player's 1.09
+file.
 
 The data is the player's: Diablo 1.09's `DIABDAT.MPQ` (517,501,242 bytes, sha256
 `6bc120a603fdb383ff91f374e7db599765d6230d81e5a4c1b33f8254911774e7`, md5 `68f049866b44688a7af65ba766bef75a`),
@@ -34,8 +62,8 @@ Played session `ps3-bench-20261029T213401Z` (ps3.931~dev, 2026-10-29): 21.5 min,
 by the form's count. The form: sound and music heard, controls full, pad menus worked, play seamless, no glitches; its
 note: "Very minor issue, cursor is semitransparent". The cursor is an X pointer (XFixes saw it in 16 of 21 shots), and
 X cursors are not in the xwd captures, so the shots can't show it; reviewed as wrong colours or blending (-25, the
-only category near it). No PC reference sheet: DevilutionX isn't in Debian, so play-pc.sh had no PC side and upstream's
-x86_64 release was run by hand. Rated Gold 80, provisional (0.35 h of play): smoothness 62 is the weakest aspect.
+only category near it); the cause is found and fixed (patch 0002, above). No PC reference sheet: play-pc.sh had no
+PC side for DevilutionX then (it has now) and upstream's x86_64 release was run by hand. Rated Gold 80, provisional (0.35 h of play): smoothness 62 is the weakest aspect.
 
 ## Engine options
 

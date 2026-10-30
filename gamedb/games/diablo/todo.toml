@@ -6,16 +6,7 @@ kind = "fix"
 added = 2026-10-29
 source = "played session 2026-10-29 (the player's form note)"
 text = """\
-The mouse cursor draws semitransparent on the PS3 (session 2026-10-29 note: "Very minor issue, cursor is \
-semitransparent"). Likely a big-endian alpha byte-order issue in the colour cursor (SDL_CreateColorCursor / \
-X ARGB cursor) or DevilutionX's cursor surface format: check against the PC. The xwd captures can't show it \
-(X cursors are not in the framebuffer)."""
-
-[[item]]
-kind = "fix"
-added = 2026-10-29
-source = "played session 2026-10-29 (no PC reference)"
-text = """\
-tools: play-pc.sh can't build a PC side for DevilutionX because it isn't in Debian, so the session had no PC \
-reference (upstream's x86_64 release was run by hand). Add a REF_IMAGE to the recipe (our amd64 build, like \
-the other games we patch, e.g. warzone2100's) so the comparison works next time."""
+The see-through mouse cursor (session 2026-10-29 note: "Very minor issue, cursor is semitransparent"): \
+fixed by patch 0002 (the scaled hardware cursor read blue as alpha on big-endian; technical.md "The cursor"), \
+proven on the PC (ppc64 under qemu-user, the X cursor read back). Left: the PS3 check (TESTS.md Next), \
+then publish the package and close this."""

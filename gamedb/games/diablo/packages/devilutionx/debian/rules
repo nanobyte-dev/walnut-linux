@@ -2,9 +2,13 @@
 # DevilutionX 1.5.5 for the PS3 (big-endian ppc64): 8-bit software renderer, scaled to the screen by the
 # SDL renderer.
 export DEB_BUILD_MAINT_OPTIONS = hardening=+all
-# the Cell PPE (same flags as the other ps3 packages)
+# the Cell PPE (same flags as the other ps3 packages); an amd64 build (tools/ref-image.sh: the PC side of a
+# played session) keeps Debian's flags
+DEB_HOST_ARCH_CPU ?= $(shell dpkg-architecture -qDEB_HOST_ARCH_CPU)
+ifeq ($(DEB_HOST_ARCH_CPU),ppc64)
 export DEB_CFLAGS_MAINT_APPEND = -mcpu=cell -mtune=cell
 export DEB_CXXFLAGS_MAINT_APPEND = -mcpu=cell -mtune=cell
+endif
 
 # CMake 4 refuses the old cmake_minimum_required of bundled libraries
 export CMAKE_POLICY_VERSION_MINIMUM = 3.5

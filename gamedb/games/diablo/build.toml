@@ -4,6 +4,7 @@
 packages = ["devilutionx"]
 suite = "none"
 needs_data = true
+data = ["diablo-data"]
 
 [data_setup]
 gdp = "diablo"

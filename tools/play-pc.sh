@@ -12,6 +12,9 @@
 # The game's home (settings, saves) stays in build/pc-play/GAME between runs.
 #   PLAY_PC_DRY=1   print the image and the docker command only
 #   PLAY_PC_LIST=1  list the launchers and stop
+#   PLAY_PC_DATA="pkg ..."  licensed data packages to mount besides the game's build.toml `data`
+#   PLAY_PC_DATA_DIR=DIR    the player's own data folder, mounted read-only at the recipe's REF_DATA_DIR
+#                           (where the game's data package puts it), for a game whose data deb isn't here
 {
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -24,9 +27,9 @@ fi
 [ -e "$idx" ] || { echo "!! no $idx (a Walnut Games entry)" >&2; exit 2; }
 PKGS=$(python3 -I tools/gamedb/build-info.py packages "$G")
 [ -n "$PKGS" ] || { echo "!! gamedb/games/$G/build.toml lists no packages" >&2; exit 2; }
-REF_IMAGE=
-[ "$(bench_id "$G")" = "$G" ] && REF_IMAGE=$(bash -c 'BENCH=$1; . "$BENCH/harness/games.sh"; bench_use "$2"; CMD=(); ENV=(); REF_IMAGE=
-	setup() { :; }; parse() { :; }; . "$(bench_recipe "$2")" > /dev/null 2>&1; echo "$REF_IMAGE"' _ "$PWD/bench" "$G")
+REF_IMAGE=; REF_DATA_DIR=
+[ "$(bench_id "$G")" = "$G" ] && eval "$(bash -c 'BENCH=$1; . "$BENCH/harness/games.sh"; bench_use "$2"; CMD=(); ENV=(); REF_IMAGE=; REF_DATA_DIR=
+	setup() { :; }; parse() { :; }; . "$(bench_recipe "$2")" > /dev/null 2>&1; declare -p REF_IMAGE REF_DATA_DIR' _ "$PWD/bench" "$G")"
 SNAPSHOT=$(sed -n 's/^DEBIAN_SNAPSHOT *:= *//p' config.mk)
 BASE=${REF_IMAGE:-$(sed -n 's/^BUILDER_BASE *:= *//p' config.mk)}
 if [ -n "$REF_IMAGE" ]; then
@@ -61,16 +64,24 @@ data_debs="${PLAY_PC_DATA:-} $(python3 -I tools/gamedb/build-info.py data "$G")"
 for dp in $data_debs; do
 	dd=build/pc-play/data/$dp
 	if [ ! -d "$dd/usr" ]; then
-		deb=$(find build /mnt/data_linux/Temp/ps3 -name "${dp}_*_all.deb" 2>/dev/null | sort -V | tail -1)
+		# (find fails on a folder it can't read: not an error here)
+		deb=$(find build /mnt/data_linux/Temp/ps3 -name "${dp}_*_all.deb" 2>/dev/null | sort -V | tail -1) || :
 		[ -n "$deb" ] || { echo "!! no ${dp}_*.deb here: the game runs without its data" >&2; continue; }
 		mkdir -p "$dd"; ar p "$deb" "$(ar t "$deb" | grep '^data\.tar')" | tar -x -a -f - -C "$dd" 2>/dev/null \
 			|| ar p "$deb" data.tar.xz | tar -xJ -C "$dd"
 	fi
-	# each data directory on its own (the game's package may have files next to it: quakespasm.pak)
+	# each data directory (or file: Diablo's DIABDAT.MPQ) on its own (the game's package may have files
+	# next to it: quakespasm.pak)
 	for sub in "$dd"/usr/share/games/*/*; do
-		[ -d "$sub" ] && args+=(-v "$PWD/$sub:/${sub#"$dd"/}:ro")
+		if [ -d "$sub" ] || { [ -f "$sub" ] && [ ! -L "$sub" ]; }; then args+=(-v "$PWD/$sub:/${sub#"$dd"/}:ro"); fi
 	done
 done
+# the player's own copy in a folder (never committed: outside the repository or under build/)
+if [ -n "${PLAY_PC_DATA_DIR:-}" ]; then
+	[ -n "$REF_DATA_DIR" ] || { echo "!! PLAY_PC_DATA_DIR: $G's recipe has no REF_DATA_DIR (where its data goes)" >&2; exit 2; }
+	[ -d "$PLAY_PC_DATA_DIR" ] || { echo "!! PLAY_PC_DATA_DIR: no folder $PLAY_PC_DATA_DIR" >&2; exit 2; }
+	args+=(-v "$(realpath "$PLAY_PC_DATA_DIR"):$REF_DATA_DIR:ro")
+fi
 # the launcher (as on the PS3: ps3-desktop's entries first), its command started without ps3-game
 inside='set -e
 python3 -I /walnut/launcher.py --game "$G" --runtime-dir /walnut/menu ${L:+--choose "$L"} --argv-out /tmp/argv "$@" > /tmp/list
