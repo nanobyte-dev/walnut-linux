@@ -14,6 +14,8 @@ Design
   each game's dependency closure: the closure needs Debian's ppc64 package index, which the site build doesn't
   have; these are the libraries Walnut patches for every game, and the console had them all installed.
   The desktop (ps3-desktop), walnut's release (shown on its own) and other metapackages are left out.
+- Who played it: source "ours" (no key in result.toml) or "submitted" (a tester's, tools/gamedb/submissions.py),
+  with the tester's nickname (none: anonymous; the page says "a tester").
 - csv(): one row per session, the aspects as columns, for the page's download link.
 - stdlib only.
 """
@@ -149,6 +151,7 @@ def session(gdir, t, fm, qs):
     rv = t.get("review") or {}
     return {
         "id": t["id"], "date": t["date"], "launcher": t.get("launcher"), "variant": t.get("variant"),
+        "source": t.get("source", "ours"), "tester": t.get("tester"),
         "walnut": walnut, "package": pkg, "version": ver,
         "rules": "%d.%d" % (data, score.FORMULA[data]), "rules_label": score.rules_label(data),
         "rules_anchor": score.RULES[data]["anchor"],

@@ -263,8 +263,9 @@ anyone with a Walnut PS3 can run one, and ours run through it too):
 walnut-rate list                    # the games with a played test: installed, medal, sessions so far
 walnut-rate check [--close]         # is the console clean? names what to close
 walnut-rate play GAME [LAUNCHER]    # the check, the session, the form on the terminal, a summary
-walnut-rate export RUN DIR          # the session as DIR/<run>.tar (a USB stick), after showing what is in it
-walnut-rate status                  # the sessions on this console: play time, form, disturbed, exported
+walnut-rate submit [RUN]            # the session sent to us (default the newest), after showing what and how big
+walnut-rate export RUN DIR          # the same file as DIR/<run>.tar (a USB stick), after showing what is in it
+walnut-rate status                  # the sessions on this console: play time, form, disturbed, exported, sent
 ```
 
 Our PC-driven flow is unchanged: `make bench-push` puts the same harness in `/var/tmp/bench`, and
@@ -437,18 +438,45 @@ Optional lines: `check: <item> yes|partly|no|na` for an item the reviewer could 
 
 **Collect** with `make bench-pull` (the screenshots become PNGs); the run directory is
 `/var/tmp/ps3-bench/ps3-bench-<stamp>-session-GAME-VARIANT/`, and `tools/gamedb/import-run.py` reads it.
-A tester's session comes as `walnut-rate export`'s file instead: `tar -xf <run>.tar -C build/bench` gives the same
+A tester's session comes as `walnut-rate submit`'s (or `export`'s) file instead, which unpacked gives the same
 run directory (bench.txt, versions, hud/, samples, temps, dmesg.log, game.log, out.log, input.tsv, xruns.*, the
 snapshots, shots/geometry.tsv, fresh-home/'s small text files, session.toml, the screenshots as PNG: converted on
 the PS3 from xwd, stdlib only), plus `clean-check.txt`, `watch.log`, `processes-check.txt` and `submitter.toml` (a
-nickname or nothing, an optional contact that is never published, the tester's yes or no to publishing; the
-importer doesn't read them yet). Every text file is scrubbed on the PS3 before it is written, with
+nickname or nothing, an optional contact that is never published, the tester's yes or no to publishing). Every text file is scrubbed on the PS3 before it is written, with
 `tools/gamedb/evidence.py`'s own scrub (packaged as `/usr/lib/walnut-rate/evidence.py`) fed the console's identity:
 the player's login and full name, the host name, every address `ip addr` lists, plus the generic MAC, LAN and
 `/home/<user>` patterns; a name that is a word of the logs themselves (bench.txt's keys, package names, `walnut`,
 `ps3`, `game`) is left as it is and said so. What the scrub left (evidence.py's leftovers) stops the export; the
-tar's members are root-owned without names. The file list with sizes comes first, then the question. `walnut-rate
-submit` only says that sending isn't there yet.
+tar's members are root-owned without names. The file list with sizes comes first, then the question.
+
+**Sending it in** (provisional, PLAN 5.12: the user hasn't settled the transport, the credit or the weight; these
+are the plan's recommended answers). `walnut-rate submit [RUN] [--nick NAME] [--contact TEXT] [--publish yes|no]`
+makes the same bundle, shows its files and the tar's size (over 32 MiB it says to use export instead), asks, and
+POSTs it to `https://walnut.nanobyte.dev/rate/submit` (`WALNUT_RATE_URL` points it elsewhere; plain http only to
+this machine). The answer is a submission id, kept in the run's `walnut-rate.log` (`submitted <when> id <ID> to
+<host>`); `status` shows it, and a second submit of the run needs `--again`.
+
+The receiver (`servers/walnut.nanobyte.dev/rate/walnut-rate-receiver`, stdlib, no accounts; not deployed yet:
+servers/README.md) reads the tar from memory and keeps it only when every member is a regular file or a directory
+under one run directory (no links, devices, fifos or sparse files), relative, without `..`, a name the export
+writes (evidence.py's RAW_FILES, walnut-rate's EXTRA_FILES, `hud/*`, `shots/*.png|xwd|jpg`, `fresh-home/`'s small
+text files, `submitter.toml`) within its size bound, text without NUL, pictures with their magic, the tar's end
+blocks present (a cut-off upload is refused), bench.txt a played session and submitter.toml well-formed. Limits:
+32 MiB a bundle, 6 POSTs an hour and 20 a day per address, 3 at once, 300 bundles or 3 GiB waiting. A kept bundle
+is `submissions/<id>.tar` with `<id>.json` (when, size, sha256, run, game, nickname, publish; no address); nothing
+of it is unpacked or run there.
+
+**Reviewing one** on the PC, `tools/gamedb/submissions.py`: `pull` fetches the bundles not here yet (rsync over the
+ssh access deploy.sh uses, WALNUT_HOST; `--from DIR` a local directory) into build/submissions/inbox/, checks each
+one again with the receiver's own check and its sha256, and removes the server's copy of those already decided;
+`list` shows them; `show ID` lists the files and the submitter's answers (the contact, for us only) and unpacks the
+run into build/bench/<run>/ (tarfile's data filter, after the check; `submission.txt` names the id). Then the
+review as for ours: the PC reference if the game has none (`make bench-ref`), `tools/gamedb/review.py` and its
+questions answered by looking. `accept ID [--session NAME] [--launcher NAME]` runs import-run.py on it with
+`source = "submitted"` and the nickname as `tester` (raw/import.toml keeps both and the submission id, so
+reimport.py derives the same record), refused when the tester said no to publishing; `reject ID [--why TEXT]`
+never imports it. Either way the server's copy goes (or at the next pull); decisions.tsv records them. An accepted
+session counts like ours (catalog.py SUBMITTED_COUNTS) and its page says who played it.
 
 **What is kept.** build/bench is ephemeral; the import keeps the session's evidence in gamedb
 (`rating/sessions/<run>/`, [gamedb/README.md](../../gamedb/README.md#gamesrating)), enough to derive the

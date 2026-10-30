@@ -1,0 +1,438 @@
+#!/usr/bin/python3 -I
+"""walnut-rate-receiver: takes played sessions from testers' consoles (`walnut-rate submit`, the walnut-rate package;
+docs/games/SUITE.md "Played sessions") into a quarantine directory. Provisional (PLAN 5.12): the transport is our own
+receiver, the user hasn't settled it yet.
+
+  POST /rate/submit   one bundle, the plain tar `walnut-rate export` writes, as the body (Content-Length required,
+                      at most MAX_BUNDLE bytes). 201 {"id": ID, "run": RUN} when it is kept, 200 with "duplicate":
+                      true when the same bytes are already waiting; 400 {"error": why} when the format check
+                      refuses it, 411 without a length, 413 too big, 429 too many from one address, 503 busy or
+                      the quarantine full
+  GET  /rate/health   200 "ok"
+
+No accounts and nothing from a bundle is ever run or unpacked: check_bundle() reads the tar from memory. Every
+member must sit under one top directory named like a session run (RUN_RE), be a regular file or a directory (no
+links, devices, fifos or sparse files), have a relative name without `..`, a name the export writes (KNOWN: the
+harness's files tools/gamedb/evidence.py keeps, walnut-rate's own, hud/*, shots/*.png|xwd|jpg, fresh-home/'s small
+text files, submitter.toml) and a size under its bound; text files hold no NUL, pictures start with their format's
+magic; the tar must end with its end-of-archive blocks (a cut-off upload is refused) and hold bench.txt (kind=session)
+and a submitter.toml that parses, names the same run and game and keeps to its fields' limits.
+
+A kept bundle is QUARANTINE/<id>.tar, then QUARANTINE/<id>.json (written last, by rename: what pulls trust): the id,
+when, the size, its sha256, the run, the game, the nickname and the tester's yes or no to publishing. No address is
+stored; the journal has the log lines. tools/gamedb/submissions.py pulls them over ssh, checks them again and
+deletes the server's copy once the maintainer has accepted or rejected the session.
+
+Limits: PER_HOUR and PER_DAY POSTs per client address (any POST counts, refused ones too), CONCURRENT requests at
+once, MAX_WAITING bundles or MAX_WAITING_BYTES in the quarantine. The client address is the peer's, or with
+--trust-proxy nginx's X-Real-IP (the unit only lets the proxy's network in: IPAddressAllow).
+
+  walnut-rate-receiver --listen HOST:PORT --quarantine DIR [--trust-proxy]
+Unit: rate/walnut-rate-receiver.service; nginx: rate/nginx-location.conf (servers/README.md: deploy steps).
+"""
+import argparse
+import hashlib
+import http.server
+import io
+import ipaddress
+import json
+import os
+import re
+import secrets
+import socket
+import sys
+import tarfile
+import threading
+import time
+import tomllib
+from collections import deque
+from pathlib import Path
+
+VERSION = "1"
+MAX_BUNDLE = 32 << 20               # walnut_rate.MAX_SUBMIT says the same to the tester before sending
+MAX_MEMBERS = 1500
+TEXT_MAX = 24 << 20
+SHOT_MAX = 12 << 20                 # an xwd of 1920x1080 at 32 bits is 8.3 MB
+SHOTS_N = 200
+FRESH_MAX, FRESH_TOTAL = 64 << 10, 1 << 20     # evidence.FRESH_MAX, FRESH_TOTAL
+SUBMITTER_MAX = 4096
+PER_HOUR, PER_DAY = 6, 20
+CONCURRENT = 3
+MAX_WAITING, MAX_WAITING_BYTES = 300, 3 << 30
+
+# what walnut-rate export writes (tests: these equal tools/gamedb/evidence.py RAW_FILES and walnut_rate.EXTRA_FILES)
+RAW_FILES = ("bench.txt", "cmd", "versions", "result", "samples", "temps", "out.log", "game.log", "dmesg.log",
+             "input.tsv", "input.err", "xruns.tsv", "xruns.log", "snap-pre.txt", "snap-post.txt", "Xorg.0.log",
+             "shots/geometry.tsv")
+EXTRA_FILES = ("session.toml", "clean-check.txt", "watch.log", "processes-check.txt")
+SUBMITTER = "submitter.toml"
+SUBMITTER_KEYS = {"nickname": (str, 40), "contact": (str, 120), "publish": (bool, 0), "walnut_rate": (str, 40),
+                  "exported": (str, 40), "run": (str, 120), "game": (str, 64)}
+DIRS = {"hud", "shots", "fresh-home"}
+
+RUN_RE = re.compile(r"\A(?:ps3-bench-)?\d{8}T\d{6}Z-session-([a-z0-9][a-z0-9-]*)-([a-z0-9]+)\Z")
+ID_RE = re.compile(r"\A\d{8}T\d{6}Z-[0-9a-f]{10}\Z")
+NAME_OK = re.compile(r"\A[A-Za-z0-9_.+@,=~ ()\[\]%/-]+\Z")       # the whole member name's characters
+HUD_RE = re.compile(r"\Ahud/[A-Za-z0-9_()+%,=-][A-Za-z0-9_.()+%,= -]{0,79}\Z")
+SHOT_RE = re.compile(r"\Ashots/[A-Za-z0-9_-][A-Za-z0-9_.-]{0,79}\.(png|xwd|jpg)\Z")
+FRESH_PART = re.compile(r"\A[A-Za-z0-9_.+@,=~ ()\[\]-]{1,128}\Z")
+MAGIC = {"png": (b"\x89PNG\r\n\x1a\n",), "jpg": (b"\xff\xd8\xff",), "xwd": (b"\x00\x00\x00\x07", b"\x07\x00\x00\x00")}
+
+
+class Refused(Exception):
+    """the format check's verdict: why the bundle isn't kept (shown to the tester)"""
+
+
+def kind_of(rel):
+    """(kind, bound) of a member's path under the run directory: text, submitter, shot, fresh; None: unknown"""
+    if rel in RAW_FILES or rel in EXTRA_FILES:
+        return "text", TEXT_MAX
+    if rel == SUBMITTER:
+        return "submitter", SUBMITTER_MAX
+    if HUD_RE.match(rel):
+        return "text", TEXT_MAX
+    if SHOT_RE.match(rel):
+        return "shot", SHOT_MAX
+    parts = rel.split("/")
+    if parts[0] == "fresh-home" and 2 <= len(parts) <= 16 and all(FRESH_PART.match(p) and p not in (".", "..")
+                                                                   for p in parts[1:]):
+        return "fresh", FRESH_MAX
+    return None, 0
+
+
+def dir_ok(rel):
+    parts = rel.split("/")
+    if rel in DIRS:
+        return True
+    return parts[0] == "fresh-home" and len(parts) <= 16 and all(FRESH_PART.match(p) and p not in (".", "..")
+                                                                 for p in parts[1:])
+
+
+def submitter(data, run, game):
+    try:
+        s = tomllib.loads(data.decode("utf-8"))
+    except (UnicodeDecodeError, tomllib.TOMLDecodeError) as e:
+        raise Refused("submitter.toml: not TOML (%s)" % str(e)[:80])
+    for k, v in s.items():
+        if k not in SUBMITTER_KEYS:
+            raise Refused("submitter.toml: unknown field %r" % k[:40])
+        typ, n = SUBMITTER_KEYS[k]
+        if not isinstance(v, typ) or (typ is str and (len(v) > n or any(ord(c) < 32 or ord(c) == 127 for c in v))):
+            raise Refused("submitter.toml: %s: %s" % (k, "at most %d characters on one line" % n if typ is str else "true or false"))
+    if s.get("run", run) != run or s.get("game", game) != game:
+        raise Refused("submitter.toml names another run or game")
+    return s
+
+
+def check_bundle(data):
+    """the format check of one bundle (bytes or a bytearray); {run, game, nickname, publish, files} or Refused. Nothing is
+    written, unpacked or run: the tar is read from memory"""
+    if len(data) > MAX_BUNDLE:
+        raise Refused("too big: %d bytes, at most %d" % (len(data), MAX_BUNDLE))
+    if len(data) < 1536 or len(data) % 512:
+        raise Refused("not a tar (%d bytes)" % len(data))
+    try:
+        t = tarfile.open(fileobj=io.BytesIO(data), mode="r:")      # a plain tar: no compression to unpack
+        members = []
+        for m in t:
+            members.append(m)
+            if len(members) > MAX_MEMBERS:
+                raise Refused("more than %d files" % MAX_MEMBERS)
+    except tarfile.TarError as e:
+        raise Refused("not a readable tar, or cut off (%s)" % str(e)[:80])
+    if not members:
+        raise Refused("an empty tar")
+    top = members[0].name.split("/")[0]
+    m = RUN_RE.match(top)
+    if not m:
+        raise Refused("the top directory %r isn't a session run's name" % top[:80])
+    seen, end, files, fresh_total, shots = set(), 0, {}, 0, 0
+    for mb in members:
+        name = mb.name
+        if name in seen:
+            raise Refused("%r twice" % name[:120])
+        seen.add(name)
+        if name.startswith("/") or "\\" in name or not NAME_OK.match(name):
+            raise Refused("a name that isn't plain and relative: %r" % name[:120])
+        parts = name.split("/")
+        if any(p in ("", ".", "..") for p in parts):
+            raise Refused("a name with an empty, . or .. part: %r" % name[:120])
+        if parts[0] != top:
+            raise Refused("%r is outside the run directory %s" % (name[:120], top))
+        if mb.issym() or mb.islnk():
+            raise Refused("a link: %r" % name[:120])
+        if mb.ischr() or mb.isblk() or mb.isfifo() or mb.isdev():
+            raise Refused("a device or fifo: %r" % name[:120])
+        if mb.issparse() or not (mb.isreg() or mb.isdir()):
+            raise Refused("not a plain file or directory: %r" % name[:120])
+        rel = "/".join(parts[1:])
+        if mb.isdir():
+            if rel and not dir_ok(rel):
+                raise Refused("unknown directory %r" % rel[:120])
+            continue
+        kind, bound = kind_of(rel)
+        if not kind:
+            raise Refused("unknown file %r" % rel[:120])
+        if mb.size > bound:
+            raise Refused("%s: %d bytes, at most %d" % (rel, mb.size, bound))
+        if mb.offset_data + mb.size > len(data):
+            raise Refused("cut off in %s" % rel)
+        blob = data[mb.offset_data:mb.offset_data + mb.size]
+        end = max(end, mb.offset_data + -(-mb.size // 512) * 512)
+        if kind == "shot":
+            shots += 1
+            if shots > SHOTS_N:
+                raise Refused("more than %d screenshots" % SHOTS_N)
+            if not blob.startswith(MAGIC[rel.rsplit(".", 1)[1]]):
+                raise Refused("%s: not a %s picture" % (rel, rel.rsplit(".", 1)[1]))
+        elif b"\0" in blob:
+            raise Refused("%s: not a text file" % rel)
+        if kind == "fresh":
+            fresh_total += mb.size
+            if fresh_total > FRESH_TOTAL:
+                raise Refused("fresh-home/: more than %d bytes" % FRESH_TOTAL)
+        files[rel] = blob if rel in ("bench.txt", SUBMITTER) else None     # the rest checked, not kept
+        del blob
+    end = max([end] + [mb.offset_data for mb in members])
+    tail = data[end:]
+    if len(tail) < 1024 or tail.strip(b"\0"):
+        raise Refused("cut off: the tar has no proper end")
+    if "bench.txt" not in files or SUBMITTER not in files:
+        raise Refused("no %s" % ("bench.txt" if "bench.txt" not in files else SUBMITTER))
+    bench = {k.strip(): v.strip() for k, _, v in (line.partition("=") for line in
+                                                  files["bench.txt"].decode("utf-8", "replace").splitlines())}
+    game = bench.get("game", "")
+    if bench.get("kind", "") != "session" or not game or not top.endswith("-session-%s-%s" % (game, m[2])):
+        raise Refused("bench.txt: not a played session of the run's game")
+    s = submitter(files[SUBMITTER], top, game)
+    return {"run": top, "game": game, "nickname": s.get("nickname", ""), "publish": s.get("publish") is True,
+            "files": len(files)}
+
+
+class Receiver:
+    """the quarantine and the limits; the HTTP handler's state"""
+
+    def __init__(self, quarantine, per_hour=PER_HOUR, per_day=PER_DAY, max_waiting=MAX_WAITING,
+                 max_bytes=MAX_WAITING_BYTES, now=time.time):
+        self.q = Path(quarantine)
+        self.per_hour, self.per_day = per_hour, per_day
+        self.max_waiting, self.max_bytes = max_waiting, max_bytes
+        self.now = now
+        self.hits = {}
+        self.lock = threading.Lock()
+        self.slots = threading.BoundedSemaphore(CONCURRENT)
+        for f in self.q.glob(".*.part"):      # a write a crash left
+            try:
+                f.unlink()
+            except OSError:
+                pass
+
+    def allow(self, ip):
+        """counts one POST of ip; 0 when it may go on, else the seconds until it may"""
+        t = self.now()
+        with self.lock:
+            if len(self.hits) > 50000:          # forget the quietest addresses first
+                for k in sorted(self.hits, key=lambda k: self.hits[k][-1] if self.hits[k] else 0)[:25000]:
+                    del self.hits[k]
+            h = self.hits.setdefault(ip, deque())
+            while h and h[0] <= t - 86400:
+                h.popleft()
+            hour = [x for x in h if x > t - 3600]
+            if len(hour) >= self.per_hour:
+                return int(hour[0] + 3600 - t) + 1
+            if len(h) >= self.per_day:
+                return int(h[0] + 86400 - t) + 1
+            h.append(t)
+            return 0
+
+    def waiting(self):
+        out = []
+        for f in self.q.glob("*.json"):
+            if ID_RE.match(f.stem):
+                try:
+                    out.append(json.loads(f.read_text()))
+                except (OSError, ValueError):
+                    pass
+        return out
+
+    def _write(self, name, data):
+        part = self.q / (".%s.part" % name)
+        fd = os.open(part, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o640)
+        try:
+            os.fchmod(fd, 0o640)            # group-readable whatever the umask: the maintainer's group pulls it
+            with os.fdopen(fd, "wb") as f:
+                f.write(data)
+                f.flush()
+                os.fsync(f.fileno())
+            os.rename(part, self.q / name)
+        except BaseException:
+            part.unlink(missing_ok=True)
+            raise
+
+    def store(self, data, info):
+        """keeps a checked bundle; (id, duplicate). Raises Full"""
+        digest = hashlib.sha256(data).hexdigest()
+        with self.lock:
+            w = self.waiting()
+            for x in w:
+                if x.get("sha256") == digest:
+                    return x["id"], True
+            if len(w) >= self.max_waiting or sum(int(x.get("bytes", 0)) for x in w) + len(data) > self.max_bytes:
+                raise Full()
+            sid = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime(self.now())) + "-" + secrets.token_hex(5)
+            meta = {"id": sid, "received": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(self.now())),
+                    "bytes": len(data), "sha256": digest, "receiver": VERSION, **info}
+            self._write(sid + ".tar", data)
+            self._write(sid + ".json", (json.dumps(meta, indent=1, sort_keys=True) + "\n").encode())
+            return sid, False
+
+
+class Full(Exception):
+    pass
+
+
+class Handler(http.server.BaseHTTPRequestHandler):
+    server_version = "walnut-rate-receiver/" + VERSION
+    sys_version = ""
+    timeout = 60
+    rx = None            # the Receiver (set by serve)
+    trust_proxy = False
+
+    def client_ip(self):
+        if self.trust_proxy:
+            v = (self.headers.get("X-Real-IP") or "").strip()
+            try:
+                return str(ipaddress.ip_address(v))
+            except ValueError:
+                pass
+        return self.client_address[0]
+
+    def reply(self, code, obj, extra=()):
+        body = (json.dumps(obj) + "\n").encode() if not isinstance(obj, bytes) else obj
+        self.close_connection = True
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json" if not isinstance(obj, bytes) else "text/plain")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        for k, v in extra:
+            self.send_header(k, v)
+        self.end_headers()
+        if self.command != "HEAD":
+            self.wfile.write(body)
+
+    def do_GET(self):
+        if self.path == "/rate/health":
+            return self.reply(200, b"ok\n")
+        self.reply(404, {"error": "not here"})
+
+    def do_POST(self):
+        if self.path != "/rate/submit":
+            return self.reply(404, {"error": "not here"})
+        ip = self.client_ip()
+        wait = self.rx.allow(ip)
+        if wait:
+            self.log_message("%s: refused, too many (%d s)", ip, wait)
+            return self.reply(429, {"error": "too many sessions from your address: try again in %d minutes"
+                                    % (wait // 60 + 1)}, [("Retry-After", str(wait))])
+        if not self.rx.slots.acquire(blocking=False):
+            return self.reply(503, {"error": "busy: try again in a minute"}, [("Retry-After", "60")])
+        try:
+            self.receive(ip)
+        finally:
+            self.rx.slots.release()
+
+    def receive(self, ip):
+        if self.headers.get("Transfer-Encoding"):
+            return self.reply(411, {"error": "send it with a Content-Length"})
+        try:
+            n = int(self.headers.get("Content-Length", ""))
+        except ValueError:
+            return self.reply(411, {"error": "no Content-Length"})
+        if n < 0:
+            return self.reply(400, {"error": "a bad Content-Length"})
+        if n > MAX_BUNDLE:
+            self.log_message("%s: refused, %d bytes", ip, n)
+            return self.reply(413, {"error": "too big: %d bytes, at most %d" % (n, MAX_BUNDLE)})
+        buf = bytearray()
+        try:
+            while len(buf) < n:
+                chunk = self.rfile.read(min(1 << 20, n - len(buf)))
+                if not chunk:
+                    break
+                buf += chunk
+        except (socket.timeout, OSError):
+            pass
+        if len(buf) != n:
+            self.log_message("%s: refused, cut off at %d of %d bytes", ip, len(buf), n)
+            return self.reply(400, {"error": "cut off: %d of %d bytes arrived" % (len(buf), n)})
+        data = buf                          # bytes-like: no second copy of up to MAX_BUNDLE
+        try:
+            info = check_bundle(data)
+        except Refused as e:
+            self.log_message("%s: refused, %s", ip, e)
+            return self.reply(400, {"error": str(e)})
+        try:
+            sid, dup = self.rx.store(data, info)
+        except Full:
+            self.log_message("%s: refused, the quarantine is full", ip)
+            return self.reply(503, {"error": "we have too many sessions waiting: try again in a few days"},
+                              [("Retry-After", "86400")])
+        except OSError as e:
+            self.log_message("%s: not stored: %s", ip, e)
+            return self.reply(503, {"error": "couldn't store it: try again later"})
+        self.log_message("%s: %s %s (%s, %d bytes, %d files)", ip, "duplicate of" if dup else "kept as", sid,
+                         info["run"], len(data), info["files"])
+        self.reply(200 if dup else 201, {"id": sid, "run": info["run"], "duplicate": dup})
+
+    def log_message(self, fmt, *args):
+        sys.stderr.write((fmt % args) + "\n")
+        sys.stderr.flush()
+
+    def log_request(self, code="-", size="-"):
+        pass             # the handler's own lines say what happened
+
+
+class Server(http.server.ThreadingHTTPServer):
+    daemon_threads = True
+    request_queue_size = 16
+
+
+def listen_addr(s):
+    host, _, port = s.rpartition(":")
+    host = host.strip("[]")
+    if not host or not port.isdigit():
+        raise argparse.ArgumentTypeError("HOST:PORT, e.g. 127.0.0.1:8096")
+    return host, int(port)
+
+
+def make_server(addr, quarantine, trust_proxy=False, **limits):
+    rx = Receiver(quarantine, **limits)
+    handler = type("BoundHandler", (Handler,), {"rx": rx, "trust_proxy": trust_proxy})
+    cls = Server
+    if ":" in addr[0]:
+        cls = type("Server6", (Server,), {"address_family": socket.AF_INET6})
+    return cls(addr, handler)
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    ap.add_argument("--listen", type=listen_addr, required=True, help="HOST:PORT")
+    ap.add_argument("--quarantine", required=True, help="the directory the bundles go into")
+    ap.add_argument("--trust-proxy", action="store_true", help="the client's address from X-Real-IP (behind nginx)")
+    a = ap.parse_args(argv)
+    q = Path(a.quarantine)
+    if not q.is_dir() or not os.access(q, os.W_OK):
+        print("walnut-rate-receiver: %s is not a writable directory" % q, file=sys.stderr)
+        return 2
+    srv = make_server(a.listen, q, a.trust_proxy)
+    print("walnut-rate-receiver %s: listening on %s:%d, quarantine %s" % (VERSION, a.listen[0], a.listen[1], q),
+          file=sys.stderr, flush=True)
+    try:
+        srv.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

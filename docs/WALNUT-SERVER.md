@@ -14,6 +14,9 @@ walnut.nanobyte.dev runs on the OVH box in `/data/nanobyte/Walnut`, behind the m
 
 `walnut-watch` (host, systemd path unit + timer) publishes uploads; `walnut-ccache-trim` (daily timer) trims the ccache store.
 
+Not deployed yet: `walnut-rate-receiver` (host, systemd, `rate/`), the receiver of testers' played sessions at
+`/rate/submit` into `/data/nanobyte/Walnut/submissions`; servers/README.md has what it is and the steps to put it live.
+
 ## Release images
 
 `.github/workflows/release-image.yml` ("Walnut release", by hand) builds the public image from one suite:

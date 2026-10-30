@@ -38,7 +38,8 @@ Design
       in index.md (the numbered steps of getting and setting up the data: sentences, with `code` in
       backticks that must pair up)
     * thumb.png (optional) is a PNG; every test has a parsable result.toml of schema 1 whose listed screenshots
-      exist (shots/ps3-<point>.jpg), and no stray file sits in a session folder (result.toml, form.toml,
+      exist (shots/ps3-<point>.jpg), whose source, when there is one, is "submitted" (a tester's session, with
+      an optional tester nickname of up to 40 characters), and no stray file sits in a session folder (result.toml, form.toml,
       review.md, shots/, raw/; tools/gamedb/evidence.py, which also scans the record, form.toml, review.md
       and raw/ for what must not be public) or the game's folder (GAME_FILES: index.md, thumb.png,
       build.toml, rating/, packages/, licensed/, upstream.md, upstream/, guides/: guide_errors(), benchmark/: BENCH_FILES,
@@ -598,6 +599,10 @@ def check_game(gdir, bad, repo, ctx=None):
                            if len(score.parse_defects([x])) != 1 or not score.parse_defects([x])[0][1]]
             if bad_defects:
                 errs.append(SESSIONS + "/%s/result.toml: defects %r: \"<category> <pc|ps3>: <what>\"" % (t.name, bad_defects))
+        if r.get("source", "submitted") != "submitted" or ("tester" in r and (
+                r.get("source") != "submitted" or not isinstance(r["tester"], str) or not 0 < len(r["tester"]) <= 40)):
+            errs.append(SESSIONS + "/%s/result.toml: source is \"submitted\" (a tester's session) or absent (ours); "
+                        "tester, a nickname of 1 to 40 characters, only with it" % t.name)
         listed = set(r.get("shots", {}).get("ps3", []))
         for f in sorted(listed):
             if not (t / f).exists():

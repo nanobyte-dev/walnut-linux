@@ -58,6 +58,9 @@ Design
   pc: also on the PC reference, ps3: PS3/Walnut only) and broken (none, or `<item> <pc|ps3>: <what>`),
   plus optional `check: <item> yes|partly|no|na` lines. A question left unanswered ("?") is refused, so
   is an answer that can't be read, and `verdict: wrong` without a defect.
+- A tester's session (tools/gamedb/submissions.py accept, the bundle `walnut-rate submit` sent): result.toml gets
+  `source = "submitted"` and `tester = "<nickname>"` (none: anonymous, the site says "a tester"), from
+  raw/import.toml's source and tester, so reimport.py keeps them; our own sessions have neither.
 - Refused: runs with interfered=1 (or TEMPLIMIT / thermal stop), capture runs without REVIEW.md.
 - No absolute path, host name or user name is written: the run is named by its directory name only.
 Importing the same run again rewrites its session folder; another run of the same day and kind gets
@@ -813,9 +816,9 @@ def precheck(d, b, game, content, launcher, r=None):
     return kind, "%s-%s-%s" % m.groups()[:3], "".join(m.groups()[3:5])
 
 
-def derive(d, game, content, launcher=None, keep=None, rules=None):
+def derive(d, game, content, launcher=None, keep=None, rules=None, credit=None):
     """(top, tables) of result.toml from run directory d (a run rebuilt from a session's evidence:
-    evidence.rebuild), and the line import_run prints"""
+    evidence.rebuild), and the line import_run prints. credit: {source, tester} of a tester's session"""
     b = report.kv(d / "bench.txt")
     if not b:
         raise Refused("%s: no bench.txt" % d.name)
@@ -849,7 +852,7 @@ def derive(d, game, content, launcher=None, keep=None, rules=None):
     # formula change re-scores every test of the data version without a re-import, docs/GAMEDB.md "Rules versions")
     top = {"schema": 1, "rules": "%d.0" % data, "kind": kind, "date": date, "run": d.name,
            "game": game, "variant": b.get("variant"),
-           "launcher": launcher, "play_seconds": play, "end": end, "crashed": crashed, "started": True, "reached_play": play > 0,
+           "launcher": launcher, **credit_keys(credit), "play_seconds": play, "end": end, "crashed": crashed, "started": True, "reached_play": play > 0,
            "render": "1920x1080"}
     note = ""
     if (d / "REVIEW.md").exists():
@@ -867,6 +870,23 @@ def derive(d, game, content, launcher=None, keep=None, rules=None):
     return top, tables, "%s (%s, %.0f s of play, %s)" % (d.name, kind, play, end)
 
 
+SOURCES = ("submitted",)       # result.toml's source; none: one of our own sessions
+
+
+def credit_keys(credit):
+    """result.toml's source and tester of a tester's session ({} for ours); tester left out when anonymous"""
+    c = credit or {}
+    src, tester = c.get("source"), c.get("tester")
+    if src is None:
+        return {}
+    if src not in SOURCES:
+        raise Refused("source %r: one of %s" % (src, ", ".join(SOURCES)))
+    if tester is not None and (not isinstance(tester, str) or len(tester) > 40
+                               or any(ord(ch) < 32 or ord(ch) == 127 for ch in tester)):
+        raise Refused("tester %r: a nickname of at most 40 characters on one line" % (tester,))
+    return {"source": src, "tester": tester or None}
+
+
 def derive_session(sdir, game, content):
     """(result.toml's text, the summary line) derived from session folder sdir's evidence alone: its run
     rebuilt from raw/, shots/, form.toml and review.md (evidence.rebuild), imported with raw/import.toml's
@@ -877,7 +897,8 @@ def derive_session(sdir, game, content):
             rd = evidence.rebuild(sdir, tmp)
         except ValueError as e:
             raise Refused(str(e))
-        top, tables, line = derive(rd, game, content, opts.get("launcher"), opts.get("shots"), opts.get("rules"))
+        top, tables, line = derive(rd, game, content, opts.get("launcher"), opts.get("shots"), opts.get("rules"),
+                                   {"source": opts.get("source"), "tester": opts.get("tester")})
     return toml_dump(top, tables), line
 
 
@@ -894,13 +915,16 @@ def kept_record(old_text, sdir):
     return old_text
 
 
-def import_run(run, game, content, dry=False, launcher=None, keep=None, rules=None, session=None, keep_record=False):
+def import_run(run, game, content, dry=False, launcher=None, keep=None, rules=None, session=None, keep_record=False,
+               tester=None, source=None, submission=None):
     """import run directory run as a session of game: its evidence into the session folder (evidence.collect),
     then the record derived from that evidence alone (derive_session). session: the folder's name (default
     <date>-<kind>, -<hhmm> for another run that day). keep_record: keep the folder's result.toml as it is
     (its gallery moved into shots/): a record derived by an older importer, whose derivation is gone
-    (raw/import.toml frozen = true; reimport.py leaves it)"""
+    (raw/import.toml frozen = true; reimport.py leaves it). source = "submitted", tester (the nickname, "" for
+    anonymous) and submission (the receiver's id): a tester's session (tools/gamedb/submissions.py accept)"""
     d = Path(run)
+    credit_keys({"source": source, "tester": tester})     # refuses a bad one before anything is written
     b = report.kv(d / "bench.txt")
     if not b:
         raise Refused("%s: no bench.txt" % d.name)
@@ -917,7 +941,8 @@ def import_run(run, game, content, dry=False, launcher=None, keep=None, rules=No
     if keep_record and not old.exists():
         raise Refused("%s: --keep-record: %s has no result.toml to keep" % (d.name, tdir.name))
     opts = {"run": d.name, "game": game, "launcher": launcher, "shots": list(keep) if keep else None,
-            "rules": str(rules) if rules else None, "frozen": True if keep_record else None}
+            "rules": str(rules) if rules else None, "frozen": True if keep_record else None,
+            "source": source, "tester": tester if source else None, "submission": submission}
     with tempfile.TemporaryDirectory(prefix="gamedb-import-") as tmp:
         stage = Path(tmp) / tdir.name
         errs = evidence.collect(d, stage, opts)

@@ -14,8 +14,11 @@ desktop as the player:
                                         tools/gamedb/import-run.py reads it (shots as PNG), the check's record,
                                         submitter.toml; scrubbed of the console's user, host and addresses
                                         first, its contents and sizes shown before anything is written
-  walnut-rate status                    the sessions on this console and what became of them
-  walnut-rate submit                    not yet: how sessions reach us is still open; use export
+  walnut-rate status                    the sessions on this console and what became of them (exported, sent)
+  walnut-rate submit [RUN] [--nick NAME] [--contact TEXT] [--publish yes|no] [--yes] [--again]
+                                        the same bundle (RUN: default the newest), shown with its size, sent on
+                                        your yes to walnut.nanobyte.dev (WALNUT_RATE_URL: elsewhere); the
+                                        submission id it gets is kept with the run, walnut-rate status shows it
 
 The package's tree (/usr/lib/walnut-rate): bench/ (harness/, lib/, games/<id>/: the same files make bench-push
 copies to /var/tmp/bench for our own runs), evidence.py (tools/gamedb/'s: the scrub), walnut-rate-helper, version.
@@ -205,7 +208,8 @@ def summary(run, out=sys.stdout):
     if b.get("temp_stop") == "1" or (Path(run) / "THERMAL").exists():
         p("!! stopped by the temperature limit: let the PS3 cool down")
     p("   the run: %s" % run)
-    p("next: walnut-rate export %s DIR  (DIR: a USB stick, for example; it shows what goes in first)" % Path(run).name)
+    p("next: walnut-rate submit  sends it to us (it shows what goes in first and asks), or walnut-rate export %s DIR\n"
+      "      writes it to DIR (a USB stick, for example)" % Path(run).name)
     return b
 
 
@@ -274,10 +278,13 @@ def cmd_status(args):
             state.append("disturbed: not rated")
         exp = [line for line in (r / LOG).read_text(errors="replace").splitlines() if line.startswith("exported ")] \
             if (r / LOG).exists() else []
-        state.append(exp[-1] if exp else "not exported")
+        sub = submissions(r)
+        if sub:
+            state.append("submitted as %s (%s)" % (sub[-1][1], sub[-1][0]))
+        state.append(exp[-1] if exp else "not exported" if not sub else None)
         print("%-34s  %-14s  %-12s  %-6s  %-5s  %s" % (r.name, b.get("game", "?"), minutes(b.get("play_seconds")),
                                                      b.get("ended", "?"), "yes" if (r / "session.toml").exists() else "no",
-                                                     "; ".join(state)))
+                                                     "; ".join(x for x in state if x)))
     return 0
 
 
@@ -520,38 +527,43 @@ def write_tar(stage_top, dest):
     os.replace(part, dest)
 
 
-def cmd_export(args):
+def bundle_args(args, npos, flags=()):
+    """(positional, {--nick, --contact, --publish}, {flag: bool}) of export's and submit's arguments; None: usage"""
     opts = {"--nick": None, "--contact": None, "--publish": None}
-    yes = "--yes" in args
-    args = [a for a in args if a != "--yes"]
+    on = {f: f in args for f in ("--yes",) + tuple(flags)}
+    args = [a for a in args if a not in on]
     pos = []
     while args:
         a = args.pop(0)
         if a in opts:
             if not args:
-                return usage()
+                return None
             opts[a] = args.pop(0)
         elif a.startswith("--"):
-            return usage()
+            return None
         else:
             pos.append(a)
-    if len(pos) != 2:
-        return usage()
-    run = resolve_run(pos[0])
+    return (pos, opts, on) if len(pos) in npos else None
+
+
+def session_run(name):
+    """the run directory of a played session, or None after saying why"""
+    run = resolve_run(name)
     if not run:
-        print("walnut-rate: no run %r (walnut-rate status lists them; `last` is the newest)" % pos[0])
-        return 2
+        print("walnut-rate: no run %r (walnut-rate status lists them; `last` is the newest)" % name)
+        return None
     if kv(run / "bench.txt").get("kind") != "session":
         print("walnut-rate: %s is not a played session" % run.name)
-        return 2
-    dest_dir = Path(pos[1])
-    if not dest_dir.is_dir():
-        print("walnut-rate: %s is not a directory (a USB stick's, for example)" % dest_dir)
-        return 2
+        return None
     b = kv(run / "bench.txt")
     if b.get("interfered") == "1" or b.get("unexpected"):
         print("!! this session was disturbed (%s): it can't be rated, but it can still show us a problem" %
               (b.get("interference") or "unexpected processes: " + b.get("unexpected", "")))
+    return run
+
+
+def submitter_answers(opts):
+    """(nickname, contact, publish) from the options, else asked on the terminal; None when one is too long"""
     interactive = sys.stdin.isatty()
     nick = opts["--nick"] if opts["--nick"] is not None else (
         ask("A nickname to credit you with on the site (Enter: anonymous): ") if interactive else "")
@@ -561,62 +573,201 @@ def cmd_export(args):
     if pub is None:
         pub = ask("May Walnut publish this session (its numbers, your answers, the screenshots)? [y/N] ", "n") \
             if interactive else "no"
-    publish = pub.lower() in ("y", "yes")
     for name, v, n in (("nickname", nick, 40), ("contact", contact, 120)):
-        if len(v) > n or any(ord(c) < 32 for c in v):
+        if len(v) > n or any(ord(c) < 32 or ord(c) == 127 for c in v):
             print("walnut-rate: the %s: at most %d characters on one line" % (name, n))
-            return 2
+            return None
+    return nick, contact, pub.lower() in ("y", "yes")
+
+
+def stage_bundle(run, stage, nick, contact, publish, dest_name):
+    """the bundle's files staged under stage/<run>/ and listed for the tester; None when the scrub left something"""
     users, hosts, home, left = console_identity(run)
-    ident = (users, hosts)
+    print("walnut-rate: preparing %s" % run.name)
+    files, problems = build_bundle(run, stage, (users, hosts), home,
+                                   lambda r, g: submitter_toml(nick, contact, publish, r, g),
+                                   progress=lambda s: print(s, end="\r", flush=True))
+    print()
+    hard = [x for x in problems if not x.startswith("note: ")]
+    for x in problems:
+        print(("  " if x.startswith("note: ") else "!! ") + x)
+    if hard:
+        print("walnut-rate: the scrub left something private; nothing written or sent")
+        return None
+    total = sum(s for _, s in files)
+    print("\nThe bundle %s: %d files, %s" % (dest_name, len(files), human(total)))
+    for rel, s in files:
+        print("  %9s  %s" % (human(s), rel))
+    print("Scrubbed out of every text file: your user name%s, the host name, this console's addresses, MAC and "
+          "LAN addresses, home directories." % ("s" if len(users) > 1 else ""))
+    if left:
+        print("Left as they are (words of the logs themselves): %s" % ", ".join(left))
+    print("submitter.toml: nickname %r, contact %s, publish %s" % (nick, "given" if contact else "none",
+                                                                 "yes" if publish else "no"))
+    return files
+
+
+def log_run(run, line):
+    try:
+        with open(run / LOG, "a") as f:
+            f.write(line + "\n")
+    except OSError:
+        pass
+
+
+def now_stamp():
+    return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def stage_root(run):
+    return run.parent if os.access(run.parent, os.W_OK) else Path(tempfile.gettempdir())
+
+
+def cmd_export(args):
+    a = bundle_args(args, (2,))
+    if not a:
+        return usage()
+    (name, dest_dir), opts, on = a
+    run = session_run(name)
+    if not run:
+        return 2
+    dest_dir = Path(dest_dir)
+    if not dest_dir.is_dir():
+        print("walnut-rate: %s is not a directory (a USB stick's, for example)" % dest_dir)
+        return 2
+    ans = submitter_answers(opts)
+    if not ans:
+        return 2
     dest = dest_dir / (run.name + ".tar")
-    stage_root = run.parent if os.access(run.parent, os.W_OK) else Path(tempfile.gettempdir())
-    with tempfile.TemporaryDirectory(prefix=".walnut-rate-export-", dir=stage_root) as stage:
-        print("walnut-rate: preparing %s" % run.name)
-        files, problems = build_bundle(run, stage, ident, home,
-                                       lambda r, g: submitter_toml(nick, contact, publish, r, g),
-                                       progress=lambda s: print(s, end="\r", flush=True))
-        print()
-        hard = [x for x in problems if not x.startswith("note: ")]
-        for x in problems:
-            print(("  " if x.startswith("note: ") else "!! ") + x)
-        if hard:
-            print("walnut-rate: the scrub left something private; nothing written")
+    with tempfile.TemporaryDirectory(prefix=".walnut-rate-export-", dir=stage_root(run)) as stage:
+        files = stage_bundle(run, stage, *ans, dest.name)
+        if files is None:
             return 1
         total = sum(s for _, s in files)
-        print("\nThe bundle %s: %d files, %s" % (dest.name, len(files), human(total)))
-        for rel, s in files:
-            print("  %9s  %s" % (human(s), rel))
-        print("Scrubbed out of every text file: your user name%s, the host name, this console's addresses, MAC and "
-              "LAN addresses, home directories." % ("s" if len(users) > 1 else ""))
-        if left:
-            print("Left as they are (words of the logs themselves): %s" % ", ".join(left))
-        print("submitter.toml: nickname %r, contact %s, publish %s" % (nick, "given" if contact else "none",
-                                                                     "yes" if publish else "no"))
         free = shutil.disk_usage(dest_dir).free
         if free < total + (1 << 20):
             print("walnut-rate: only %s free in %s" % (human(free), dest_dir))
             return 1
         if dest.exists():
             print("(%s exists: it will be replaced)" % dest)
-        if not yes and not (interactive and ask("Write it to %s? [y/N] " % dest_dir, "n").lower() in ("y", "yes")):
+        if not on["--yes"] and not (sys.stdin.isatty() and ask("Write it to %s? [y/N] " % dest_dir, "n").lower()
+                                    in ("y", "yes")):
             print("walnut-rate: nothing written")
             return 1
         write_tar(Path(stage) / run.name, dest)
-    stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    try:
-        with open(run / LOG, "a") as f:
-            f.write("exported %s to %s (%d bytes)\n" % (stamp, dest, dest.stat().st_size))
-    except OSError:
-        pass
+    log_run(run, "exported %s to %s (%d bytes)" % (now_stamp(), dest, dest.stat().st_size))
     print("walnut-rate: wrote %s (%s). On the PC: tar -xf %s -C build/bench, then the import as for any session"
           % (dest, human(dest.stat().st_size), dest.name))
     return 0
 
 
+# ---- submit ----------------------------------------------------------------------------------------
+# Provisional (PLAN 5.12, the user hasn't answered yet): our own receiver on walnut.nanobyte.dev
+# (servers/walnut.nanobyte.dev/rate/), no account; WALNUT_RATE_URL points it elsewhere (a test receiver).
+
+SUBMIT_URL = "https://walnut.nanobyte.dev/rate/submit"
+MAX_SUBMIT = 32 << 20           # the receiver's MAX_BUNDLE
+SUBMITTED_RE = re.compile(r"^submitted (\S+) id (\S+)")
+
+
+def submit_url():
+    """the receiver's URL; plain http only to this machine (a test receiver), never over the network"""
+    import urllib.parse
+    url = os.environ.get("WALNUT_RATE_URL") or SUBMIT_URL
+    u = urllib.parse.urlsplit(url)
+    if u.scheme == "https" and u.hostname:
+        return url, u.hostname
+    if u.scheme == "http" and u.hostname in ("127.0.0.1", "localhost", "::1"):
+        return url, u.hostname
+    raise ValueError("WALNUT_RATE_URL=%s: https://, or http:// to this machine only" % url)
+
+
+def submissions(run):
+    """[(when, id)] of the run's submissions (its walnut-rate.log)"""
+    try:
+        lines = (Path(run) / LOG).read_text(errors="replace").splitlines()
+    except OSError:
+        return []
+    return [(m[1], m[2]) for m in map(SUBMITTED_RE.match, lines) if m]
+
+
+def post_bundle(url, path, timeout=300):
+    """POSTs the tar at path; (HTTP status, the reply's JSON or {"error": text})"""
+    import urllib.error
+    import urllib.request
+    size = Path(path).stat().st_size
+    with open(path, "rb") as f:
+        req = urllib.request.Request(url, data=f, method="POST", headers={
+            "Content-Type": "application/x-tar", "Content-Length": str(size),
+            "User-Agent": "walnut-rate/%s" % version()})
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                code, body = r.status, r.read(65536)
+        except urllib.error.HTTPError as e:
+            code, body = e.code, e.read(65536)
+    try:
+        reply = json.loads(body.decode("utf-8", "replace"))
+        if not isinstance(reply, dict):
+            raise ValueError
+    except ValueError:
+        reply = {"error": body.decode("utf-8", "replace").strip()[:200] or "no answer"}
+    return code, reply
+
+
 def cmd_submit(args):
-    print("walnut-rate submit isn't available yet: how sessions reach us is still being decided.\n"
-          "For now: walnut-rate export RUN DIR writes the session to a USB stick (or any directory); send us the file.")
-    return 1
+    a = bundle_args(args, (0, 1), ("--again",))
+    if not a:
+        return usage()
+    pos, opts, on = a
+    try:
+        url, host = submit_url()
+    except ValueError as e:
+        print("walnut-rate: %s" % e)
+        return 2
+    run = session_run(pos[0] if pos else "last")
+    if not run:
+        return 2
+    past = submissions(run)
+    if past and not on["--again"]:
+        print("walnut-rate: %s was sent already, as %s (%s); --again sends it once more" % (run.name, past[-1][1],
+                                                                                           past[-1][0]))
+        return 1
+    ans = submitter_answers(opts)
+    if not ans:
+        return 2
+    if not ans[2]:
+        print("(You said no to publishing: we can look at it to find problems, but it won't be rated or shown.)")
+    with tempfile.TemporaryDirectory(prefix=".walnut-rate-submit-", dir=stage_root(run)) as stage:
+        files = stage_bundle(run, stage, *ans, run.name + ".tar")
+        if files is None:
+            return 1
+        tar = Path(stage) / (run.name + ".tar")
+        write_tar(Path(stage) / run.name, tar)
+        size = tar.stat().st_size
+        print("To send: %s, %s, to %s" % (tar.name, human(size), host))
+        if size > MAX_SUBMIT:
+            print("walnut-rate: that is over the %s a submission may be; walnut-rate export %s DIR writes it to a USB "
+                  "stick instead" % (human(MAX_SUBMIT), run.name))
+            return 1
+        if not on["--yes"] and not (sys.stdin.isatty() and ask("Send it to %s? [y/N] " % host, "n").lower()
+                                    in ("y", "yes")):
+            print("walnut-rate: nothing sent")
+            return 1
+        print("walnut-rate: sending (%s)" % human(size))
+        try:
+            code, reply = post_bundle(url, tar)
+        except OSError as e:
+            print("walnut-rate: couldn't reach %s (%s); nothing was sent. Try again later, or walnut-rate export %s DIR"
+                  % (host, getattr(e, "reason", e), run.name))
+            return 1
+    sid = reply.get("id")
+    if code not in (200, 201) or not isinstance(sid, str) or not re.fullmatch(r"[0-9A-Za-z-]{1,64}", sid):
+        print("walnut-rate: %s refused it (%d): %s" % (host, code, str(reply.get("error", "no id in the answer"))[:300]))
+        return 1
+    log_run(run, "submitted %s id %s to %s (%d bytes)" % (now_stamp(), sid, host, size))
+    print("walnut-rate: sent. Its submission id: %s%s. We look at every session before it counts; "
+          "walnut-rate status shows the id again." % (sid, " (it was there already)" if reply.get("duplicate") else ""))
+    return 0
 
 
 def usage():

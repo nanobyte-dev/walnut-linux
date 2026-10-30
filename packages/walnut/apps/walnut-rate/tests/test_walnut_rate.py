@@ -23,8 +23,17 @@ python3 -I packages/walnut/apps/walnut-rate/tests/test_walnut_rate.py (tools/run
   and addresses written into it): none of them, no LAN or MAC address, no home path left, the tar's members
   root-owned without names; a nickname holding the user name refused; then export -> tar -> import-run.py gives
   the same result.toml as the run itself, and the same bundle marked interfered=1 is refused by import-run.py.
-- The CLI: list over the repository's tests, submit pointing at export, the session's environment without the
-  player's BENCH_/SESSION_ switches.
+- The CLI: list over the repository's tests, submit without a session and with a plain-http URL off this machine
+  refused, the session's environment without the player's BENCH_/SESSION_ switches.
+- The receiver (servers/walnut.nanobyte.dev/rate/walnut-rate-receiver): its file lists the export's own; a good
+  bundle kept; refused: links (symbolic and hard), `..` and absolute names, names outside the run, devices and
+  fifos, unknown files and directories, oversize files and bundles, a picture without its magic, NUL in a text
+  file, duplicates, a bad submitter.toml or bench.txt, and tars cut off anywhere; over HTTP on 127.0.0.1: 201 with
+  an id, the duplicate, 400, a body cut off, 413, 411, 404, the per-address limit (429), the quarantine cap.
+- The round trip: walnut-rate submit -> the receiver on 127.0.0.1 (plain HTTP) -> tools/gamedb/submissions.py
+  pull -> accept (refused without REVIEW.md, then imported: result.toml as our own import's plus source and
+  tester, reimport.py's derivation the same, the server's copy gone, the session page's data credits the
+  tester); a session without consent to publish refused; reject.
 """
 import importlib.machinery
 import importlib.util
@@ -758,7 +767,27 @@ class Cli(unittest.TestCase):
         self.assertTrue(all((REPO / "gamedb/games" / g / "rating/test.toml").is_file() for g in ids))
 
     def test_submit_and_usage(self):
-        self.assertEqual(wr.main(["submit"]), 1)
+        old = wr.OUT
+        wr.OUT = Path("/nonexistent/walnut-rate-test")
+        try:
+            with open(os.devnull, "w") as null:
+                so, sys.stdout = sys.stdout, null
+                try:
+                    self.assertEqual(wr.main(["submit"]), 2)            # no session on this machine
+                    os.environ["WALNUT_RATE_URL"] = "http://walnut.nanobyte.dev/rate/submit"
+                    self.assertEqual(wr.main(["submit"]), 2)            # plain http over the network: refused
+                finally:
+                    sys.stdout = so
+                    os.environ.pop("WALNUT_RATE_URL", None)
+        finally:
+            wr.OUT = old
+        self.assertEqual(wr.main(["submit", "a", "b"]), 2)
+        os.environ["WALNUT_RATE_URL"] = "http://127.0.0.1:9/rate/submit"
+        try:
+            self.assertEqual(wr.submit_url()[1], "127.0.0.1")
+        finally:
+            os.environ.pop("WALNUT_RATE_URL", None)
+        self.assertEqual(wr.submit_url(), (wr.SUBMIT_URL, "walnut.nanobyte.dev"))
         self.assertEqual(wr.main([]), 2)
         self.assertEqual(wr.main(["play"]), 2)
         self.assertEqual(wr.main(["play", "../x"]), 2)
@@ -784,6 +813,330 @@ class Cli(unittest.TestCase):
         self.assertTrue(wr.RUN_RE.match("ps3-bench-20261029T203517Z-session-chromium-bsu-base"))
         self.assertFalse(wr.RUN_RE.match("ps3-bench-20261029T203517Z-xmoto-base"))
 
+
+
+# ---- the receiver (servers/walnut.nanobyte.dev/rate/walnut-rate-receiver) and submissions.py ----------------
+
+RECEIVER = REPO / "servers" / "walnut.nanobyte.dev" / "rate" / "walnut-rate-receiver"
+
+
+def load_receiver():
+    loader = importlib.machinery.SourceFileLoader("walnut_rate_receiver", str(RECEIVER))
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    m = importlib.util.module_from_spec(spec)
+    loader.exec_module(m)
+    return m
+
+
+RX = load_receiver()
+TOP = "ps3-bench-20261030T120000Z-session-chromium-bsu-base"
+PNG = b"\x89PNG\r\n\x1a\n" + b"\0" * 64
+
+
+def member(name, data=b"", kind=tarfile.REGTYPE, link=""):
+    ti = tarfile.TarInfo(name)
+    ti.type, ti.linkname, ti.mode = kind, link, 0o644
+    if kind == tarfile.DIRTYPE:
+        ti.mode = 0o755
+    ti.size = len(data) if kind in (tarfile.REGTYPE, tarfile.AREGTYPE) else 0
+    return ti, data
+
+
+def good_members(top=TOP):
+    sub = ('nickname = "tester"\ncontact = ""\npublish = true\nwalnut_rate = "0.1"\nexported = "2026-10-30T12:30:00Z"\n'
+           'run = "%s"\ngame = "chromium-bsu"\n' % top).encode()
+    return [member(top, kind=tarfile.DIRTYPE),
+            member(top + "/bench.txt", b"kind=session\ngame=chromium-bsu\nvariant=base\nshot=60:shots/shot-60s.xwd\n"),
+            member(top + "/game.log", b"hello\n"),
+            member(top + "/session.toml", b"saved = true\n"),
+            member(top + "/hud", kind=tarfile.DIRTYPE),
+            member(top + "/hud/frametime_(ms)", b"1\n2\n"),
+            member(top + "/shots/shot-60s.png", PNG),
+            member(top + "/shots/geometry.tsv", b"t\tx\n"),
+            member(top + "/fresh-home/.chromium-bsu", b"x=1\n"),
+            member(top + "/submitter.toml", sub)]
+
+
+def tar_bytes(members, fmt=tarfile.PAX_FORMAT):
+    import io
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w", format=fmt) as t:
+        for ti, data in members:
+            t.addfile(ti, io.BytesIO(data) if ti.isreg() else None)
+    return buf.getvalue()
+
+
+class Receiver(unittest.TestCase):
+    def refused(self, data, why):
+        with self.assertRaises(RX.Refused) as e:
+            RX.check_bundle(data)
+        self.assertIn(why, str(e.exception))
+
+    def test_lists_agree(self):
+        """the receiver's names are the export's (it can't import them on the server)"""
+        self.assertEqual(RX.RAW_FILES, evidence.RAW_FILES)
+        self.assertEqual(evidence.RAW_GLOBS, ("hud/*",))           # the receiver's HUD_RE
+        self.assertEqual(RX.EXTRA_FILES, wr.EXTRA_FILES)
+        self.assertEqual((RX.FRESH_MAX, RX.FRESH_TOTAL), (evidence.FRESH_MAX, evidence.FRESH_TOTAL))
+        self.assertEqual(RX.MAX_BUNDLE, wr.MAX_SUBMIT)
+        self.assertEqual(RX.RUN_RE.pattern.strip("\\AZ"), wr.RUN_RE.pattern.strip("^$"))
+
+    def test_good(self):
+        info = RX.check_bundle(tar_bytes(good_members()))
+        self.assertEqual(info, {"run": TOP, "game": "chromium-bsu", "nickname": "tester", "publish": True, "files": 8})
+        self.assertEqual(RX.check_bundle(tar_bytes(good_members(), tarfile.GNU_FORMAT))["run"], TOP)
+
+    def test_refusals(self):
+        g = good_members()
+        self.refused(tar_bytes(g + [member(TOP + "/shots/x.png", kind=tarfile.SYMTYPE, link="/etc/passwd")]), "a link")
+        self.refused(tar_bytes(g + [member(TOP + "/game2.log", kind=tarfile.LNKTYPE, link=TOP + "/game.log")]), "a link")
+        self.refused(tar_bytes(g + [member(TOP + "/fresh-home/a", kind=tarfile.LNKTYPE, link=TOP + "/game.log")]), "a link")
+        self.refused(tar_bytes(g + [member(TOP + "/../evil", b"x")]), ". or .. part")
+        self.refused(tar_bytes(g + [member(TOP + "/fresh-home/../../x", b"x")]), ". or .. part")
+        self.refused(tar_bytes(g + [member("/" + TOP + "/cmd", b"x")]), "plain and relative")
+        self.refused(tar_bytes(g + [member("other/cmd", b"x")]), "outside the run")
+        self.refused(tar_bytes(g + [member(TOP + "/fresh-home/tty", kind=tarfile.CHRTYPE)]), "a device")
+        self.refused(tar_bytes(g + [member(TOP + "/fresh-home/fifo", kind=tarfile.FIFOTYPE)]), "a device or fifo")
+        self.refused(tar_bytes(g + [member(TOP + "/game.log.bak", b"x")]), "unknown file")
+        self.refused(tar_bytes(g + [member(TOP + "/run.sh", b"#!/bin/sh\n")]), "unknown file")
+        self.refused(tar_bytes(g + [member(TOP + "/shots/a.exe", b"MZ")]), "unknown file")
+        self.refused(tar_bytes(g + [member(TOP + "/secret", kind=tarfile.DIRTYPE)]), "unknown directory")
+        self.refused(tar_bytes(g + [member(TOP + "/shots/s2.png", b"GIF89a")]), "not a png")
+        self.refused(tar_bytes(g + [member(TOP + "/cmd", b"a\0b")]), "not a text file")
+        self.refused(tar_bytes(g + [member(TOP + "/game.log", b"again")]), "twice")
+        self.refused(tar_bytes(g + [member(TOP + "/fresh-home/big", b"x" * (RX.FRESH_MAX + 1))]), "at most")
+        self.refused(tar_bytes([x for x in g if not x[0].name.endswith("submitter.toml")]
+                               + [member(TOP + "/submitter.toml", b"#" * 5000)]), "at most")
+        self.refused(b"\0" * (RX.MAX_BUNDLE + 512), "too big")
+        self.refused(tar_bytes([member("a", kind=tarfile.DIRTYPE)] + g), "isn't a session run")
+        self.refused(tar_bytes([x for x in g if not x[0].name.endswith("submitter.toml")]), "no submitter.toml")
+        bad = [x for x in g if not x[0].name.endswith("submitter.toml")]
+        self.refused(tar_bytes(bad + [member(TOP + "/submitter.toml", b'nickname = "x"\nshell = "rm"\n')]), "unknown field")
+        self.refused(tar_bytes(bad + [member(TOP + "/submitter.toml", b'nickname = "x\\ny"\n')]), "one line")
+        self.refused(tar_bytes(bad + [member(TOP + "/submitter.toml", b'run = "other"\n')]), "another run")
+        self.refused(tar_bytes([x for x in g if not x[0].name.endswith("bench.txt")]
+                               + [member(TOP + "/bench.txt", b"kind=bench\ngame=chromium-bsu\n")]), "not a played session")
+        self.refused(b"x" * 4096, "not a readable tar")
+        self.refused(tar_bytes(g)[:-1], "not a tar")
+
+    def test_truncated(self):
+        data = tar_bytes(good_members())
+        info = [m for m in tarfile.open(fileobj=__import__("io").BytesIO(data)).getmembers()]
+        last = info[-1]
+        # cut inside the last file's data (a 512 boundary), right after it (no end blocks), at a header; and one
+        # cut after a header and padded with zeros to look whole: that file's data is NULs then
+        for cut, pad, why in ((last.offset_data, 0, "cut off"), (last.offset_data + 512, 0, "cut off"),
+                              (info[3].offset, 0, "cut off"), (info[3].offset + 512, 0, "cut off"),
+                              (info[3].offset + 512, 1024, "not a text file")):
+            self.refused(data[:cut] + b"\0" * pad, why)
+        self.refused(data[:info[-2].offset_data + 512], "cut off")
+
+    def server(self, q, **limits):
+        import threading
+        srv = RX.make_server(("127.0.0.1", 0), q, **limits)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        self.addCleanup(srv.server_close)
+        self.addCleanup(srv.shutdown)
+        return "http://127.0.0.1:%d" % srv.server_address[1]
+
+    def post(self, url, body, headers=None):
+        import json
+        import urllib.error
+        import urllib.request
+        req = urllib.request.Request(url, data=body, method="POST", headers=headers or {})
+        try:
+            with urllib.request.urlopen(req, timeout=30) as r:
+                return r.status, json.loads(r.read())
+        except urllib.error.HTTPError as e:
+            with e:
+                return e.code, json.loads(e.read())
+
+    def raw(self, port, head, body=b"", close_write=True):
+        import socket
+        s = socket.create_connection(("127.0.0.1", port), timeout=30)
+        try:
+            s.sendall(head + body)
+            if close_write:
+                s.shutdown(socket.SHUT_WR)
+            return s.recv(65536).split(b"\r\n")[0]
+        finally:
+            s.close()
+
+    def test_http(self):
+        import json
+        d = tmpdir()
+        try:
+            base = self.server(d, per_hour=4)
+            port = int(base.rsplit(":", 1)[1])
+            good = tar_bytes(good_members())
+            code, r = self.post(base + "/rate/submit", good)
+            self.assertEqual(code, 201)
+            self.assertTrue(RX.ID_RE.match(r["id"]), r)
+            self.assertEqual((d / (r["id"] + ".tar")).read_bytes(), good)
+            meta = json.loads((d / (r["id"] + ".json")).read_text())
+            self.assertEqual((meta["run"], meta["nickname"], meta["publish"]), (TOP, "tester", True))
+            self.assertEqual(oct((d / (r["id"] + ".tar")).stat().st_mode & 0o777), "0o640")
+            self.assertEqual(self.post(base + "/rate/submit", good), (200, {"id": r["id"], "run": TOP, "duplicate": True}))
+            code, r2 = self.post(base + "/rate/submit", tar_bytes(good_members() + [member(TOP + "/x", b"x")]))
+            self.assertEqual((code, "unknown file" in r2["error"]), (400, True))
+            # a body cut off on the way, a length over the cap, none at all: the 4th POST of this address, then 429
+            self.assertIn(b" 400 ", self.raw(port, b"POST /rate/submit HTTP/1.1\r\nHost: x\r\nContent-Length: %d\r\n\r\n"
+                                            % len(good), good[:5000]))
+            self.assertIn(b" 429 ", self.raw(port, b"POST /rate/submit HTTP/1.1\r\nHost: x\r\nContent-Length: 99999999\r\n\r\n",
+                                            close_write=False))
+            self.assertEqual(sorted(f.suffix for f in d.iterdir()), [".json", ".tar"])   # nothing else kept
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+        d = tmpdir()
+        try:
+            base = self.server(d)
+            port = int(base.rsplit(":", 1)[1])
+            self.assertIn(b" 413 ", self.raw(port, b"POST /rate/submit HTTP/1.1\r\nHost: x\r\nContent-Length: %d\r\n\r\n"
+                                            % (RX.MAX_BUNDLE + 1), close_write=False))
+            self.assertIn(b" 411 ", self.raw(port, b"POST /rate/submit HTTP/1.1\r\nHost: x\r\n\r\n"))
+            self.assertIn(b" 404 ", self.raw(port, b"POST /etc/passwd HTTP/1.1\r\nHost: x\r\nContent-Length: 0\r\n\r\n"))
+            self.assertIn(b" 200 ", self.raw(port, b"GET /rate/health HTTP/1.1\r\nHost: x\r\n\r\n"))
+            self.assertEqual(list(d.iterdir()), [])
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+
+    def test_limits(self):
+        t = [1000.0]
+        rx = RX.Receiver(tmpdir(), per_hour=2, per_day=3, now=lambda: t[0])
+        self.addCleanup(shutil.rmtree, rx.q, True)
+        self.assertEqual([rx.allow("a"), rx.allow("a")], [0, 0])
+        self.assertGreater(rx.allow("a"), 0)
+        self.assertEqual(rx.allow("b"), 0)
+        t[0] += 3601
+        self.assertEqual(rx.allow("a"), 0)
+        self.assertGreater(rx.allow("a"), 3600)                 # the day's 3 used up
+        t[0] += 86400
+        self.assertEqual(rx.allow("a"), 0)
+        full = RX.Receiver(rx.q, max_waiting=1, now=lambda: t[0])
+        info = {"run": TOP, "game": "chromium-bsu", "nickname": "", "publish": True, "files": 1}
+        full.store(b"one", info)
+        with self.assertRaises(RX.Full):
+            full.store(b"two", info)
+
+
+class SubmitRoundTrip(unittest.TestCase):
+    """walnut-rate submit -> the receiver on 127.0.0.1 (plain HTTP) -> submissions.py pull -> accept"""
+
+    def test_round_trip(self):
+        if not shutil.which("magick") or not shutil.which("rsync"):
+            self.skipTest("no ImageMagick or rsync")
+        import contextlib
+        import io
+        import threading
+        import tomllib
+        spec = importlib.util.spec_from_file_location("submissions", REPO / "tools/gamedb/submissions.py")
+        sm = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(sm)
+        ex = Export()
+        d = tmpdir()
+        try:
+            g, sd, run = ex.rebuilt_run(d)
+            q = d / "quarantine"
+            q.mkdir()
+            srv = RX.make_server(("127.0.0.1", 0), q)
+            threading.Thread(target=srv.serve_forever, daemon=True).start()
+            self.addCleanup(srv.server_close)
+            self.addCleanup(srv.shutdown)
+            env = {"WALNUT_RATE_URL": "http://127.0.0.1:%d/rate/submit" % srv.server_address[1],
+                   "WALNUT_SUBMISSIONS": str(d / "store"), "WALNUT_SUBMISSIONS_BENCH": str(d / "bench")}
+            os.environ.update(env)
+            self.addCleanup(lambda: [os.environ.pop(k, None) for k in env])
+            old_ident, old_out = wr.console_identity, wr.OUT
+            wr.console_identity = lambda run=None: (ex.IDENT[0], ex.IDENT[1], ex.HOME, [])
+            wr.OUT = run.parent
+            self.addCleanup(setattr, wr, "console_identity", old_ident)
+            self.addCleanup(setattr, wr, "OUT", old_out)
+
+            def quiet(f, *a):
+                buf = io.StringIO()
+                with contextlib.redirect_stdout(buf):
+                    try:
+                        rc = f(*a)
+                    except SystemExit as e:
+                        rc = e
+                return rc, buf.getvalue()
+
+            rc, out = quiet(wr.cmd_submit, [run.name, "--nick", "tester", "--publish", "yes", "--yes"])
+            self.assertEqual(rc, 0, out)
+            sid = wr.submissions(run)[-1][1]
+            self.assertTrue(RX.ID_RE.match(sid))
+            self.assertIn("submission id: " + sid, out)
+            self.assertIn("submitted as " + sid, quiet(wr.cmd_status, [])[1])
+            self.assertEqual(quiet(wr.cmd_submit, [run.name, "--yes"])[0], 1)          # sent already
+            # the scrubbed bundle, as the receiver kept it: nothing of the console's identity
+            data = (q / (sid + ".tar")).read_bytes()
+            for x in (b"tester42", b"myconsole", b"203.0.113.7", b"/home/"):
+                self.assertNotIn(x, data)
+            # two more: one the tester won't have published, one to reject
+            self.assertEqual(quiet(wr.cmd_submit, [run.name, "--again", "--nick", "", "--publish", "no", "--yes"])[0], 0)
+            no_pub = wr.submissions(run)[-1][1]
+            self.assertEqual(quiet(wr.cmd_submit, [run.name, "--again", "--nick", "other", "--publish", "yes",
+                                                   "--yes"])[0], 0)
+            junk = wr.submissions(run)[-1][1]
+            self.assertEqual(len({sid, no_pub, junk}), 3)
+
+            rc, out = quiet(sm.main, ["pull", "--from", str(q)])
+            self.assertEqual(rc, 0, out)
+            self.assertIn("3 new", out)
+            self.assertIn("tester", quiet(sm.main, ["list"])[1])
+            # accept: unpacked first, refused without the review, then imported
+            content = d / "content"
+            (content / g).mkdir(parents=True)
+            for f in ("index.md", "build.toml"):
+                if (REPO / "gamedb/games" / g / f).exists():
+                    shutil.copyfile(REPO / "gamedb/games" / g / f, content / g / f)
+            acc = ["accept", sid, "--content", str(content), "--session", sd.name, "--from", str(q)]
+            rc, out = quiet(sm.main, acc)
+            self.assertEqual(rc, 1, out)
+            self.assertIn("no REVIEW.md", out)
+            got = d / "bench" / run.name
+            self.assertEqual((got / sm.MARK).read_text().strip(), sid)
+            shutil.copyfile(d / "REVIEW.md", got / "REVIEW.md")
+            rc, out = quiet(sm.main, acc)
+            self.assertEqual(rc, 0, out)
+            folder = content / g / "rating/sessions" / sd.name
+            text = (folder / "result.toml").read_text()
+            t = tomllib.loads(text)
+            self.assertEqual((t["source"], t["tester"]), ("submitted", "tester"))
+            ours = (sd / "result.toml").read_text()
+            strip = lambda x: "\n".join(line for line in x.splitlines() if not line.startswith(("source =", "tester =")))
+            self.assertEqual(strip(text), strip(ours))                   # the same record as our own import of it
+            self.assertEqual(evidence.read_import(folder)["submission"], sid)
+            ir = sm.import_run_module()
+            self.assertEqual(ir.derive_session(folder, g, content)[0], text)   # reimport.py keeps the credit
+            self.assertFalse((q / (sid + ".tar")).exists())            # the server's copy is gone
+            self.assertEqual(sm.decisions(sm.store())[sid]["state"], "accepted")
+            # the site's session page data credits the tester
+            sys.path.insert(0, str(REPO / "tools/gamedb"))
+            import sessions
+            ss = {x["id"]: x for x in sessions.game_sessions(content / g)}
+            self.assertEqual((ss[sd.name]["source"], ss[sd.name]["tester"]), ("submitted", "tester"))
+            # no publishing agreed: refused; reject: moved aside, the server's copy gone
+            rc, out = quiet(sm.main, ["accept", no_pub, "--content", str(content), "--from", str(q)])
+            self.assertIn("said no to publishing", str(rc))
+            self.assertEqual(quiet(sm.main, ["reject", junk, "--why", "a test", "--from", str(q)])[0], 0)
+            self.assertTrue((d / "store" / "rejected" / (junk + ".tar")).exists())
+            self.assertFalse((q / (junk + ".json")).exists())
+            self.assertEqual(sorted(f.name for f in q.iterdir()), sorted([no_pub + ".tar", no_pub + ".json"]))
+            self.assertIn("0 new", quiet(sm.main, ["pull", "--from", str(q)])[1])
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+
+    def test_credit_refusals(self):
+        spec = importlib.util.spec_from_file_location("import_run", REPO / "tools/gamedb/import-run.py")
+        ir = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(ir)
+        self.assertEqual(ir.credit_keys(None), {})
+        self.assertEqual(ir.credit_keys({"source": "submitted", "tester": ""}), {"source": "submitted", "tester": None})
+        for bad in ({"source": "ours"}, {"source": "submitted", "tester": "x" * 41},
+                    {"source": "submitted", "tester": "a\nb"}):
+            with self.assertRaises(ir.Refused):
+                ir.credit_keys(bad)
 
 if __name__ == "__main__":
     unittest.main(verbosity=1)

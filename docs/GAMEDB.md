@@ -53,9 +53,15 @@ and game optimizations and never answer any of it.
    checks that the console runs only the desktop and the terminal it was typed in (no browser or other window,
    no second game, no SSH login, nothing busy, swap, load and temperature low) and names what to close, then
    runs the session above, watches for the same things while the game runs (a session it saw disturbed is
-   marked and can't be rated), and asks the form on the terminal. `walnut-rate export` writes the session to
-   one file, scrubbed of the console's user, host and addresses after showing what goes in, for a USB stick;
-   sending it to us is not built yet. Our own sessions run through it too
+   marked and can't be rated), and asks the form on the terminal. `walnut-rate submit` sends the session to
+   us as one file, scrubbed of the console's user, host and addresses, after showing what goes in and its size
+   and only on the tester's yes (`walnut-rate export` writes the same file to a USB stick). It lands in a
+   quarantine on walnut.nanobyte.dev; `tools/gamedb/submissions.py` pulls it to the PC, where it gets the same
+   PC reference and review as ours, and the maintainer accepts or rejects it. An accepted session's record says
+   `source = "submitted"` and `tester = "<nickname>"` (none: anonymous, "a tester" on the site), and it counts in
+   the rating like one of ours; a tester who said no to publishing is never imported. These three choices are
+   provisional (PLAN 5.12): our own receiver rather than GitHub, an optional nickname, the same weight once
+   accepted (catalog.py SUBMITTED_COUNTS). Our own sessions run through walnut-rate too
    ([games/SUITE.md](games/SUITE.md#played-sessions)).
 2. **The review**, by the agent that imports the run. `tools/gamedb/review.py RUN` puts the session's
    screenshots next to the PC reference where one exists, adds 1:1 crops with a pixel ruler, and
@@ -442,7 +448,8 @@ browser, NetSurf and the app's HTML view (the user, 2026-10-28):
   Games' Install and Add game files..., with the copies that work, the apt line, and "More ways" on the Guides;
   the known issues), `games/<id>/test-runs/` (the played sessions, which make the rating (what every session shares, the Walnut release,
   the game's build and the platform builds, is said once above the table, which has a column only for what differs),
-  each with a page of its own, `test-runs/<session>/`: the session rated on its own, every aspect's score and measurement, the
+  each with a page of its own, `test-runs/<session>/`: the session rated on its own, who played it when a tester sent
+  it in ("Played by", the nickname or "a tester"), every aspect's score and measurement, the
   sound dropouts, the builds, the form's answers and notes, the picture review, the screenshots; all of them
   as a CSV download, a `data:` link, since the site server takes no .csv; the rating on each version; then
   the scripted benchmarks in a section of their own, "Not rated: tests of driver and game changes", a table
@@ -463,8 +470,9 @@ browser, NetSurf and the app's HTML view (the user, 2026-10-28):
   ppc64 package index, which the site build doesn't have. The desktop and the release metapackage stay out.
 - **How a game is tested**: the Test runs tab says testing is done with the rating tool (`walnut-rate`, on the
   console: [games/SUITE.md](games/SUITE.md#played-sessions)) and links `ratingDocs` (hugo.toml params; for now the
-  about page's "How a game is tested"), the one place to point at the tool's public page once it has one (with
-  sending sessions in, PLAN 5.12).
+  about page's "How a game is tested"), the one place to point at the tool's public page once it has one: the
+  "How to help" page (content/help.md: how to play a session and send it in) is written, a Hugo draft (left out
+  of the build) and in no menu until the receiver is live (servers/README.md).
 - **Tags** (gamedb/tags.toml, [gamedb/README.md](../gamedb/README.md#tags)): every tag shown is a link to
   its page, `tags/<id>/` (content/tags/_content.gotmpl, from catalog.json's tags), which lists the games that
   have it as cards; `tags/` is the index, by group. A game's head shows its tags under small group labels; a

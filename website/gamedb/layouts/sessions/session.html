@@ -14,6 +14,7 @@
     <tbody>
     <tr><th>Game</th><td>{{ with $s.version }}{{ $s.package }} {{ . }}{{ else }}-{{ end }} on {{ partial "walnut.html" $s.walnut }}{{ with $s.launcher }}, started as <strong>{{ . }}</strong>{{ end }}</td></tr>
     <tr><th>Played</th><td>{{ $s.minutes }} min{{ with $s.render }} at {{ . }}{{ end }}; it ended: {{ $s.end }}{{ if $s.crashed }} (a crash){{ end }}</td></tr>
+    {{ if eq $s.source "submitted" }}<tr><th>Played by</th><td>{{ with $s.tester }}{{ . }}{{ else }}a tester{{ end }} <span class="muted small">a session sent in from a tester's console, reviewed by us before it counted</span></td></tr>{{ end }}
     <tr><th>Rules</th><td><a href="{{ site.Home.RelPermalink }}about/#{{ $s.rules_anchor }}">{{ $s.rules_label }}</a></td></tr>
     <tr><th>On its own</th><td>{{ partial "medal.html" $s }}{{ with $s.reason }} <span class="muted">({{ . }})</span>{{ end }} <span class="muted small">this session alone; the game's rating merges its sessions (<a href="{{ site.Params.ratingDocs | relURL }}">how</a>)</span></td></tr>
     </tbody>

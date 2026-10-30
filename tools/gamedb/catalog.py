@@ -55,6 +55,12 @@ SCHEMA = 1
 LOW_MEMORY_KB = 10 * 1024
 
 
+# a tester's session (result.toml source = "submitted") counts in the rating like ours once the maintainer has
+# accepted it (tools/gamedb/submissions.py accept: it is in gamedb only then). Provisional, PLAN 5.12: the user
+# hasn't answered yet. False: such sessions keep their own page (sessions.py) but leave the game's rating alone
+SUBMITTED_COUNTS = True
+
+
 def read_game(gdir):
     # index.md, with build.toml's packages, needs_data, desktop, recipes and the derived patched_by
     fm = check.game_facts(gdir)
@@ -63,6 +69,8 @@ def read_game(gdir):
     for t in sorted(tdir.iterdir()) if tdir.is_dir() else []:
         r = tomllib.loads((t / "result.toml").read_text())
         r["id"] = t.name
+        if r.get("source") == "submitted" and not SUBMITTED_COUNTS:
+            continue
         tests.append(r)
     return fm, tests
 
