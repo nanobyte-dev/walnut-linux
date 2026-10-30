@@ -53,7 +53,18 @@ connections to it as computer players (playing.cxx `addRobots`, called once the 
 server started with `-disableBots` refuses them). It does not matter how the server was reached, so the
 menu's Start Server (which runs `bzfs` itself, ServerStartMenu.cxx) followed by Connect gets the robots too.
 Our launcher "BZFlag (robots)" ([desktop/launchers/bzflag-robots.desktop](desktop/launchers/bzflag-robots.desktop))
-starts `ps3-game bzflag -solo 3`; "BZFlag" starts without them.
+starts `bzflag -solo 3` through ps3-game; "BZFlag" starts without them.
+
+**A default callsign** (2026-10-30), so a pad player never needs the keyboard: BZFlag 2.4 has no `-callsign`
+option, but its last argument `callsign[:password]@server[:port]` takes an empty server, and `bzflag -solo 3 Player@`
+starts at the main menu (no automatic connection: `playing.cxx` connects only with both a callsign and a server)
+with "Player" in the Join Game menu. Start Server fills in localhost:5154, so Connect joins with no typing. The
+command line overrides the saved callsign, so the launcher passes `Player@` only while `~/.bzf/2.4/config.cfg`
+has no `set callsign` line (a callsign equal to the default, empty, is written commented out as `#set callsign ""`);
+the game saves "Player" there at exit (`saveIdentity` 2), and a callsign the player types later is kept. On the PC
+(Debian's 2.4.30 amd64 under Xvfb, keys by xdotool): the first start showed Callsign: Player, Start Server > Start,
+Connect joined the green team as Player with the robots Player00-02; the config then had `set callsign Player`,
+and the second start (through the config branch) showed Player again.
 
 Public servers (the Join Game > Find Server list, 244 listed on 2026-10-29) often require a registered
 account: the session of 2026-10-29 was refused with "This callsign is registered. You must use global

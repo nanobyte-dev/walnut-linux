@@ -28,5 +28,6 @@ kind = "package"
 added = 2026-10-30
 source = "played session 2026-10-29"
 text = """\
-A default callsign in the robots launcher ("BZFlag (robots)"), so the pad needs no keyboard to start \
-a match: today the callsign has to be typed once. Then the robots match again with the DualShock 3 only."""
+The robots launcher passes the default callsign "Player" while the config has none (2026-10-30, \
+technical.md "Robots and public servers"; on the PC Start Server then Connect joined with no typing). \
+Left: the robots match again on the PS3 with the DualShock 3 only (Start Server, Connect, spawn, a match)."""

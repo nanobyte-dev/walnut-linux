@@ -2,7 +2,7 @@
 Type=Application
 Name=BZFlag (robots)
 Comment=Tank battle with three computer tanks: use Start Server in the menu, then Connect
-Exec=ps3-game bzflag -solo 3
+Exec=ps3-game sh -c "grep -qs '^set callsign ' ~/.bzf/2.4/config.cfg && exec bzflag -solo 3; exec bzflag -solo 3 Player@"
 Icon=bzflag
 Terminal=false
 Categories=Game;ActionGame;
