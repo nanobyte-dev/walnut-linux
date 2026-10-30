@@ -14,8 +14,10 @@ console-like: fullscreen at the screen's mode (`SDL_WINDOW_FULLSCREEN_DESKTOP`, 
 scaled up), SDL game controllers on. The package links game-data-packager's `diablo-data` files
 (`/usr/share/games/diablo/DIABDAT.MPQ`, Hellfire's `hellfire.mpq`, `hfmonk.mpq`, `hfmusic.mpq`, `hfvoice.mpq`)
 into `/usr/share/diasurgical/devilutionx/`, a folder DevilutionX searches (it never looks in /usr/share/games).
-The player's 1.09 DIABDAT.MPQ (517,501,242 bytes) is not the GOG file GDP knows (517,501,282), so GDP may
-not take it as it is.
+The player's 1.09 DIABDAT.MPQ (517,501,242 bytes) is not the GOG file GDP knew (517,501,282); gdp patch 0019
+accepts both for `diablo-data` (tags `?gog` and `?1.09`). Proven on the PC (2026-10-30): `game-data-packager
+diablo -p diablo-data` on a folder with the file builds the deb, and the helper's manifest check takes its data
+stream (release 1.09); the import itself on the PS3 is in TESTS.
 
 **The cursor (patch 0002, 2026-10-30).** DevilutionX draws a hardware cursor: `Source/hwcursor.cpp` hands SDL a
 colour cursor (`SDL_CreateColorCursor`; sdl2-compat on SDL3, whose X11 driver copies the ARGB8888 surface into

@@ -38,6 +38,8 @@ deb make game-data-packager-deb built into the deb builder image and runs this t
   unchanged rooms with the other EGA releases (loader only).
 - 0018 --no-launchers for the ScummVM games: a build of a fixture ScummVM game ("walnutscumm", plugin
   scummvm_common) has the .desktop link and an icon without it, neither with it.
+- 0019 diablo-data: a second 1.09 DIABDAT.MPQ (517501242 bytes) beside GOG's (517501282), with its
+  size and checksums, both usable for diablo-data (loader only).
 
 game-data-packager checks every file against its checksums, so the builds use a game of our own,
 "walnuttest" (plugin doom_common, so DoomTask writes its launchers), whose checksums are those of
@@ -705,6 +707,28 @@ class SpanishScumm(unittest.TestCase):
         # the same rooms as the English EGA release
         _, _, en = self.files('loom', 'loom-ega-data')
         self.assertEqual(sorted(n.split('?')[0] for n in files), sorted(n.split('?')[0] for n in en))
+
+
+class DiabloSecondBuild(unittest.TestCase):
+    """0019: a second 1.09 DIABDAT.MPQ is accepted for diablo-data"""
+
+    def test_diabdat(self):
+        from game_data_packager.game import load_games
+        g = load_games()['diablo']
+        g.load_file_data()
+        names = {w.name: w for w in g.packages['diablo-data'].install_files}
+        self.assertEqual(list(names), ['DIABDAT.MPQ'])
+        f = g.files['DIABDAT.MPQ']
+        alts = list(f.alternatives)
+        self.assertEqual(alts, ['DIABDAT.MPQ?gog', 'DIABDAT.MPQ?1.09'])
+        n = g.files['DIABDAT.MPQ?1.09']
+        self.assertEqual((n.size, n.md5), (517501242, '68f049866b44688a7af65ba766bef75a'))
+        self.assertEqual(n.sha1, 'fe35cba676a0a194ccdf1d4357de49dff252fa40')
+        self.assertEqual(n.sha256, '6bc120a603fdb383ff91f374e7db599765d6230d81e5a4c1b33f8254911774e7')
+        gog = g.files['DIABDAT.MPQ?gog']
+        self.assertEqual((gog.size, gog.md5), (517501282, '011bc6518e6166206231080a4440b373'))
+        # GOG's installer still provides its own, under the new name
+        self.assertIn('DIABDAT.MPQ?gog', {w.name for w in g.files['setup_diablo_1.09_hellfire_v4_(78466).exe'].provides_files})
 
 
 class ScummvmNoLaunchers(unittest.TestCase):

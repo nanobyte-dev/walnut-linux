@@ -1,0 +1,65 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Fri, 30 Oct 2026 03:02:47 +0200
+Subject: Accept a second 1.09 build of Diablo's DIABDAT.MPQ
+
+gdp knew one DIABDAT.MPQ, GOG's (517501282 bytes, inside its installer). A player's own
+1.09 copy is 517501242 bytes, 40 bytes smaller, and was refused. DIABDAT.MPQ is now a
+placeholder for two alternatives, GOG's (DIABDAT.MPQ?gog, still provided by the installer)
+and the new one (DIABDAT.MPQ?1.09) with its size, md5, sha1 and sha256, as hexen.wad does,
+so diablo-data is built from either.
+
+Forwarded: not yet (candidate for Debian)
+
+diff --git a/data/diablo.yaml b/data/diablo.yaml
+--- a/data/diablo.yaml
++++ b/data/diablo.yaml
+@@ -21,11 +21,17 @@ packages:
+       - hellfire mpq
+ 
+ files:
++  DIABDAT.MPQ:
++    alternatives:
++      - DIABDAT.MPQ?gog
++      # Walnut: another 1.09 DIABDAT.MPQ build, 40 bytes smaller than GOG's
++      - DIABDAT.MPQ?1.09
++
+   setup_diablo_1.09_hellfire_v4_(78466).exe:
+     unpack:
+       format: innoextract
+     provides:
+-      - DIABDAT.MPQ
++      - DIABDAT.MPQ?gog
+       - hellfire mpq
+       - gog pdf
+       - Readme.txt
+@@ -34,7 +40,8 @@ groups:
+   misc: |
+       850246944 c4d36192c35eb5f34faa1d97aae34455 setup_diablo_1.09_hellfire_v4_(78466).exe
+       22519     76ee8f3222887e4e37c75911d6c73d43 Readme.txt
+-      517501282 011bc6518e6166206231080a4440b373 DIABDAT.MPQ
++      517501282 011bc6518e6166206231080a4440b373 DIABDAT.MPQ?gog
++      517501242 68f049866b44688a7af65ba766bef75a DIABDAT.MPQ?1.09
+ 
+   gog pdf: |
+       23597268  8a8c103b694f46ab8eb9e026b443181b MANUAL.PDF
+@@ -50,7 +57,8 @@ groups:
+ 
+ sha1sums: |
+   bf21c5b84b014ec930c1b14d33ef8284b9d00a2b setup_diablo_1.09_hellfire_v4_(78466).exe
+-  5cfd971abb25602731fef0c9b43eb7d7447f296e DIABDAT.MPQ
++  5cfd971abb25602731fef0c9b43eb7d7447f296e DIABDAT.MPQ?gog
++  fe35cba676a0a194ccdf1d4357de49dff252fa40 DIABDAT.MPQ?1.09
+   027d9b919805126f3aa156aad7d8a67096b04ffb MANUAL.PDF
+   28a04d7909682cd7619375fa598559bd28d777a9 MANUAL_DE.PDF
+   07fce9d0e7910ee264c7d99fdfe2cf81186af561 MANUAL_FR.PDF
+@@ -63,7 +71,8 @@ sha1sums: |
+ 
+ sha256sums: |
+   ed8d8b05ecc6a6e539b41f3fc4807de528b1123fdf6a2a7bd38be3486b12cb84 setup_diablo_1.09_hellfire_v4_(78466).exe
+-  63fb47d9c76484024c7640d90ab6b7ec5e13f567a7e1a917b6c03a6631d3f2b0 DIABDAT.MPQ
++  63fb47d9c76484024c7640d90ab6b7ec5e13f567a7e1a917b6c03a6631d3f2b0 DIABDAT.MPQ?gog
++  6bc120a603fdb383ff91f374e7db599765d6230d81e5a4c1b33f8254911774e7 DIABDAT.MPQ?1.09
+   af45c45e07d57f4662d7325fc17e5dcddcdb099693d59ba73b17c20362868fc5 MANUAL.PDF
+   a61bc68f3ec20bee56683ad1a4715cc9229100ace724cba8d2c9ff9a6e65beda MANUAL_DE.PDF
+   18de1e257bb920552e82f90c968a342d4a9724159b832ff920bf57f6128985ce MANUAL_FR.PDF
