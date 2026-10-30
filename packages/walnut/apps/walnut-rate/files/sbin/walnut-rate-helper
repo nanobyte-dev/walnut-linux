@@ -1,0 +1,173 @@
+#!/usr/bin/python3 -I
+"""walnut-rate-helper check|mm|mm-follow|dmesg-follow (walnut-rate package): the one root program a played
+session needs when walnut-rate runs it, through sudo (/etc/sudoers.d/walnut-rate: group sudo, no password,
+this path only). It is what ps3-bench.sh's session mode reads as root (BENCH_ROOT_HELPER), and nothing else:
+
+  check         prints "ok dmesg=yes|no mm=yes|no": the helper runs, and what it can read
+  mm            the RSX driver's memory census once (/sys/kernel/debug/dri/*/ps3rsx_mm: debugfs is root's only),
+                for ps3-bench.sh's snapshots (snap-pre.txt, snap-post.txt)
+  mm-follow     the census again for every line read on standard input, each time followed by a line "#end"
+                (the sampler's VRAM and GART columns every 0.5 s); ends at the end of its input, when the
+                sampler that holds the pipe is gone
+  dmesg-follow  the kernel log as it comes (dmesg -W: kernel.dmesg_restrict keeps it from the player), the
+                session's dmesg.log and the thermal watchdog's source, until the end of its input
+
+Design
+- Fixed argv: the action and nothing else; anything else is refused (exit 2) before anything is read. No path,
+  option or program comes from the caller: python3 -I (no environment, no user site), dmesg by its absolute
+  path with a fixed environment, no shell.
+- Read-only: every action reads a kernel file or runs dmesg, and writes only to its own standard output, a
+  descriptor the caller opened as the caller (never a path of the caller's).
+- The census file is the first /sys/kernel/debug/dri/*/ps3rsx_mm that resolves under that directory and is a
+  regular file, opened without following a link, at most MM_MAX bytes a read.
+- A follower ends at the end of its input, on SIGTERM, SIGHUP or SIGINT, when its output goes away, or after
+  MAX_S (a forgotten pipe); dmesg is stopped with it.
+Exit: 0 done, 1 an error (no census file for mm), 2 refused.
+"""
+import glob
+import os
+import select
+import signal
+import subprocess
+import sys
+import time
+
+ACTIONS = ("check", "mm", "mm-follow", "dmesg-follow")
+DEBUGFS = "/sys/kernel/debug/dri"
+DMESG = ("/usr/bin/dmesg", "/bin/dmesg")
+ENV = {"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "LC_ALL": "C.UTF-8"}
+MM_MAX = 1 << 20
+MAX_S = 24 * 3600
+
+
+class Refused(Exception):
+    pass
+
+
+def mm_path(root=DEBUGFS):
+    base = os.path.realpath(root)
+    for p in sorted(glob.glob(os.path.join(root, "*", "ps3rsx_mm"))):
+        r = os.path.realpath(p)
+        if r.startswith(base + os.sep) and os.path.isfile(r):
+            return r
+    return None
+
+
+def mm_read(path):
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    try:
+        out = b""
+        while len(out) < MM_MAX:
+            b = os.read(fd, min(65536, MM_MAX - len(out)))
+            if not b:
+                break
+            out += b
+        return out
+    finally:
+        os.close(fd)
+
+
+def write_all(fd, data):
+    while data:
+        n = os.write(fd, data)
+        data = data[n:]
+
+
+def dmesg_bin(choices=DMESG):
+    for p in choices:
+        if os.access(p, os.X_OK):
+            return p
+    return None
+
+
+def mm_follow(path, inp=0, out=1, deadline=None, stop=None):
+    """a census block and "#end" for every line on inp, until its end (or stop is set, or the deadline)"""
+    deadline = deadline or time.monotonic() + MAX_S
+    stop = stop if stop is not None else []
+    pending = 0
+    while not stop and time.monotonic() < deadline:
+        r, _, _ = select.select([inp], [], [], 1.0)
+        if not r:
+            continue
+        b = os.read(inp, 4096)
+        if not b:
+            return 0
+        pending += b.count(b"\n")
+        while pending:
+            pending -= 1
+            try:
+                data = mm_read(path) if path else b""
+            except OSError:
+                data = b""
+            if data and not data.endswith(b"\n"):
+                data += b"\n"
+            write_all(out, data + b"#end\n")
+    return 0
+
+
+def dmesg_follow(dmesg, inp=0, out=1, deadline=None, stop=None):
+    """dmesg -W onto out until inp ends (or stop is set, or the deadline)"""
+    deadline = deadline or time.monotonic() + MAX_S
+    stop = stop if stop is not None else []
+    p = subprocess.Popen([dmesg, "-W"], stdin=subprocess.DEVNULL, stdout=out, stderr=out, env=ENV,
+                         close_fds=True, cwd="/")
+    try:
+        while not stop and p.poll() is None and time.monotonic() < deadline:
+            r, _, _ = select.select([inp], [], [], 0.5)
+            if r and not os.read(inp, 4096):
+                break
+    finally:
+        if p.poll() is None:
+            p.terminate()
+            try:
+                p.wait(5)
+            except subprocess.TimeoutExpired:   # dmesg is ours: it may be killed
+                p.kill()
+                p.wait()
+    return 0
+
+
+def main(argv, need_root=True, debugfs=DEBUGFS, dmesg=DMESG, inp=0, out=1):
+    if len(argv) != 2 or argv[1] not in ACTIONS:
+        print("usage: walnut-rate-helper check|mm|mm-follow|dmesg-follow", file=sys.stderr)
+        return 2
+    action = argv[1]
+    try:
+        if need_root and os.geteuid() != 0:
+            raise Refused("must run as root (through sudo)")
+    except Refused as e:
+        print("walnut-rate-helper: %s" % e, file=sys.stderr)
+        return 2
+    stop = []
+    for s in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT):
+        signal.signal(s, lambda *_: stop.append(1))
+    signal.signal(signal.SIGPIPE, signal.SIG_IGN)
+    os.umask(0o077)
+    try:
+        if action == "check":
+            write_all(out, b"ok dmesg=%s mm=%s\n" % (b"yes" if dmesg_bin(dmesg) else b"no",
+                                                      b"yes" if mm_path(debugfs) else b"no"))
+            return 0
+        if action == "mm":
+            p = mm_path(debugfs)
+            if not p:
+                print("walnut-rate-helper: no ps3rsx_mm in %s" % debugfs, file=sys.stderr)
+                return 1
+            write_all(out, mm_read(p))
+            return 0
+        if action == "mm-follow":
+            return mm_follow(mm_path(debugfs), inp, out, stop=stop)
+        d = dmesg_bin(dmesg)
+        if not d:
+            print("walnut-rate-helper: no dmesg", file=sys.stderr)
+            return 1
+        return dmesg_follow(d, inp, out, stop=stop)
+    except (BrokenPipeError, ConnectionResetError):
+        return 0
+    except OSError as e:
+        print("walnut-rate-helper: %s" % e, file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

@@ -76,7 +76,9 @@ dconf-service
 xdg-*
 # --- Walnut's own services and the game mode machinery (ps3-desktop, ps3-system)
 ps3-*
-python3 ~ /usr/lib/ps3/|/usr/lib/walnut/|ps3-|/var/tmp/bench/
+python3 ~ /usr/lib/ps3/|/usr/lib/walnut/|/usr/lib/walnut-rate/|ps3-|/var/tmp/bench/
+# walnut-rate (the played sessions' CLI) and its root helper (walnut-rate-helper: dmesg, the RSX census)
+walnut-rate*
 # --- the system: init, the buses, the network, the clock, logging, login, ssh
 systemd
 systemd-*

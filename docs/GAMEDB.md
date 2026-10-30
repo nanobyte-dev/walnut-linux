@@ -49,6 +49,14 @@ and game optimizations and never answer any of it.
    notes box. A game with several launchers ([OpenArena](../gamedb/games/openarena/) has "GL 1.2" and "GL 2.0") is played once per
    launcher: a session starts the chosen menu entry's command, records its Name, and each launcher is
    rated on its own. A session without a launcher counts for the game's default one.
+   Anyone with a Walnut PS3 can play one, the way we do: `walnut-rate play GAME` (the walnut-rate package) first
+   checks that the console runs only the desktop and the terminal it was typed in (no browser or other window,
+   no second game, no SSH login, nothing busy, swap, load and temperature low) and names what to close, then
+   runs the session above, watches for the same things while the game runs (a session it saw disturbed is
+   marked and can't be rated), and asks the form on the terminal. `walnut-rate export` writes the session to
+   one file, scrubbed of the console's user, host and addresses after showing what goes in, for a USB stick;
+   sending it to us is not built yet. Our own sessions run through it too
+   ([games/SUITE.md](games/SUITE.md#played-sessions)).
 2. **The review**, by the agent that imports the run. `tools/gamedb/review.py RUN` puts the session's
    screenshots next to the PC reference where one exists, adds 1:1 crops with a pixel ruler, and
    writes REVIEW.md: a fixed questionnaire (stretched or squashed; the smallest text's height; the
@@ -453,9 +461,10 @@ browser, NetSurf and the app's HTML view (the user, 2026-10-28):
   for every game (kernel, Mesa, ps3rsx, libspeq, OpenAL Soft, FluidSynth, SDL3; `tools/gamedb/sessions.py`
   STACK), read from the session's `raw/versions.xz`. Not each game's dependency closure: that needs Debian's
   ppc64 package index, which the site build doesn't have. The desktop and the release metapackage stay out.
-- **How a game is tested**: the Test runs tab says testing is done with the rating tool (`walnut-rate`,
-  planned) and links `ratingDocs` (hugo.toml params; for now the about page's "How a game is tested"),
-  the one place to point at the tool's own documentation when it exists.
+- **How a game is tested**: the Test runs tab says testing is done with the rating tool (`walnut-rate`, on the
+  console: [games/SUITE.md](games/SUITE.md#played-sessions)) and links `ratingDocs` (hugo.toml params; for now the
+  about page's "How a game is tested"), the one place to point at the tool's public page once it has one (with
+  sending sessions in, PLAN 5.12).
 - **Tags** (gamedb/tags.toml, [gamedb/README.md](../gamedb/README.md#tags)): every tag shown is a link to
   its page, `tags/<id>/` (content/tags/_content.gotmpl, from catalog.json's tags), which lists the games that
   have it as cards; `tags/` is the index, by group. A game's head shows its tags under small group labels; a

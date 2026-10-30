@@ -11,7 +11,7 @@
   <section>
     <h2 id="sessions">Played sessions</h2>
     {{ with $played }}
-    <p class="muted">Testing is done with Walnut's rating tool (<code>walnut-rate</code>, planned): <a href="{{ site.Params.ratingDocs | relURL }}">how ratings are made and submitted</a>.</p>
+    <p class="muted">Testing is done with Walnut's rating tool (<code>walnut-rate</code>, on the console): <a href="{{ site.Params.ratingDocs | relURL }}">how ratings are made and submitted</a>.</p>
     {{ partial "sessions-table.html" (dict "tests" . "sessions" $t.played.list) }}
     {{ with $t.played.csv }}<p class="small"><a href="{{ printf "data:text/csv;base64,%s" (base64Encode .) | safeURL }}" download="{{ $g.id }}-sessions.csv">Download all sessions as CSV</a> <span class="muted">(one row per session, the aspects as columns)</span></p>{{ end }}
     {{ else }}

@@ -10,7 +10,11 @@
 #                                          is the point), no time limit (BENCH_TIMEOUT=0); the thermal
 #                                          watchdog and the temperature limit stay
 #   ps3-bench.sh desktop                   end of the session: desktop back, game config restored
-# Results: /var/tmp/ps3-bench/<UTC stamp>-<label>/ (out.log with $EPOCHREALTIME stamps, samples,
+# BENCH_ROOT_HELPER=PATH (walnut-rate's walnut-rate-helper; session mode only): no sudo of its own. The
+# sampler runs as the player and the three things a session reads as root come through `sudo -n PATH`:
+# the kernel log (dmesg-follow), the RSX memory census for the samples (mm-follow, one census for each
+# line it is sent) and for the snapshots (mm); the profilers, the stall recorder and the wakers stay off.
+# Results: /var/tmp/ps3-bench/<UTC stamp>-<label>/ (BENCH_OUT: another directory; out.log with $EPOCHREALTIME stamps, samples,
 # snapshots); written to /dev/shm while the command runs, so the USB disk stays out of it.
 # The first quiet of a session takes the bench lock (no deploys meanwhile); desktop releases it.
 # Every quiet also pauses the systemd timers of periodic jobs (BENCH_TIMERS: apt-daily, apt-daily-
@@ -66,11 +70,17 @@
 {
 set -u
 LOCK=/dev/shm/ps3-bench.lock
-OUT=/var/tmp/ps3-bench
+OUT=${BENCH_OUT:-/var/tmp/ps3-bench}	# the results (session.sh reads the same variable; tests)
+RH=${BENCH_ROOT_HELPER:-}	# the root helper (the top), or empty: plain sudo
 
 die() { echo "!! $*" >&2; exit 1; }
 kb() { awk -v k="$1:" '$1 == k { print $2 }' /proc/meminfo; }
 mmfile() { sudo sh -c 'ls /sys/kernel/debug/dri/*/ps3rsx_mm 2>/dev/null | head -1'; }
+if [ -n "$RH" ]; then
+	[ "${1:-}" = session ] || die "BENCH_ROOT_HELPER: session mode only"
+	case $RH in /*) [ -x "$RH" ] || die "BENCH_ROOT_HELPER=$RH: not a program" ;; *) die "BENCH_ROOT_HELPER: an absolute path" ;; esac
+	BENCH_STALLS=0 BENCH_PERF=0 BENCH_PERF_LOAD=0 BENCH_WAKER= BENCH_PROBE=0	# their own sudo: not here
+fi
 
 session_start() {
 	[ -e $LOCK ] && return
@@ -225,15 +235,16 @@ quiet() {
 }
 
 snap() {	# snap LABEL: everything, into $D/snap-LABEL.txt
-	local f=$D/snap-$1.txt m
-	m=$(mmfile)
+	local f=$D/snap-$1.txt m=
+	[ -n "$RH" ] || m=$(mmfile)
 	{ echo "== $1 $(date -u +%FT%T.%NZ) $EPOCHREALTIME"
 	  grep -E '^(MemTotal|MemAvailable|MemFree|Cached|Shmem|SwapTotal|SwapFree|VmallocUsed):' /proc/meminfo
 	  cat /proc/swaps
 	  grep -E '^pswp(in|out) ' /proc/vmstat
 	  echo "user.slice memory.current $(cat /sys/fs/cgroup/user.slice/memory.current 2>/dev/null)"
 	  [ -e /sys/block/ps3vswap0/stats ] && cat /sys/block/ps3vswap0/stats
-	  [ -n "$m" ] && sudo cat "$m"; } > "$f"
+	  if [ -n "$RH" ]; then sudo -n "$RH" mm < /dev/null 2> /dev/null
+	  elif [ -n "$m" ]; then sudo cat "$m"; fi; } > "$f"
 }
 
 # The temperature sensors (docs/THERMAL.md): the hwmon directory named ps3_sm, or nothing
@@ -257,6 +268,10 @@ temp_max() {
 # time, MemAvailable, SwapFree, pswpin, pswpout, GART backed (KiB), vswap in VRAM / on disk /
 # written back, then each ps3rsx client as comm:VRAM:GART (KiB). With the sensors, every second a
 # line into temps (each read is one System Manager request; the driver caches a value for 1 s).
+# With BENCH_ROOT_HELPER (the top) the same shell runs as the player: the kernel log comes from the
+# helper's dmesg-follow, which ends when this shell's pipe to it (fd 8) closes, and the census from its
+# mm-follow (a coprocess: one line asks, one census comes back, into $D/.mm), which ends with the shell
+# too; the job is the player's, so the watchdog's kill needs no root; /dev/console isn't written.
 start_sampler() {	# start_sampler JOBPID
 	local h tmax z f
 	h=$(temp_hwmon)
@@ -266,15 +281,28 @@ start_sampler() {	# start_sampler JOBPID
 		for f in "$h"/temp*_input; do z="$z${z:+,}$(cat "${f%_input}_label" 2>/dev/null || echo "${f##*/}")"; done
 		echo "# $z" > "$D/temps"
 	fi
-	sudo env D="$D" M="$(mmfile)" J="$1" H="$h" TMAX="$tmax" bash -c '
-		dmesg -W > "$D/dmesg.log" 2>&1 & w=$!
-		trap "kill $w 2>/dev/null" EXIT
+	local as=(sudo env) m=
+	if [ -n "$RH" ]; then as=(env); else m=$(mmfile); fi
+	"${as[@]}" D="$D" M="$m" J="$1" H="$h" TMAX="$tmax" RH="$RH" bash -c '
+		if [ -n "$RH" ]; then
+			coproc MMF { exec sudo -n "$RH" mm-follow 2> /dev/null; }
+			exec 8> >([ -n "${MMF[1]:-}" ] && eval "exec ${MMF[0]}<&- ${MMF[1]}>&-"
+				exec sudo -n "$RH" dmesg-follow > "$D/dmesg.log" 2>&1)
+			M=$D/.mm; : > "$M"; con=/dev/null
+		else
+			con=/dev/console
+			dmesg -W > "$D/dmesg.log" 2>&1 & w=$!
+			trap "kill $w 2>/dev/null" EXIT
+		fi
 		n=0
 		while [ ! -e "$D/stop" ]; do
 			if grep -qi "thermal alert" "$D/dmesg.log"; then
-				echo "THERMAL ALERT at $EPOCHREALTIME: stopping the job" | tee "$D/THERMAL" > /dev/console
+				echo "THERMAL ALERT at $EPOCHREALTIME: stopping the job" | tee "$D/THERMAL" > "$con"
 				kill -TERM -- -"$J" 2>/dev/null; sleep 5; kill -KILL -- -"$J" 2>/dev/null
 				break
+			fi
+			if [ -n "$RH" ] && [ -n "${MMF[1]:-}" ] && echo >&"${MMF[1]}" 2> /dev/null; then
+				while IFS= read -r -t 2 l <&"${MMF[0]}"; do [ "$l" = "#end" ] && break; printf "%s\n" "$l"; done > "$M"
 			fi
 			if [ -n "$H" ] && [ $((n++ % 2)) = 0 ]; then
 				l=$EPOCHREALTIME hot=
@@ -287,7 +315,7 @@ start_sampler() {	# start_sampler JOBPID
 				echo "$l" >> "$D/temps"
 				if [ -n "$hot" ]; then
 					echo "TEMPERATURE LIMIT ($((TMAX / 1000)) C) at $EPOCHREALTIME:$hot: stopping the job" |
-						tee "$D/TEMPLIMIT" > /dev/console
+						tee "$D/TEMPLIMIT" > "$con"
 					kill -TERM -- -"$J" 2>/dev/null; sleep 5; kill -KILL -- -"$J" 2>/dev/null
 					break
 				fi
@@ -524,7 +552,7 @@ stop_sampler() {
 		kill "$p" 2>/dev/null; wait "$p" 2>/dev/null
 	done
 	WAKER= PROBE=
-	rm -f "$D/stop"
+	rm -f "$D/stop" "$D/.mm"
 }
 
 # run_job LABEL cmd...: the command in its own process group, output stamped line by line

@@ -1,0 +1,24 @@
+#!/usr/bin/make -f
+include /usr/share/dpkg/pkg-info.mk
+P := debian/walnut-rate
+L := $(P)/usr/lib/walnut-rate
+
+%:
+	dh $@
+
+override_dh_auto_build:
+	visudo -cf debian/sudoers
+
+override_dh_auto_install:
+	install -D -m 755 files/bin/walnut-rate $(P)/usr/bin/walnut-rate
+	install -D -m 644 files/lib/walnut_rate.py $(L)/walnut_rate.py
+	install -D -m 755 files/sbin/walnut-rate-helper $(L)/walnut-rate-helper
+	install -D -m 440 debian/sudoers $(P)/etc/sudoers.d/walnut-rate
+	# the scrub's patterns (tools/gamedb/evidence.py, COPY_IN): the same code the PC's import runs
+	install -D -m 644 built/evidence.py $(L)/evidence.py
+	# the harness as make bench-push copies it to /var/tmp/bench (harness/, lib/, games/<id>/: COPY_IN, make
+	# walnut-rate-bench): root-owned, read-only for the player
+	install -d $(L)/bench
+	tar -xf built/bench.tar -C $(L)/bench --no-same-owner --no-same-permissions
+	echo "$(DEB_VERSION)" > $(L)/version
+

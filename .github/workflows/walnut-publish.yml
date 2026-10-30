@@ -69,6 +69,7 @@ on:
       - "pkg: trigger-rally"
       - "pkg: uqm"
       - "pkg: walnut-games"
+      - "pkg: walnut-rate"
       - "pkg: warmux"
       - "pkg: warzone2100"
       - "pkg: webkit2gtk"

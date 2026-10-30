@@ -45,7 +45,7 @@ ROOTFS_VARS_NOW := $(foreach v,DEBIAN_SNAPSHOT DEBIAN_SUITE DEBIAN_MIRROR SOURCE
 $(shell mkdir -p $(BUILD); [ "$$(cat $(ROOTFS_VARS) 2>/dev/null)" = "$(ROOTFS_VARS_NOW)" ] || echo "$(ROOTFS_VARS_NOW)" > $(ROOTFS_VARS))
 ROOTFS_BASE_INPUTS := $(ROOTFS_PACKAGES) tools/build-rootfs.sh $(ROOTFS_VARS)
 
-.PHONY: xcc-toolchain gamedb-catalog gamedb-app-pages walnut-server walnut-site walnut-server-test public-push initrd-ssd initrd-walnut initrd-busybox publish du clean-ephemeral chroot packages ps3rsx-modules snd-ps3-ko netboot-deb spu-toolchain spu-tests spu-deploy help all builder rootfs rootfs-base checksums nfs-root usb-root usb-root-petitboot deploy listen shell clean gpu-deploy test test-slow ps3-reboot bench-push bench-pull bench-shots bench-ref bench-matrix \
+.PHONY: xcc-toolchain gamedb-catalog gamedb-app-pages walnut-rate-bench walnut-server walnut-site walnut-server-test public-push initrd-ssd initrd-walnut initrd-busybox publish du clean-ephemeral chroot packages ps3rsx-modules snd-ps3-ko netboot-deb spu-toolchain spu-tests spu-deploy help all builder rootfs rootfs-base checksums nfs-root usb-root usb-root-petitboot deploy listen shell clean gpu-deploy test test-slow ps3-reboot bench-push bench-pull bench-shots bench-ref bench-matrix \
 	classicube-audio game-data gdp-index gdp-manifest licensed-data game-debs game-deploy gamedb-integration
 
 help:
@@ -419,9 +419,11 @@ BENCH_GAME_FILES = $(wildcard $(foreach f,recipe.sh analysis.toml lib assets,gam
 # Each game's data packages with their edition and release, games/<id>/data.txt (tools/gamedb/build-info.py
 # bench-data, made under $(BUILD)/tmp/bench-data): the harness records the installed ones in versions.
 BENCH_DATA = $(BUILD)/tmp/bench-data
-BENCH_TAR = tar -c --exclude=__pycache__ --transform='s,^gamedb/games/\([^/]*\)/benchmark,bench/games/\1,' \
-	--transform='s,^gamedb/games/\([^/]*\)/rating/,bench/games/\1/rating/,' bench $(sort $(BENCH_GAME_FILES)) \
+# $(call bench_tar,PARTS OF bench/,MORE TAR OPTIONS): that tree on stdout
+bench_tar = tar -c --exclude=__pycache__ $(2) --transform='s,^gamedb/games/\([^/]*\)/benchmark,bench/games/\1,' \
+	--transform='s,^gamedb/games/\([^/]*\)/rating/,bench/games/\1/rating/,' $(3) $(1) $(sort $(BENCH_GAME_FILES)) \
 	-C $(BENCH_DATA) bench
+BENCH_TAR = $(call bench_tar,bench)
 bench-push:
 	$(call need,PS3_IP PS3_USER)
 	rm -rf $(BENCH_DATA); python3 -I tools/gamedb/build-info.py bench-data $(BENCH_DATA)/bench/games
@@ -557,6 +559,16 @@ gamedb-catalog:
 gamedb-app-pages: gamedb-catalog
 	python3 -I tools/gamedb/pack-app-pages.py
 walnut-games-src: gamedb-catalog gamedb-app-pages
+# walnut-rate ships the session harness (package.conf COPY_IN): the same tree as bench-push's without analysis/
+# and tests/, harness/, lib/ and games/<id>/ at the top (debian/rules unpacks it into /usr/lib/walnut-rate/bench),
+# root-owned, sorted, the files dated by the last commit
+walnut-rate-bench:
+	rm -rf $(BENCH_DATA); python3 -I tools/gamedb/build-info.py bench-data $(BENCH_DATA)/bench/games
+	mkdir -p $(BUILD)/walnut-rate
+	$(call bench_tar,bench/harness bench/lib,--sort=name --owner=0 --group=0 --numeric-owner \
+		--mtime=@$$(git log -1 --format=%ct),--transform='s|^bench/||' --transform='s|^bench$$|.|') > $(BUILD)/walnut-rate/bench.tar.part
+	mv $(BUILD)/walnut-rate/bench.tar.part $(BUILD)/walnut-rate/bench.tar
+walnut-rate-src: walnut-rate-bench
 # ps3-games ships the games' integration (ps3-games-integration: launchers, config files, divert and
 # migrate-home lists; package.conf COPY_IN): packed from gamedb first
 gamedb-integration:

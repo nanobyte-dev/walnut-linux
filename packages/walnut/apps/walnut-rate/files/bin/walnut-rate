@@ -1,0 +1,8 @@
+#!/usr/bin/python3 -I
+"""walnut-rate: played sessions on a Walnut PS3 (the walnut-rate package; the code: /usr/lib/walnut-rate/walnut_rate.py)."""
+import sys
+
+sys.path.insert(0, "/usr/lib/walnut-rate")
+import walnut_rate  # noqa: E402
+
+sys.exit(walnut_rate.main(sys.argv[1:]))

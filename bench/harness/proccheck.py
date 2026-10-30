@@ -17,7 +17,9 @@ RSS_MAX_KB = 20 * 1024
 
 def load_allowlist(path):
     allow, deny = [], []
-    for line in open(path, errors="replace"):
+    with open(path, errors="replace") as f:
+        lines = f.readlines()
+    for line in lines:
         line = line.split("#", 1)[0].strip()
         if not line:
             continue
@@ -31,7 +33,9 @@ def load_allowlist(path):
 
 def parse(path):
     rows = []
-    for n, line in enumerate(open(path, errors="replace")):
+    with open(path, errors="replace") as fh:
+        lines = fh.readlines()
+    for n, line in enumerate(lines):
         if n == 0 and line.lstrip().startswith("PID"):
             continue
         f = line.split(None, 6)

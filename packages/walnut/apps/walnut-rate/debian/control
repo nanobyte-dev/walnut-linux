@@ -1,0 +1,27 @@
+Source: walnut-rate
+Section: games
+Priority: optional
+Maintainer: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Build-Depends: debhelper-compat (= 13), sudo
+Standards-Version: 4.7.2
+Rules-Requires-Root: no
+
+Package: walnut-rate
+Architecture: all
+# ps3-gpu-tools 0.1161: ps3-bench.sh's BENCH_ROOT_HELPER (a session's root reads through walnut-rate-helper);
+# ps3-desktop: ps3-game and the desktop the check expects; x11-utils: xprop (the windows), xwininfo (geom.py);
+# x11-apps: xwd (the screenshots); procps: pgrep; iproute2: the console's addresses for the export's scrub
+Depends: ${misc:Depends}, python3 (>= 3.11), sudo, ps3-gpu-tools (>= 0.1161), ps3-desktop, x11-utils, x11-apps, procps, iproute2
+# Walnut Games' catalog: walnut-rate list shows each game's medal and sessions from it
+Recommends: walnut-games
+Description: played sessions of the Walnut Games tests, for anyone with a Walnut PS3
+ walnut-rate runs the graded test of a game the way Walnut's own testers do: the game as the desktop menu
+ starts it, on fresh defaults, in game mode, recorded (frame times, sound dropouts, memory, temperatures,
+ screenshots, the input devices) while you play, then a short form. Before it starts it checks that the
+ console runs only the desktop and the terminal (no browser, no second game, no SSH login, nothing busy)
+ and it keeps watching during the session; a disturbed session is marked and can't be rated.
+ .
+ walnut-rate export writes a finished session to one file (a USB stick, for example), scrubbed of your
+ user name, host name and addresses, after showing what is in it. The root reads a session needs (the
+ kernel log, the RSX memory census) go through walnut-rate-helper (sudoers: group sudo, no password), which
+ knows four fixed actions and only reads.

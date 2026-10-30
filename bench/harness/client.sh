@@ -886,6 +886,12 @@ if [ "$SESSION" = 1 ] && [ "${BENCH_INPUTLOG:-1}" = 1 ] && command -v python3 > 
 	nice -n 19 python3 -I "$here/inputlog.py" "$t0" "$gp" "$D/.mark-req" > "$D/input.tsv" 2> "$D/input.err" &
 	[ -n "$SHOT_DIR" ] && declare -F mark_watch > /dev/null && { mark_watch > /dev/null 2>&1 & helpers+=($!); }
 fi
+# the clean-system watcher of a played session (BENCH_WATCH=1: walnut-rate play; cleancheck.py watch, at nice 19):
+# every WATCH_EVERY s (10) the windows, the SSH logins and the processes outside the harness and the game, by
+# allowed-processes.txt's rules; each thing it sees is a line of watch.log and makes the run interfered=1 (below)
+if [ "$SESSION" = 1 ] && [ "${BENCH_WATCH:-0}" = 1 ] && command -v python3 > /dev/null; then
+	nice -n 19 python3 -I "$here/cleancheck.py" watch $$ "$t0" > "$D/watch.log" 2> "$D/watch.err" & helpers+=($!)
+fi
 # At SOUND_AT (before the warm-up ends: outside the window) also the game's window and the screen
 # (geom.py, as after a screenshot, at nice 19) unless BENCH_GEOM=0: bench.txt's geom=WxH+X+Y fs=0|1
 # screen=WxH (fs=1: fullscreen or covering the screen), the row in $D/geometry.tsv, so a run that came up
@@ -1196,9 +1202,17 @@ if [ "${BENCH_PROCS:-1}" = 1 ] && command -v python3 > /dev/null && [ -s "$D/pro
 		sed 1d "$D/processes-check.txt" | sed 's/^/!!   /'
 	else PROCS=ok; fi
 fi
+# the watcher's verdict (BENCH_WATCH=1): what it saw, the run interfered (report.py's intf, import-run.py refuses it)
+WATCH_SUM=
+[ -e "$D/watch.log" ] && WATCH_SUM=$(awk -F'\t' '!/^#/ && NF >= 3 { s = s (s ? "; " : "") $2 ": " $3 } END { print s }' "$D/watch.log")
+[ -n "$WATCH_SUM" ] && echo "!! THE SESSION WAS DISTURBED: $WATCH_SUM (watch.log). IT DOESN'T COUNT"
 { echo "game=$GAME"; echo "recipe=$GAME"; echo "variant=$VARIANT"; echo "comm=$COMM"
   echo "ended=$ended"; echo "rc=$rc"; echo "seconds=$t_run"
   echo "procs=$PROCS"; [ -n "$UNEXPECTED" ] && echo "unexpected=$UNEXPECTED"
+  if [ -e "$D/watch.log" ]; then
+	echo "watch=on"
+	if [ -n "$WATCH_SUM" ]; then echo "interfered=1"; echo "interference=watch: $WATCH_SUM"; else echo "interfered=0"; fi
+  fi
   echo "fps=$($pick "$FPS_RE")"; echo "maxms=$($pick "$MAXMS_RE")"; echo "load=$load"
   # steady state: settings, the load's end and the HUD's first value (s from the start), the window
   echo "warmup=$WARMUP"; echo "measure=$MEASURE"; echo "load_end=${load_end:-}"; echo "hud_t1=${hud_t1:-}"

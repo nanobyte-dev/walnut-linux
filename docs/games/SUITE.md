@@ -24,6 +24,7 @@ run.sh's summary, perf-post.sh's profiles), `tests/` checks all of it without th
 | `harness/games.sh`, `games.py` | where a game's recipe is: `gamedb/games/<id>/benchmark/` here, `games/<id>/` in the PS3's copy; old recipe names (below) |
 | `harness/playdef.py`, `gamedata.py` | a game's data: its played test (`rating/test.toml`) as shell assignments for session.sh and client.sh; its analysis rules (`benchmark/analysis.toml`) for report.py, logscan.py, matrix.py and interference-scan.py |
 | `harness/proccheck.py`, `allowed-processes.txt` | the process check of every run: what may run beside a benchmark ("Process check" below) |
+| `harness/cleancheck.py` | the clean-system check before a played session (`walnut-rate check`) and the watch during one (`BENCH_WATCH=1`): windows, SSH logins, busy or unexpected processes ([below](#played-sessions)) |
 | `harness/xruns.py`, `launcher.py` | the audible dropouts of a run's sound (`ps3-xrunlog`'s log); a game's menu launchers, for session.sh |
 | `harness/perf-post.sh`; `analysis/perfprof.py`, `memprof.py`, `loadprof.py` | the CPU profile of the window, the memory snapshots, the start-up profile |
 | `harness/ssd-arm.sh` | the SSD arms `GAMEDATA=ssd`, `SWAP=ssd` ([GAMEOS-HDD.md](../GAMEOS-HDD.md)) |
@@ -255,11 +256,55 @@ The graded test of [GAMEDB.md](../GAMEDB.md#how-a-game-is-tested): a person play
 about ten minutes, started the way the desktop menu starts it. Smoke and bench runs stop the
 desktop, empty the swaps and switch vsync off; a session does none of that.
 
-**Start one** on the PS3, from a terminal of the desktop (over SSH works too: one command, then hands off):
+**Start one** on the PS3, from a terminal of the desktop, with `walnut-rate` (the package of the same name:
+anyone with a Walnut PS3 can run one, and ours run through it too):
 
 ```
-/var/tmp/bench/harness/session.sh GAME [LAUNCHER]   # or: /var/tmp/bench/harness/run.sh session GAME ...
+walnut-rate list                    # the games with a played test: installed, medal, sessions so far
+walnut-rate check [--close]         # is the console clean? names what to close
+walnut-rate play GAME [LAUNCHER]    # the check, the session, the form on the terminal, a summary
+walnut-rate export RUN DIR          # the session as DIR/<run>.tar (a USB stick), after showing what is in it
+walnut-rate status                  # the sessions on this console: play time, form, disturbed, exported
 ```
+
+Our PC-driven flow is unchanged: `make bench-push` puts the same harness in `/var/tmp/bench`, and
+`/var/tmp/bench/harness/session.sh GAME [LAUNCHER]` (or `run.sh session GAME ...`, or `tools/play-test.sh`
+below) starts a session the old way, over SSH too (one command, then hands off), without the check and the watch.
+
+**walnut-rate** (`packages/walnut/apps/walnut-rate`) installs the harness at `/usr/lib/walnut-rate/bench`, the
+same files `make bench-push` copies (`harness/`, `lib/`, every game's recipe, played test and `data.txt`; built
+from the repository by `make walnut-rate-bench`, no second copy). `play` runs `session.sh` with:
+
+- `BENCH_ROOT_HELPER=/usr/lib/walnut-rate/walnut-rate-helper`: ps3-bench.sh's session mode then uses no sudo of its
+  own. A session reads three things as root, all through that helper (sudoers: group sudo, no password, its path
+  only; `python3 -I`, a fixed argv of four actions, read-only, its output only to its own stdout): the kernel log
+  (`dmesg-follow`: dmesg -W, for dmesg.log and the thermal watchdog), the RSX memory census for the samples
+  (`mm-follow`: one census for each line the sampler sends) and for the snapshots (`mm`). The sampler runs as the
+  player; the stall recorder, perf and the wakers (their own sudo) stay off in this mode.
+- `BENCH_WATCH=1`: the watch below. `SESSION_FORM=0` and `SESSION_RUN_FILE`: walnut-rate asks the form itself, on
+  the terminal (`session-form.py --terminal`, no Tk), once the desktop is back, writes the check's record into
+  the run (`clean-check.txt`) and prints a summary (play time, how it ended, screenshots, dropouts, disturbed or
+  not). The player's own `BENCH_*`/`SESSION_*` variables are dropped.
+
+**The clean-system check** (`harness/cleancheck.py`, before every `walnut-rate play`; `walnut-rate check` alone):
+refuses, naming each thing, while any of these is true. Processes: allowed-processes.txt's rules (a name on its
+`!` list however idle; anything off the list over 2% CPU or 20 MB), plus any process outside the harness that used
+more than 20% of a CPU over a 1.5 s sample. Windows: every client in `_NET_CLIENT_LIST` (xprop) except the desktop's
+furniture (desktop, dock and notification types: PCManFM's desktop, tint2) and the terminal running walnut-rate
+(the nearest ancestor with a window); a window is named by its class, never its title ("close Firefox-esr (pid 950,
+302 MB)"). An SSH login (one's own is only a warning). Swap in use over 256 MB, the load average over 2.0, a
+temperature over 70 C, less than 820 MB free for the run, another session or bench run, game mode on, no desktop,
+running as root, the harness or the helper missing. `--close` asks: a window gets WM_DELETE_WINDOW (what its close
+button sends), a program of the player's that isn't on the list SIGTERM once its window had the chance; never
+SIGKILL, never a process on the list; then it looks again. The thresholds are a first guess, checked on the PS3
+(TESTS.md).
+
+**The watch** (`cleancheck.py watch`, started by client.sh at nice 19 when `BENCH_WATCH=1`): every 10 s
+(`WATCH_EVERY`) the same rules on the windows, the processes and the SSH logins, with the game's descendants and
+ps3-game.slice exempt; a login that was there at the start doesn't count. Each thing it sees is a line of
+`watch.log`; any line makes bench.txt `interfered=1` with `interference=watch: <what>` (`watch=on`, and
+`interfered=0` when clean), so report.py counts the run as disturbed and import-run.py refuses it, like any
+interfered run. A window that names no process is a note only.
 
 **Play it on the PC alongside.** `tools/play-pc.sh GAME [LAUNCHER]` starts the same game and launcher on
 the PC, from Debian at the PS3's snapshot (the game's Walnut Games `packages`), in a container on the
@@ -337,7 +382,8 @@ desktop's window manager), recorded by `ps3-bench.sh session` with `client.sh` (
 | the player's answers | `session.toml` |
 
 The thermal watchdog and the 80 C limit still stop the game; the interference detector and the
-bench screen are off (the player's input is the point).
+bench screen are off (the player's input is the point); under walnut-rate the watch looks for other programs
+instead (above).
 
 `bench.txt` has the usual fields plus `kind=session`, `play_from` (`mark`, `load` or `start`),
 `play_start`, `play_seconds`, `vsync=shipped`, `gamemode=1`. The play starts at the test's
@@ -390,7 +436,19 @@ Optional lines: `check: <item> yes|partly|no|na` for an item the reviewer could 
 ([GAMEDB.md](../GAMEDB.md#how-a-game-is-rated)).
 
 **Collect** with `make bench-pull` (the screenshots become PNGs); the run directory is
-`/var/tmp/ps3-bench/<stamp>-session-GAME-VARIANT/`, and `tools/gamedb/import-run.py` reads it.
+`/var/tmp/ps3-bench/ps3-bench-<stamp>-session-GAME-VARIANT/`, and `tools/gamedb/import-run.py` reads it.
+A tester's session comes as `walnut-rate export`'s file instead: `tar -xf <run>.tar -C build/bench` gives the same
+run directory (bench.txt, versions, hud/, samples, temps, dmesg.log, game.log, out.log, input.tsv, xruns.*, the
+snapshots, shots/geometry.tsv, fresh-home/'s small text files, session.toml, the screenshots as PNG: converted on
+the PS3 from xwd, stdlib only), plus `clean-check.txt`, `watch.log`, `processes-check.txt` and `submitter.toml` (a
+nickname or nothing, an optional contact that is never published, the tester's yes or no to publishing; the
+importer doesn't read them yet). Every text file is scrubbed on the PS3 before it is written, with
+`tools/gamedb/evidence.py`'s own scrub (packaged as `/usr/lib/walnut-rate/evidence.py`) fed the console's identity:
+the player's login and full name, the host name, every address `ip addr` lists, plus the generic MAC, LAN and
+`/home/<user>` patterns; a name that is a word of the logs themselves (bench.txt's keys, package names, `walnut`,
+`ps3`, `game`) is left as it is and said so. What the scrub left (evidence.py's leftovers) stops the export; the
+tar's members are root-owned without names. The file list with sizes comes first, then the question. `walnut-rate
+submit` only says that sending isn't there yet.
 
 **What is kept.** build/bench is ephemeral; the import keeps the session's evidence in gamedb
 (`rating/sessions/<run>/`, [gamedb/README.md](../../gamedb/README.md#gamesrating)), enough to derive the

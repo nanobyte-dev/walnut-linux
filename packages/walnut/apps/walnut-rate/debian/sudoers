@@ -1,0 +1,2 @@
+# walnut-rate: a played session's root reads (the kernel log, the RSX memory census), one helper with a fixed set of actions
+%sudo ALL=(root) NOPASSWD: /usr/lib/walnut-rate/walnut-rate-helper

@@ -31,6 +31,7 @@
 #   SESSION_DRY=1                print what would run (the launcher and its command included)
 #   SESSION_LAUNCHER_ARGS=...    extra launcher.py options (--apps, --runtime-dir, --dpkg: tests)
 #   SESSION_SCOPE=0              don't move into ps3-game.slice (no user service manager, tests)
+#   SESSION_RUN_FILE=FILE        the run directory's path written into FILE once the game is over (walnut-rate)
 #   PS3_BENCH=CMD                the harness (default ps3-bench.sh; needs ps3-gpu-tools with `session`)
 # No commands on the PS3 during a session (SSH logins and benchmarks are interference for what is
 # measured); collect afterwards with make bench-pull.
@@ -192,6 +193,7 @@ rc=${PIPESTATUS[0]}
 d=$(sed -n 's/^>> \(\/[^ ]*\)$/\1/p' "$tmp" | tail -1)
 rm -f "$tmp"
 if [ -z "$d" ] || [ ! -d "$d" ]; then echo "session: no run directory (ps3-bench.sh rc $rc)"; exit 1; fi
+[ -n "${SESSION_RUN_FILE:-}" ] && echo "$d" > "$SESSION_RUN_FILE"
 versions > "$d/versions"
 # the screenshots from the disk into the run directory (client.sh wrote them beside it)
 [ -d "$OUT/.shots-${d##*/}" ] && mv "$OUT/.shots-${d##*/}" "$d/shots"
