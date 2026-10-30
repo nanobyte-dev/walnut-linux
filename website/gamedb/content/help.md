@@ -1,8 +1,8 @@
 +++
 title = "How to help"
 summary = "Play a game on your Walnut PS3 with walnut-rate and send us the session: how it works, what is sent, and how you are credited."
-# a draft until walnut-rate's receiver is live on walnut.nanobyte.dev (PLAN 5.12): Hugo leaves drafts out of the
-# site, and no menu links here yet. The transport, the credit and the weight below are provisional.
+# a draft until the user decides to show it (PLAN 5.12): Hugo leaves drafts out of the site, and no menu links here
+# yet. Sessions arrive as GitHub pull requests (the user, 2026-10-30).
 draft = true
 +++
 
@@ -37,14 +37,40 @@ and music, did anything look wrong, how did the gamepad work. It takes under a m
 
 ## Sending it
 
+A session reaches us as a pull request on GitHub, to
+[nanobyte-dev/walnut-linux](https://github.com/nanobyte-dev/walnut-linux). You need a GitHub account; the
+pull request adds one folder, `submissions/<game>/<id>/`, and nothing else. Two ways to make it:
+
+**From the console, with gh** (GitHub's command line, if your console has it; Debian doesn't build it for the
+PS3 yet). Log in once with `gh auth login`, then:
+
 ```
 walnut-rate submit             # shows what will be sent and its size, then asks
 ```
 
-It asks for a nickname (or nothing, to stay anonymous), a way to reach you (optional, never published),
-and whether we may publish the session. Then it lists every file and its size, and sends only when you
-say yes. The answer is a submission id; `walnut-rate status` shows it again later. Without a network,
-`walnut-rate export last /media/usb` writes the same file to a USB stick.
+It asks for a nickname (or nothing: the site then says "a tester") and whether we may publish the session.
+It lists every file and its size, and only on your yes it makes a fork of the repository under your account,
+commits the folder there and opens the pull request. `walnut-rate status` shows its link later.
+
+**From a PC, with a USB stick.** Without gh, `walnut-rate submit` prints these same steps:
+
+```
+walnut-rate export last /media/$USER/STICK
+```
+
+writes the folder to the stick, as `submissions/<game>/<id>/`. On a PC, sign in to GitHub, open
+nanobyte-dev/walnut-linux and press **Fork**. In your fork, choose **Add file**, then **Upload files**, and drag
+the stick's `submissions` folder onto the page: GitHub keeps the folders. Pick "Create a new branch", then
+**Propose changes** and **Create pull request**. If you use gh or git on the PC instead, copy the `submissions`
+folder into a clone of your fork, commit it on a new branch, push, and run `gh pr create`.
+
+A check runs on the pull request within a few minutes (the first time, after we approve it to run). It
+looks only at the folder: the file names and sizes, that the screenshots are pictures, that your consent is
+there and that no user name, host name or address was left in. If it fails, its log says why.
+
+**A pull request is public.** Anyone can read its files on GitHub (the logs, your answers, the screenshots),
+your GitHub account name shows on it, and GitHub keeps the files even after we close it. That is why there is
+no contact field: we answer on the pull request.
 
 ## What is sent
 
@@ -58,5 +84,7 @@ replaced in every text file, and the tool stops if anything of them is left.
 
 Every session is looked at by us before it counts: the screenshots next to the same game on a PC, the
 numbers, your answers. A session we accept is published on the game's Test runs tab, credited to your
-nickname (or "a tester"), and counts in the game's rating like one of our own. A disturbed session (the
+nickname (or "a tester"), and counts in the game's rating like one of our own. We say so on your pull
+request and close it; we never merge it, so the raw files don't end up in the repository. A session we can't
+use gets a comment with the reason, and the pull request is closed too. A disturbed session (the
 check saw another program start while you played) can't be rated, but it can still show us a problem.

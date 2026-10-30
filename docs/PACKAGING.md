@@ -247,7 +247,8 @@ walnut-rate-bench`, which packs the same tree `make bench-push` sends to the PS3
 `tests/` (`bench/harness`, `bench/lib`, each game's benchmark recipe, `analysis.toml`, `lib/` and `assets/`, its
 played test and the `data.txt` that `tools/gamedb/build-info.py bench-data` makes from the build.toml files) into
 `build/walnut-rate/bench.tar` (root-owned, sorted, dated by the last commit), and `COPY_IN` takes it and
-`tools/gamedb/evidence.py` (the export's scrub) in; debian/rules unpacks them into `/usr/lib/walnut-rate/`. Its
+`tools/gamedb/evidence.py` (the export's scrub) and `tools/gamedb/submission_check.py` (the pull request's check, run on
+the folder before it leaves) in; debian/rules unpacks them into `/usr/lib/walnut-rate/`. Its
 `VERSION_PATHS` name those sources, so a harness fix or a new game's test makes a new walnut-rate. It needs
 ps3-gpu-tools with ps3-bench.sh's `BENCH_ROOT_HELPER` mode (Depends with a version), and installs
 `/etc/sudoers.d/walnut-rate` (group sudo, no password, the helper's path only; `visudo -cf` at build and in

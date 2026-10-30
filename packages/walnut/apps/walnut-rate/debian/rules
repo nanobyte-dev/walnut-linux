@@ -16,6 +16,9 @@ override_dh_auto_install:
 	install -D -m 440 debian/sudoers $(P)/etc/sudoers.d/walnut-rate
 	# the scrub's patterns (tools/gamedb/evidence.py, COPY_IN): the same code the PC's import runs
 	install -D -m 644 built/evidence.py $(L)/evidence.py
+	# the submission's names, limits and check (tools/gamedb/submission_check.py, COPY_IN): the same code the pull
+	# request's workflow and the PC's review run
+	install -D -m 644 built/submission_check.py $(L)/submission_check.py
 	# the harness as make bench-push copies it to /var/tmp/bench (harness/, lib/, games/<id>/: COPY_IN, make
 	# walnut-rate-bench): root-owned, read-only for the player
 	install -d $(L)/bench

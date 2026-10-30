@@ -1,0 +1,42 @@
+# Checks a tester's played session sent as a pull request (walnut-rate submit, or the exported folder uploaded by
+# hand; docs/games/SUITE.md "Played sessions"): the pull request must add only one submissions/<game>/<id>/ folder
+# of a game with a played test, with the known file names and sizes, JPEG screenshots, no links, a well-formed
+# submitter.toml with the tester's consent, and nothing the scrub should have taken out (tools/gamedb/submission_check.py).
+# It runs on pull_request (never pull_request_target): no secrets, a read-only token it doesn't use. The checker
+# comes from the base branch; the pull request is fetched into an empty git directory and read as data (its merge
+# commit, nothing checked out, nothing of it run). It comments and labels nothing: it passes or fails, and
+# tools/gamedb/submissions.py runs the same check again on our PC before anything is imported. A first-time
+# contributor's run waits for a maintainer's "Approve and run" (GitHub's default for forks).
+name: "walnut: validate submission"
+
+on:
+  pull_request:
+    paths:
+      - "submissions/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validate-submission-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: The checker, from the base branch
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: base
+          persist-credentials: false
+          lfs: false
+          sparse-checkout: |
+            tools/gamedb
+      - name: The pull request's files, checked as data
+        env:
+          URL: ${{ github.server_url }}/${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: python3 -I base/tools/gamedb/submission_check.py pr "$URL" "$PR" "$RUNNER_TEMP/pr"

@@ -1,58 +1,47 @@
 #!/usr/bin/env python3
-"""submissions.py pull|list|show|accept|reject: testers' sessions (`walnut-rate submit`) from walnut.nanobyte.dev's
-quarantine into gamedb, each one accepted or rejected by the maintainer first (docs/GAMEDB.md "How a game is tested",
-docs/games/SUITE.md "Played sessions"). Provisional, PLAN 5.12: the transport, the credit and the weight are the plan's
-recommended answers, the user hasn't settled them.
+"""submissions.py list|show|accept|reject: testers' played sessions, sent as GitHub pull requests to
+nanobyte-dev/walnut-linux (`walnut-rate submit`, or the exported folder uploaded by hand), into gamedb, each one
+reviewed and accepted or rejected by the maintainer first (docs/GAMEDB.md "How a game is tested", docs/games/SUITE.md
+"Played sessions"). Decided by the user, 2026-10-30: pull requests rather than a receiver of ours, an optional
+nickname for the credit, an accepted session counting like ours (catalog.py SUBMITTED_COUNTS).
 
-  pull [--from SRC]       fetch the bundles the receiver kept (servers/walnut.nanobyte.dev/rate/walnut-rate-receiver)
-                          that aren't here yet: SRC is HOST:DIR over ssh (default WALNUT_HOST from config.local.mk
-                          and REMOTE_DIR) or a local directory; each one checked again here (the receiver's own
-                          check_bundle and its sha256), then the server's copies of the ones already decided removed
-  list                    what is here: id, game, nickname, publish yes/no, size, state (new, unpacked, reviewed:
-                          its REVIEW.md written, accepted, rejected)
-  show ID                 the bundle's files, the submitter's answers (the contact too: for us only), and the run
-                          unpacked into build/bench/<run>/ for the review, with the next steps
-  accept ID [--session NAME] [--launcher NAME] [--content DIR]
-                          import-run.py on the unpacked run once it has its REVIEW.md (tools/gamedb/review.py, by the
-                          importing agent as for ours): result.toml gets source = "submitted" and the tester's nickname
-                          (none: anonymous), raw/import.toml the submission id; refused when the tester said no to
-                          publishing. Then the server's copy goes
-  reject ID [--why TEXT]  never imported; the server's copy goes, the local one moves to rejected/
+  list                    the open pull requests that add a submission: number, author, game and id, files, and
+                          what their check (.github/workflows/validate-submission.yml) said
+  show PR                 the pull request's merge commit fetched into build/tmp/submissions/pr-<N>/git (git, depth 2,
+                          nothing checked out), checked by tools/gamedb/submission_check.py (the workflow's check),
+                          and written out as the run directory build/tmp/submissions/pr-<N>/<run>/ for the review;
+                          the submitter's answers and the next steps
+  accept PR [--yes] [--session NAME] [--launcher NAME] [--content DIR]
+                          fetched and checked again (refused when it changed since show), then import-run.py on the
+                          run once it has its REVIEW.md (tools/gamedb/review.py, by the importing agent as for ours):
+                          result.toml gets source = "submitted" and the tester's nickname (none: the site says "a
+                          tester"), raw/import.toml the pull request; the session folder (only it) committed with the
+                          pull request's number in the message; then, asked first, a comment on the pull request and
+                          it is closed. Never merged: the raw files of a bundle don't go into main
+  reject PR REASON [--yes] the reason as a comment and the pull request closed, asked first
 
-Nothing in a bundle is run; it is unpacked only after the format check, with tarfile's "data" filter. The local store
-(WALNUT_SUBMISSIONS, default build/submissions/) holds inbox/<id>.tar and <id>.json, rejected/, and decisions.tsv
-(id, accepted|rejected, when, where it went or why, removed: the server's copy is gone). The server keeps every
-bundle until it is decided, so the store can be pulled again. stdlib only (plus rsync and ssh for pull).
+Nothing in a pull request is run or checked out; the run directory is written from the checked blobs. gh (logged
+in) for GitHub's API; git for the fetch. WALNUT_SUBMISSIONS_REPO (default submission_check.REPO), WALNUT_SUBMISSIONS_GIT
+(the URL fetched, default https://github.com/<repo>) and WALNUT_SUBMISSIONS_DIR (default build/tmp/submissions)
+point it elsewhere (the tests).
 """
 import argparse
-import datetime
-import hashlib
-import importlib.machinery
 import importlib.util
 import json
 import os
+import re
+import shutil
 import subprocess
 import sys
-import tarfile
-import tempfile
+import tomllib
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent.parent
-RECEIVER = REPO / "servers" / "walnut.nanobyte.dev" / "rate" / "walnut-rate-receiver"
-REMOTE_DIR = "/data/nanobyte/Walnut/submissions"
-MARK = "submission.txt"          # in an unpacked run: the id it came from
+sys.path.insert(0, str(HERE))
+import submission_check as sc  # noqa: E402
 
-
-def receiver():
-    loader = importlib.machinery.SourceFileLoader("walnut_rate_receiver", str(RECEIVER))
-    spec = importlib.util.spec_from_loader(loader.name, loader)
-    m = importlib.util.module_from_spec(spec)
-    loader.exec_module(m)
-    return m
-
-
-RX = receiver()
+HEAD = "head"            # in build/tmp/submissions/pr-<N>/: the pull request's head commit the run was written from
 
 
 def import_run_module():
@@ -62,315 +51,277 @@ def import_run_module():
     return m
 
 
-def store():
-    s = Path(os.environ.get("WALNUT_SUBMISSIONS") or REPO / "build" / "submissions")
-    for d in ("inbox", "rejected"):
-        (s / d).mkdir(parents=True, exist_ok=True)
-    return s
+def repo():
+    r = os.environ.get("WALNUT_SUBMISSIONS_REPO") or sc.REPO
+    if not re.fullmatch(r"[A-Za-z0-9-]{1,39}/[A-Za-z0-9._-]{1,100}", r):
+        raise SystemExit("!! WALNUT_SUBMISSIONS_REPO=%r: OWNER/NAME" % r)
+    return r
 
 
-def bench_dir():
-    return Path(os.environ.get("WALNUT_SUBMISSIONS_BENCH") or REPO / "build" / "bench")
+def git_url():
+    return os.environ.get("WALNUT_SUBMISSIONS_GIT") or "https://github.com/%s" % repo()
 
 
-def stamp():
-    return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+def work(n):
+    return Path(os.environ.get("WALNUT_SUBMISSIONS_DIR") or REPO / "build" / "tmp" / "submissions") / ("pr-%d" % n)
 
 
-# ---- decisions -------------------------------------------------------------------------------------
+# ---- GitHub through gh -----------------------------------------------------------------------------
 
-def decisions(s):
-    """{id: {state, when, what, removed}} of decisions.tsv (the last line of an id wins)"""
-    out = {}
-    f = s / "decisions.tsv"
-    for line in f.read_text().splitlines() if f.exists() else []:
-        p = line.split("\t")
-        if len(p) >= 4 and RX.ID_RE.match(p[0]):
-            if p[1] == "removed":
-                if p[0] in out:
-                    out[p[0]]["removed"] = True
-                continue
-            out[p[0]] = {"state": p[1], "when": p[2], "what": p[3], "removed": False}
-    return out
-
-
-def decide(s, sid, state, what):
-    with open(s / "decisions.tsv", "a") as f:
-        f.write("%s\t%s\t%s\t%s\n" % (sid, state, stamp(), " ".join(str(what).split())))
-
-
-# ---- the source: HOST:DIR over ssh, or a local directory ---------------------------------------------
-
-def default_source():
-    v = os.environ.get("WALNUT_SUBMISSIONS_FROM")
-    if v:
-        return v
-    p = subprocess.run([str(REPO / "tools" / "config-get.sh"), "WALNUT_HOST"], capture_output=True, text=True)
-    host = p.stdout.strip()
-    if p.returncode or not host:
-        raise SystemExit("!! no WALNUT_HOST (config.local.mk), and no --from")
-    return "%s:%s" % (host, REMOTE_DIR)
-
-
-def split_source(src):
-    """(host or None, directory)"""
-    if Path(src).is_dir():
-        return None, str(Path(src))
-    host, sep, d = src.partition(":")
-    if not sep or not host or not d.startswith("/") or host.startswith("-"):
-        raise SystemExit("!! --from %s: HOST:/DIR or a local directory" % src)
-    return host, d
-
-
-SSH = ["ssh", "-o", "BatchMode=yes"]
-
-
-def remote_names(src):
-    host, d = split_source(src)
-    if host is None:
-        return sorted(os.listdir(d))
-    p = subprocess.run(SSH + [host, "ls", "-1", "--", d], capture_output=True, text=True, timeout=120)
+def gh(args, body=None):
+    if not shutil.which("gh"):
+        raise SystemExit("!! gh (GitHub's command line) isn't installed")
+    p = subprocess.run(["gh"] + args, input=json.dumps(body) if body is not None else None, capture_output=True,
+                       text=True, timeout=300)
     if p.returncode:
-        raise SystemExit("!! ssh %s ls %s: %s" % (host, d, p.stderr.strip()[-300:]))
-    return sorted(p.stdout.split())
+        raise SystemExit("!! gh %s: %s" % (" ".join(args[:4]), (p.stderr or p.stdout).strip()[-400:]))
+    return json.loads(p.stdout) if p.stdout.strip() else None
 
 
-def fetch(src, names, dest):
-    """the named files of the source into dest (rsync, times kept, never a link followed)"""
-    host, d = split_source(src)
-    base = (d if host is None else "%s:%s" % (host, d)).rstrip("/") + "/"
-    cmd = ["rsync", "-t", "--files-from=-", "--no-links", "--chmod=F644"]
-    if host is not None:
-        cmd += ["-e", " ".join(SSH)]
-    p = subprocess.run(cmd + [base, str(dest) + "/"], input="".join(n + "\n" for n in names), text=True,
-                       capture_output=True, timeout=3600)
-    if p.returncode:
-        raise SystemExit("!! rsync from %s: %s" % (base, p.stderr.strip()[-300:]))
+def api(method, path, body=None):
+    return gh(["api", "-X", method, "-H", "Accept: application/vnd.github+json", path]
+              + (["--input", "-"] if body is not None else []), body)
 
 
-def remove_remote(src, sid):
-    """the server's copy of sid removed; True when it is gone"""
-    if not RX.ID_RE.match(sid):
-        return False
-    host, d = split_source(src)
-    files = ["%s/%s.tar" % (d, sid), "%s/%s.json" % (d, sid)]
-    if host is None:
-        for f in files:
-            Path(f).unlink(missing_ok=True)
+def pull(n):
+    return api("GET", "repos/%s/pulls/%d" % (repo(), n))
+
+
+def check_state(sha):
+    """what validate-submission said about commit sha: success, failure, pending, or - (no run)"""
+    try:
+        runs = api("GET", "repos/%s/commits/%s/check-runs?per_page=100" % (repo(), sha)) or {}
+    except SystemExit:
+        return "?"
+    for r in runs.get("check_runs", []):
+        if r.get("name") in ("validate", "validate-submission"):
+            return r.get("conclusion") or r.get("status") or "pending"
+    return "-"
+
+
+def ask(prompt, yes):
+    if yes:
         return True
-    p = subprocess.run(SSH + [host, "rm", "-f", "--"] + files, capture_output=True, text=True, timeout=120)
-    if p.returncode:
-        print("!! couldn't remove %s on %s (%s): the next pull tries again" % (sid, host, p.stderr.strip()[-200:]))
-    return p.returncode == 0
+    if not sys.stdin.isatty():
+        print("(not a terminal: --yes to do it without asking)")
+        return False
+    try:
+        return input(prompt).strip().lower() in ("y", "yes")
+    except EOFError:
+        return False
 
 
-# ---- the bundles here ------------------------------------------------------------------------------
+# ---- fetch and check -------------------------------------------------------------------------------
 
-def verify(tar, meta):
-    """the receiver's check again, and the sha256 the receiver recorded; the check's info, or raises RX.Refused"""
-    data = Path(tar).read_bytes()
-    if hashlib.sha256(data).hexdigest() != meta.get("sha256"):
-        raise RX.Refused("its sha256 isn't the one the receiver recorded")
-    info = RX.check_bundle(data)
-    if info["run"] != meta.get("run"):
-        raise RX.Refused("the run isn't the one the receiver recorded")
-    return info
-
-
-def load(s, sid):
-    """(tar, meta) of a bundle here, or SystemExit"""
-    if not RX.ID_RE.match(sid):
-        raise SystemExit("!! %r is not a submission id (submissions.py list)" % sid[:80])
-    tar, js = s / "inbox" / (sid + ".tar"), s / "inbox" / (sid + ".json")
-    if not tar.is_file() or not js.is_file():
-        raise SystemExit("!! %s is not here (submissions.py pull, then list)" % sid)
-    return tar, json.loads(js.read_text())
-
-
-def submitter_of(tar, run):
-    import tomllib
-    with tarfile.open(tar, "r:") as t:
-        return tomllib.loads(t.extractfile("%s/%s" % (run, RX.SUBMITTER)).read().decode())
-
-
-def unpack(s, sid, tar, meta):
-    """the run unpacked into build/bench/<run>/ (once), marked with its id; its path"""
-    info = verify(tar, meta)
-    run = bench_dir() / info["run"]
-    if run.exists():
-        mark = run / MARK
-        if not mark.is_file() or mark.read_text().strip() != sid:
-            raise SystemExit("!! %s exists and isn't submission %s: move it away first" % (run, sid))
-        return run
-    bench_dir().mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix=".submission-", dir=bench_dir()) as tmp:
-        with tarfile.open(tar, "r:") as t:
-            t.extractall(tmp, filter="data")
-        (Path(tmp) / info["run"] / MARK).write_text(sid + "\n")
-        os.rename(Path(tmp) / info["run"], run)
-    return run
+def fetch_checked(n):
+    """(pull request, info, {path: bytes}): the pull request open, its merge commit fetched anew and checked; the
+    merge commit's second parent must be the pull request's head as GitHub has it now"""
+    pr = pull(n)
+    if pr.get("state") != "open":
+        raise SystemExit("!! #%d is %s" % (n, pr.get("state")))
+    w = work(n)
+    gd = w / "git"
+    shutil.rmtree(gd, ignore_errors=True)
+    w.mkdir(parents=True, exist_ok=True)
+    try:
+        sc.fetch_pr(git_url(), n, gd)
+        head = sc.git(gd, "rev-parse", "refs/pr^2").strip()
+    except (RuntimeError, ValueError) as e:
+        raise SystemExit("!! #%d: %s (GitHub has no merge commit for a pull request that conflicts)" % (n, e))
+    if head != pr["head"]["sha"]:
+        raise SystemExit("!! #%d: the merge commit isn't of its head %s yet (GitHub is still making it): try again"
+                         % (n, pr["head"]["sha"][:12]))
+    try:
+        info, files = sc.check_tree(gd)
+    except sc.Refused as e:
+        print("!! #%d doesn't pass the submission check:" % n)
+        for r in e.reasons:
+            print("   " + r)
+        raise SystemExit(1)
+    return pr, info, files
 
 
-def state_of(s, sid, meta, dec):
-    if sid in dec:
-        return dec[sid]["state"]
-    run = bench_dir() / str(meta.get("run", ""))
-    if (run / MARK).is_file() and (run / MARK).read_text().strip() == sid:
-        return "reviewed" if (run / "REVIEW.md").is_file() else "unpacked"
-    return "new"
+def write_run(n, info, files, head):
+    """the run directory build/tmp/submissions/pr-<N>/<run>/ from the checked files (once per head: a review made
+    on it stays; a new head writes it again without the old review)"""
+    w = work(n)
+    run = w / info["run"]
+    mark = w / HEAD
+    if run.is_dir() and mark.is_file() and mark.read_text().strip() == head:
+        return run, False
+    for d in w.iterdir():
+        if d.is_dir() and sc.RUN_RE.match(d.name):
+            shutil.rmtree(d)
+    for rel, data in files.items():
+        p = run / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_bytes(data)
+    mark.write_text(head + "\n")
+    return run, True
+
+
+def rel(p):
+    return p.relative_to(REPO) if p.is_relative_to(REPO) else p
+
+
+def submitter(files):
+    return tomllib.loads(files[sc.SUBMITTER].decode())
+
+
+def next_steps(n, run, info):
+    print("next, as for our own sessions (docs/games/SUITE.md \"Played sessions\"): the PC reference if the game has "
+          "none (make bench-ref GAME=%s), then python3 tools/gamedb/review.py %s and its questions answered by "
+          "looking (REVIEW.md in the run); then submissions.py accept %d, or reject %d \"why\""
+          % (info["game"], rel(run), n, n))
 
 
 # ---- the commands ----------------------------------------------------------------------------------
 
-def cmd_pull(a):
-    s = store()
-    src = a.source or default_source()
-    names = set(remote_names(src))
-    dec = decisions(s)
-    ready = sorted(n[:-5] for n in names if n.endswith(".json") and RX.ID_RE.match(n[:-5]) and n[:-5] + ".tar" in names)
-    new = [i for i in ready if i not in dec and not (s / "inbox" / (i + ".json")).exists()]
-    got = bad = 0
-    if new:
-        with tempfile.TemporaryDirectory(prefix=".pull-", dir=s) as tmp:
-            fetch(src, [i + ext for i in new for ext in (".tar", ".json")], tmp)
-            for sid in new:
-                tar, js = Path(tmp) / (sid + ".tar"), Path(tmp) / (sid + ".json")
-                try:
-                    meta = json.loads(js.read_text())
-                    if meta.get("id") != sid:
-                        raise RX.Refused("its record names another id")
-                    info = verify(tar, meta)
-                except (OSError, ValueError, RX.Refused) as e:
-                    print("!! %s: %s; left on the server, not taken" % (sid, e))
-                    bad += 1
-                    continue
-                os.replace(tar, s / "inbox" / (sid + ".tar"))
-                os.replace(js, s / "inbox" / (sid + ".json"))
-                got += 1
-                print(">> %s: %s, %s, %s" % (sid, info["game"], info["nickname"] or "anonymous",
-                                            "publish yes" if info["publish"] else "publish NO"))
-    gone = 0
-    for sid, d in dec.items():
-        if not d["removed"] and (sid + ".tar" in names or sid + ".json" in names):
-            if remove_remote(src, sid):
-                decide(s, sid, "removed", "the server's copy")
-                gone += 1
-        elif not d["removed"]:
-            decide(s, sid, "removed", "not on the server any more")
-    print("pull: %d new, %d refused, %d waiting on the server in all, %d decided ones removed there"
-          % (got, bad, len(ready), gone))
-    return 1 if bad else 0
-
-
 def cmd_list(a):
-    s = store()
-    dec = decisions(s)
+    prs = api("GET", "repos/%s/pulls?state=open&per_page=100" % repo()) or []
     rows = []
-    for js in sorted((s / "inbox").glob("*.json")) + sorted((s / "rejected").glob("*.json")):
-        m = json.loads(js.read_text())
-        rows.append((m["id"], m.get("game", "?"), m.get("nickname") or "-", "yes" if m.get("publish") else "no",
-                     "%.1f MB" % (m.get("bytes", 0) / 1048576), state_of(s, m["id"], m, dec)))
+    for pr in prs:
+        files = api("GET", "repos/%s/pulls/%d/files?per_page=100" % (repo(), pr["number"])) or []
+        subs = sorted({"/".join(f["filename"].split("/")[1:3]) for f in files
+                       if f["filename"].startswith(sc.TOP + "/")})
+        if subs:
+            rows.append((pr["number"], pr["user"]["login"], ", ".join(subs), len(files), check_state(pr["head"]["sha"]),
+                         pr["title"]))
     if not rows:
-        print("no submissions here (submissions.py pull)")
+        print("no open pull requests with a submission (%s)" % repo())
         return 0
-    print("%-26s  %-16s  %-16s  %-7s  %-8s  %s" % ("ID", "GAME", "NICKNAME", "PUBLISH", "SIZE", "STATE"))
+    print("%-6s  %-16s  %-34s  %5s  %-8s  %s" % ("PR", "AUTHOR", "SUBMISSION", "FILES", "CHECK", "TITLE"))
     for r in rows:
-        print("%-26s  %-16s  %-16s  %-7s  %-8s  %s" % r)
+        print("#%-5d  %-16s  %-34s  %5d  %-8s  %s" % (r[0], r[1][:16], r[2][:34], r[3], r[4], r[5][:60]))
     return 0
 
 
 def cmd_show(a):
-    s = store()
-    tar, meta = load(s, a.id)
-    info = verify(tar, meta)
-    sub = submitter_of(tar, info["run"])
-    print("%s: %s, received %s, %d bytes, %d files" % (a.id, info["run"], meta.get("received"), meta["bytes"],
-                                                       info["files"]))
-    print("  nickname %r, publish %s, walnut-rate %s, contact (ours only): %s" % (
-        sub.get("nickname", ""), "yes" if sub.get("publish") else "no", sub.get("walnut_rate", "?"),
-        sub.get("contact") or "none"))
-    with tarfile.open(tar, "r:") as t:
-        for m in t.getmembers():
-            if m.isfile():
-                print("  %9d  %s" % (m.size, m.name))
-    run = unpack(s, a.id, tar, meta)
-    print("unpacked: %s" % (run.relative_to(REPO) if run.is_relative_to(REPO) else run))
-    next_steps(a.id, run, info)
+    pr, info, files = fetch_checked(a.pr)
+    run, fresh = write_run(a.pr, info, files, pr["head"]["sha"])
+    s = submitter(files)
+    print("#%d by %s: %s/%s/%s, %d files, %.1f MB, the check passes" % (a.pr, pr["user"]["login"], sc.TOP, info["game"],
+                                                                     info["id"], info["files"], info["bytes"] / 1048576))
+    print("  run %s, nickname %r, publish %s, walnut-rate %s, exported %s" % (
+        info["run"], s.get("nickname", ""), "yes" if s.get("publish") else "no", s.get("walnut_rate", "?"),
+        s.get("exported", "?")))
+    for r in sorted(files):
+        print("  %9d  %s" % (len(files[r]), r))
+    print("the run: %s%s" % (rel(run), "" if fresh else " (as reviewed: the pull request hasn't changed)"))
+    next_steps(a.pr, run, info)
     return 0
 
 
-def next_steps(sid, run, info):
-    rel = run.relative_to(REPO) if run.is_relative_to(REPO) else run
-    print("next, as for our own sessions (docs/games/SUITE.md \"Played sessions\"): the PC reference if the game has "
-          "none (make bench-ref GAME=%s), then python3 tools/gamedb/review.py %s and its questions answered by "
-          "looking; then submissions.py accept %s (or reject %s --why ...)" % (info["game"], rel, sid, sid))
+def session_folder(content, game, ref):
+    """the session folder import-run.py wrote for the submission ref (raw/import.toml submission)"""
+    for imp in sorted((Path(content) / game / "rating" / "sessions").glob("*/raw/import.toml")):
+        try:
+            if tomllib.loads(imp.read_text()).get("submission") == ref:
+                return imp.parent.parent
+        except (OSError, tomllib.TOMLDecodeError):
+            continue
+    return None
+
+
+def commit(folder, message):
+    """the session folder (only it) committed in the git repository that holds it; the commit's short id"""
+    top = Path(subprocess.run(["git", "-C", str(folder), "rev-parse", "--show-toplevel"], capture_output=True,
+                              text=True, check=True).stdout.strip())
+    path = str(folder.resolve().relative_to(top.resolve()))
+    subprocess.run(["git", "-C", str(top), "add", "--", path], check=True)
+    subprocess.run(["git", "-C", str(top), "commit", "-q", "-m", message, "--", path], check=True)
+    return subprocess.run(["git", "-C", str(top), "rev-parse", "--short", "HEAD"], capture_output=True, text=True,
+                          check=True).stdout.strip()
+
+
+def comment_and_close(n, body):
+    api("POST", "repos/%s/issues/%d/comments" % (repo(), n), {"body": body})
+    api("PATCH", "repos/%s/pulls/%d" % (repo(), n), {"state": "closed"})
 
 
 def cmd_accept(a):
-    s = store()
-    dec = decisions(s)
-    if a.id in dec:
-        raise SystemExit("!! %s was %s already (%s)" % (a.id, dec[a.id]["state"], dec[a.id]["when"]))
-    tar, meta = load(s, a.id)
-    info = verify(tar, meta)
-    if not info["publish"]:
-        raise SystemExit("!! %s: the tester said no to publishing it: reject it (or ask them, if they left a "
-                         "contact: submissions.py show %s)" % (a.id, a.id))
-    run = unpack(s, a.id, tar, meta)
-    if not (run / "REVIEW.md").is_file():
-        print("%s: unpacked in %s, no REVIEW.md yet" % (a.id, run))
-        next_steps(a.id, run, info)
+    pr, info, files = fetch_checked(a.pr)
+    w = work(a.pr)
+    mark = w / HEAD
+    run = w / info["run"]
+    if not run.is_dir() or not mark.is_file() or mark.read_text().strip() != pr["head"]["sha"]:
+        run, _ = write_run(a.pr, info, files, pr["head"]["sha"])
+        print("#%d: written out as %s (new, or changed since show), no review yet" % (a.pr, rel(run)))
+        next_steps(a.pr, run, info)
         return 1
-    ir = import_run_module()
+    if not (run / "REVIEW.md").is_file():
+        print("#%d: %s has no REVIEW.md yet" % (a.pr, rel(run)))
+        next_steps(a.pr, run, info)
+        return 1
+    s = submitter(files)
+    nick = s.get("nickname", "")
+    ref = "%s#%d %s/%s/%s" % (repo(), a.pr, sc.TOP, info["game"], info["id"])
     content = Path(a.content) if a.content else REPO / "gamedb" / "games"
-    try:
-        ir.import_run(run, info["game"], content, launcher=a.launcher, session=a.session,
-                      tester=info["nickname"], source="submitted", submission=a.id)
-    except ir.Refused as e:
-        raise SystemExit("!! %s" % e)
-    decide(s, a.id, "accepted", "%s %s" % (info["game"], run.name))
-    if remove_remote(a.source or default_source(), a.id):
-        decide(s, a.id, "removed", "the server's copy")
-    print("accepted %s: credited to %s; commit the session folder (gamedb/games/%s/rating/sessions/)"
-          % (a.id, info["nickname"] or "a tester", info["game"]))
+    who = nick or "a tester"
+    folder = session_folder(content, info["game"], ref)
+    if folder:              # accepted before, the comment and close left for later
+        print("#%d is imported already: %s" % (a.pr, rel(folder)))
+    else:
+        ir = import_run_module()
+        try:
+            ir.import_run(run, info["game"], content, launcher=a.launcher, session=a.session, tester=nick,
+                          source="submitted", submission=ref)
+        except ir.Refused as e:
+            raise SystemExit("!! %s" % e)
+        folder = session_folder(content, info["game"], ref)
+        if not folder:
+            raise SystemExit("!! the imported session folder isn't to be found under %s" % content)
+        short = commit(folder, "GameDB: %s session %s from a tester's pull request (%s#%d), credited to %s"
+                       % (info["game"], folder.name, repo(), a.pr, who))
+        print("accepted #%d: %s, credited to %s, committed as %s" % (a.pr, rel(folder), who, short))
+    body = ("Thank you! This session is in Walnut's GameDB now: %s, session %s, credited to %s. It shows on "
+            "https://walnut.nanobyte.dev/gamedb/ after the site's next update.\n\n"
+            "We close the pull request rather than merge it: the session's record goes into the repository, the "
+            "submitted files don't." % (info["game"], folder.name, who))
+    if not ask("Comment on #%d and close it (public)? [y/N] " % a.pr, a.yes):
+        print("not commented or closed yet: submissions.py accept %d again asks once more (the import is kept)" % a.pr)
+        return 0
+    comment_and_close(a.pr, body)
+    print("commented on #%d and closed it" % a.pr)
     return 0
 
 
 def cmd_reject(a):
-    s = store()
-    dec = decisions(s)
-    if a.id in dec:
-        raise SystemExit("!! %s was %s already (%s)" % (a.id, dec[a.id]["state"], dec[a.id]["when"]))
-    tar, meta = load(s, a.id)
-    decide(s, a.id, "rejected", a.why or "-")
-    for f in (tar, tar.with_suffix(".json")):
-        os.replace(f, s / "rejected" / f.name)
-    if remove_remote(a.source or default_source(), a.id):
-        decide(s, a.id, "removed", "the server's copy")
-    print("rejected %s%s" % (a.id, ": " + a.why if a.why else ""))
+    pr = pull(a.pr)
+    if pr.get("state") != "open":
+        raise SystemExit("!! #%d is %s" % (a.pr, pr.get("state")))
+    reason = " ".join(a.reason.split())
+    if not reason:
+        raise SystemExit("!! the reason, please: it goes into the comment")
+    body = ("Thank you for sending it. We can't use this session: %s\n\n"
+            "docs/games/SUITE.md (\"Played sessions\") says what a session needs; a new one is welcome." % reason)
+    print("#%d by %s, %r: the comment would be:\n%s" % (a.pr, pr["user"]["login"], pr["title"], body))
+    if not ask("Comment on #%d and close it (public)? [y/N] " % a.pr, a.yes):
+        print("nothing done")
+        return 1
+    comment_and_close(a.pr, body)
+    print("rejected #%d: commented and closed" % a.pr)
     return 0
 
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
-    p = sub.add_parser("pull")
-    p.add_argument("--from", dest="source", help="HOST:DIR (ssh) or a local directory")
     sub.add_parser("list")
     p = sub.add_parser("show")
-    p.add_argument("id")
+    p.add_argument("pr", type=int)
     p = sub.add_parser("accept")
-    p.add_argument("id")
+    p.add_argument("pr", type=int)
+    p.add_argument("--yes", action="store_true", help="comment and close without asking")
     p.add_argument("--session", help="the session folder's name (import-run.py --session)")
     p.add_argument("--launcher", help="import-run.py --launcher, for a run that recorded none")
     p.add_argument("--content", help="the games' directory (default gamedb/games)")
-    p.add_argument("--from", dest="source", help="where the server's copy is (as for pull)")
     p = sub.add_parser("reject")
-    p.add_argument("id")
-    p.add_argument("--why")
-    p.add_argument("--from", dest="source", help="where the server's copy is (as for pull)")
+    p.add_argument("pr", type=int)
+    p.add_argument("reason")
+    p.add_argument("--yes", action="store_true", help="comment and close without asking")
     a = ap.parse_args(argv)
-    return {"pull": cmd_pull, "list": cmd_list, "show": cmd_show, "accept": cmd_accept, "reject": cmd_reject}[a.cmd](a)
+    return {"list": cmd_list, "show": cmd_show, "accept": cmd_accept, "reject": cmd_reject}[a.cmd](a)
 
 
 if __name__ == "__main__":

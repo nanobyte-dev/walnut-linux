@@ -263,8 +263,8 @@ anyone with a Walnut PS3 can run one, and ours run through it too):
 walnut-rate list                    # the games with a played test: installed, medal, sessions so far
 walnut-rate check [--close]         # is the console clean? names what to close
 walnut-rate play GAME [LAUNCHER]    # the check, the session, the form on the terminal, a summary
-walnut-rate submit [RUN]            # the session sent to us (default the newest), after showing what and how big
-walnut-rate export RUN DIR          # the same file as DIR/<run>.tar (a USB stick), after showing what is in it
+walnut-rate submit [RUN]            # a pull request to us on GitHub (default the newest), after showing what and how big
+walnut-rate export RUN DIR          # the same folder as DIR/submissions/<game>/<id>/ (a USB stick), to send from a PC
 walnut-rate status                  # the sessions on this console: play time, form, disturbed, exported, sent
 ```
 
@@ -438,45 +438,67 @@ Optional lines: `check: <item> yes|partly|no|na` for an item the reviewer could 
 
 **Collect** with `make bench-pull` (the screenshots become PNGs); the run directory is
 `/var/tmp/ps3-bench/ps3-bench-<stamp>-session-GAME-VARIANT/`, and `tools/gamedb/import-run.py` reads it.
-A tester's session comes as `walnut-rate submit`'s (or `export`'s) file instead, which unpacked gives the same
-run directory (bench.txt, versions, hud/, samples, temps, dmesg.log, game.log, out.log, input.tsv, xruns.*, the
-snapshots, shots/geometry.tsv, fresh-home/'s small text files, session.toml, the screenshots as PNG: converted on
-the PS3 from xwd, stdlib only), plus `clean-check.txt`, `watch.log`, `processes-check.txt` and `submitter.toml` (a
-nickname or nothing, an optional contact that is never published, the tester's yes or no to publishing). Every text file is scrubbed on the PS3 before it is written, with
-`tools/gamedb/evidence.py`'s own scrub (packaged as `/usr/lib/walnut-rate/evidence.py`) fed the console's identity:
-the player's login and full name, the host name, every address `ip addr` lists, plus the generic MAC, LAN and
-`/home/<user>` patterns; a name that is a word of the logs themselves (bench.txt's keys, package names, `walnut`,
-`ps3`, `game`) is left as it is and said so. What the scrub left (evidence.py's leftovers) stops the export; the
-tar's members are root-owned without names. The file list with sizes comes first, then the question.
+A tester's session comes as a pull request instead (below), whose folder written out gives the same run directory.
 
-**Sending it in** (provisional, PLAN 5.12: the user hasn't settled the transport, the credit or the weight; these
-are the plan's recommended answers). `walnut-rate submit [RUN] [--nick NAME] [--contact TEXT] [--publish yes|no]`
-makes the same bundle, shows its files and the tar's size (over 32 MiB it says to use export instead), asks, and
-POSTs it to `https://walnut.nanobyte.dev/rate/submit` (`WALNUT_RATE_URL` points it elsewhere; plain http only to
-this machine). The answer is a submission id, kept in the run's `walnut-rate.log` (`submitted <when> id <ID> to
-<host>`); `status` shows it, and a second submit of the run needs `--again`.
+**A submission** is one folder, `submissions/<game>/<id>/` (`<id>`: the session's date and six random letters or
+digits, `2026-10-30-k3f9q2`, kept in the run's `walnut-rate.log` so the same run always gets the same folder),
+added by a pull request to nanobyte-dev/walnut-linux that touches nothing else (the user, 2026-10-30: GitHub
+rather than a receiver of ours, which would have been a security problem and a source of false reports). Plain
+files a reviewer can read on GitHub, no tar: the run directory as import-run.py reads it (bench.txt, versions,
+cmd, result, samples, temps, out.log, game.log, dmesg.log, input.tsv, input.err, xruns.*, the snapshots, the X
+log, shots/geometry.tsv, hud/, fresh-home/'s small text files), session.toml (the form), `clean-check.txt`,
+`watch.log`, `processes-check.txt`, the screenshots as JPEG (`shots/<name>.jpg` at evidence.py's quality, full size,
+made smaller until they fit 15 MB together), and `submitter.toml` (`nickname`, empty for "a tester"; `publish =
+true`, the tester's yes; walnut-rate's version, when, the run, the game, the id; no contact: a pull request is
+public). Every text file is scrubbed on the PS3 before it is written, with `tools/gamedb/evidence.py`'s own
+scrub (packaged as `/usr/lib/walnut-rate/evidence.py`) fed the console's identity: the player's login and full
+name, the host name, every address `ip addr` lists, plus the generic MAC, LAN and `/home/<user>` patterns; a name
+that is a word of the logs themselves (bench.txt's keys, package names, `walnut`, `ps3`, `game`) is left as it is
+and said so. What the scrub left (evidence.py's leftovers) stops it, and so does the submission check below,
+which walnut-rate runs on the folder it made (`/usr/lib/walnut-rate/submission_check.py`). The file list with
+sizes comes first, then the question; the tester is told that the files are public on GitHub, kept there even
+after the pull request is closed, with their GitHub account name on it. The raw files of our own sessions stay
+in the private repository; a tester's are public in their pull request by their choice.
 
-The receiver (`servers/walnut.nanobyte.dev/rate/walnut-rate-receiver`, stdlib, no accounts; not deployed yet:
-servers/README.md) reads the tar from memory and keeps it only when every member is a regular file or a directory
-under one run directory (no links, devices, fifos or sparse files), relative, without `..`, a name the export
-writes (evidence.py's RAW_FILES, walnut-rate's EXTRA_FILES, `hud/*`, `shots/*.png|xwd|jpg`, `fresh-home/`'s small
-text files, `submitter.toml`) within its size bound, text without NUL, pictures with their magic, the tar's end
-blocks present (a cut-off upload is refused), bench.txt a played session and submitter.toml well-formed. Limits:
-32 MiB a bundle, 6 POSTs an hour and 20 a day per address, 3 at once, 300 bundles or 3 GiB waiting. A kept bundle
-is `submissions/<id>.tar` with `<id>.json` (when, size, sha256, run, game, nickname, publish; no address); nothing
-of it is unpacked or run there.
+**Sending it in.** `walnut-rate submit [RUN] [--nick NAME] [--publish yes] [--repo OWNER/NAME] [--again]` makes
+the folder, shows it, and when `gh` is installed and logged in (`gh auth status`) asks, then goes through GitHub's
+API without cloning anything: a fork of the repository (none when it is the login's own, a test fork), one commit
+on top of the upstream's default branch that adds only the folder (blobs, a tree on the base's tree, the commit,
+branch `submission-<game>-<id>`), and the pull request with a templated body (the game, play time, run, credit,
+size, the consent), `maintainer_can_modify` off. The link goes into the run's `walnut-rate.log` (`submitted <when>
+pr <url>`), `status` shows it, a second submit needs `--again`. `--repo` or `WALNUT_RATE_REPO` sends it elsewhere.
+Debian has no gh for ppc64 yet (debian-ports' build of gh 2.46.0-4 for ppc64 failed, and the 2026-10-13 snapshot
+has none), so on a console today `submit` prints the steps by hand: `walnut-rate export RUN DIR` writes
+`DIR/submissions/<game>/<id>/` to a USB stick; on a PC, a fork of nanobyte-dev/walnut-linux, "Add file -> Upload
+files" with the stick's `submissions` folder dragged onto it (the folders are kept), a new branch and the pull
+request; or gh from a clone of the fork on the PC.
 
-**Reviewing one** on the PC, `tools/gamedb/submissions.py`: `pull` fetches the bundles not here yet (rsync over the
-ssh access deploy.sh uses, WALNUT_HOST; `--from DIR` a local directory) into build/submissions/inbox/, checks each
-one again with the receiver's own check and its sha256, and removes the server's copy of those already decided;
-`list` shows them; `show ID` lists the files and the submitter's answers (the contact, for us only) and unpacks the
-run into build/bench/<run>/ (tarfile's data filter, after the check; `submission.txt` names the id). Then the
-review as for ours: the PC reference if the game has none (`make bench-ref`), `tools/gamedb/review.py` and its
-questions answered by looking. `accept ID [--session NAME] [--launcher NAME]` runs import-run.py on it with
-`source = "submitted"` and the nickname as `tester` (raw/import.toml keeps both and the submission id, so
-reimport.py derives the same record), refused when the tester said no to publishing; `reject ID [--why TEXT]`
-never imports it. Either way the server's copy goes (or at the next pull); decisions.tsv records them. An accepted
-session counts like ours (catalog.py SUBMITTED_COUNTS) and its page says who played it.
+**The check** (`tools/gamedb/submission_check.py`, stdlib): `.github/workflows/validate-submission.yml` runs it on
+every pull request that touches `submissions/` (`pull_request`, never `pull_request_target`: no secrets, contents
+read). The checker comes from the base branch (a sparse checkout of tools/gamedb); the pull request's merge commit
+is fetched into an empty git directory (`refs/pull/N/merge`, depth 2, blobs only as read) and read as data from
+git's object store: nothing of it is checked out or run, `python3 -I`. Refused: any change outside one
+`submissions/<game>/<id>/` (a second folder, a second game, another file, a change to an existing one), a game
+without a played test, links, submodules and executable files, a name the export doesn't write, a file over 20 MB,
+the screenshots over 15 MB, the folder over 40 MB, a `.jpg` that isn't a JPEG, NUL in a text file, a submitter.toml
+that isn't well formed or lacks `publish = true`, a bench.txt that isn't a played session of the folder's game,
+and what the scrub should have taken out: home paths, MAC and LAN addresses, a host or user name where the logs
+carry one (Xorg's `Current Operating System: Linux NAME`, uname's `Linux NAME 6.12`, `user@host:`). It comments and
+labels nothing: it passes or fails. A first-time contributor's run waits for "Approve and run" on GitHub.
+
+**Reviewing one** on the PC, `tools/gamedb/submissions.py` (gh logged in as the maintainer): `list` shows the open
+pull requests that add a submission (author, game and id, files, what the check said); `show PR` fetches the merge
+commit the same way into `build/tmp/submissions/pr-<N>/git`, runs the same check, and writes the checked files out
+as the run directory `build/tmp/submissions/pr-<N>/<run>/` (once per head commit: a review made there stays until
+the pull request changes). Then the review as for ours: the PC reference if the game has none (`make bench-ref`),
+`tools/gamedb/review.py` on that run and its questions answered by looking. `accept PR [--yes] [--session NAME]
+[--launcher NAME]` fetches and checks again (refused when it changed since show), runs import-run.py with `source =
+"submitted"` and the nickname as `tester` (raw/import.toml keeps both and `submission =
+"nanobyte-dev/walnut-linux#N submissions/<game>/<id>"`, so reimport.py derives the same record), commits that session
+folder alone with the pull request's number in the message, then asks before commenting on the pull request and
+closing it (`--yes`: without asking). It is never merged: the bundle's raw files don't go into main. `reject PR
+"reason" [--yes]` comments the reason and closes it, asked first. An accepted session counts like ours (catalog.py
+`SUBMITTED_COUNTS`) and its page says who played it ("Played by" the nickname, or "a tester").
 
 **What is kept.** build/bench is ephemeral; the import keeps the session's evidence in gamedb
 (`rating/sessions/<run>/`, [gamedb/README.md](../../gamedb/README.md#gamesrating)), enough to derive the

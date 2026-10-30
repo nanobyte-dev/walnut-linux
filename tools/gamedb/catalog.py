@@ -56,8 +56,8 @@ LOW_MEMORY_KB = 10 * 1024
 
 
 # a tester's session (result.toml source = "submitted") counts in the rating like ours once the maintainer has
-# accepted it (tools/gamedb/submissions.py accept: it is in gamedb only then). Provisional, PLAN 5.12: the user
-# hasn't answered yet. False: such sessions keep their own page (sessions.py) but leave the game's rating alone
+# accepted it (tools/gamedb/submissions.py accept: it is in gamedb only then; the user, 2026-10-30). False: such
+# sessions keep their own page (sessions.py) but leave the game's rating alone
 SUBMITTED_COUNTS = True
 
 

@@ -44,7 +44,8 @@
 #            the helper's import-data against tar fixtures and its lock, remove-data, install-repo-data, walnut-data
 #            with a stubbed game-data-packager), walnut-rate (its root helper's refusals and protocol, ps3-bench.sh's
 #            helper mode with a fake sudo, the clean-system check and the watch on made-up process lists and windows,
-#            the export's scrub and an export -> import-run.py round trip), ps3disk-guard (kernel local/0045's
+#            the export's scrub and an export -> import-run.py round trip, the submission check's refusals and a
+#            submit -> pull request -> submissions.py show/accept round trip with gh stubbed), ps3disk-guard (kernel local/0045's
 #            range checks, packages/patched/kernel/linux/tests/ps3disk-guard.sh), game-data-packager (our patches'
 #            --progress-fd and --no-launchers on the built deb, in the deb builder image: packages/patched/tools/
 #            game-data-packager/tests; skipped without build/debs/game-data-packager)

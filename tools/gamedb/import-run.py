@@ -58,7 +58,7 @@ Design
   pc: also on the PC reference, ps3: PS3/Walnut only) and broken (none, or `<item> <pc|ps3>: <what>`),
   plus optional `check: <item> yes|partly|no|na` lines. A question left unanswered ("?") is refused, so
   is an answer that can't be read, and `verdict: wrong` without a defect.
-- A tester's session (tools/gamedb/submissions.py accept, the bundle `walnut-rate submit` sent): result.toml gets
+- A tester's session (tools/gamedb/submissions.py accept, the pull request `walnut-rate submit` opened): result.toml gets
   `source = "submitted"` and `tester = "<nickname>"` (none: anonymous, the site says "a tester"), from
   raw/import.toml's source and tester, so reimport.py keeps them; our own sessions have neither.
 - Refused: runs with interfered=1 (or TEMPLIMIT / thermal stop), capture runs without REVIEW.md.
@@ -922,7 +922,8 @@ def import_run(run, game, content, dry=False, launcher=None, keep=None, rules=No
     <date>-<kind>, -<hhmm> for another run that day). keep_record: keep the folder's result.toml as it is
     (its gallery moved into shots/): a record derived by an older importer, whose derivation is gone
     (raw/import.toml frozen = true; reimport.py leaves it). source = "submitted", tester (the nickname, "" for
-    anonymous) and submission (the receiver's id): a tester's session (tools/gamedb/submissions.py accept)"""
+    anonymous) and submission (the pull request: "nanobyte-dev/walnut-linux#N submissions/<game>/<id>"): a tester's
+    session (tools/gamedb/submissions.py accept)"""
     d = Path(run)
     credit_keys({"source": source, "tester": tester})     # refuses a bad one before anything is written
     b = report.kv(d / "bench.txt")

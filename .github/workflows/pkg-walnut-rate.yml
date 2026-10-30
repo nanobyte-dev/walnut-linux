@@ -17,6 +17,7 @@ on:
       - "gamedb/engines/*/build.toml"
       - "tools/gamedb/build-info.py"
       - "tools/gamedb/evidence.py"
+      - "tools/gamedb/submission_check.py"
   workflow_dispatch:
     inputs:
       target:

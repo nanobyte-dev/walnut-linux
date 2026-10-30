@@ -19,25 +19,34 @@ python3 -I packages/walnut/apps/walnut-rate/tests/test_walnut_rate.py (tools/run
 - The watch (cleancheck.py watch, client.sh BENCH_WATCH=1): its lines on a fake /proc, and client.sh in a played
   session marking bench.txt interfered=1 with what it saw (watch=on, interfered=0 when clean).
 - The export: the xwd to PNG conversion (both byte orders, 24 and 32 bits, against ImageMagick's own reading when
-  it is installed), the scrub of a run (a gamedb session rebuilt as a run, the console's user, full name, host
-  and addresses written into it): none of them, no LAN or MAC address, no home path left, the tar's members
-  root-owned without names; a nickname holding the user name refused; then export -> tar -> import-run.py gives
-  the same result.toml as the run itself, and the same bundle marked interfered=1 is refused by import-run.py.
-- The CLI: list over the repository's tests, submit without a session and with a plain-http URL off this machine
-  refused, the session's environment without the player's BENCH_/SESSION_ switches.
-- The receiver (servers/walnut.nanobyte.dev/rate/walnut-rate-receiver): its file lists the export's own; a good
-  bundle kept; refused: links (symbolic and hard), `..` and absolute names, names outside the run, devices and
-  fifos, unknown files and directories, oversize files and bundles, a picture without its magic, NUL in a text
-  file, duplicates, a bad submitter.toml or bench.txt, and tars cut off anywhere; over HTTP on 127.0.0.1: 201 with
-  an id, the duplicate, 400, a body cut off, 413, 411, 404, the per-address limit (429), the quarantine cap.
-- The round trip: walnut-rate submit -> the receiver on 127.0.0.1 (plain HTTP) -> tools/gamedb/submissions.py
-  pull -> accept (refused without REVIEW.md, then imported: result.toml as our own import's plus source and
-  tester, reimport.py's derivation the same, the server's copy gone, the session page's data credits the
-  tester); a session without consent to publish refused; reject.
+  it is installed) and the screenshots as JPEG (made smaller until they fit the check's SHOTS_MAX), the scrub of a
+  run (a gamedb session rebuilt as a run, the console's user, full name, host and addresses written into it): the
+  folder submissions/<game>/<id>/ with plain files only, none of them, no LAN or MAC address, no home path left,
+  submitter.toml without a contact (a pull request is public), the same id on a second export, the check passing;
+  a nickname holding the user name and a no to publishing refused; then the folder -> import-run.py gives the same
+  result.toml as the run itself, and the same folder marked interfered=1 is refused by import-run.py.
+- The CLI: list over the repository's tests, submit without a session and with a bad --repo refused, the
+  session's environment without the player's BENCH_/SESSION_ switches.
+- The submission check (tools/gamedb/submission_check.py): a good folder; refused: a second folder, a second game,
+  files elsewhere, a change to an existing file, links, submodules and executables in the pull request; a game
+  without a played test, bad ids, a .jpg that isn't a JPEG, unknown names, NUL in a text file, oversize files and
+  screenshots, a host name in Xorg's or uname's line, a user@host, home paths, LAN and MAC addresses, a
+  submitter.toml without consent, with a contact, of another game, or missing, a bench.txt that isn't a session;
+  on disk: a link and an executable file.
+- The pull request round trip: walnut-rate submit without gh and with gh logged out (the steps by hand, nothing
+  sent), then through a stubbed gh (the fork, one tree of only the folder on the base's tree, the pull request
+  from the fork's branch, not editable by us); that commit as refs/pull/1/merge of a local repository standing in
+  for GitHub; tools/gamedb/submissions.py list, show (the checker on the fetched merge commit, the run written
+  out), accept (refused without REVIEW.md, then imported: result.toml as our own import's plus source and tester,
+  reimport.py's derivation the same, committed alone with the pull request's number, the pull request commented
+  on and closed, never merged; a second accept imports nothing), a pull request touching another file refused by
+  show and by the workflow's command, reject (asked first, then commented and closed).
 """
 import importlib.machinery
 import importlib.util
+import json
 import os
+import re
 import shutil
 import signal
 import struct
@@ -46,6 +55,7 @@ import sys
 import tarfile
 import tempfile
 import time
+import tomllib
 import unittest
 import zlib
 from pathlib import Path
@@ -60,6 +70,7 @@ import walnut_rate as wr   # noqa: E402
 import cleancheck          # noqa: E402
 import proccheck           # noqa: E402
 import evidence            # noqa: E402
+import submission_check as sc   # noqa: E402
 
 wr.BENCH = REPO / "bench"
 HELPER_SRC = PKG / "files" / "sbin" / "walnut-rate-helper"
@@ -673,89 +684,172 @@ class Export(unittest.TestCase):
         finally:
             wr.console_identity = old
 
+    def folder(self, dest):
+        """the one submission folder export wrote under dest: (path, game, id)"""
+        found = [f for f in (dest / sc.TOP).glob("*/*") if f.is_dir()]
+        self.assertEqual(len(found), 1, found)
+        return found[0], found[0].parent.name, found[0].name
+
     def test_scrub(self):
         d = tmpdir()
         try:
             g, sd, run = self.rebuilt_run(d)
             (d / "usb").mkdir()
             self.assertEqual(self.export(run, d / "usb"), 0)
-            tar = d / "usb" / (run.name + ".tar")
-            with tarfile.open(tar) as t:
-                members = t.getmembers()
-                self.assertTrue(all(m.uid == 0 and m.gid == 0 and m.uname == "" and m.gname == "" for m in members))
-                names = [m.name for m in members]
-                texts = {m.name: t.extractfile(m).read() for m in members if m.isfile() and not m.name.endswith((".jpg", ".png"))}
-            top = run.name + "/"
+            folder, game, sid = self.folder(d / "usb")
+            self.assertEqual(game, g)
+            self.assertTrue(sc.ID_RE.match(sid), sid)
+            self.assertEqual(sid[:10], "-".join(re.search(r"(\d{4})(\d{2})(\d{2})T", run.name).groups()))
+            files = sc.folder_files(folder)             # plain files only, nothing executable
+            names = sorted(files)
             for need in ("bench.txt", "versions", "game.log", "session.toml", "clean-check.txt", "watch.log", "submitter.toml"):
-                self.assertIn(top + need, names)
-            self.assertNotIn(top + "pgid", names)
-            self.assertNotIn(top + "REVIEW.md", names)
-            self.assertIn(top + "fresh-home/.config/game/player.ini", names)   # the path scrubbed too
+                self.assertIn(need, names)
+            self.assertNotIn("pgid", names)
+            self.assertNotIn("REVIEW.md", names)
+            self.assertIn("fresh-home/.config/game/player.ini", names)   # the path scrubbed too
+            shots = [n for n in names if n.startswith("shots/") and n != "shots/geometry.tsv"]
+            self.assertTrue(shots and all(n.endswith(".jpg") and files[n][:3] == b"\xff\xd8\xff" for n in shots), shots)
             for n in names:
                 for s in ("tester42", "myconsole"):
                     self.assertNotIn(s, n)
-            for n, data in texts.items():
+            for n, data in files.items():
+                if n.endswith(".jpg"):
+                    continue
                 text = data.decode("utf-8", "replace")
                 for s in ("tester42", "Test Er", "myconsole", "203.0.113.7", "2001:db8::42", "192.168.1.20",
                           "aa:bb:cc:dd:ee:ff", "/home/"):
                     self.assertNotIn(s, text, n)
                 self.assertEqual(evidence.leftovers(text, self.IDENT), [], n)
-            log = texts[top + "game.log"].decode()
-            self.assertIn("loading ~/.local/share/game/save1 for player@host", log)
-            sub = texts[top + "submitter.toml"].decode()
-            self.assertIn('nickname = "tester"', sub)
-            self.assertIn("publish = true", sub)
-            self.assertIn("exported " , (run / wr.LOG).read_text())
-            # a nickname that is the user name is refused, and nothing is written
+            self.assertIn("loading ~/.local/share/game/save1 for player@host", files["game.log"].decode())
+            sub = tomllib.loads(files["submitter.toml"].decode())
+            self.assertEqual((sub["nickname"], sub["publish"], sub["game"], sub["id"], sub["run"]),
+                             ("tester", True, g, sid, run.name))
+            self.assertNotIn("contact", sub)                          # a pull request is public: no contact field
+            self.assertEqual(sc.check_folder(folder, sc.games_dir_exists(REPO / "gamedb/games"))["id"], sid)
+            self.assertIn("exported ", (run / wr.LOG).read_text())
+            # the same run exported again: the same id; a nickname that is the user name, or no to publishing:
+            # refused, nothing written
             (d / "usb2").mkdir()
-            self.assertEqual(self.export(run, d / "usb2", nick="tester42"), 1)
-            self.assertEqual(list((d / "usb2").iterdir()), [])
+            self.assertEqual(self.export(run, d / "usb2"), 0)
+            self.assertEqual(self.folder(d / "usb2")[2], sid)
+            (d / "usb3").mkdir()
+            self.assertEqual(self.export(run, d / "usb3", nick="tester42"), 1)
+            self.assertEqual(self.export(run, d / "usb3", publish="no"), 2)
+            self.assertEqual(list((d / "usb3").iterdir()), [])
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+
+    def test_shots_fit(self):
+        """xwd and PNG screenshots become JPEGs; over SHOTS_MAX they are made smaller until they fit"""
+        try:
+            from PIL import Image
+        except ImportError:
+            self.skipTest("no Pillow")
+        d = tmpdir()
+        try:
+            w, h = 64, 36
+            rgb = bytes(((i * 37) ^ (i >> 3)) % 256 for i in range(w * h * 3))
+            (d / "s.xwd").write_bytes(xwd(w, h, rgb))
+            wr.shot_jpeg(d / "s.xwd", d / "a.jpg")
+            wr.shot_jpeg(d / "s.xwd", d / "b.jpg", 0.5)
+            with Image.open(d / "a.jpg") as a, Image.open(d / "b.jpg") as b:
+                self.assertEqual((a.format, a.size, b.size), ("JPEG", (w, h), (w // 2, h // 2)))
+                self.assertFalse(a.info.get("exif"))
+            run = d / "ps3-bench-20261030T120000Z-session-chromium-bsu-base"
+            (run / "shots").mkdir(parents=True)
+            lines = ["kind=session", "game=chromium-bsu"]
+            for k in range(3):
+                Image.effect_noise((400, 300), 90).convert("RGB").save(run / "shots" / ("shot-%ds.png" % k))
+                lines.append("shot=%d:shots/shot-%ds.xwd:x" % (k, k))
+            write(run / "bench.txt", "\n".join(lines) + "\n")
+            old = sc.SHOTS_MAX
+            sizes = {}
+            try:
+                for cap in (old, 120 << 10):
+                    sc.SHOTS_MAX = cap
+                    out = d / ("out-%d" % cap)
+                    files, problems = wr.build_folder(run, out, ((), ()), "/home/x", "", "2026-10-30-abcdef")
+                    self.assertEqual(problems, [])
+                    sizes[cap] = sum(s for r, s in files if r.endswith(".jpg"))
+                    self.assertLessEqual(sizes[cap], cap)
+                    with Image.open(out / "shots/shot-0s.jpg") as im:
+                        sizes[cap, "w"] = im.size[0]
+            finally:
+                sc.SHOTS_MAX = old
+            self.assertEqual(sizes[old, "w"], 400)
+            self.assertLess(sizes[120 << 10, "w"], 400)
         finally:
             shutil.rmtree(d, ignore_errors=True)
 
     def test_round_trip(self):
-        """export -> tar -> import-run.py: the same record as the run itself; interfered=1: refused"""
+        """export -> the folder as a run -> import-run.py: the same record as the run itself; interfered=1: refused"""
         if not shutil.which("magick"):
             self.skipTest("no ImageMagick (import-run.py makes the JPEGs with it)")
-        spec = importlib.util.spec_from_file_location("import_run", REPO / "tools/gamedb/import-run.py")
-        ir = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(ir)
+        ir = import_run_module()
         d = tmpdir()
         try:
             g, sd, run = self.rebuilt_run(d)
             (d / "usb").mkdir()
             self.assertEqual(self.export(run, d / "usb"), 0)
-            (d / "pc").mkdir()
-            with tarfile.open(d / "usb" / (run.name + ".tar")) as t:
-                t.extractall(d / "pc", filter="data")
+            folder = self.folder(d / "usb")[0]
             got = d / "pc" / run.name
+            shutil.copytree(folder, got)
             shutil.copyfile(d / "REVIEW.md", got / "REVIEW.md")    # the PC's review
             shutil.copyfile(d / "REVIEW.md", run / "REVIEW.md")
             res = {}
             for k, r in (("run", run), ("bundle", got)):
-                c = d / ("content-" + k)
-                (c / g).mkdir(parents=True)
-                shutil.copyfile(REPO / "gamedb/games" / g / "index.md", c / g / "index.md")
-                with open(os.devnull, "w") as null:
-                    so = sys.stdout
-                    sys.stdout = null
-                    try:
-                        ir.import_run(r, g, c, session=sd.name)
-                    finally:
-                        sys.stdout = so
+                c = content_dir(d / ("content-" + k), g)
+                quiet(ir.import_run, r, g, c, session=sd.name)
                 res[k] = (c / g / "rating/sessions" / sd.name / "result.toml").read_text()
             self.assertEqual(res["bundle"], res["run"])
             self.assertEqual(res["run"], (sd / "result.toml").read_text())   # and the record gamedb has
             with open(got / "bench.txt", "a") as f:
                 f.write("interfered=1\ninterference=watch: window: Firefox-esr (firefox-esr, pid 950, 302 MB)\n")
-            c = d / "content-x"
-            (c / g).mkdir(parents=True)
-            shutil.copyfile(REPO / "gamedb/games" / g / "index.md", c / g / "index.md")
+            c = content_dir(d / "content-x", g)
             with self.assertRaises(ir.Refused) as e:
                 ir.import_run(got, g, c, session=sd.name)
             self.assertIn("Firefox", str(e.exception))
         finally:
             shutil.rmtree(d, ignore_errors=True)
+
+
+def quiet(f, *a, **kw):
+    """f(*a) with its output kept and no terminal to ask on: (its result or the SystemExit, the output)"""
+    import contextlib
+    import io
+    buf = io.StringIO()
+    old = sys.stdin
+    sys.stdin = io.StringIO("")
+    try:
+        with contextlib.redirect_stdout(buf):
+            try:
+                rc = f(*a, **kw)
+            except SystemExit as e:
+                rc = e
+    finally:
+        sys.stdin = old
+    return rc, buf.getvalue()
+
+
+def at(call, i=5):
+    """a stubbed gh call's argument i (5: the API path)"""
+    return call["args"][i] if len(call["args"]) > i else ""
+
+
+def import_run_module():
+    spec = importlib.util.spec_from_file_location("import_run", REPO / "tools/gamedb/import-run.py")
+    ir = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(ir)
+    return ir
+
+
+def content_dir(c, g):
+    """a games directory with game g's index.md and build.toml (what import-run.py needs of it)"""
+    (c / g).mkdir(parents=True)
+    for f in ("index.md", "build.toml"):
+        if (REPO / "gamedb/games" / g / f).exists():
+            shutil.copyfile(REPO / "gamedb/games" / g / f, c / g / f)
+    return c
 
 
 class Cli(unittest.TestCase):
@@ -770,24 +864,14 @@ class Cli(unittest.TestCase):
         old = wr.OUT
         wr.OUT = Path("/nonexistent/walnut-rate-test")
         try:
-            with open(os.devnull, "w") as null:
-                so, sys.stdout = sys.stdout, null
-                try:
-                    self.assertEqual(wr.main(["submit"]), 2)            # no session on this machine
-                    os.environ["WALNUT_RATE_URL"] = "http://walnut.nanobyte.dev/rate/submit"
-                    self.assertEqual(wr.main(["submit"]), 2)            # plain http over the network: refused
-                finally:
-                    sys.stdout = so
-                    os.environ.pop("WALNUT_RATE_URL", None)
+            self.assertEqual(quiet(wr.main, ["submit"])[0], 2)                      # no session on this machine
+            self.assertEqual(quiet(wr.main, ["submit", "--repo", "not a repo"])[0], 2)
         finally:
             wr.OUT = old
+        self.assertEqual(wr.target_repo({}), "nanobyte-dev/walnut-linux")
+        self.assertEqual(wr.target_repo({"--repo": "someone/walnut-test"}), "someone/walnut-test")
         self.assertEqual(wr.main(["submit", "a", "b"]), 2)
-        os.environ["WALNUT_RATE_URL"] = "http://127.0.0.1:9/rate/submit"
-        try:
-            self.assertEqual(wr.submit_url()[1], "127.0.0.1")
-        finally:
-            os.environ.pop("WALNUT_RATE_URL", None)
-        self.assertEqual(wr.submit_url(), (wr.SUBMIT_URL, "walnut.nanobyte.dev"))
+        self.assertEqual(wr.main(["export", "x", "y", "--repo", "a/b"]), 2)
         self.assertEqual(wr.main([]), 2)
         self.assertEqual(wr.main(["play"]), 2)
         self.assertEqual(wr.main(["play", "../x"]), 2)
@@ -812,331 +896,384 @@ class Cli(unittest.TestCase):
     def test_run_names(self):
         self.assertTrue(wr.RUN_RE.match("ps3-bench-20261029T203517Z-session-chromium-bsu-base"))
         self.assertFalse(wr.RUN_RE.match("ps3-bench-20261029T203517Z-xmoto-base"))
+        self.assertEqual(wr.RUN_RE.pattern.strip("^$"), sc.RUN_RE.pattern.strip("\\AZ"))
 
 
+# ---- the submission check (tools/gamedb/submission_check.py) ---------------------------------------------
 
-# ---- the receiver (servers/walnut.nanobyte.dev/rate/walnut-rate-receiver) and submissions.py ----------------
-
-RECEIVER = REPO / "servers" / "walnut.nanobyte.dev" / "rate" / "walnut-rate-receiver"
-
-
-def load_receiver():
-    loader = importlib.machinery.SourceFileLoader("walnut_rate_receiver", str(RECEIVER))
-    spec = importlib.util.spec_from_loader(loader.name, loader)
-    m = importlib.util.module_from_spec(spec)
-    loader.exec_module(m)
-    return m
+RUN = "ps3-bench-20261030T120000Z-session-chromium-bsu-base"
+SID = "2026-10-30-k3f9q2"
+JPEG = b"\xff\xd8\xff\xe0" + b"\0" * 60 + b"\xff\xd9"
 
 
-RX = load_receiver()
-TOP = "ps3-bench-20261030T120000Z-session-chromium-bsu-base"
-PNG = b"\x89PNG\r\n\x1a\n" + b"\0" * 64
+def good_files(game="chromium-bsu", sid=SID, run=RUN, **sub):
+    s = dict(nickname="tester", publish=True, walnut_rate="0.1", exported="2026-10-30T12:30:00Z", run=run, game=game,
+             id=sid)
+    s.update(sub)
+    return {"bench.txt": b"kind=session\ngame=%s\nvariant=base\nshot=60:shots/shot-60s.xwd:x\n" % game.encode(),
+            "versions": b"chromium-bsu 0.9.16.1-4+ps3.1\nmesa 25.2+ps3.40\n",
+            "game.log": b"hello from player@host:~$\n",
+            "Xorg.0.log": b"[  27.5] Current Operating System: Linux walnut 6.12.111+ps3.874 #1 SMP ppc64\n",
+            "session.toml": b"saved = true\n",
+            "hud/frametime_(ms)": b"1\n2\n",
+            "shots/shot-60s.jpg": JPEG,
+            "shots/geometry.tsv": b"t\tx\n",
+            "fresh-home/.chromium-bsu": b"x=1\n",
+            "submitter.toml": evidence.toml_text({k: v for k, v in s.items() if v is not None}, ["t"]).encode()}
 
 
-def member(name, data=b"", kind=tarfile.REGTYPE, link=""):
-    ti = tarfile.TarInfo(name)
-    ti.type, ti.linkname, ti.mode = kind, link, 0o644
-    if kind == tarfile.DIRTYPE:
-        ti.mode = 0o755
-    ti.size = len(data) if kind in (tarfile.REGTYPE, tarfile.AREGTYPE) else 0
-    return ti, data
+def pr_changes(files, top="submissions/chromium-bsu/" + SID):
+    return [("000000", "100644", "%040x" % i, "A", "%s/%s" % (top, r)) for i, r in enumerate(sorted(files))]
 
 
-def good_members(top=TOP):
-    sub = ('nickname = "tester"\ncontact = ""\npublish = true\nwalnut_rate = "0.1"\nexported = "2026-10-30T12:30:00Z"\n'
-           'run = "%s"\ngame = "chromium-bsu"\n' % top).encode()
-    return [member(top, kind=tarfile.DIRTYPE),
-            member(top + "/bench.txt", b"kind=session\ngame=chromium-bsu\nvariant=base\nshot=60:shots/shot-60s.xwd\n"),
-            member(top + "/game.log", b"hello\n"),
-            member(top + "/session.toml", b"saved = true\n"),
-            member(top + "/hud", kind=tarfile.DIRTYPE),
-            member(top + "/hud/frametime_(ms)", b"1\n2\n"),
-            member(top + "/shots/shot-60s.png", PNG),
-            member(top + "/shots/geometry.tsv", b"t\tx\n"),
-            member(top + "/fresh-home/.chromium-bsu", b"x=1\n"),
-            member(top + "/submitter.toml", sub)]
+class SubmissionCheck(unittest.TestCase):
+    EXISTS = staticmethod(sc.games_dir_exists(REPO / "gamedb/games"))
 
-
-def tar_bytes(members, fmt=tarfile.PAX_FORMAT):
-    import io
-    buf = io.BytesIO()
-    with tarfile.open(fileobj=buf, mode="w", format=fmt) as t:
-        for ti, data in members:
-            t.addfile(ti, io.BytesIO(data) if ti.isreg() else None)
-    return buf.getvalue()
-
-
-class Receiver(unittest.TestCase):
-    def refused(self, data, why):
-        with self.assertRaises(RX.Refused) as e:
-            RX.check_bundle(data)
-        self.assertIn(why, str(e.exception))
-
-    def test_lists_agree(self):
-        """the receiver's names are the export's (it can't import them on the server)"""
-        self.assertEqual(RX.RAW_FILES, evidence.RAW_FILES)
-        self.assertEqual(evidence.RAW_GLOBS, ("hud/*",))           # the receiver's HUD_RE
-        self.assertEqual(RX.EXTRA_FILES, wr.EXTRA_FILES)
-        self.assertEqual((RX.FRESH_MAX, RX.FRESH_TOTAL), (evidence.FRESH_MAX, evidence.FRESH_TOTAL))
-        self.assertEqual(RX.MAX_BUNDLE, wr.MAX_SUBMIT)
-        self.assertEqual(RX.RUN_RE.pattern.strip("\\AZ"), wr.RUN_RE.pattern.strip("^$"))
+    def refused(self, why, files=None, game="chromium-bsu", sid=SID, exists=None):
+        with self.assertRaises(sc.Refused) as e:
+            sc.check_files(game, sid, good_files() if files is None else files, exists or self.EXISTS)
+        self.assertTrue(any(why in r for r in e.exception.reasons), e.exception.reasons)
+        return e.exception.reasons
 
     def test_good(self):
-        info = RX.check_bundle(tar_bytes(good_members()))
-        self.assertEqual(info, {"run": TOP, "game": "chromium-bsu", "nickname": "tester", "publish": True, "files": 8})
-        self.assertEqual(RX.check_bundle(tar_bytes(good_members(), tarfile.GNU_FORMAT))["run"], TOP)
+        info = sc.check_files("chromium-bsu", SID, good_files(), self.EXISTS)
+        self.assertEqual((info["game"], info["id"], info["run"], info["nickname"], info["files"]),
+                         ("chromium-bsu", SID, RUN, "tester", 10))
+        self.assertEqual(sc.check_changes(pr_changes(good_files()))[:2], ("chromium-bsu", SID))
+
+    def test_lists_agree(self):
+        """walnut-rate writes what the check knows"""
+        self.assertEqual(wr._checker().EXTRA_FILES[1], wr.CHECK)
+        self.assertEqual(evidence.RAW_GLOBS, ("hud/*",))           # the check's HUD_RE
+        for r in evidence.RAW_FILES + sc.EXTRA_FILES:
+            self.assertEqual(sc.kind_of(r)[0], "text", r)
 
     def test_refusals(self):
-        g = good_members()
-        self.refused(tar_bytes(g + [member(TOP + "/shots/x.png", kind=tarfile.SYMTYPE, link="/etc/passwd")]), "a link")
-        self.refused(tar_bytes(g + [member(TOP + "/game2.log", kind=tarfile.LNKTYPE, link=TOP + "/game.log")]), "a link")
-        self.refused(tar_bytes(g + [member(TOP + "/fresh-home/a", kind=tarfile.LNKTYPE, link=TOP + "/game.log")]), "a link")
-        self.refused(tar_bytes(g + [member(TOP + "/../evil", b"x")]), ". or .. part")
-        self.refused(tar_bytes(g + [member(TOP + "/fresh-home/../../x", b"x")]), ". or .. part")
-        self.refused(tar_bytes(g + [member("/" + TOP + "/cmd", b"x")]), "plain and relative")
-        self.refused(tar_bytes(g + [member("other/cmd", b"x")]), "outside the run")
-        self.refused(tar_bytes(g + [member(TOP + "/fresh-home/tty", kind=tarfile.CHRTYPE)]), "a device")
-        self.refused(tar_bytes(g + [member(TOP + "/fresh-home/fifo", kind=tarfile.FIFOTYPE)]), "a device or fifo")
-        self.refused(tar_bytes(g + [member(TOP + "/game.log.bak", b"x")]), "unknown file")
-        self.refused(tar_bytes(g + [member(TOP + "/run.sh", b"#!/bin/sh\n")]), "unknown file")
-        self.refused(tar_bytes(g + [member(TOP + "/shots/a.exe", b"MZ")]), "unknown file")
-        self.refused(tar_bytes(g + [member(TOP + "/secret", kind=tarfile.DIRTYPE)]), "unknown directory")
-        self.refused(tar_bytes(g + [member(TOP + "/shots/s2.png", b"GIF89a")]), "not a png")
-        self.refused(tar_bytes(g + [member(TOP + "/cmd", b"a\0b")]), "not a text file")
-        self.refused(tar_bytes(g + [member(TOP + "/game.log", b"again")]), "twice")
-        self.refused(tar_bytes(g + [member(TOP + "/fresh-home/big", b"x" * (RX.FRESH_MAX + 1))]), "at most")
-        self.refused(tar_bytes([x for x in g if not x[0].name.endswith("submitter.toml")]
-                               + [member(TOP + "/submitter.toml", b"#" * 5000)]), "at most")
-        self.refused(b"\0" * (RX.MAX_BUNDLE + 512), "too big")
-        self.refused(tar_bytes([member("a", kind=tarfile.DIRTYPE)] + g), "isn't a session run")
-        self.refused(tar_bytes([x for x in g if not x[0].name.endswith("submitter.toml")]), "no submitter.toml")
-        bad = [x for x in g if not x[0].name.endswith("submitter.toml")]
-        self.refused(tar_bytes(bad + [member(TOP + "/submitter.toml", b'nickname = "x"\nshell = "rm"\n')]), "unknown field")
-        self.refused(tar_bytes(bad + [member(TOP + "/submitter.toml", b'nickname = "x\\ny"\n')]), "one line")
-        self.refused(tar_bytes(bad + [member(TOP + "/submitter.toml", b'run = "other"\n')]), "another run")
-        self.refused(tar_bytes([x for x in g if not x[0].name.endswith("bench.txt")]
-                               + [member(TOP + "/bench.txt", b"kind=bench\ngame=chromium-bsu\n")]), "not a played session")
-        self.refused(b"x" * 4096, "not a readable tar")
-        self.refused(tar_bytes(g)[:-1], "not a tar")
+        g = good_files()
+        # the pull request: a second folder, a second game, a file elsewhere, a change, a link, a submodule
+        for chs, why in ((pr_changes(g) + pr_changes({"x": 1}, "submissions/chromium-bsu/2026-10-30-zzzzzz"),
+                          "more than one folder"),
+                         (pr_changes(g) + pr_changes({"bench.txt": 1}, "submissions/xmoto/" + SID), "more than one game"),
+                         (pr_changes(g) + [("000000", "100644", "0" * 40, "A", "tools/gamedb/check.py")],
+                          "outside submissions"),
+                         (pr_changes(g) + [("100644", "100644", "0" * 40, "M", "README.md")], "outside submissions"),
+                         (pr_changes(g)[:-1] + [("100644", "100644", "0" * 40, "M",
+                                                 "submissions/chromium-bsu/%s/submitter.toml" % SID)], "only adds"),
+                         (pr_changes(g) + [("000000", "120000", "0" * 40, "A",
+                                            "submissions/chromium-bsu/%s/shots/x.jpg" % SID)], "a link"),
+                         (pr_changes(g) + [("000000", "160000", "0" * 40, "A",
+                                            "submissions/chromium-bsu/%s/sub" % SID)], "a submodule"),
+                         (pr_changes(g) + [("000000", "100755", "0" * 40, "A",
+                                            "submissions/chromium-bsu/%s/cmd" % SID)], "executable"),
+                         ([], "changes nothing")):
+            with self.assertRaises(sc.Refused) as e:
+                sc.check_changes(chs)
+            self.assertTrue(any(why in r for r in e.exception.reasons), (why, e.exception.reasons))
+        # the folder
+        self.refused("no played test", exists=lambda game: False)
+        self.refused("not a game id", game="../etc")
+        self.refused("not a submission id", sid="20261030")
+        self.refused("not a JPEG", dict(g, **{"shots/shot-60s.jpg": b"\x89PNG\r\n\x1a\n" + b"\0" * 40}))
+        self.refused("not a file a submission has", dict(g, **{"shots/shot-60s.png": b"\x89PNG"}))
+        self.refused("not a file a submission has", dict(g, **{"run.sh": b"#!/bin/sh\n"}))
+        self.refused("not a text file", dict(g, **{"cmd": b"a\0b"}))
+        self.refused("at most", dict(g, **{"game.log": b"x" * (sc.FILE_MAX + 1)}))
+        self.refused("at most", dict(g, **{"fresh-home/big": b"x" * (evidence.FRESH_MAX + 1)}))
+        many = dict(g, **{"shots/s%d.jpg" % i: JPEG[:-2] + b"\0" * (1 << 20) + JPEG[-2:] for i in range(16)})
+        self.refused("the screenshots", many)
+        # the scrub: a host name, a user@host, a home path, LAN and MAC addresses
+        self.refused("a host name", dict(g, **{"Xorg.0.log": b"Current Operating System: Linux myconsole 6.12 #1\n"}))
+        self.refused("a host name", dict(g, **{"versions": g["versions"] + b"Linux myconsole 6.12.111 #1 SMP\n"}))
+        self.refused("user@host", dict(g, **{"game.log": b"tester42@myconsole:~$ ls\n"}))
+        self.refused("a home directory", dict(g, **{"dmesg.log": b"open /home/tester42/x\n"}))
+        self.refused("a LAN address", dict(g, **{"out.log": b"connected to 192.168.1.20\n"}))
+        self.refused("a MAC address", dict(g, **{"dmesg.log": b"eth0: aa:bb:cc:dd:ee:ff\n"}))
+        # submitter.toml: no consent, unknown fields (a contact is public on GitHub), another game, not TOML
+        self.refused("no consent", good_files(publish=False))
+        self.refused("no consent", good_files(publish=None))
+        self.refused("unknown field", good_files(contact="me@example.org"))
+        self.refused("the folder's", good_files(game="xmoto"))
+        self.refused("one line", good_files(nickname="a\nb"))
+        self.refused("not TOML", dict(g, **{"submitter.toml": b"nickname = \n"}))
+        self.refused("no submitter.toml", {k: v for k, v in g.items() if k != "submitter.toml"})
+        self.refused("not a played session", dict(g, **{"bench.txt": b"kind=bench\ngame=chromium-bsu\n"}))
+        # a word of the run itself (a package's name) is not a host name the scrub missed
+        sc.check_files("chromium-bsu", SID, dict(g, **{"Xorg.0.log": b"Current Operating System: Linux mesa 6.12\n"}),
+                       self.EXISTS)
 
-    def test_truncated(self):
-        data = tar_bytes(good_members())
-        info = [m for m in tarfile.open(fileobj=__import__("io").BytesIO(data)).getmembers()]
-        last = info[-1]
-        # cut inside the last file's data (a 512 boundary), right after it (no end blocks), at a header; and one
-        # cut after a header and padded with zeros to look whole: that file's data is NULs then
-        for cut, pad, why in ((last.offset_data, 0, "cut off"), (last.offset_data + 512, 0, "cut off"),
-                              (info[3].offset, 0, "cut off"), (info[3].offset + 512, 0, "cut off"),
-                              (info[3].offset + 512, 1024, "not a text file")):
-            self.refused(data[:cut] + b"\0" * pad, why)
-        self.refused(data[:info[-2].offset_data + 512], "cut off")
-
-    def server(self, q, **limits):
-        import threading
-        srv = RX.make_server(("127.0.0.1", 0), q, **limits)
-        threading.Thread(target=srv.serve_forever, daemon=True).start()
-        self.addCleanup(srv.server_close)
-        self.addCleanup(srv.shutdown)
-        return "http://127.0.0.1:%d" % srv.server_address[1]
-
-    def post(self, url, body, headers=None):
-        import json
-        import urllib.error
-        import urllib.request
-        req = urllib.request.Request(url, data=body, method="POST", headers=headers or {})
-        try:
-            with urllib.request.urlopen(req, timeout=30) as r:
-                return r.status, json.loads(r.read())
-        except urllib.error.HTTPError as e:
-            with e:
-                return e.code, json.loads(e.read())
-
-    def raw(self, port, head, body=b"", close_write=True):
-        import socket
-        s = socket.create_connection(("127.0.0.1", port), timeout=30)
-        try:
-            s.sendall(head + body)
-            if close_write:
-                s.shutdown(socket.SHUT_WR)
-            return s.recv(65536).split(b"\r\n")[0]
-        finally:
-            s.close()
-
-    def test_http(self):
-        import json
+    def test_folder_on_disk(self):
         d = tmpdir()
         try:
-            base = self.server(d, per_hour=4)
-            port = int(base.rsplit(":", 1)[1])
-            good = tar_bytes(good_members())
-            code, r = self.post(base + "/rate/submit", good)
-            self.assertEqual(code, 201)
-            self.assertTrue(RX.ID_RE.match(r["id"]), r)
-            self.assertEqual((d / (r["id"] + ".tar")).read_bytes(), good)
-            meta = json.loads((d / (r["id"] + ".json")).read_text())
-            self.assertEqual((meta["run"], meta["nickname"], meta["publish"]), (TOP, "tester", True))
-            self.assertEqual(oct((d / (r["id"] + ".tar")).stat().st_mode & 0o777), "0o640")
-            self.assertEqual(self.post(base + "/rate/submit", good), (200, {"id": r["id"], "run": TOP, "duplicate": True}))
-            code, r2 = self.post(base + "/rate/submit", tar_bytes(good_members() + [member(TOP + "/x", b"x")]))
-            self.assertEqual((code, "unknown file" in r2["error"]), (400, True))
-            # a body cut off on the way, a length over the cap, none at all: the 4th POST of this address, then 429
-            self.assertIn(b" 400 ", self.raw(port, b"POST /rate/submit HTTP/1.1\r\nHost: x\r\nContent-Length: %d\r\n\r\n"
-                                            % len(good), good[:5000]))
-            self.assertIn(b" 429 ", self.raw(port, b"POST /rate/submit HTTP/1.1\r\nHost: x\r\nContent-Length: 99999999\r\n\r\n",
-                                            close_write=False))
-            self.assertEqual(sorted(f.suffix for f in d.iterdir()), [".json", ".tar"])   # nothing else kept
-        finally:
-            shutil.rmtree(d, ignore_errors=True)
-        d = tmpdir()
-        try:
-            base = self.server(d)
-            port = int(base.rsplit(":", 1)[1])
-            self.assertIn(b" 413 ", self.raw(port, b"POST /rate/submit HTTP/1.1\r\nHost: x\r\nContent-Length: %d\r\n\r\n"
-                                            % (RX.MAX_BUNDLE + 1), close_write=False))
-            self.assertIn(b" 411 ", self.raw(port, b"POST /rate/submit HTTP/1.1\r\nHost: x\r\n\r\n"))
-            self.assertIn(b" 404 ", self.raw(port, b"POST /etc/passwd HTTP/1.1\r\nHost: x\r\nContent-Length: 0\r\n\r\n"))
-            self.assertIn(b" 200 ", self.raw(port, b"GET /rate/health HTTP/1.1\r\nHost: x\r\n\r\n"))
-            self.assertEqual(list(d.iterdir()), [])
+            f = d / "submissions" / "chromium-bsu" / SID
+            for r, data in good_files().items():
+                (f / r).parent.mkdir(parents=True, exist_ok=True)
+                (f / r).write_bytes(data)
+            self.assertEqual(sc.check_folder(f, self.EXISTS)["files"], 10)
+            self.assertEqual(quiet(sc.main, ["folder", str(f)])[0], 0)
+            (f / "shots" / "evil.jpg").symlink_to("/etc/passwd")
+            with self.assertRaises(sc.Refused) as e:
+                sc.check_folder(f, self.EXISTS)
+            self.assertIn("a link", str(e.exception))
+            (f / "shots" / "evil.jpg").unlink()
+            (f / "cmd").write_text("x\n")
+            (f / "cmd").chmod(0o755)
+            rc, out = quiet(sc.main, ["folder", str(f)])
+            self.assertEqual(rc, 1)
+            self.assertIn("executable", out)
         finally:
             shutil.rmtree(d, ignore_errors=True)
 
-    def test_limits(self):
-        t = [1000.0]
-        rx = RX.Receiver(tmpdir(), per_hour=2, per_day=3, now=lambda: t[0])
-        self.addCleanup(shutil.rmtree, rx.q, True)
-        self.assertEqual([rx.allow("a"), rx.allow("a")], [0, 0])
-        self.assertGreater(rx.allow("a"), 0)
-        self.assertEqual(rx.allow("b"), 0)
-        t[0] += 3601
-        self.assertEqual(rx.allow("a"), 0)
-        self.assertGreater(rx.allow("a"), 3600)                 # the day's 3 used up
-        t[0] += 86400
-        self.assertEqual(rx.allow("a"), 0)
-        full = RX.Receiver(rx.q, max_waiting=1, now=lambda: t[0])
-        info = {"run": TOP, "game": "chromium-bsu", "nickname": "", "publish": True, "files": 1}
-        full.store(b"one", info)
-        with self.assertRaises(RX.Full):
-            full.store(b"two", info)
+
+# ---- a pull request: walnut-rate submit (gh stubbed) -> a local "GitHub" -> submissions.py show, accept ----
+
+GH_STUB = r'''
+import hashlib, json, os, sys
+from pathlib import Path
+st = Path(os.environ["GH_STUB"])
+args = sys.argv[1:]
+body = json.loads(sys.stdin.read() or "null") if "--input" in args else None
+with open(st / "calls.jsonl", "a") as f:
+    f.write(json.dumps({"args": args, "body": body}) + "\n")
+if args[:2] == ["auth", "status"]:
+    sys.exit(0 if (st / "logged-in").exists() else 1)
+if args[:1] != ["api"] or "-X" not in args:
+    sys.exit(2)
+method, path = args[args.index("-X") + 1], args[5]
+key = "%s %s" % (method, path)
+canned = json.loads((st / "responses.json").read_text())
+if key in canned:
+    print(json.dumps(canned[key]))
+    sys.exit(0)
+def sha(x):
+    return hashlib.sha1(json.dumps(x, sort_keys=True).encode()).hexdigest()
+if method == "POST" and path.endswith("/git/blobs"):
+    s = sha(body)
+    (st / "blobs").mkdir(exist_ok=True)
+    (st / "blobs" / s).write_text(body["content"])
+    print(json.dumps({"sha": s}))
+elif method == "POST" and path.endswith(("/git/trees", "/git/commits", "/git/refs")):
+    print(json.dumps({"sha": sha(body)}))
+elif method == "POST" and path.endswith("/pulls"):
+    print(json.dumps({"number": 1, "html_url": "https://github.com/%s/%s/pull/1" % tuple(path.split("/")[1:3])}))
+elif method in ("POST", "PATCH"):
+    print(json.dumps({}))
+else:
+    sys.stderr.write("gh: HTTP 404: Not Found (%s)\n" % path)
+    sys.exit(1)
+'''
 
 
-class SubmitRoundTrip(unittest.TestCase):
-    """walnut-rate submit -> the receiver on 127.0.0.1 (plain HTTP) -> submissions.py pull -> accept"""
+class PullRequest(unittest.TestCase):
+    """walnut-rate submit through a stubbed gh: a fork, one commit adding only the folder, the pull request; that
+    commit as the merge commit of a local repository standing in for GitHub; submissions.py show (the checker on it)
+    and accept (gh stubbed): the same record as our own import, committed, the pull request commented on and closed"""
+
+    def gh_stub(self, d, responses):
+        st = d / "gh"
+        (st / "bin").mkdir(parents=True)
+        write(st / "bin" / "gh", "#!%s -I\n%s" % (sys.executable, GH_STUB), 0o755)
+        (st / "responses.json").write_text(json.dumps(responses))
+        env = {"GH_STUB": str(st), "PATH": "%s:%s" % (st / "bin", os.environ["PATH"])}
+        old = {k: os.environ.get(k) for k in env}
+        os.environ.update(env)
+        self.addCleanup(lambda: [os.environ.pop(k) if v is None else os.environ.__setitem__(k, v) for k, v in old.items()])
+        self.assertEqual(shutil.which("gh"), str(st / "bin" / "gh"))       # never the real one
+        return st
+
+    def calls(self, st):
+        return [json.loads(x) for x in (st / "calls.jsonl").read_text().splitlines()] if (st / "calls.jsonl").exists() else []
+
+    def git(self, d, *a):
+        return subprocess.run(["git", "-C", str(d)] + list(a), check=True, capture_output=True, text=True).stdout.strip()
 
     def test_round_trip(self):
-        if not shutil.which("magick") or not shutil.which("rsync"):
-            self.skipTest("no ImageMagick or rsync")
-        import contextlib
-        import io
-        import threading
-        import tomllib
-        spec = importlib.util.spec_from_file_location("submissions", REPO / "tools/gamedb/submissions.py")
-        sm = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(sm)
+        if not shutil.which("magick") or not shutil.which("git"):
+            self.skipTest("no ImageMagick or git")
+        import base64
         ex = Export()
         d = tmpdir()
         try:
             g, sd, run = ex.rebuilt_run(d)
-            q = d / "quarantine"
-            q.mkdir()
-            srv = RX.make_server(("127.0.0.1", 0), q)
-            threading.Thread(target=srv.serve_forever, daemon=True).start()
-            self.addCleanup(srv.server_close)
-            self.addCleanup(srv.shutdown)
-            env = {"WALNUT_RATE_URL": "http://127.0.0.1:%d/rate/submit" % srv.server_address[1],
-                   "WALNUT_SUBMISSIONS": str(d / "store"), "WALNUT_SUBMISSIONS_BENCH": str(d / "bench")}
-            os.environ.update(env)
-            self.addCleanup(lambda: [os.environ.pop(k, None) for k in env])
+            up = "nanobyte-dev/walnut-linux"
+            st = self.gh_stub(d, {
+                "GET user": {"login": "tester"},
+                "GET repos/" + up: {"owner": {"login": "nanobyte-dev"}, "default_branch": "main"},
+                "GET repos/%s/git/ref/heads/main" % up: {"object": {"sha": "b" * 40}},
+                "GET repos/%s/git/commits/%s" % (up, "b" * 40): {"tree": {"sha": "c" * 40}},
+                "POST repos/%s/forks" % up: {"full_name": "tester/walnut-linux"},
+                "GET repos/tester/walnut-linux/git/ref/heads/main": {"object": {"sha": "b" * 40}}})
             old_ident, old_out = wr.console_identity, wr.OUT
             wr.console_identity = lambda run=None: (ex.IDENT[0], ex.IDENT[1], ex.HOME, [])
             wr.OUT = run.parent
             self.addCleanup(setattr, wr, "console_identity", old_ident)
             self.addCleanup(setattr, wr, "OUT", old_out)
-
-            def quiet(f, *a):
-                buf = io.StringIO()
-                with contextlib.redirect_stdout(buf):
-                    try:
-                        rc = f(*a)
-                    except SystemExit as e:
-                        rc = e
-                return rc, buf.getvalue()
-
-            rc, out = quiet(wr.cmd_submit, [run.name, "--nick", "tester", "--publish", "yes", "--yes"])
+            sub = [run.name, "--nick", "tester", "--publish", "yes", "--yes"]
+            # no gh, then gh not logged in: the steps by hand, nothing sent
+            old_cmd = wr.gh_cmd
+            wr.gh_cmd = lambda: None
+            rc, out = quiet(wr.cmd_submit, sub)
+            wr.gh_cmd = old_cmd
+            self.assertEqual(rc, 1, out)
+            self.assertIn("isn't installed", out)
+            self.assertIn("Upload files", out)
+            rc, out = quiet(wr.cmd_submit, sub)
+            self.assertEqual(rc, 1, out)
+            self.assertIn("gh auth login", out)
+            self.assertFalse([c for c in self.calls(st) if "POST" in c["args"]])
+            # logged in: the pull request
+            (st / "logged-in").touch()
+            rc, out = quiet(wr.cmd_submit, sub)
             self.assertEqual(rc, 0, out)
-            sid = wr.submissions(run)[-1][1]
-            self.assertTrue(RX.ID_RE.match(sid))
-            self.assertIn("submission id: " + sid, out)
-            self.assertIn("submitted as " + sid, quiet(wr.cmd_status, [])[1])
+            url = wr.submissions(run)[-1][1]
+            self.assertEqual(url, "https://github.com/nanobyte-dev/walnut-linux/pull/1")
+            self.assertIn("sent: " + url, quiet(wr.cmd_status, [])[1])
             self.assertEqual(quiet(wr.cmd_submit, [run.name, "--yes"])[0], 1)          # sent already
-            # the scrubbed bundle, as the receiver kept it: nothing of the console's identity
-            data = (q / (sid + ".tar")).read_bytes()
-            for x in (b"tester42", b"myconsole", b"203.0.113.7", b"/home/"):
-                self.assertNotIn(x, data)
-            # two more: one the tester won't have published, one to reject
-            self.assertEqual(quiet(wr.cmd_submit, [run.name, "--again", "--nick", "", "--publish", "no", "--yes"])[0], 0)
-            no_pub = wr.submissions(run)[-1][1]
-            self.assertEqual(quiet(wr.cmd_submit, [run.name, "--again", "--nick", "other", "--publish", "yes",
-                                                   "--yes"])[0], 0)
-            junk = wr.submissions(run)[-1][1]
-            self.assertEqual(len({sid, no_pub, junk}), 3)
-
-            rc, out = quiet(sm.main, ["pull", "--from", str(q)])
+            calls = self.calls(st)
+            posts = {at(c): c["body"] for c in calls if c["args"][:3] == ["api", "-X", "POST"]}
+            tree = posts["repos/tester/walnut-linux/git/trees"]
+            sid = wr.submission_id(run)
+            top = "submissions/%s/%s/" % (g, sid)
+            self.assertEqual(tree["base_tree"], "c" * 40)
+            self.assertTrue(all(e["path"].startswith(top) and e["mode"] == "100644" for e in tree["tree"]))
+            self.assertEqual(posts["repos/tester/walnut-linux/git/commits"]["parents"], ["b" * 40])
+            pr = posts["repos/%s/pulls" % up]
+            self.assertEqual((pr["head"], pr["base"], pr["maintainer_can_modify"]),
+                             ("tester:submission-%s-%s" % (g, sid), "main", False))
+            self.assertIn("publish = true", pr["body"])
+            # "GitHub": a base commit with the game's played test, the pull request's commit of exactly the blobs
+            # sent, refs/pull/1/merge
+            gh_repo = d / "github"
+            gh_repo.mkdir()
+            self.git(gh_repo, "init", "-q", "-b", "main")
+            for k, v in (("user.name", "t"), ("user.email", "t@example.org"), ("uploadpack.allowFilter", "true"),
+                         ("uploadpack.allowAnySHA1InWant", "true")):
+                self.git(gh_repo, "config", k, v)
+            t = gh_repo / "gamedb/games" / g / "rating/test.toml"
+            t.parent.mkdir(parents=True)
+            shutil.copyfile(REPO / "gamedb/games" / g / "rating/test.toml", t)
+            self.git(gh_repo, "add", "-A")
+            self.git(gh_repo, "commit", "-qm", "base")
+            self.git(gh_repo, "switch", "-qc", "pr")
+            for e in tree["tree"]:
+                f = gh_repo / e["path"]
+                f.parent.mkdir(parents=True, exist_ok=True)
+                f.write_bytes(base64.b64decode((st / "blobs" / e["sha"]).read_text()))
+            self.git(gh_repo, "add", "-A")
+            self.git(gh_repo, "commit", "-qm", "a played session")
+            head = self.git(gh_repo, "rev-parse", "HEAD")
+            self.git(gh_repo, "switch", "-q", "main")
+            self.git(gh_repo, "merge", "-q", "--no-ff", "-m", "merge", "pr")
+            self.git(gh_repo, "update-ref", "refs/pull/1/merge", "HEAD")
+            self.git(gh_repo, "reset", "-q", "--hard", "HEAD^1")
+            # our side
+            ours = d / "ours"
+            content = content_dir(ours / "gamedb" / "games", g)
+            self.git(ours, "init", "-q", "-b", "main")
+            for k, v in (("user.name", "t"), ("user.email", "t@example.org"), ("commit.gpgsign", "false")):
+                self.git(ours, "config", k, v)
+            self.git(ours, "add", "-A")
+            self.git(ours, "commit", "-qm", "base")
+            (st / "responses.json").write_text(json.dumps({
+                "GET repos/%s/pulls/1" % up: {"number": 1, "state": "open", "head": {"sha": head},
+                                               "user": {"login": "tester"}, "title": pr["title"]},
+                "GET repos/%s/pulls?state=open&per_page=100" % up: [
+                    {"number": 1, "head": {"sha": head}, "user": {"login": "tester"}, "title": pr["title"]}],
+                "GET repos/%s/pulls/1/files?per_page=100" % up: [{"filename": e["path"]} for e in tree["tree"]],
+                "GET repos/%s/commits/%s/check-runs?per_page=100" % (up, head): {
+                    "check_runs": [{"name": "validate", "conclusion": "success"}]}}))
+            env = {"WALNUT_SUBMISSIONS_GIT": "file://%s" % gh_repo, "WALNUT_SUBMISSIONS_DIR": str(d / "work")}
+            os.environ.update(env)
+            self.addCleanup(lambda: [os.environ.pop(k, None) for k in env])
+            sm = load_submissions()
+            rc, out = quiet(sm.main, ["list"])
             self.assertEqual(rc, 0, out)
-            self.assertIn("3 new", out)
-            self.assertIn("tester", quiet(sm.main, ["list"])[1])
-            # accept: unpacked first, refused without the review, then imported
-            content = d / "content"
-            (content / g).mkdir(parents=True)
-            for f in ("index.md", "build.toml"):
-                if (REPO / "gamedb/games" / g / f).exists():
-                    shutil.copyfile(REPO / "gamedb/games" / g / f, content / g / f)
-            acc = ["accept", sid, "--content", str(content), "--session", sd.name, "--from", str(q)]
+            self.assertIn("#1", out)
+            self.assertIn("%s/%s" % (g, sid), out)
+            self.assertIn("success", out)
+            rc, out = quiet(sm.main, ["show", "1"])
+            self.assertEqual(rc, 0, out)
+            self.assertIn("the check passes", out)
+            got = d / "work" / "pr-1" / run.name
+            self.assertTrue((got / "bench.txt").is_file())
+            acc = ["accept", "1", "--content", str(content), "--session", sd.name, "--yes"]
             rc, out = quiet(sm.main, acc)
             self.assertEqual(rc, 1, out)
             self.assertIn("no REVIEW.md", out)
-            got = d / "bench" / run.name
-            self.assertEqual((got / sm.MARK).read_text().strip(), sid)
             shutil.copyfile(d / "REVIEW.md", got / "REVIEW.md")
             rc, out = quiet(sm.main, acc)
             self.assertEqual(rc, 0, out)
             folder = content / g / "rating/sessions" / sd.name
             text = (folder / "result.toml").read_text()
-            t = tomllib.loads(text)
-            self.assertEqual((t["source"], t["tester"]), ("submitted", "tester"))
-            ours = (sd / "result.toml").read_text()
+            rec = tomllib.loads(text)
+            self.assertEqual((rec["source"], rec["tester"]), ("submitted", "tester"))
             strip = lambda x: "\n".join(line for line in x.splitlines() if not line.startswith(("source =", "tester =")))
-            self.assertEqual(strip(text), strip(ours))                   # the same record as our own import of it
-            self.assertEqual(evidence.read_import(folder)["submission"], sid)
-            ir = sm.import_run_module()
-            self.assertEqual(ir.derive_session(folder, g, content)[0], text)   # reimport.py keeps the credit
-            self.assertFalse((q / (sid + ".tar")).exists())            # the server's copy is gone
-            self.assertEqual(sm.decisions(sm.store())[sid]["state"], "accepted")
+            self.assertEqual(strip(text), strip((sd / "result.toml").read_text()))   # the same record as ours
+            self.assertEqual(evidence.read_import(folder)["submission"], "%s#1 submissions/%s/%s" % (up, g, sid))
+            self.assertEqual(import_run_module().derive_session(folder, g, content)[0], text)   # reimport.py keeps it
+            # committed, that folder only, the pull request's number in the message
+            self.assertIn("(%s#1)" % up, self.git(ours, "log", "-1", "--format=%s"))
+            changed = self.git(ours, "show", "--name-only", "--format=", "HEAD").splitlines()
+            self.assertTrue(changed and all(c.startswith("gamedb/games/%s/rating/sessions/%s/" % (g, sd.name))
+                                            for c in changed), changed)
+            self.assertEqual(self.git(ours, "status", "--porcelain"), "")
+            calls = self.calls(st)
+            self.assertIn(("PATCH", "repos/%s/pulls/1" % up, {"state": "closed"}), [(c["args"][2], at(c), c["body"]) for c in calls])
+            comment = [c["body"]["body"] for c in calls if at(c) == "repos/%s/issues/1/comments" % up]
+            self.assertTrue(comment and "credited to tester" in comment[0], comment)
+            self.assertFalse([c for c in calls if at(c).endswith("/merge")])       # never merged
+            # accept again: imported already, no second commit
+            n = self.git(ours, "rev-list", "--count", "HEAD")
+            self.assertEqual(quiet(sm.main, acc)[0], 0)
+            self.assertEqual(self.git(ours, "rev-list", "--count", "HEAD"), n)
             # the site's session page data credits the tester
             sys.path.insert(0, str(REPO / "tools/gamedb"))
             import sessions
             ss = {x["id"]: x for x in sessions.game_sessions(content / g)}
             self.assertEqual((ss[sd.name]["source"], ss[sd.name]["tester"]), ("submitted", "tester"))
-            # no publishing agreed: refused; reject: moved aside, the server's copy gone
-            rc, out = quiet(sm.main, ["accept", no_pub, "--content", str(content), "--from", str(q)])
-            self.assertIn("said no to publishing", str(rc))
-            self.assertEqual(quiet(sm.main, ["reject", junk, "--why", "a test", "--from", str(q)])[0], 0)
-            self.assertTrue((d / "store" / "rejected" / (junk + ".tar")).exists())
-            self.assertFalse((q / (junk + ".json")).exists())
-            self.assertEqual(sorted(f.name for f in q.iterdir()), sorted([no_pub + ".tar", no_pub + ".json"]))
-            self.assertIn("0 new", quiet(sm.main, ["pull", "--from", str(q)])[1])
+            # a pull request that touches another file too: refused by show
+            self.git(gh_repo, "switch", "-q", "pr")
+            write(gh_repo / "README.md", "x\n")
+            self.git(gh_repo, "add", "-A")
+            self.git(gh_repo, "commit", "-qm", "more")
+            head2 = self.git(gh_repo, "rev-parse", "HEAD")
+            self.git(gh_repo, "switch", "-q", "main")
+            self.git(gh_repo, "merge", "-q", "--no-ff", "-m", "merge", "pr")
+            self.git(gh_repo, "update-ref", "refs/pull/1/merge", "HEAD")
+            resp = json.loads((st / "responses.json").read_text())
+            resp["GET repos/%s/pulls/1" % up]["head"]["sha"] = head2
+            (st / "responses.json").write_text(json.dumps(resp))
+            rc, out = quiet(sm.main, ["show", "1"])
+            self.assertIn("outside submissions", out)
+            self.assertNotEqual(rc, 0)
+            # the workflow's own command on it
+            rc, out = quiet(sc.main, ["pr", "file://%s" % gh_repo, "1", str(d / "wf")])
+            self.assertEqual(rc, 1, out)
+            # reject: asked first (not a terminal: nothing done), then with --yes
+            before = len(self.calls(st))
+            self.assertEqual(quiet(sm.main, ["reject", "1", "the pictures are black"])[0], 1)
+            self.assertFalse([c for c in self.calls(st)[before:] if at(c, 2) in ("POST", "PATCH")])
+            self.assertEqual(quiet(sm.main, ["reject", "1", "the pictures are black", "--yes"])[0], 0)
+            comment = [c["body"]["body"] for c in self.calls(st)[before:] if at(c, 2) == "POST"]
+            self.assertIn("the pictures are black", comment[0])
         finally:
             shutil.rmtree(d, ignore_errors=True)
 
     def test_credit_refusals(self):
-        spec = importlib.util.spec_from_file_location("import_run", REPO / "tools/gamedb/import-run.py")
-        ir = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(ir)
+        ir = import_run_module()
         self.assertEqual(ir.credit_keys(None), {})
         self.assertEqual(ir.credit_keys({"source": "submitted", "tester": ""}), {"source": "submitted", "tester": None})
         for bad in ({"source": "ours"}, {"source": "submitted", "tester": "x" * 41},
                     {"source": "submitted", "tester": "a\nb"}):
             with self.assertRaises(ir.Refused):
                 ir.credit_keys(bad)
+
+
+def load_submissions():
+    spec = importlib.util.spec_from_file_location("submissions", REPO / "tools/gamedb/submissions.py")
+    sm = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(sm)
+    return sm
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=1)

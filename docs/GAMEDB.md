@@ -54,14 +54,17 @@ and game optimizations and never answer any of it.
    no second game, no SSH login, nothing busy, swap, load and temperature low) and names what to close, then
    runs the session above, watches for the same things while the game runs (a session it saw disturbed is
    marked and can't be rated), and asks the form on the terminal. `walnut-rate submit` sends the session to
-   us as one file, scrubbed of the console's user, host and addresses, after showing what goes in and its size
-   and only on the tester's yes (`walnut-rate export` writes the same file to a USB stick). It lands in a
-   quarantine on walnut.nanobyte.dev; `tools/gamedb/submissions.py` pulls it to the PC, where it gets the same
-   PC reference and review as ours, and the maintainer accepts or rejects it. An accepted session's record says
-   `source = "submitted"` and `tester = "<nickname>"` (none: anonymous, "a tester" on the site), and it counts in
-   the rating like one of ours; a tester who said no to publishing is never imported. These three choices are
-   provisional (PLAN 5.12): our own receiver rather than GitHub, an optional nickname, the same weight once
-   accepted (catalog.py SUBMITTED_COUNTS). Our own sessions run through walnut-rate too
+   us as a GitHub pull request to nanobyte-dev/walnut-linux that adds one folder, `submissions/<game>/<id>/`
+   (plain files, the screenshots as JPEG, scrubbed of the console's user, host and addresses), after showing
+   what goes in and its size and only on the tester's yes to publishing; with gh on the console, or as a folder
+   written to a USB stick (`walnut-rate export`) and uploaded from a PC. The pull request's check
+   (validate-submission, `tools/gamedb/submission_check.py`) passes or fails it; `tools/gamedb/submissions.py`
+   fetches it to the PC, where it gets the same check again, the same PC reference and review as ours, and the
+   maintainer accepts it (imported, committed, the pull request commented on and closed, never merged) or
+   rejects it. An accepted session's record says `source = "submitted"` and `tester = "<nickname>"` (none: "a
+   tester" on the site), and it counts in the rating like one of ours (catalog.py SUBMITTED_COUNTS). The user
+   decided all three on 2026-10-30: pull requests rather than a receiver of ours, an optional nickname, the
+   same weight once accepted. Our own sessions run through walnut-rate too
    ([games/SUITE.md](games/SUITE.md#played-sessions)).
 2. **The review**, by the agent that imports the run. `tools/gamedb/review.py RUN` puts the session's
    screenshots next to the PC reference where one exists, adds 1:1 crops with a pixel ruler, and
@@ -471,8 +474,8 @@ browser, NetSurf and the app's HTML view (the user, 2026-10-28):
 - **How a game is tested**: the Test runs tab says testing is done with the rating tool (`walnut-rate`, on the
   console: [games/SUITE.md](games/SUITE.md#played-sessions)) and links `ratingDocs` (hugo.toml params; for now the
   about page's "How a game is tested"), the one place to point at the tool's public page once it has one: the
-  "How to help" page (content/help.md: how to play a session and send it in) is written, a Hugo draft (left out
-  of the build) and in no menu until the receiver is live (servers/README.md).
+  "How to help" page (content/help.md: how to play a session and send it in as a pull request) is written, a
+  Hugo draft (left out of the build) and in no menu until the user decides to show it.
 - **Tags** (gamedb/tags.toml, [gamedb/README.md](../gamedb/README.md#tags)): every tag shown is a link to
   its page, `tags/<id>/` (content/tags/_content.gotmpl, from catalog.json's tags), which lists the games that
   have it as cards; `tags/` is the index, by group. A game's head shows its tags under small group labels; a
