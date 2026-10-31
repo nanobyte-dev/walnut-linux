@@ -1342,6 +1342,7 @@ class ImportView:
 # ---- the queue: one action at a time, the rest waiting (the bottom of the window) -------------------
 
 QUEUE_CLOSED, QUEUE_OPEN = "\u25b8", "\u25be"      # the queue's toggle (small triangles): its list shown or not
+QUEUE_LIST_LINES = 7        # the open queue's list: a fixed height in lines of text, scrolled
 RUNNING_LABEL = {"install": "Installing\u2026", "remove": "Removing\u2026", "remove-data": "Removing data\u2026",
                  "install-repo-data": "Installing data\u2026", "import": "Importing\u2026"}
 
@@ -1975,11 +1976,12 @@ class App:
         st.configure("Source.TButton", background=ENTRY, foreground=TEXT, anchor="w", padding=(12, 8), justify="left")
         st.map("Source.TButton", background=[("active", BORDER), ("focus", BORDER)])
         st.configure("Link.TButton", background=PANEL, foreground=LINK, padding=(round(8 * s), round(4 * s)))
-        # the queue's show/hide arrow: a small flat disclosure triangle, not a button that reads like an action
-        st.configure("Disclosure.TButton", background=PANEL, foreground=MUTED, font=self.f["small"],
+        # the queue's status row: "▸ Now: ..." as one flat link-like line that opens the list, not a button
+        # that reads like an action such as starting the queue
+        st.configure("Disclosure.TButton", background=PANEL, foreground=TEXT, font=self.f["base"], anchor="w",
                      padding=(round(2 * s), 0), borderwidth=0, relief="flat", bordercolor=PANEL,
                      lightcolor=PANEL, darkcolor=PANEL, focuscolor=PANEL)
-        st.map("Disclosure.TButton", foreground=[("active", TEXT), ("focus", TEXT)],
+        st.map("Disclosure.TButton", foreground=[("active", TEXT_FOCUS), ("focus", TEXT_FOCUS)],
                background=[("active", PANEL), ("focus", BORDER)], bordercolor=[("focus", ACCENT_LIGHT)])
         st.map("Link.TButton", foreground=[("active", LINK_HOVER), ("focus", LINK_HOVER)],
                background=[("active", PANEL), ("focus", BORDER)], bordercolor=[("focus", ACCENT_LIGHT)])
@@ -2784,25 +2786,34 @@ class App:
         self.show_queue()
 
     def _build_queue(self):
-        """the queue at the bottom of the window: hidden while empty; one status row (the action running, its
-        step) and the bar; the > / v toggle opens the list of the actions (a waiting one can be removed, a
-        failed one dismissed) and the running one's last lines"""
+        """the queue at the bottom of the window: hidden while empty; one status row ("▸ Now: " the action
+        running and its step) and the bar; the row itself opens a list of a fixed height, scrolled to its end
+        as lines come in: the waiting actions (Remove), the failed ones (Dismiss), the running one's last lines"""
         s = self.scale
         q = ttk.Frame(self.root, style="Panel.TFrame", padding=(round(12 * s), round(6 * s)))
         self.q_frame = q
         tk.Frame(q, height=1, bg=BORDER).pack(side="top", fill="x", pady=(0, round(6 * s)))
         head = ttk.Frame(q, style="Panel.TFrame")
         head.pack(side="top", fill="x")
-        self.q_toggle = ttk.Button(head, text=QUEUE_CLOSED, width=2, style="Disclosure.TButton",
-                                   command=self.toggle_queue)
-        self.q_toggle.pack(side="left", padx=(0, round(6 * s)))
-        self.q_status = ttk.Label(head, text="", foreground=TEXT, background=PANEL, anchor="w")
-        self.q_status.pack(side="left", fill="x", expand=True)
+        self.q_text = ""                                   # the status row's text, without the arrow
+        self.q_toggle = ttk.Button(head, text=QUEUE_CLOSED, style="Disclosure.TButton", command=self.toggle_queue)
+        self.q_toggle.pack(side="left", fill="x", expand=True)
         self.q_more = ttk.Label(head, text="", style="Muted.TLabel", background=PANEL)
         self.q_more.pack(side="right")
         self.q_bar = ttk.Progressbar(q, maximum=1000, mode="determinate")
         self.q_bar.pack(side="top", fill="x", pady=(round(4 * s), 0))
+        # the open list: a canvas of a fixed height with a scrollbar, the rows in a frame inside it
         self.q_list = ttk.Frame(q, style="Panel.TFrame")
+        self.q_canvas = tk.Canvas(self.q_list, background=PANEL, highlightthickness=0, borderwidth=0,
+                                  height=QUEUE_LIST_LINES * self.f["base"].metrics("linespace"))
+        self.q_scroll = ttk.Scrollbar(self.q_list, orient="vertical", command=self.q_canvas.yview)
+        self.q_canvas.configure(yscrollcommand=self.q_scroll.set)
+        self.q_scroll.pack(side="right", fill="y")
+        self.q_canvas.pack(side="left", fill="both", expand=True)
+        self.q_inner = ttk.Frame(self.q_canvas, style="Panel.TFrame")
+        self._q_win = self.q_canvas.create_window(0, 0, window=self.q_inner, anchor="nw")
+        self.q_canvas.bind("<Configure>", lambda e: self.q_canvas.itemconfigure(self._q_win, width=e.width))
+        self.q_inner.bind("<Configure>", lambda e: self.q_canvas.configure(scrollregion=self.q_canvas.bbox("all")))
         self.q_rows = []
         self._q_tick = None
 
@@ -2820,18 +2831,17 @@ class App:
         if not self.q_frame.winfo_manager():
             slaves = self.root.pack_slaves()
             self.q_frame.pack(side="bottom", fill="x", **({"before": slaves[0]} if slaves else {}))
-        self.q_toggle.configure(text=QUEUE_OPEN if self.q_open else QUEUE_CLOSED)
         if cur is not None:
-            self.q_status.configure(text="%s \u00b7 %s" % (cur.label(), cur.progress.status(now)))
+            self.q_text = "Now: %s \u00b7 %s" % (cur.label(), cur.progress.status(now))
             self.q_bar.configure(value=round(1000 * cur.progress.fraction(now)))
             if not self.q_bar.winfo_manager():
                 self.q_bar.pack(side="top", fill="x", pady=(round(4 * self.scale), 0),
                                 **({"before": self.q_list} if self.q_list.winfo_manager() else {}))
         else:
             failed = q.failed()
-            self.q_status.configure(text=note[0] if note else (
-                "%s: %s" % (failed[-1].label(), failed[-1].error) if failed else ""))
+            self.q_text = note[0] if note else ("%s: %s" % (failed[-1].label(), failed[-1].error) if failed else "")
             self.q_bar.pack_forget()
+        self.q_toggle.configure(text="%s  %s" % (QUEUE_OPEN if self.q_open else QUEUE_CLOSED, self.q_text))
         more = len(q.waiting())
         bad = len(q.failed())
         self.q_more.configure(text=", ".join(t for t in ("%d waiting" % more if more else "",
@@ -2845,14 +2855,12 @@ class App:
         self.show_queue()
 
     def _queue_list(self, cur):
-        """the expanded queue: each action on a row (Remove on a waiting one, Dismiss on a failed one), then
-        the running one's last lines"""
+        """the expanded queue: each waiting or failed action on a row (Remove on a waiting one, Dismiss on a
+        failed one), then the running one's last lines; kept scrolled to the end unless scrolled up"""
         want = []
         if self.q_open:
             for a in self.queue.items:
-                if a.state == "running":
-                    want.append(("Now: " + a.label(), None, None))
-                elif a.state == "waiting":
+                if a.state == "waiting":
                     want.append(("Waiting: " + a.label(), "Remove", a))
                 elif a.state == "failed":
                     want.append(("Failed: %s: %s" % (a.label(), a.error), "Dismiss", a))
@@ -2863,6 +2871,7 @@ class App:
                     want.append(("\n".join(lines), None, "detail"))
         if [(t, b, id(a)) for t, b, a in want] == getattr(self, "_q_want", None):
             return
+        at_end = not self.q_rows or self.q_canvas.yview()[1] >= 0.999
         self._q_want = [(t, b, id(a)) for t, b, a in want]
         focused = self.root.focus_get() if self.q_rows else None
         refocus = focused is not None and any(focused in r.winfo_children() for r in self.q_rows)
@@ -2870,9 +2879,9 @@ class App:
             r.destroy()
         self.q_rows = []
         for text, button, a in want:
-            r = ttk.Frame(self.q_list, style="Panel.TFrame")
+            r = ttk.Frame(self.q_inner, style="Panel.TFrame")
             r.pack(side="top", fill="x", pady=(round(4 * self.scale), 0))
-            ttk.Label(r, text=text, background=PANEL, justify="left", wraplength=max(400, self.root.winfo_width() - 300),
+            ttk.Label(r, text=text, background=PANEL, justify="left", wraplength=max(400, self.root.winfo_width() - 320),
                       **({"style": "Muted.TLabel", "font": self.f["small"]} if a == "detail" else {"foreground": TEXT})
                       ).pack(side="left", anchor="w")
             if button:
@@ -2882,6 +2891,10 @@ class App:
             self.q_list.pack(side="top", fill="x", pady=(round(4 * self.scale), 0))
         elif not want:
             self.q_list.pack_forget()
+        if want and at_end:
+            self.q_inner.update_idletasks()
+            self.q_canvas.configure(scrollregion=self.q_canvas.bbox("all"))
+            self.q_canvas.yview_moveto(1.0)
         if refocus:
             self.q_toggle.focus_set()
 

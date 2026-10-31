@@ -1742,7 +1742,7 @@ saw_file = False
 while not app.imp.done and time.time() - t < 30:
     root.update(); time.sleep(0.05)
     saw_file = saw_file or (app.imp.file.startswith("pak0.pak") and mapped(app.q_frame) and
-                            app.q_status["text"].startswith("Add game files for QuakeSpasm from quake106.zip"))
+                            app.q_text.startswith("Now: Add game files for QuakeSpasm from quake106.zip"))
 assert app.imp.done, "import never ended"
 assert saw_file, "no file line shown"
 msg = app.d_status["text"]
@@ -2280,20 +2280,23 @@ g = app.queue.waiting()[0]
 assert g.gid == "gamma" and "1 waiting" in app.q_more["text"], app.q_more["text"]
 # collapsed: the status row and the bar only; the toggle opens the list
 assert mapped(app.q_bar) and not mapped(app.q_list)
-wait(lambda: " MB" in app.q_status["text"])
-assert app.q_status["text"].startswith("Install Alpha \\u00b7 step 1 of 2: downloading alpha \\u2014 "), app.q_status["text"]
-assert " of 1.9 MB" in app.q_status["text"] and 0 < float(app.q_bar["value"]) <= 1000, app.q_status["text"]
+wait(lambda: " MB" in app.q_text)
+assert app.q_text.startswith("Now: Install Alpha \\u00b7 step 1 of 2: downloading alpha \\u2014 "), app.q_text
+assert app.q_toggle["text"] == w.QUEUE_CLOSED + "  " + app.q_text
+assert " of 1.9 MB" in app.q_text and 0 < float(app.q_bar["value"]) <= 1000, app.q_text
 app.toggle_queue(); root.update()
-assert mapped(app.q_list) and app.q_toggle["text"] == w.QUEUE_OPEN
+assert mapped(app.q_list) and app.q_toggle["text"].startswith(w.QUEUE_OPEN + "  Now: Install Alpha")
+h = app.q_canvas.winfo_height()
 rows = [[c.cget("text") for c in r.winfo_children()] for r in app.q_rows]
-assert rows[0] == ["Now: Install Alpha"] and rows[1] == ["Waiting: Install Gamma", "Remove"], rows
+assert rows[0] == ["Waiting: Install Gamma", "Remove"], rows
+assert app.q_canvas.winfo_height() == h, "the open list keeps its height"
 # the pad reaches the queue: down from the cards
 app.select("alpha"); app.canvas.focus_set(); root.update()
 app._key_nav(None, "Down"); root.update()
 f = root.focus_get()
 assert str(f).startswith(str(app.q_frame)), f
 # a waiting action removed
-[b for b in app.q_rows[1].winfo_children() if b.winfo_class() == "TButton"][0].invoke(); root.update()
+[b for b in app.q_rows[0].winfo_children() if b.winfo_class() == "TButton"][0].invoke(); root.update()
 assert not app.queue.waiting() and app.queue.pending("gamma") is None
 app.select("gamma"); root.update()
 assert app.b_main["text"] == "Install"
