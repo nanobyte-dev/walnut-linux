@@ -23,7 +23,8 @@ cp /etc/resolv.conf "$R/etc/resolv.conf"
 chroot "$R" apt-get update -qq
 chroot "$R" env DEBIAN_FRONTEND=noninteractive apt-get install -y -q --no-install-recommends \
 	g++ libboost1.92-dev libboost-test1.92-dev libboost-context1.92-dev libboost-coroutine1.92-dev libboost-fiber1.92-dev \
-	| grep -E "^Setting up libboost-(context|coroutine|fiber)" || true
+	> "$R/tmp/apt-install.log" 2>&1 || { tail -20 "$R/tmp/apt-install.log"; echo "!! apt-get install failed" >&2; exit 1; }
+grep -E "^Setting up libboost-(context|coroutine|fiber)" "$R/tmp/apt-install.log" || :
 touch "$R/.ready"
 chroot "$R" dpkg -l 'libboost-context*' 'libboost-coroutine*' 'libboost-fiber*' | grep ^ii
 cp "$T/ctxtest.cpp" "$R/tmp/"
