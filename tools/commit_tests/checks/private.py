@@ -39,7 +39,7 @@ SECRETS = (
     ("a Google API key", re.compile(r"\bAIza[0-9A-Za-z_-]{35}\b")),
     ("an Anthropic or OpenAI API key", re.compile(r"\bsk-(ant-|proj-|svcacct-|admin-)[A-Za-z0-9_-]{20,}|\bsk-[A-Za-z0-9]{40,}")),
     ("a password in a URL", re.compile(r"\b[a-z][a-z0-9+.-]*://[A-Za-z0-9._~%-]+:[^\s/@$]{3,}@")),
-    ("a netrc or apt auth.conf login", re.compile(r"\bmachine\s+\S+\s+login\s+\S+\s+password\s+\S+")),
+    ("a netrc or apt auth.conf login", re.compile(r"\bmachine\s+\S+\s+login\s+[^\s%<$]\S*\s+password\s+[^\s%<$\"'{]\S*")),
 )
 
 

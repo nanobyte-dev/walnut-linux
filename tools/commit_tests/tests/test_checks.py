@@ -283,6 +283,12 @@ class Private(Base):
         self.r.add("k.txt")
         self.bad("private", "private key")
 
+    def test_login_lines(self):
+        self.r.write("auth.conf", "machine example.org login me pass" + "word hunter2x\n")
+        self.r.write("doc.sh", "printf 'machine h login %s password %s' \"$u\" \"$p\"\n# machine h login <user> password <password>\n")
+        self.r.add("auth.conf", "doc.sh")
+        self.assertEqual({e[2] for e in self.r.errors(["private"])}, {"auth.conf"})
+
     def test_paths(self):
         self.r.write("backups/nor.txt", "x\n")
         self.r.write("firmware/x.txt", "x\n")
