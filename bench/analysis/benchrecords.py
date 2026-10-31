@@ -15,6 +15,7 @@ cell; csv.DictWriter's quoting and CRLF lines) are made from these by to_csv(): 
 """
 import csv
 import datetime
+import importlib.util
 import json
 import os
 import re
@@ -23,19 +24,48 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]   # this is bench/analysis/
 FIXED = ["test", "date", "runs", "observations"]
-BATCH_KEYS = {"name": str, "order": int, "kind": str, "title": str, "date": datetime.date, "runs": int,
-              "stack": dict, "purpose": str, "tested": str, "conclusion": str, "observations": str, "source": str}
-# the keys written by hand, never by matrix.py (save_batches keeps them; check_records warns when a batch lacks
-# the first two)
-HAND_KEYS = ("tested", "conclusion", "observations")
-KINDS = ("run", "summary")
-NAME_RE = re.compile(r"[a-z0-9][a-z0-9.-]{0,79}\Z")
-METRIC_KEYS = {"name": str, "unit": str, "better": str, "matrix": str, "tool": str, "what": str}
-MATRIX = ("always", "when-set", "none")
-RESULT_KEYS = {"batch": str, "column": str, "variant": dict}
-# keys of a variant's table that are no metric: a summary entry's label, its place in the summary and
-# where each of its values comes from
-ENTRY_KEYS = {"label": str, "order": int, "note": str, "source": dict}
+
+
+def _schema_keys():
+    """the records' key sets, types, required keys and enums, from gamedb/schemas/ (batches.toml, metrics.toml,
+    results.toml: the one source; tools/gamedb/schema.py reads them), loaded on first use so that importing
+    this module needs no repository (the PS3's bench tree has none)"""
+    if not _KEYS:
+        spec = importlib.util.spec_from_file_location("gamedb_schema", REPO / "tools" / "gamedb" / "schema.py")
+        s = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(s)
+        _KEYS.update(
+            BATCH_KEYS=s.types("batches", "batch"),             # in the order dump_batches writes them
+            BATCH_REQUIRED=s.required("batches", "batch"),
+            # a run batch's required keys (required_when kind = "run")
+            RUN_REQUIRED=tuple(k for k, v in s.spec("batches", "batch")["keys"].items()
+                               if v.get("required_when") == {"kind": "run"}),
+            # the keys written by hand, never by matrix.py (save_batches keeps them); check_warnings warns when a
+            # batch lacks a recommended one (tested, conclusion)
+            HAND_KEYS=s.keyed("batches", "by=hand", "batch"),
+            WARN_KEYS=s.keyed("batches", "recommended", "batch"),
+            KINDS=s.enum("batches", "batch", "kind"),
+            NAME_RE=re.compile(s.spec("batches", "batch", "name")["pattern"] + r"\Z"),
+            METRIC_KEYS=s.types("metrics", "metric"),
+            METRIC_REQUIRED=s.required("metrics", "metric"),
+            BETTER=s.enum("metrics", "metric", "better"),
+            MATRIX=s.enum("metrics", "metric", "matrix"),
+            RESULT_KEYS=s.types("results"),
+            RESULT_REQUIRED=s.required("results"),
+            # keys of a variant's table that are no metric: a summary entry's label, its place in the summary
+            # and where each of its values comes from
+            ENTRY_KEYS=s.types("results", "variant", "*"))
+    return _KEYS
+
+
+_KEYS = {}
+
+
+def __getattr__(name):
+    """BATCH_KEYS, ENTRY_KEYS, ... as module attributes (bench-import.py reads ENTRY_KEYS)"""
+    if name.isupper() and name in _schema_keys():
+        return _KEYS[name]
+    raise AttributeError(name)
 
 
 def root():
@@ -84,7 +114,7 @@ def dump_batches(batches, head):
     out = [head]
     for b in batches:
         out.append("\n[[batch]]\n")
-        for k in BATCH_KEYS:
+        for k in _schema_keys()["BATCH_KEYS"]:
             if k in b and b[k] not in (None, "", {}):
                 v = b[k]
                 out.append("%s = %s\n" % (k, _mlstr(v) if isinstance(v, str) and "\n" in v else _val(v)))
@@ -227,7 +257,7 @@ def slug(title, date, taken):
     words = [w.strip("-") for w in re.split(r"[^a-z0-9-]+", t) if w.strip("-")]
     d = date.isoformat() if isinstance(date, datetime.date) else ""
     base = "-".join(([d] if d else []) + words[:5])[:60].strip("-") or "batch"
-    if not NAME_RE.match(base):
+    if not _schema_keys()["NAME_RE"].match(base):
         base = "batch-" + base
     name, n = base, 2
     while name in taken:
@@ -254,9 +284,10 @@ def check_warnings(r=None):
         batches = load_batches(r)
     except (OSError, tomllib.TOMLDecodeError):
         return []     # check_records reports it
+    want = _schema_keys()["WARN_KEYS"]
     return ["benchmarks/batches.toml batch %s: no %s (what was tried and why, what it showed and what was decided)"
-            % (b.get("name", "#%d" % (i + 1)), " and no ".join(k for k in HAND_KEYS[:2] if not b.get(k)))
-            for i, b in enumerate(batches) if not all(b.get(k) for k in HAND_KEYS[:2])]
+            % (b.get("name", "#%d" % (i + 1)), " and no ".join(k for k in want if not b.get(k)))
+            for i, b in enumerate(batches) if not all(b.get(k) for k in want)]
 
 
 def check_records(r=None, games=None):
@@ -264,6 +295,7 @@ def check_records(r=None, games=None):
     known game ids (a result's game must be one)"""
     r = Path(r or root())
     errs = []
+    K = _schema_keys()
     try:
         batches = load_batches(r)
     except (OSError, tomllib.TOMLDecodeError) as e:
@@ -275,17 +307,17 @@ def check_records(r=None, games=None):
     names, last = {}, 0
     for i, b in enumerate(batches):
         what = "benchmarks/batches.toml batch %s" % b.get("name", "#%d" % (i + 1))
-        _typed(b, BATCH_KEYS, what, errs, ("name", "kind", "source"))
-        if b.get("kind") not in KINDS:
-            errs.append("%s: kind %r is not one of %s" % (what, b.get("kind"), ", ".join(KINDS)))
+        _typed(b, K["BATCH_KEYS"], what, errs, K["BATCH_REQUIRED"])
+        if b.get("kind") not in K["KINDS"]:
+            errs.append("%s: kind %r is not one of %s" % (what, b.get("kind"), ", ".join(K["KINDS"])))
         n = b.get("name", "")
-        if isinstance(n, str) and not NAME_RE.match(n):
+        if isinstance(n, str) and not K["NAME_RE"].match(n):
             errs.append("%s: the name is not ^[a-z0-9][a-z0-9.-]*$" % what)
         if n in names:
             errs.append("%s: the name is used twice" % what)
         names[n] = b
         if b.get("kind") == "run":
-            for k in ("order", "title", "runs"):
+            for k in K["RUN_REQUIRED"]:
                 if k not in b:
                     errs.append("%s: a run batch has no %s" % (what, k))
             if isinstance(b.get("order"), int):
@@ -298,11 +330,11 @@ def check_records(r=None, games=None):
     known = {}
     for m in metrics:
         what = "benchmarks/metrics.toml metric %s" % m.get("name", "?")
-        _typed(m, METRIC_KEYS, what, errs, ("name", "unit", "better", "matrix", "tool"))
-        if m.get("better") not in ("higher", "lower"):
-            errs.append("%s: better is higher or lower" % what)
-        if m.get("matrix") not in MATRIX:
-            errs.append("%s: matrix is one of %s" % (what, ", ".join(MATRIX)))
+        _typed(m, K["METRIC_KEYS"], what, errs, K["METRIC_REQUIRED"])
+        if m.get("better") not in K["BETTER"]:
+            errs.append("%s: better is %s" % (what, " or ".join(K["BETTER"])))
+        if m.get("matrix") not in K["MATRIX"]:
+            errs.append("%s: matrix is one of %s" % (what, ", ".join(K["MATRIX"])))
         if m.get("name") in known:
             errs.append("%s: named twice" % what)
         known[m.get("name")] = m
@@ -319,7 +351,7 @@ def check_records(r=None, games=None):
         except tomllib.TOMLDecodeError as e:
             errs.append("%s: %s" % (what, e))
             continue
-        _typed(t, RESULT_KEYS, what, errs, ("batch", "variant"))
+        _typed(t, K["RESULT_KEYS"], what, errs, K["RESULT_REQUIRED"])
         b = names.get(t.get("batch"))
         if t.get("batch") != f.stem:
             errs.append("%s: batch %r is not the file's name" % (what, t.get("batch")))
@@ -330,10 +362,11 @@ def check_records(r=None, games=None):
             if not isinstance(cells, dict) or not cells:
                 errs.append("%s: an empty table" % vw)
                 continue
+            entry = K["ENTRY_KEYS"]
             for k, x in cells.items():
-                if k in ENTRY_KEYS:
-                    if not isinstance(x, ENTRY_KEYS[k]):
-                        errs.append("%s: %s is not a %s" % (vw, k, ENTRY_KEYS[k].__name__))
+                if k in entry:
+                    if not isinstance(x, entry[k]):
+                        errs.append("%s: %s is not a %s" % (vw, k, entry[k].__name__))
                     if b is not None and b.get("kind") == "run":
                         errs.append("%s: %s belongs to a summary batch's entries" % (vw, k))
                 elif k not in known:
@@ -341,7 +374,7 @@ def check_records(r=None, games=None):
                 elif isinstance(x, bool) or not isinstance(x, (int, float)):
                     errs.append("%s: %s is not a number" % (vw, k))
             for k in (cells.get("source") or {}) if isinstance(cells.get("source"), dict) else []:
-                if k not in cells or k in ENTRY_KEYS:
+                if k not in cells or k in entry:
                     errs.append("%s: source.%s names no value of the entry" % (vw, k))
             if b is not None and b.get("kind") == "summary" and not {"label", "order"} <= set(cells):
                 errs.append("%s: a summary entry has a label and an order" % vw)

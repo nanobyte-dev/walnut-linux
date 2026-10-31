@@ -1,0 +1,26 @@
+# The current technical state of a game or an engine (technical.md): no front matter, the title line, then
+# sections. A draft's starts with "Status" when it was tried, has "Engine options" when it has several, and
+# "Research" (what the surveys said, each line with its source). gamedb/README.md "technical.md, investigations/".
+kind = "technical"
+title = "A game's or an engine's technical notes (technical.md)"
+doc = "gamedb/README.md#gamesidtechnicalmd-investigations"
+paths = ["gamedb/games/*/technical.md", "gamedb/engines/*/technical.md"]
+format = "markdown"
+front_matter = "none"
+
+[body]
+title = '# .+: technical notes'
+nonempty = true
+other_sections = true
+
+[[body.sections]]
+name = "Status"
+meaning = "a tried draft's state: how far it got and why it stopped"
+
+[[body.sections]]
+name = "Engine options"
+meaning = "a draft with several engines: each one, with its cost"
+
+[[body.sections]]
+name = "Research"
+meaning = "what the surveys said, each line with its source file, section and date"

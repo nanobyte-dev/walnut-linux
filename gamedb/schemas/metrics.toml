@@ -1,0 +1,42 @@
+# Every metric once (gamedb/benchmarks/metrics.toml), in the matrices' order.
+kind = "metrics"
+title = "The benchmark metrics (benchmarks/metrics.toml)"
+doc = "gamedb/benchmarks/README.md#metricstoml"
+paths = ["gamedb/benchmarks/metrics.toml"]
+format = "toml"
+
+[keys.metric]
+type = "tables"
+meaning = "`[[metric]]` tables"
+
+[keys.metric.keys.name]
+type = "str"
+required = true
+pattern = '[a-z0-9_]+'
+meaning = "the metric's name, the key in a result's variant tables"
+
+[keys.metric.keys.unit]
+type = "str"
+required = true
+meaning = "its unit"
+
+[keys.metric.keys.better]
+type = "str"
+required = true
+enum = ["higher", "lower"]
+meaning = "which way is better"
+
+[keys.metric.keys.matrix]
+type = "str"
+required = true
+enum = ["always", "when-set", "none"]
+meaning = "`always`: a CSV matrix of its own; `when-set`: one once a batch has the number; `none`: no matrix, a summary's number"
+
+[keys.metric.keys.tool]
+type = "str"
+required = true
+meaning = "what computes it: bench/analysis/report.py's key, then matrix.py's median"
+
+[keys.metric.keys.what]
+type = "str"
+meaning = "what it measures"

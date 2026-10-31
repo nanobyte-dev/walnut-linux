@@ -1,0 +1,64 @@
+# Walnut's ScummVM defaults a game installs (games/<id>/desktop/files/usr/share/ps3-games/scummvm/*.ini): its
+# menu entries start ScummVM with -c ~/.config/scummvm/walnut/<x>.ini -i this file. [scummvm] holds the
+# console defaults, a game's own section its ScummVM target.
+kind = "scummvm-ini"
+title = "A ScummVM defaults file (desktop/files/**/scummvm/*.ini)"
+doc = "gamedb/README.md#gamesiddesktop"
+paths = ["gamedb/games/*/desktop/files/usr/share/ps3-games/scummvm/*.ini"]
+format = "ini"
+
+[groups.scummvm]
+required = true
+meaning = "ScummVM's own settings: the console defaults"
+
+[groups.scummvm.keys.fullscreen]
+type = "bool"
+required = true
+meaning = "true: fullscreen"
+
+[groups.scummvm.keys.stretch_mode]
+type = "str"
+enum = ["fit", "center", "pixel-perfect", "even-pixels", "stretch", "fit_force_aspect"]
+meaning = "fit: the picture's shape kept"
+
+[groups.scummvm.keys.gui_browser_native]
+type = "bool"
+meaning = "false: ScummVM's own file browser (the desktop's dialog would open in the desktop game mode freezes)"
+
+[groups.scummvm.keys.confirm_exit]
+type = "bool"
+meaning = "false: no quit question"
+
+[groups.scummvm.keys.gui_return_to_launcher_at_exit]
+type = "bool"
+meaning = "false: quitting the game quits ScummVM"
+
+[groups.scummvm.keys.subtitles]
+type = "bool"
+meaning = "true: subtitles"
+
+[groups.scummvm.keys.music_driver]
+type = "str"
+meaning = "adlib: cheap on the PS3's CPU"
+
+[groups.scummvm.keys.output_rate]
+type = "int"
+meaning = "the mixer's rate (22050)"
+
+[other_groups]
+match = '[a-z0-9][a-z0-9-]*'
+meaning = "the game's ScummVM target"
+
+[other_groups.keys.gameid]
+type = "str"
+required = true
+meaning = "ScummVM's game id"
+
+[other_groups.keys.engineid]
+type = "str"
+required = true
+meaning = "ScummVM's engine"
+
+[other_groups.keys.description]
+type = "str"
+meaning = "the target's name in ScummVM's launcher"

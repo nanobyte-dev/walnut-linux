@@ -1,0 +1,37 @@
+# An engine's analysis.toml (engines/<e>/analysis.toml): the log rules every game on the engine shares
+# (they come before the game's own). bench/harness/gamedata.py validate_analysis(engine=True).
+kind = "engine-analysis"
+title = "An engine's log rules (engines/<e>/analysis.toml)"
+doc = "gamedb/README.md#benchmarkanalysistoml"
+paths = ["gamedb/engines/*/analysis.toml"]
+format = "toml"
+
+[keys.log_ignore]
+type = "tables"
+meaning = "log lines that are the engine's noise (case-insensitive)"
+
+[keys.log_ignore.keys.re]
+type = "str"
+required = true
+meaning = "the line's regex"
+
+[keys.log_ignore.keys.why]
+type = "str"
+required = true
+nonempty = true
+meaning = "why it is noise"
+
+[keys.log_strip]
+type = "tables"
+meaning = "text removed from each log line before messages are compared"
+
+[keys.log_strip.keys.re]
+type = "str"
+required = true
+meaning = "the text's regex"
+
+[keys.log_strip.keys.why]
+type = "str"
+required = true
+nonempty = true
+meaning = "why"

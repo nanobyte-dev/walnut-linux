@@ -1,0 +1,46 @@
+# One game's numbers in one batch (games/<id>/benchmark/results/<batch>.toml): [variant."<variant>"] tables
+# of metric = value. benchrecords.py check_records checks the rest: batch is the file's name and in
+# batches.toml, the entry keys only in a summary batch, a summary entry has a label and an order.
+kind = "results"
+title = "A game's numbers in a batch (benchmark/results/<batch>.toml)"
+doc = "gamedb/benchmarks/README.md#gamesidbenchmarkresultsbatchtoml"
+paths = ["gamedb/games/*/benchmark/results/*.toml"]
+format = "toml"
+
+[keys.batch]
+type = "str"
+required = true
+ref = "batches"
+meaning = "the batch, the file's name"
+
+[keys.column]
+type = "str"
+meaning = "the column name the runs had when it isn't the game's id (BananaBread's old recipe, `sauerbraten`)"
+
+[keys.variant]
+type = "table"
+required = true
+meaning = "a table per game-variant (the recipe's variant as the run recorded it, with the harness suffix)"
+
+[keys.variant.other]
+type = "table"
+other = "number"
+other_ref = "metrics"
+nonempty = true
+
+[keys.variant.other.keys.label]
+type = "str"
+meaning = "a summary entry's row name"
+
+[keys.variant.other.keys.order]
+type = "int"
+meaning = "a summary entry's place in the summary"
+
+[keys.variant.other.keys.note]
+type = "str"
+meaning = "what a summary entry's numbers don't say: picture and sound"
+
+[keys.variant.other.keys.source]
+type = "table"
+other = "str"
+meaning = "a summary entry's sources: for each value, the batch and column it came from or the doc it was read from"

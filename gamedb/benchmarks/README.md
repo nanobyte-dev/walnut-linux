@@ -24,20 +24,22 @@ warns on a batch without `tested` or `conclusion`;
 
 `[[batch]]` tables, oldest first. Keys (a closed set):
 
-| Key | Type | Meaning |
-|---|---|---|
-| `name` | string | required, `^[a-z0-9][a-z0-9.-]*$`: the date and a few words (`2026-10-18-batch16`, `2026-10-19-ssdroot5-openal`). Never renamed: `gamedb:batch/<name>` links point at it |
-| `kind` | string | required: `run` (runs on the PS3, a row of the CSV matrices) or `summary` (numbers gathered from other batches and docs, with a source each: the suite's calibration) |
-| `order` | integer | a run batch's place in the matrices (the old CSV row number); increasing through the file |
-| `title` | string | a run batch's name as the matrices' `test` column shows it: what was installed or switched on |
-| `date` | date | the UTC date of the newest run in it |
-| `runs` | integer | the run directories behind it, tests included: driver tests (`gl-*`, `t-*`, `xtest*`, `xfix*`), `speq-*` and `dxt-*` runs count but make no number |
-| `stack` | inline table | the platform versions the title names, when it does: `kernel`, `mesa`, `ps3rsx`, `libspeq`, `ps3-gpu-tools`, `sdl3` (strings) |
-| `tested` | string | by hand, for a reader of the website: one or two plain sentences on what was being tried and why ("Whether running Luanti's background threads at a lower priority stops the main thread's stutters at view range 120.") |
-| `conclusion` | string | by hand: one to three plain sentences on what it showed and what was decided ("Yes: stalls fell from 31 s to 1.8 s per 135 s and the frame rate rose from 21 to 38 fps; shipped as luanti 0010."). An invalid batch (nothing on screen, interfered, superseded) says so; where the record has no decision, the numbers and "No decision recorded." |
-| `observations` | string | by hand: what was observed. Did the games run, was the picture right, was the sound right, what bug was found, which fix (package version, patch) it proves, and caveats (perf recording during the run, nothing on screen, a single run, an outlier, interference). Short plain sentences, or `- ` lines in a multi-line string; every number that carries a finding with what it means; no run-time windows, file names or harness internals unless they are the point; say when a cause is not known |
-| `purpose` | string | why the batch was run (a summary's: what it gathers) |
-| `source` | string | required: where it came from (`bench/results row N`: the CSV matrices it was imported from, 2026-10-26; `bench/analysis/matrix.py`) |
+<!-- gamedb:schema-table batches batch -->
+| Key | Type | Required | Values | Meaning |
+|---|---|---|---|---|
+| `name` | string | yes | `[a-z0-9][a-z0-9.-]{0,79}` | required, `^[a-z0-9][a-z0-9.-]*$`: the date and a few words (`2026-10-18-batch16`, `2026-10-19-ssdroot5-openal`). Never renamed: `gamedb:batch/<name>` links point at it |
+| `order` | integer | where kind = run |  | a run batch's place in the matrices (the old CSV row number); increasing through the file |
+| `kind` | string | yes | `run`, `summary` | required: `run` (runs on the PS3, a row of the CSV matrices) or `summary` (numbers gathered from other batches and docs, with a source each: the suite's calibration) |
+| `title` | string | where kind = run |  | a run batch's name as the matrices' `test` column shows it: what was installed or switched on |
+| `date` | date |  |  | the UTC date of the newest run in it |
+| `runs` | integer | where kind = run |  | the run directories behind it, tests included: driver tests (`gl-*`, `t-*`, `xtest*`, `xfix*`), `speq-*` and `dxt-*` runs count but make no number |
+| `[stack]` | table |  |  | the platform versions the title names, when it does: `kernel`, `mesa`, `ps3rsx`, `libspeq`, `ps3-gpu-tools`, `sdl3` (strings) |
+| `purpose` | string |  |  | why the batch was run (a summary's: what it gathers) |
+| `tested` | string |  |  | by hand, for a reader of the website: one or two plain sentences on what was being tried and why ("Whether running Luanti's background threads at a lower priority stops the main thread's stutters at view range 120.") |
+| `conclusion` | string |  |  | by hand: one to three plain sentences on what it showed and what was decided ("Yes: stalls fell from 31 s to 1.8 s per 135 s and the frame rate rose from 21 to 38 fps; shipped as luanti 0010."). An invalid batch (nothing on screen, interfered, superseded) says so; where the record has no decision, the numbers and "No decision recorded." |
+| `observations` | string |  |  | by hand: what was observed. Did the games run, was the picture right, was the sound right, what bug was found, which fix (package version, patch) it proves, and caveats (perf recording during the run, nothing on screen, a single run, an outlier, interference). Short plain sentences, or `- ` lines in a multi-line string; every number that carries a finding with what it means; no run-time windows, file names or harness internals unless they are the point; say when a cause is not known |
+| `source` | string | yes |  | required: where it came from (`bench/results row N`: the CSV matrices it was imported from, 2026-10-26; `bench/analysis/matrix.py`) |
+<!-- /gamedb:schema-table -->
 
 ## games/<id>/benchmark/results/<batch>.toml
 

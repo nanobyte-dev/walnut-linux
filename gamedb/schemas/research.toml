@@ -1,0 +1,12 @@
+# A survey across games (research/<slug>.md): no front matter, its "# " title (the site page's), free sections.
+kind = "research"
+title = "A survey across games (research/<slug>.md)"
+doc = "gamedb/README.md#researchslugmd"
+paths = ["gamedb/research/*.md"]
+format = "markdown"
+front_matter = "none"
+
+[body]
+title = '# \S.*'
+nonempty = true
+other_sections = true

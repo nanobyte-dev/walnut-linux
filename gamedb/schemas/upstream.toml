@@ -1,0 +1,27 @@
+# What we would offer upstream of a game's patches (games/<id>/upstream.md, beside upstream/*.patch): the
+# title, a "Status:" line, then the drafts. docs/upstream/README.md links every one.
+kind = "upstream"
+title = "A game's upstream offer (upstream.md)"
+doc = "gamedb/README.md#gamesidtodotoml-upstreammd"
+paths = ["gamedb/games/*/upstream.md"]
+format = "markdown"
+front_matter = "none"
+
+[body]
+title = '# \S.*'
+nonempty = true
+other_sections = true
+
+[[body.sections]]
+match = 'GitHub issue.*'
+meaning = "the issue's text as it would be filed"
+
+[[body.sections]]
+name = "Pull request"
+required = true
+meaning = "the pull request's title and text"
+
+[[body.sections]]
+name = "Submission steps"
+required = true
+meaning = "how to send it"

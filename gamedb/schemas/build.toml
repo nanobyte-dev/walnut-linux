@@ -1,0 +1,155 @@
+# How a game is built, installed and integrated (games/<id>/build.toml). A closed key set: a typo can't
+# vanish. A published game needs packages, suite and needs_data; a draft has a build.toml only when something
+# about its build is known, and only those keys. check.py checks the rest: packages in the apt index or built
+# by a debian/control of ours and none licensed, the engine's engine.md lists the game, [[licensed]] against
+# licensed/<pkg>/, [data_setup] against game-data-packager's data (gdp-packages.json, gdp-manifest.json).
+kind = "build"
+title = "A game's build.toml"
+doc = "gamedb/README.md#gamesidbuildtoml-and-enginesebuildtoml"
+paths = ["gamedb/games/*/build.toml"]
+format = "toml"
+state = "index.md"
+
+[enums]
+edition = ["shareware", "demo", "full", "expansion", "music", "remaster"]
+suite = ["free", "licensed", "none"]
+
+[keys.packages]
+type = "list"
+items = { type = "str", pattern = '[a-z0-9][a-z0-9+.-]*[a-z0-9]' }
+required = "published"
+nonempty = true
+meaning = "the packages the app installs (`walnut-games-helper`; `tools/play-pc.sh` on the PC): Debian package names, none licensed; each one in the apt index (`check.py --apt-index URL`, e.g. the Debian snapshot's and our repository's Packages) or built by a `debian/control` of ours"
+
+[keys.former_packages]
+type = "list"
+items = { type = "str", pattern = '[a-z0-9][a-z0-9+.-]*[a-z0-9]' }
+meaning = "older names of the game's packages, which earlier sessions recorded their versions under (catalog.py reads them after `packages`): a renamed package keeps its version history. The catalog carries them, and walnut-games-helper's install lets apt remove an installed one (the new package Conflicts/Replaces it) and nothing else"
+
+[keys.engine]
+type = "str"
+pattern = '[a-z0-9][a-z0-9-]{0,63}'
+meaning = "the engine bundle in `engines/` it runs on; that engine's `engine.md` `games` lists the game (check.py checks both ways)"
+
+[keys.suite]
+type = "str"
+required = "published"
+enum = "@suite"
+meaning = "the game suite (docs/games/SUITE.md: a game joins once it runs with its picture and sound): `free` in it, its data free; `licensed` in it, its data licensed (check.py wants a licensed `data` package; the public image never installs its packages: `build-info.py needs-licensed`, `tools/image-packages.sh`); `none` not in it yet. It installs nothing: there are no game metapackages since 2026-10-28 (docs/PACKAGING.md \"No game metapackages\"), players install games from Walnut Games"
+
+[keys.needs_data]
+type = "bool"
+required = "published"
+meaning = "the player supplies data the game can't run without (index.md then has `data_guide` and `data_steps`)"
+
+[keys.data]
+type = "list"
+items = { type = "str", pattern = '[a-z0-9][a-z0-9+.-]*[a-z0-9]' }
+meaning = "the data packages (often licensed) the game plays with: on the PC, `tools/play-pc.sh` mounts each one's files from a `.deb` found in build/"
+
+[keys.desktop]
+type = "list"
+items = { type = "str", pattern = '[A-Za-z0-9._-]+\.desktop' }
+meaning = "the game's own menu entries the app starts (`<name>.desktop`)"
+
+[keys.divert]
+type = "list"
+items = { type = "str", pattern = '(/[A-Za-z0-9._+-]+)+' }
+meaning = "absolute paths of files of the game's packages we divert: the game's own menu entries, which our launchers stand for (`ps3-games-integration`'s preinst moves each to `/usr/share/ps3-games/diverted<path>`, out of the menu's reach)"
+
+[keys.image_base]
+type = "bool"
+meaning = "its packages are in the image's package layer (`tools/gamedb/build-info.py image-base`, the Makefile's `ROOTFS_GAMES`; system/image/packages.txt names only generic packages). No game sets it: a fresh image ships no games (the user, 2026-10-28; OpenArena did until then)"
+
+[keys.recipes]
+type = "list"
+items = { type = "str", pattern = '[a-z0-9][a-z0-9-]*(:[A-Za-z0-9_]+)?' }
+meaning = "the bench runs that stand for the game, `\"<id>:<variant>\"` of its own `benchmark/recipe.sh` (the catalog's `recipes`)"
+
+[keys.data_setup]
+type = "table"
+meaning = "the player's own data, made into packages by game-data-packager ([data_setup] below)"
+
+[keys.data_setup.keys.gdp]
+type = "str"
+required = true
+meaning = "the gdp game (`game-data-packager <gdp> ...`), e.g. `quake`, `final-doom`, `ttd`"
+
+[keys.data_setup.keys.required]
+type = "list"
+items = { type = "str", pattern = '[a-z0-9][a-z0-9+.-]*[a-z0-9]' }
+required = true
+meaning = "gdp packages any one of which makes the game playable (Plutonia or TNT); empty when the data is optional (OpenTTD's original graphics): then `needs_data` is false, else true"
+
+[keys.data_setup.keys.optional]
+type = "list"
+items = { type = "str", pattern = '[a-z0-9][a-z0-9+.-]*[a-z0-9]' }
+meaning = "gdp packages that add to it (music, expansions, the original set in place of a free one): a plain import makes only the `required` ones (the base; a game with no `required` gets these), `walnut-data` then prints `addon available PKG` for each optional package whose manifest `required` files the same source holds (base name and size, nothing unpacked), and Walnut Games shows an \"Also add\" button that runs `import -p PKG` from the same source"
+
+[keys.data_setup.keys.downloads]
+type = "list"
+items = { type = "str", pattern = '[a-z0-9][a-z0-9+.-]*[a-z0-9]' }
+meaning = "the packages (of the two lists) whose gdp run may download the files gdp knows for them: official patches (Quake II 3.20, Quake 1.06's pak0, TNT's MAP31 fix), nothing else"
+
+[keys.data_setup.keys.fetch]
+type = "list"
+items = { type = "str", pattern = '[a-z0-9][a-z0-9+.-]*[a-z0-9]' }
+meaning = "the shareware or demo packages (of the two lists) gdp downloads entirely, so `walnut-data import -p <pkg> <game>` needs no SOURCE and the app's chooser offers \"Download the free <edition>\" (`quake-shareware`, `quake2-demo-data`); other packages stay in `downloads` or nowhere"
+
+[keys.data_setup.keys.alternatives]
+type = "list"
+items = { type = "list", items = { type = "str", pattern = '[a-z0-9][a-z0-9+.-]*[a-z0-9]' } }
+meaning = "groups of `required`/`optional` packages of which any one member is enough (`[[\"transport-tycoon-deluxe-music\", \"transport-tycoon-deluxe-music-fm\"]]`): when one is made, `walnut-data` and the app do not report the others of its group as missing; a package is in one group at most; the catalog carries it"
+
+[keys.data_setup.keys.hint]
+type = "str"
+nonempty = true
+meaning = "where the files are, shown by the app (the CD, an installed copy, Steam, GOG)"
+
+[keys.data_setup.keys.original]
+type = "str"
+nonempty = true
+meaning = "the original commercial game's name, named in the label under the app's \"Add game files...\" button (\"REQUIRED: the game files from the original <original> release ...\" or \"OPTIONAL: the original <original> graphics and sound\") and in the chooser; default: the game's title. Set it where the title is the engine's (`Quake` for QuakeSpasm, `Transport Tycoon Deluxe` for OpenTTD)"
+
+[keys.data_setup.keys.editions]
+type = "table"
+other = { type = "str", enum = "@edition" }
+other_keys = '[a-z0-9][a-z0-9+.-]*[a-z0-9]'
+required = true
+meaning = "`{ \"<pkg>\" = \"<edition>\" }` for every `required` and `optional` package, one of `shareware`, `demo`, `full`, `expansion`, `music`, `remaster` (a re-release with data of its own that the original engine does not read, beside the full game: Quake's 2021 re-release): the `X-Walnut-Edition` of the package the console builds"
+
+[keys.licensed]
+type = "tables"
+meaning = "the game's licensed data, a table per package ([[licensed]] below); every `licensed/<pkg>/` directory has its entry"
+
+[keys.licensed.keys.name]
+type = "str"
+required = true
+pattern = '[a-z0-9][a-z0-9+.-]*[a-z0-9]'
+meaning = "the package"
+
+[keys.licensed.keys.builder]
+type = "str"
+required = true
+pattern = '(source|script|retired|game-data-packager:[a-z0-9][a-z0-9-]*)'
+meaning = "`source`: a source package of ours in `licensed/<name>/`; `script`: `licensed/<name>/<name>.sh` run on the owner's own copy, `make licensed-data PKG=<name> INPUT=<file>`; `game-data-packager:<game>`: `make game-data`; `retired`: published once, built no more, no directory"
+
+[keys.licensed.keys.leak_files]
+type = "list"
+items = { type = "str", pattern = '[^/\s]\S*' }
+meaning = "paths of its content in upstream tarballs, leak globs (relative, no spaces)"
+
+[keys.licensed.keys.edition]
+type = "str"
+enum = "@edition"
+meaning = "what it holds, for a package `[data_setup] editions` doesn't name (every entry has one or the other): its `X-Walnut-Edition`"
+
+[keys.licensed.keys.release]
+type = "str"
+pattern = '[A-Za-z0-9][A-Za-z0-9._+-]{0,79}'
+meaning = "the release of the source a `source` or `script` build is made from (`2020_12_29`, `2.1`): its `X-Walnut-Release`"
+
+[keys.licensed.keys.input]
+type = "bool"
+enum = [true]
+meaning = "true: game-data-packager makes it from the owner's copy, `make licensed-data PKG=<name> INPUT=<image, folder or installer>`; `make game-data` only takes its published file"

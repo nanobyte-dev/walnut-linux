@@ -1,0 +1,75 @@
+# Every benchmark batch once, in the order they were run (gamedb/benchmarks/batches.toml). Written by
+# bench/analysis/matrix.py in this key order (benchrecords.py dump_batches); tested, conclusion and
+# observations are written by hand (by = "hand": matrix.py keeps them; recommended: check.py warns without).
+# benchrecords.py check_records checks the rest: names unique, run batches' order increasing.
+kind = "batches"
+title = "The benchmark batches (benchmarks/batches.toml)"
+doc = "gamedb/benchmarks/README.md#batchestoml"
+paths = ["gamedb/benchmarks/batches.toml"]
+format = "toml"
+
+[keys.batch]
+type = "tables"
+meaning = "`[[batch]]` tables, oldest first"
+
+[keys.batch.keys.name]
+type = "str"
+required = true
+pattern = '[a-z0-9][a-z0-9.-]{0,79}'
+meaning = "required, `^[a-z0-9][a-z0-9.-]*$`: the date and a few words (`2026-10-18-batch16`, `2026-10-19-ssdroot5-openal`). Never renamed: `gamedb:batch/<name>` links point at it"
+
+[keys.batch.keys.order]
+type = "int"
+required_when = { kind = "run" }
+meaning = "a run batch's place in the matrices (the old CSV row number); increasing through the file"
+
+[keys.batch.keys.kind]
+type = "str"
+required = true
+enum = ["run", "summary"]
+meaning = "required: `run` (runs on the PS3, a row of the CSV matrices) or `summary` (numbers gathered from other batches and docs, with a source each: the suite's calibration)"
+
+[keys.batch.keys.title]
+type = "str"
+required_when = { kind = "run" }
+meaning = "a run batch's name as the matrices' `test` column shows it: what was installed or switched on"
+
+[keys.batch.keys.date]
+type = "date"
+meaning = "the UTC date of the newest run in it"
+
+[keys.batch.keys.runs]
+type = "int"
+required_when = { kind = "run" }
+meaning = "the run directories behind it, tests included: driver tests (`gl-*`, `t-*`, `xtest*`, `xfix*`), `speq-*` and `dxt-*` runs count but make no number"
+
+[keys.batch.keys.stack]
+type = "table"
+other = "str"
+meaning = "the platform versions the title names, when it does: `kernel`, `mesa`, `ps3rsx`, `libspeq`, `ps3-gpu-tools`, `sdl3` (strings)"
+
+[keys.batch.keys.purpose]
+type = "str"
+meaning = "why the batch was run (a summary's: what it gathers)"
+
+[keys.batch.keys.tested]
+type = "str"
+by = "hand"
+recommended = true
+meaning = "by hand, for a reader of the website: one or two plain sentences on what was being tried and why (\"Whether running Luanti's background threads at a lower priority stops the main thread's stutters at view range 120.\")"
+
+[keys.batch.keys.conclusion]
+type = "str"
+by = "hand"
+recommended = true
+meaning = "by hand: one to three plain sentences on what it showed and what was decided (\"Yes: stalls fell from 31 s to 1.8 s per 135 s and the frame rate rose from 21 to 38 fps; shipped as luanti 0010.\"). An invalid batch (nothing on screen, interfered, superseded) says so; where the record has no decision, the numbers and \"No decision recorded.\""
+
+[keys.batch.keys.observations]
+type = "str"
+by = "hand"
+meaning = "by hand: what was observed. Did the games run, was the picture right, was the sound right, what bug was found, which fix (package version, patch) it proves, and caveats (perf recording during the run, nothing on screen, a single run, an outlier, interference). Short plain sentences, or `- ` lines in a multi-line string; every number that carries a finding with what it means; no run-time windows, file names or harness internals unless they are the point; say when a cause is not known"
+
+[keys.batch.keys.source]
+type = "str"
+required = true
+meaning = "required: where it came from (`bench/results row N`: the CSV matrices it was imported from, 2026-10-26; `bench/analysis/matrix.py`)"

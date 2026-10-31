@@ -1,0 +1,52 @@
+# The played test as data (games/<id>/rating/test.toml): the session harness and the app read it, nothing in
+# it is run. bench/harness/playdef.py holds the same closed key set for the PS3 side (it ships without
+# gamedb/; tools/gamedb/test_schema.py holds the two equal) and its validate() checks the rest: home paths
+# relative and inside ~, never a directory every game shares, the marks compile.
+kind = "test"
+title = "A game's played test (rating/test.toml)"
+doc = "gamedb/README.md#ratingtesttoml"
+paths = ["gamedb/games/*/rating/test.toml"]
+format = "toml"
+
+[keys.process]
+type = "str"
+required = true
+pattern = '[^\s/]+'
+meaning = "the game's process name (`pgrep -x`: peak RSS, the per-client VRAM; `tools/play-test.sh stop` ends it)"
+
+[keys.home]
+type = "list"
+items = { type = "str", nonempty = true }
+required = true
+meaning = "the game's settings and data directories under ~, relative, globs allowed, never one every game shares (`.config`, `.local/share`, ...): a session sets them aside and runs the game on fresh defaults (`bench/harness/freshhome.py`)"
+
+[keys.play_mark]
+type = "str"
+nonempty = true
+meaning = "a regex on the game's output: the first gameplay frame (a map loaded, a race started): bench.txt `play_from=mark`, `play_start`, `play_marks`, and the HUD window starts there; `import-run.py` reads it for runs recorded before `play_marks=`"
+
+[keys.load_mark]
+type = "str"
+nonempty = true
+meaning = "a regex on the game's output: the load's end (`play_from=load` when there is no play mark)"
+
+[keys.command]
+type = "list"
+items = { type = "str", nonempty = true }
+meaning = "the command a player starts, the program as an absolute path: the session runs it when the game has no menu launcher (a launcher's Exec wins); without it the recipe's `CMD`"
+
+[keys.env]
+type = "list"
+items = { type = "str", pattern = '[A-Za-z_][A-Za-z0-9_]*=.*' }
+meaning = "`NAME=value`: the game's environment in a session, instead of the recipe's `ENV` (the benchmark's switches); only what the recording needs (Wesnoth's log kept on stderr)"
+
+[keys.sound_at]
+type = "int"
+min = 0
+default = 15
+meaning = "seconds from the start when the sound card's state is read (default 15)"
+
+[keys.hud]
+type = "bool"
+default = true
+meaning = "the Gallium HUD's frame times (default true)"

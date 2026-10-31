@@ -1,0 +1,111 @@
+# A source package of ours (packages/<pkg>/package.conf, also a licensed package's): shell KEY=value
+# assignments the build tools source (tools/deb-fetch.sh, deb-prepare.sh, deb-build.sh, tools/pkg-dir.sh).
+# The keys are the repository's whole set; a bundle's package uses few of them.
+kind = "package-conf"
+title = "A source package's package.conf"
+doc = "docs/PACKAGING.md"
+paths = ["gamedb/games/*/packages/*/package.conf", "gamedb/engines/*/packages/*/package.conf",
+         "gamedb/games/*/licensed/*/package.conf"]
+format = "conf"
+other_keys = '(FRAGMENTS|DEBIAN_FLAVOUR)_[a-z]+'
+
+[keys.TYPE]
+type = "str"
+required = true
+enum = ["debsrc", "upstream", "native"]
+meaning = "debsrc: a Debian source package we patch; upstream: an upstream tarball with our debian/; native: our own code"
+
+[keys.SOURCE]
+type = "str"
+required = true
+pattern = '[a-z0-9][a-z0-9+.-]*'
+meaning = "the source package's name"
+
+[keys.VERSION]
+type = "str"
+meaning = "debsrc: the Debian version we fetch"
+
+[keys.DSC_SHA256]
+type = "str"
+pattern = '[0-9a-f]{64}'
+meaning = "debsrc: the .dsc's sha256"
+
+[keys.SOURCE_SNAPSHOT]
+type = "str"
+meaning = "debsrc: the snapshot.debian.org timestamp to fetch it from"
+
+[keys.UPVER]
+type = "str"
+meaning = "upstream: the upstream version"
+
+[keys.DEBREV]
+type = "str"
+meaning = "upstream: the Debian revision"
+
+[keys.ORIG]
+type = "str"
+meaning = "upstream: the orig tarball's path (often a variable orig.mk sets)"
+
+[keys.COMPONENTS]
+type = "str"
+meaning = "upstream: extra orig tarball components"
+
+[keys.COMPONENT]
+type = "str"
+enum = ["main", "contrib", "non-free"]
+meaning = "the archive component (contrib: needs data from elsewhere)"
+
+[keys.BUILD]
+type = "str"
+required = true
+enum = ["native", "indep", "cross-linux", "split", "xcc"]
+meaning = "how it builds: native in the ppc64 builder, indep (architecture-independent), or a cross build"
+
+[keys.CHECK]
+type = "str"
+enum = ["0", "1"]
+meaning = "1: run the package's test suite in the build"
+
+[keys.LOCAL_DEPS]
+type = "str"
+meaning = "packages of ours it build-depends on (built first)"
+
+[keys.NATIVE_PROFILES]
+type = "str"
+meaning = "build profiles for the native build"
+
+[keys.CROSS_PROFILES]
+type = "str"
+meaning = "build profiles for a cross build"
+
+[keys.VERSION_PATHS]
+type = "str"
+meaning = "more paths whose commits move its version (tools/deb-version.sh)"
+
+[keys.COPY_IN]
+type = "str"
+meaning = "repository paths copied into its source tree before the build"
+
+[keys.CI_FIRST]
+type = "str"
+meaning = "CI jobs that must finish before its build"
+
+[keys.XCC_ENV]
+type = "str"
+meaning = "xcc: the cross compiler's environment"
+
+[keys.KERNEL_PACKAGE]
+type = "str"
+meaning = "the kernel's: its binary package name"
+
+[keys.INDEP_PATH]
+type = "str"
+meaning = "split: the architecture-independent part's path"
+
+[keys.FLAVOURS]
+type = "str"
+meaning = "the kernel's flavours"
+
+[keys.DEFCONFIG]
+type = "str"
+meaning = "the kernel's defconfig"

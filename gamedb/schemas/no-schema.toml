@@ -1,0 +1,34 @@
+# The files under gamedb/ that have no schema, on purpose: code, build inputs, images, evidence. Every other
+# file is of exactly one kind (gamedb/schemas/<kind>.toml); a file of neither is an error
+# (tools/gamedb/schema.py --all), so a new kind of data file can't appear without its schema. A schema's match
+# wins over this list (package.conf has one inside packages/).
+title = "Files without a schema"
+
+[[entry]]
+paths = ["gamedb/README.md", "gamedb/benchmarks/README.md", "gamedb/patches/MERGES.md"]
+why = "documentation and proposals, prose (the format's description, the patch register's merge candidates)"
+
+[[entry]]
+paths = ["gamedb/games/*/packages/**", "gamedb/engines/*/packages/**", "gamedb/games/*/licensed/**"]
+why = "source packages: debian/, patches and their series, orig.mk and upstream.mk, tests, files they install (package.conf has its schema)"
+
+[[entry]]
+paths = ["gamedb/games/*/upstream/*.patch"]
+why = "patches offered upstream (git format-patch)"
+
+[[entry]]
+paths = ["gamedb/games/*/benchmark/recipe.sh", "gamedb/games/*/benchmark/lib/**", "gamedb/games/*/benchmark/legacy/**",
+         "gamedb/games/*/benchmark/assets/**", "gamedb/games/*/benchmark/assets-src/**"]
+why = "the benchmark's code, its helpers, superseded tools, and the assets it plays (demos, saves, replays, shaders)"
+
+[[entry]]
+paths = ["gamedb/games/*/thumb.png", "gamedb/games/*/rating/sessions/*/shots/**"]
+why = "images (check.py checks thumb.png is a PNG and the listed screenshots exist)"
+
+[[entry]]
+paths = ["gamedb/games/*/rating/sessions/*/raw/**"]
+why = "a session's raw evidence, scrubbed and xz-compressed (evidence.py scans it; private, never exported)"
+
+[[entry]]
+paths = ["gamedb/games/*/investigations/*/**", "gamedb/engines/*/investigations/*/**"]
+why = "an investigation's attachments (<date>-<slug>/)"

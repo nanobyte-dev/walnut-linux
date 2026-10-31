@@ -39,7 +39,8 @@ is marked *planned*.
 
 ```
 gamedb/
-  README.md                         this file: the schema
+  README.md                         this file: the layout and what reads what
+  schemas/<kind>.toml               every file kind's keys, types and body ("Schemas" below)
   tags.toml                         every tag a game can have, in groups ("Tags" below)
   benchmarks/batches.toml           every benchmark batch once
   benchmarks/interfered.txt         runs found disturbed after the fact
@@ -68,28 +69,56 @@ gamedb/
 `<id>` matches `^[a-z0-9][a-z0-9-]{0,63}$` and is the folder's name. Ids, and an investigation's
 `id`, are never renamed: references point at them.
 
+## Schemas
+
+Every file under `gamedb/` is of exactly one kind, `schemas/<kind>.toml`, or on the list of files that
+have none on purpose (`schemas/no-schema.toml`: source packages, patches, scripts, assets, images, a
+session's `raw/`). A schema names the paths it governs, the format (TOML, Markdown with TOML front matter,
+`key: value` lines, a .desktop or .ini file, `KEY=value`, lines of a pattern) and every key: its type,
+whether it is required (always, or for a draft or a published game), its allowed values or pattern, a
+one-line meaning; a Markdown kind also its title line and its `##` sections in order (a stability patch's
+Investigation and Validation). `schemas/schema.toml` describes the format. `tools/gamedb/schema.py`
+validates against them (`--all`: every file, and that each is of exactly one kind; `FILE...`: those), and
+check.py and bench/analysis/benchrecords.py take their key sets, types, required keys and allowed values
+from them, so a new field is a schema change in the same commit. The key tables below are generated
+from the schemas (`schema-table` blocks, `tools/gamedb/blocks.py`). A schema is a shared input of the
+files it governs (`schema.py targets_and_shared_inputs()`): changing it, or a file its keys name
+(tags.toml for `tags`, batches.toml for `batches`), re-checks every one of them.
+
 ## The files, their keys, and who reads them
 
 ### games/<id>/index.md
 
-TOML front matter between `+++` lines, then the notes as markdown. Keys (today's set, from
-`tools/gamedb/check.py`, which also allows only `index.md`, `thumb.png`, `build.toml`, `rating/sessions/`, `rating/test.toml`, `packages/`,
+TOML front matter between `+++` lines, then the notes as markdown. Keys (`schemas/index.toml`;
+`tools/gamedb/check.py` also allows only `index.md`, `thumb.png`, `build.toml`, `rating/sessions/`, `rating/test.toml`, `packages/`,
 `licensed/`, `upstream.md`, `upstream/`, `guides/` and `benchmark/` in a game's folder until the later steps add their files).
 The body is the notes on the game's Overview tab; a how-to (setting up the data, settings advice) goes in
 `guides/` instead:
 
-| Key | Type | Meaning |
-|---|---|---|
-| `id`, `title` | string | required |
-| `summary`, `license`, `homepage` | string | required for a published game |
-| `tags` | list | tag ids of [tags.toml](tags.toml), at least one genre for a published game ([Tags](#tags)) |
-| `data_guide`, `data_steps` | string, list | how a player gets and sets up their own data: required when build.toml says `needs_data = true`, refused otherwise |
-| `controller`, `designed_for` | string | gamepad support; `pad` or a PC input |
-| `fps_cap`, `medal_note`, `known_issues` | number, string, list | |
-| `draft` | bool | not published: catalog.py, pack-catalog.py and Hugo leave it out |
-| `status` | string | `candidate`, `tried`, `blocked`, `dropped`, `impossible` or `tested`; required for a draft |
-| `status_note` | string | why that status |
-| `[controls]` | table | *planned*: the controls a player sees |
+<!-- gamedb:schema-table index -->
+| Key | Type | Required | Values | Meaning |
+|---|---|---|---|---|
+| `id` | string | yes | `[a-z0-9][a-z0-9-]{0,63}` | the game's id, its folder's name; never renamed (references point at it) |
+| `title` | string | yes |  | the game's name as players know it |
+| `summary` | string | published |  | one or two sentences on the game for the catalog's card |
+| `license` | string | published |  | the game's licence (engine and data) |
+| `homepage` | string | published | `https?://\S+` | the project's home page, an http(s) URL |
+| `tags` | list of strings | published | names in gamedb/tags.toml | tag ids of [tags.toml](tags.toml), the most specific of a subgroup only, none automatic; at least one genre for a published game ([Tags](#tags)) |
+| `data_guide` | string |  | `https?://\S+` | where a player reads how to get their own data: required when build.toml says `needs_data = true`, refused otherwise |
+| `data_steps` | list of strings |  |  | the numbered steps of getting and setting up the data (sentences, `code` in backticks that pair up): required when build.toml says `needs_data = true`, refused otherwise |
+| `controller` | string | published | `full`, `partial`, `keyboard`, `unknown` | gamepad support: the controller badge |
+| `designed_for` | string |  | `pad`, `keyboard-mouse` | the input the game was made for: `pad`, or `keyboard-mouse` for a PC game (the automatic tag keyboard-mouse) |
+| `fps_cap` | number |  |  | the game's own frame rate cap, when it has one below 60 (the frame rate score is measured against it) |
+| `medal_note` | string |  |  | a note shown next to the medal |
+| `known_issues` | list of strings |  |  | the problems a player should know about, a sentence each |
+| `draft` | bool |  |  | not published: catalog.py, pack-catalog.py and Hugo leave it out |
+| `status` | string | draft | `candidate`, `tried`, `blocked`, `dropped`, `impossible`, `tested` | a draft's state: `candidate` worth trying, `tried` started on the PS3, `blocked` can't run here yet, `dropped` decided against, `impossible` no open engine, `tested` |
+| `status_note` | string |  |  | why that status |
+| `description` | string |  |  | Hugo's own description key (unused today) |
+| `date` | date |  |  | Hugo's own date key (unused today) |
+<!-- /gamedb:schema-table -->
+
+*Planned*: a `[controls]` table, the controls a player sees.
 
 A draft needs only `id`, `title` and `status`. Every other key may be missing, and nothing is made
 up to fill it; whatever a draft does have is checked like a published game's. Every candidate game
@@ -140,24 +169,41 @@ Read by: `check.py` (the file and every game's tags), `catalog.py`.
 
 ### games/<id>/build.toml (and engines/<e>/build.toml)
 
-How the game is built, installed and integrated (*read now*). TOML, a closed key set (`tools/gamedb/check.py`
-BUILD_KEYS: an unknown key is an error, so a typo can't vanish). A published game needs `packages`, `suite`
+How the game is built, installed and integrated (*read now*). TOML, a closed key set (`schemas/build.toml`,
+`schemas/engine-build.toml` for an engine's: an unknown key is an error, so a typo can't vanish). A published game needs `packages`, `suite`
 and `needs_data`; a draft has a build.toml only when something about its build is known, and only those keys.
 
-| Key | Type | Meaning |
-|---|---|---|
-| `packages` | list | the packages the app installs (`walnut-games-helper`; `tools/play-pc.sh` on the PC): Debian package names, none licensed; each one in the apt index (`check.py --apt-index URL`, e.g. the Debian snapshot's and our repository's Packages) or built by a `debian/control` of ours |
-| `former_packages` | list | older names of the game's packages, which earlier sessions recorded their versions under (catalog.py reads them after `packages`): a renamed package keeps its version history. The catalog carries them, and walnut-games-helper's install lets apt remove an installed one (the new package Conflicts/Replaces it) and nothing else |
-| `engine` | string | the engine bundle in `engines/` it runs on; that engine's `engine.md` `games` lists the game (check.py checks both ways) |
-| `suite` | string | the game suite (docs/games/SUITE.md: a game joins once it runs with its picture and sound): `free` in it, its data free; `licensed` in it, its data licensed (check.py wants a licensed `data` package; the public image never installs its packages: `build-info.py needs-licensed`, `tools/image-packages.sh`); `none` not in it yet. It installs nothing: there are no game metapackages since 2026-10-28 (docs/PACKAGING.md "No game metapackages"), players install games from Walnut Games |
-| `needs_data` | bool | the player supplies data the game can't run without (index.md then has `data_guide` and `data_steps`) |
-| `data` | list | the data packages (often licensed) the game plays with: on the PC, `tools/play-pc.sh` mounts each one's files from a `.deb` found in build/ |
-| `desktop` | list | the game's own menu entries the app starts (`<name>.desktop`) |
-| `divert` | list | absolute paths of files of the game's packages we divert: the game's own menu entries, which our launchers stand for (`ps3-games-integration`'s preinst moves each to `/usr/share/ps3-games/diverted<path>`, out of the menu's reach) |
-| `image_base` | bool | its packages are in the image's package layer (`tools/gamedb/build-info.py image-base`, the Makefile's `ROOTFS_GAMES`; system/image/packages.txt names only generic packages). No game sets it: a fresh image ships no games (the user, 2026-10-28; OpenArena did until then) |
-| `recipes` | list | the bench runs that stand for the game, `"<id>:<variant>"` of its own `benchmark/recipe.sh` (the catalog's `recipes`) |
-| `[data_setup]` | table | the player's own data, made into packages by game-data-packager (below) |
-| `[[licensed]]` | tables | the game's licensed data: `name` (the package), `builder` (`source`: a source package of ours in `licensed/<name>/`; `script`: `licensed/<name>/<name>.sh` run on the owner's own copy, `make licensed-data PKG=<name> INPUT=<file>`; `game-data-packager:<game>`: `make game-data`; `retired`: published once, built no more, no directory), `leak_files` (paths of its content in upstream tarballs, leak globs), `edition` (what it holds, one of `[data_setup]`'s editions, for a package `[data_setup] editions` doesn't name; every entry has one or the other), `release` (the release of the source a `source` or `script` build is made from: `2020_12_29`, `2.1`), `input` (true: game-data-packager makes it from the owner's copy, `make licensed-data PKG=<name> INPUT=<image, folder or installer>`; `make game-data` only takes its published file). The edition and release are the deb's `X-Walnut-Edition` and `X-Walnut-Release` (below) |
+<!-- gamedb:schema-table build -->
+| Key | Type | Required | Values | Meaning |
+|---|---|---|---|---|
+| `packages` | list of strings | published | `[a-z0-9][a-z0-9+.-]*[a-z0-9]` | the packages the app installs (`walnut-games-helper`; `tools/play-pc.sh` on the PC): Debian package names, none licensed; each one in the apt index (`check.py --apt-index URL`, e.g. the Debian snapshot's and our repository's Packages) or built by a `debian/control` of ours |
+| `former_packages` | list of strings |  | `[a-z0-9][a-z0-9+.-]*[a-z0-9]` | older names of the game's packages, which earlier sessions recorded their versions under (catalog.py reads them after `packages`): a renamed package keeps its version history. The catalog carries them, and walnut-games-helper's install lets apt remove an installed one (the new package Conflicts/Replaces it) and nothing else |
+| `engine` | string |  | `[a-z0-9][a-z0-9-]{0,63}` | the engine bundle in `engines/` it runs on; that engine's `engine.md` `games` lists the game (check.py checks both ways) |
+| `suite` | string | published | `free`, `licensed`, `none` | the game suite (docs/games/SUITE.md: a game joins once it runs with its picture and sound): `free` in it, its data free; `licensed` in it, its data licensed (check.py wants a licensed `data` package; the public image never installs its packages: `build-info.py needs-licensed`, `tools/image-packages.sh`); `none` not in it yet. It installs nothing: there are no game metapackages since 2026-10-28 (docs/PACKAGING.md "No game metapackages"), players install games from Walnut Games |
+| `needs_data` | bool | published |  | the player supplies data the game can't run without (index.md then has `data_guide` and `data_steps`) |
+| `data` | list of strings |  | `[a-z0-9][a-z0-9+.-]*[a-z0-9]` | the data packages (often licensed) the game plays with: on the PC, `tools/play-pc.sh` mounts each one's files from a `.deb` found in build/ |
+| `desktop` | list of strings |  | `[A-Za-z0-9._-]+\.desktop` | the game's own menu entries the app starts (`<name>.desktop`) |
+| `divert` | list of strings |  | `(/[A-Za-z0-9._+-]+)+` | absolute paths of files of the game's packages we divert: the game's own menu entries, which our launchers stand for (`ps3-games-integration`'s preinst moves each to `/usr/share/ps3-games/diverted<path>`, out of the menu's reach) |
+| `image_base` | bool |  |  | its packages are in the image's package layer (`tools/gamedb/build-info.py image-base`, the Makefile's `ROOTFS_GAMES`; system/image/packages.txt names only generic packages). No game sets it: a fresh image ships no games (the user, 2026-10-28; OpenArena did until then) |
+| `recipes` | list of strings |  | `[a-z0-9][a-z0-9-]*(:[A-Za-z0-9_]+)?` | the bench runs that stand for the game, `"<id>:<variant>"` of its own `benchmark/recipe.sh` (the catalog's `recipes`) |
+| `[data_setup]` | table |  |  | the player's own data, made into packages by game-data-packager ([data_setup] below) |
+| `[[licensed]]` | array of tables |  |  | the game's licensed data, a table per package ([[licensed]] below); every `licensed/<pkg>/` directory has its entry |
+<!-- /gamedb:schema-table -->
+
+`[[licensed]]`, a table per licensed data package:
+
+<!-- gamedb:schema-table build licensed -->
+| Key | Type | Required | Values | Meaning |
+|---|---|---|---|---|
+| `name` | string | yes | `[a-z0-9][a-z0-9+.-]*[a-z0-9]` | the package |
+| `builder` | string | yes | `(source\|script\|retired\|game-data-packager:[a-z0-9][a-z0-9-]*)` | `source`: a source package of ours in `licensed/<name>/`; `script`: `licensed/<name>/<name>.sh` run on the owner's own copy, `make licensed-data PKG=<name> INPUT=<file>`; `game-data-packager:<game>`: `make game-data`; `retired`: published once, built no more, no directory |
+| `leak_files` | list of strings |  | `[^/\s]\S*` | paths of its content in upstream tarballs, leak globs (relative, no spaces) |
+| `edition` | string |  | `shareware`, `demo`, `full`, `expansion`, `music`, `remaster` | what it holds, for a package `[data_setup] editions` doesn't name (every entry has one or the other): its `X-Walnut-Edition` |
+| `release` | string |  | `[A-Za-z0-9][A-Za-z0-9._+-]{0,79}` | the release of the source a `source` or `script` build is made from (`2020_12_29`, `2.1`): its `X-Walnut-Release` |
+| `input` | bool |  | `true` | true: game-data-packager makes it from the owner's copy, `make licensed-data PKG=<name> INPUT=<image, folder or installer>`; `make game-data` only takes its published file |
+<!-- /gamedb:schema-table -->
+
+The edition and release are the deb's `X-Walnut-Edition` and `X-Walnut-Release` (below).
 
 Every `licensed/<pkg>/` directory of a bundle has its `[[licensed]]` entry, and every `source` or `script`
 entry its directory (a checkout without licensed directories, the public copy, skips that direction).
@@ -184,19 +230,21 @@ path component, `**` across them.
 
 How the player's own copy of the game's data becomes packages (PLAN 5.10: Walnut Games and `walnut-data`
 run Debian's game-data-packager, gdp, on a disc, an ISO, an installer or an installed copy). Separate from
-`data`, which only `tools/play-pc.sh` reads. A closed key set (`check.py` DATA_SETUP_KEYS):
+`data`, which only `tools/play-pc.sh` reads. A closed key set (`schemas/build.toml`):
 
-| Key | Type | Meaning |
-|---|---|---|
-| `gdp` | string | required: the gdp game (`game-data-packager <gdp> ...`), e.g. `quake`, `final-doom`, `ttd` |
-| `required` | list | required: gdp packages any one of which makes the game playable (Plutonia or TNT); empty when the data is optional (OpenTTD's original graphics): then `needs_data` is false, else true |
-| `optional` | list | gdp packages that add to it (music, expansions, the original set in place of a free one): a plain import makes only the `required` ones (the base; a game with no `required` gets these), `walnut-data` then prints `addon available PKG` for each optional package whose manifest `required` files the same source holds (base name and size, nothing unpacked), and Walnut Games shows an "Also add" button that runs `import -p PKG` from the same source |
-| `downloads` | list | the packages (of the two lists) whose gdp run may download the files gdp knows for them: official patches (Quake II 3.20, Quake 1.06's pak0, TNT's MAP31 fix), nothing else |
-| `fetch` | list | the shareware or demo packages (of the two lists) gdp downloads entirely, so `walnut-data import -p <pkg> <game>` needs no SOURCE and the app's chooser offers "Download the free <edition>" (`quake-shareware`, `quake2-demo-data`); other packages stay in `downloads` or nowhere |
-| `alternatives` | list | groups of `required`/`optional` packages of which any one member is enough (`[["transport-tycoon-deluxe-music", "transport-tycoon-deluxe-music-fm"]]`): when one is made, `walnut-data` and the app do not report the others of its group as missing; a package is in one group at most; the catalog carries it |
-| `hint` | string | where the files are, shown by the app (the CD, an installed copy, Steam, GOG) |
-| `original` | string | the original commercial game's name, named in the label under the app's "Add game files..." button ("REQUIRED: the game files from the original <original> release ..." or "OPTIONAL: the original <original> graphics and sound") and in the chooser; default: the game's title. Set it where the title is the engine's (`Quake` for QuakeSpasm, `Transport Tycoon Deluxe` for OpenTTD) |
-| `editions` | table | required: `{ "<pkg>" = "<edition>" }` for every `required` and `optional` package, one of `shareware`, `demo`, `full`, `expansion`, `music`, `remaster` (a re-release with data of its own that the original engine does not read, beside the full game: Quake's 2021 re-release; `check.py` EDITIONS): the `X-Walnut-Edition` of the package the console builds |
+<!-- gamedb:schema-table build data_setup -->
+| Key | Type | Required | Values | Meaning |
+|---|---|---|---|---|
+| `gdp` | string | yes |  | the gdp game (`game-data-packager <gdp> ...`), e.g. `quake`, `final-doom`, `ttd` |
+| `required` | list of strings | yes | `[a-z0-9][a-z0-9+.-]*[a-z0-9]` | gdp packages any one of which makes the game playable (Plutonia or TNT); empty when the data is optional (OpenTTD's original graphics): then `needs_data` is false, else true |
+| `optional` | list of strings |  | `[a-z0-9][a-z0-9+.-]*[a-z0-9]` | gdp packages that add to it (music, expansions, the original set in place of a free one): a plain import makes only the `required` ones (the base; a game with no `required` gets these), `walnut-data` then prints `addon available PKG` for each optional package whose manifest `required` files the same source holds (base name and size, nothing unpacked), and Walnut Games shows an "Also add" button that runs `import -p PKG` from the same source |
+| `downloads` | list of strings |  | `[a-z0-9][a-z0-9+.-]*[a-z0-9]` | the packages (of the two lists) whose gdp run may download the files gdp knows for them: official patches (Quake II 3.20, Quake 1.06's pak0, TNT's MAP31 fix), nothing else |
+| `fetch` | list of strings |  | `[a-z0-9][a-z0-9+.-]*[a-z0-9]` | the shareware or demo packages (of the two lists) gdp downloads entirely, so `walnut-data import -p <pkg> <game>` needs no SOURCE and the app's chooser offers "Download the free <edition>" (`quake-shareware`, `quake2-demo-data`); other packages stay in `downloads` or nowhere |
+| `alternatives` | list of lists of strings |  |  | groups of `required`/`optional` packages of which any one member is enough (`[["transport-tycoon-deluxe-music", "transport-tycoon-deluxe-music-fm"]]`): when one is made, `walnut-data` and the app do not report the others of its group as missing; a package is in one group at most; the catalog carries it |
+| `hint` | string |  |  | where the files are, shown by the app (the CD, an installed copy, Steam, GOG) |
+| `original` | string |  |  | the original commercial game's name, named in the label under the app's "Add game files..." button ("REQUIRED: the game files from the original <original> release ..." or "OPTIONAL: the original <original> graphics and sound") and in the chooser; default: the game's title. Set it where the title is the engine's (`Quake` for QuakeSpasm, `Transport Tycoon Deluxe` for OpenTTD) |
+| `[editions]` | table | yes | `shareware`, `demo`, `full`, `expansion`, `music`, `remaster` | `{ "<pkg>" = "<edition>" }` for every `required` and `optional` package, one of `shareware`, `demo`, `full`, `expansion`, `music`, `remaster` (a re-release with data of its own that the original engine does not read, beside the full game: Quake's 2021 re-release): the `X-Walnut-Edition` of the package the console builds |
+<!-- /gamedb:schema-table -->
 
 `check.py` checks the gdp game and every package against `tools/gamedb/gdp-packages.json` (game -> its
 packages, and gdp's version), a committed file, so the check needs no docker and no network. After our gdp
@@ -313,18 +361,20 @@ catalog.json is a cache of the ratings computed from these at build time.
 #### rating/test.toml
 
 The played test as data: the session harness and the app read it, nothing in it is run. TOML, a closed
-key set (`bench/harness/playdef.py` KEYS; `tools/gamedb/check.py` runs its `validate()`, an unknown key is an error):
+key set (`schemas/test.toml`, and `bench/harness/playdef.py` KEYS for the PS3 side, which ships without gamedb/: `tools/gamedb/test_schema.py` holds them equal; `tools/gamedb/check.py` runs its `validate()`, an unknown key is an error):
 
-| Key | Type | Meaning |
-|---|---|---|
-| `process` | string | required: the game's process name (`pgrep -x`: peak RSS, the per-client VRAM; `tools/play-test.sh stop` ends it) |
-| `home` | list | required: the game's settings and data directories under ~, relative, globs allowed, never one every game shares (`.config`, `.local/share`, ...): a session sets them aside and runs the game on fresh defaults (`bench/harness/freshhome.py`) |
-| `play_mark` | string | a regex on the game's output: the first gameplay frame (a map loaded, a race started): bench.txt `play_from=mark`, `play_start`, `play_marks`, and the HUD window starts there; `import-run.py` reads it for runs recorded before `play_marks=` |
-| `load_mark` | string | a regex on the game's output: the load's end (`play_from=load` when there is no play mark) |
-| `command` | list | the command a player starts, the program as an absolute path: the session runs it when the game has no menu launcher (a launcher's Exec wins); without it the recipe's `CMD` |
-| `env` | list | `NAME=value`: the game's environment in a session, instead of the recipe's `ENV` (the benchmark's switches); only what the recording needs (Wesnoth's log kept on stderr) |
-| `sound_at` | integer | seconds from the start when the sound card's state is read (default 15) |
-| `hud` | bool | the Gallium HUD's frame times (default true) |
+<!-- gamedb:schema-table test -->
+| Key | Type | Required | Values | Meaning |
+|---|---|---|---|---|
+| `process` | string | yes | `[^\s/]+` | the game's process name (`pgrep -x`: peak RSS, the per-client VRAM; `tools/play-test.sh stop` ends it) |
+| `home` | list of strings | yes |  | the game's settings and data directories under ~, relative, globs allowed, never one every game shares (`.config`, `.local/share`, ...): a session sets them aside and runs the game on fresh defaults (`bench/harness/freshhome.py`) |
+| `play_mark` | string |  |  | a regex on the game's output: the first gameplay frame (a map loaded, a race started): bench.txt `play_from=mark`, `play_start`, `play_marks`, and the HUD window starts there; `import-run.py` reads it for runs recorded before `play_marks=` |
+| `load_mark` | string |  |  | a regex on the game's output: the load's end (`play_from=load` when there is no play mark) |
+| `command` | list of strings |  |  | the command a player starts, the program as an absolute path: the session runs it when the game has no menu launcher (a launcher's Exec wins); without it the recipe's `CMD` |
+| `env` | list of strings |  | `[A-Za-z_][A-Za-z0-9_]*=.*` | `NAME=value`: the game's environment in a session, instead of the recipe's `ENV` (the benchmark's switches); only what the recording needs (Wesnoth's log kept on stderr) |
+| `sound_at` | integer |  |  | seconds from the start when the sound card's state is read (default 15) |
+| `hud` | bool |  |  | the Gallium HUD's frame times (default true) |
+<!-- /gamedb:schema-table -->
 
 Every game with a benchmark recipe has one, and its recipe has no session part (`bench/tests/selftest.py`: the
 file is valid, the marks are bash regexes too, `process` is the recipe's `COMM`). `bench/harness/session.sh` and
@@ -500,16 +550,19 @@ references are rewritten like technical.md's (tools/gamedb/technical.py, technic
 
 `todo.toml` (*now*, step 8; an engine's at `engines/<e>/todo.toml`, the same form): the game's backlog,
 its items of docs/PLAN.md and of docs/backlog/, and its place in the played-session queue. One
-`[[item]]` table per item, the keys a closed set (`tools/gamedb/check.py` `todo_errors()`):
+`[[item]]` table per item, the keys a closed set (`schemas/todo.toml`; `tools/gamedb/check.py` `todo_errors()`):
 
-| Key | Type | Meaning |
-|---|---|---|
-| `kind` | string | `session` (a played session), `benchmark` (a scripted run: an A/B, a repeat, a smoke run), `package` (packaging, a default to set), `fix` (a game or engine patch), `research`, `upstream` |
-| `text` | string | what to do, with the numbers it rests on and how to start; current state, not history |
-| `added` | date | when the item was first written down (for a migrated item, its source's date) |
-| `source` | string | where it came from: `PLAN 2.6`, `backlog/games.md rank 19`, `TESTS.md Next`, ... (one PLAN item per `PLAN N.N`) |
-| `order` | integer | a session item's place in the played-session queue (1 first; games may share a place) |
-| `launcher`, `pc` | string | a session item's launchers (PS3 and PC) and the PC side's state |
+<!-- gamedb:schema-table todo item -->
+| Key | Type | Required | Values | Meaning |
+|---|---|---|---|---|
+| `kind` | string | yes | `session`, `benchmark`, `package`, `fix`, `research`, `upstream` | `session` (a played session), `benchmark` (a scripted run: an A/B, a repeat, a smoke run), `package` (packaging, a default to set), `fix` (a game or engine patch), `research`, `upstream` |
+| `text` | string | yes |  | what to do, with the numbers it rests on and how to start; current state, not history |
+| `added` | date | yes |  | when the item was first written down (for a migrated item, its source's date) |
+| `source` | string |  |  | where it came from: `PLAN 2.6`, `backlog/games.md rank 19`, `TESTS.md Next`, ... (one PLAN item per `PLAN N.N`) |
+| `order` | integer |  | only where kind = session | a session item's place in the played-session queue (1 first; games may share a place) |
+| `launcher` | string |  | only where kind = session | a session item's launchers (PS3 and PC) |
+| `pc` | string |  | only where kind = session | a session item's PC side and its state |
+<!-- /gamedb:schema-table -->
 
 Generated from them (`tools/gamedb/blocks.py`): the played-session queue in docs/TESTS.md
 (`session-queue`: the session items with an `order`, with each game's medal from the catalog) and the
@@ -574,7 +627,8 @@ and platform research (EMULATORS, CLASSIC-MACOS, DARLING-PPC) stay in docs/resea
 
 ## Checks
 
-`make test` runs `tools/licensed.py check`, `github-ci/gen-workflows.py --check`,
+`make test` runs `tools/gamedb/test_schema.py` (suite gamedb-schema: each kind's good and bad
+fixtures, and every gamedb file against its schema), `tools/licensed.py check`, `github-ci/gen-workflows.py --check`,
 `tools/gamedb/blocks.py --check`, `tools/doclinks.py` (report only) and `tools/gamedb/game-mentions.py`
 (a warning: the sections of docs/ and README.md that name a game without a link into its bundle;
 `--list` shows them, `--fix` links each one's first mention of the title). During the

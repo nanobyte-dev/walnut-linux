@@ -1,0 +1,38 @@
+# Batches (or one game's rows in them) whose numbers aren't what the column says or aren't comparable
+# (gamedb/benchmarks/caveats.toml). check.py caveats_errors checks the game has results in the batch.
+kind = "caveats"
+title = "The benchmark caveats (benchmarks/caveats.toml)"
+doc = "gamedb/benchmarks/README.md#caveats"
+paths = ["gamedb/benchmarks/caveats.toml"]
+format = "toml"
+
+[keys.caveat]
+type = "tables"
+meaning = "`[[caveat]]` tables"
+
+[keys.caveat.keys.batch]
+type = "str"
+required = true
+ref = "batches"
+meaning = "the batch, a name in batches.toml"
+
+[keys.caveat.keys.game]
+type = "str"
+ref = "games"
+meaning = "only that game's rows"
+
+[keys.caveat.keys.variant]
+type = "str"
+meaning = "only that variant (with a game)"
+
+[keys.caveat.keys.kind]
+type = "str"
+required = true
+enum = ["invalid", "not-comparable"]
+meaning = "`invalid`: the frame rate is not a frame rate of the picture shown; `not-comparable`: measured right but slowed by a profiler or another recording"
+
+[keys.caveat.keys.why]
+type = "str"
+required = true
+nonempty = true
+meaning = "one sentence, from the batch's observations"

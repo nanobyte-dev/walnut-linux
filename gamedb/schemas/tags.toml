@@ -1,0 +1,89 @@
+# Every tag a game can have, in groups (gamedb/tags.toml). check.py tags_errors() checks the rest: ids unique
+# across the groups, the automatic tags exactly catalog.py's and the engine group's, an engine tag's bundle.
+kind = "tags"
+title = "The tags (tags.toml)"
+doc = "gamedb/README.md#tags"
+paths = ["gamedb/tags.toml"]
+format = "toml"
+
+[keys.group]
+type = "tables"
+required = true
+meaning = "`[[group]]` tables, in the site's order"
+
+[keys.group.keys.id]
+type = "str"
+required = true
+pattern = '[a-z0-9][a-z0-9-]{0,63}'
+meaning = "the group's id"
+
+[keys.group.keys.label]
+type = "str"
+required = true
+nonempty = true
+meaning = "its name"
+
+[keys.group.keys.description]
+type = "str"
+meaning = "what it groups"
+
+[keys.group.keys.collapsed]
+type = "bool"
+meaning = "folded in the site's filter panel"
+
+[keys.group.keys.tag]
+type = "tables"
+required = true
+meaning = "`[[group.tag]]` tables"
+
+[keys.group.keys.tag.keys.id]
+type = "str"
+required = true
+pattern = '[a-z0-9][a-z0-9-]{0,63}'
+meaning = "the tag's id, unique across the groups (its page's URL)"
+
+[keys.group.keys.tag.keys.label]
+type = "str"
+required = true
+nonempty = true
+meaning = "its name"
+
+[keys.group.keys.tag.keys.description]
+type = "str"
+meaning = "what it means"
+
+[keys.group.keys.tag.keys.automatic]
+type = "bool"
+meaning = "catalog.py derives it; index.md never lists it"
+
+[keys.group.keys.tag.keys.engine]
+type = "str"
+meaning = "an engine group tag's bundle (engines/<e>/ or a game that is the engine)"
+
+[keys.group.keys.tag.keys.sub]
+type = "tables"
+meaning = "a subgroup's tags (one level deep: no sub of their own)"
+
+[keys.group.keys.tag.keys.sub.keys.id]
+type = "str"
+required = true
+pattern = '[a-z0-9][a-z0-9-]{0,63}'
+meaning = "the tag's id"
+
+[keys.group.keys.tag.keys.sub.keys.label]
+type = "str"
+required = true
+nonempty = true
+meaning = "its name"
+
+[keys.group.keys.tag.keys.sub.keys.description]
+type = "str"
+meaning = "what it means"
+
+[keys.group.keys.tag.keys.sub.keys.automatic]
+type = "bool"
+meaning = "catalog.py derives it"
+
+[keys.group.keys.tag.keys.sub.keys.engine]
+type = "str"
+meaning = "an engine tag's bundle"

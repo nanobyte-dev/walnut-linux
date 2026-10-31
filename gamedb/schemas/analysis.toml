@@ -1,0 +1,111 @@
+# The data the analysis tools need about a game (benchmark/analysis.toml): report.py, logscan.py, matrix.py and
+# interference-scan.py read it through bench/harness/gamedata.py, which holds the same closed key set for the
+# PS3 side (it ships without gamedb/) and checks the rest (every regex compiles, the capture groups).
+kind = "analysis"
+title = "A game's benchmark analysis rules (benchmark/analysis.toml)"
+doc = "gamedb/README.md#benchmarkanalysistoml"
+paths = ["gamedb/games/*/benchmark/analysis.toml"]
+format = "toml"
+
+[keys.legacy]
+type = "table"
+meaning = "runs from before the recipe moved here: read as this game's and grouped with its new ones"
+
+[keys.legacy.keys.recipe_names]
+type = "list"
+items = { type = "str", nonempty = true }
+meaning = "the recipe's file names before it moved here (`sauerbraten` in bananabread)"
+
+[keys.legacy.keys.run_labels]
+type = "tables"
+meaning = "an older harness's run directory names without a bench.txt (OpenArena's `oa-*`)"
+
+[keys.legacy.keys.run_labels.keys.re]
+type = "str"
+required = true
+meaning = "the label's regex"
+
+[keys.legacy.keys.run_labels.keys.variant]
+type = "str"
+meaning = "the variant: its expansion"
+
+[keys.legacy.keys.run_labels.keys.drop]
+type = "list"
+items = "str"
+meaning = "strings removed from the variant"
+
+[keys.reload]
+type = "table"
+meaning = "the end of a looped demo's reload: `re` (and `after`), or `fixed` (report.py's `*_play` numbers, passsplit.py)"
+
+[keys.reload.keys.re]
+type = "str"
+meaning = "the output line that ends a looped demo's reload"
+
+[keys.reload.keys.after]
+type = "number"
+default = 1
+meaning = "seconds after it (default 1)"
+
+[keys.reload.keys.fixed]
+type = "number"
+meaning = "seconds after the pass's start"
+
+[keys.log_ignore]
+type = "tables"
+meaning = "log lines that are this game's noise (case-insensitive; logscan.py, after its generic list)"
+
+[keys.log_ignore.keys.re]
+type = "str"
+required = true
+meaning = "the line's regex"
+
+[keys.log_ignore.keys.why]
+type = "str"
+required = true
+nonempty = true
+meaning = "why it is noise"
+
+[keys.log_strip]
+type = "tables"
+meaning = "text removed from each log line before messages are compared (logscan.py)"
+
+[keys.log_strip.keys.re]
+type = "str"
+required = true
+meaning = "the text's regex"
+
+[keys.log_strip.keys.why]
+type = "str"
+required = true
+nonempty = true
+meaning = "why"
+
+[keys.interference]
+type = "table"
+meaning = "the game's own log of what the player did (interference-scan.py)"
+
+[keys.interference.keys.file]
+type = "str"
+required = true
+pattern = '[\w.-]+'
+meaning = "the log, a file of the run directory"
+
+[keys.interference.keys.action_re]
+type = "str"
+required = true
+meaning = "an action's line (groups: the time, the action, the rest)"
+
+[keys.interference.keys.time_format]
+type = "str"
+required = true
+meaning = "the time's strptime format"
+
+[keys.interference.keys.anchor_re]
+type = "str"
+meaning = "group 1 a time that is the run's `load_end`, for runs without `t0`"
+
+[keys.interference.keys.evidence]
+type = "str"
+required = true
+meaning = "the words after the count"

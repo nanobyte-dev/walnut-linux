@@ -1,0 +1,50 @@
+# An engine's build.toml (engines/<e>/build.toml): the packages its games run it from, its licensed data.
+kind = "engine-build"
+title = "An engine's build.toml"
+doc = "gamedb/README.md#gamesidbuildtoml-and-enginesebuildtoml"
+paths = ["gamedb/engines/*/build.toml"]
+format = "toml"
+
+[enums]
+edition = ["shareware", "demo", "full", "expansion", "music", "remaster"]
+
+[keys.packages]
+type = "list"
+items = { type = "str", pattern = '[a-z0-9][a-z0-9+.-]*[a-z0-9]' }
+meaning = "the engine's packages its games run (Debian package names, none licensed)"
+
+[keys.licensed]
+type = "tables"
+meaning = "the engine's licensed data, as a game's [[licensed]]"
+
+[keys.licensed.keys.name]
+type = "str"
+required = true
+pattern = '[a-z0-9][a-z0-9+.-]*[a-z0-9]'
+meaning = "the package"
+
+[keys.licensed.keys.builder]
+type = "str"
+required = true
+pattern = '(source|script|retired|game-data-packager:[a-z0-9][a-z0-9-]*)'
+meaning = "how it is built (as a game's [[licensed]] builder)"
+
+[keys.licensed.keys.leak_files]
+type = "list"
+items = { type = "str", pattern = '[^/\s]\S*' }
+meaning = "paths of its content in upstream tarballs, leak globs"
+
+[keys.licensed.keys.edition]
+type = "str"
+enum = "@edition"
+meaning = "what it holds: its `X-Walnut-Edition`"
+
+[keys.licensed.keys.release]
+type = "str"
+pattern = '[A-Za-z0-9][A-Za-z0-9._+-]{0,79}'
+meaning = "the release of the source it is made from: its `X-Walnut-Release`"
+
+[keys.licensed.keys.input]
+type = "bool"
+enum = [true]
+meaning = "game-data-packager makes it from the owner's copy"

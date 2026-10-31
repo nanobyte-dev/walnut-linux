@@ -77,56 +77,44 @@ REPO = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import score   # noqa: E402
 import evidence  # noqa: E402  (a session folder's evidence and its public-safe scan)
+import schema  # noqa: E402  (gamedb/schemas/: the one source of every key set, type, required key and enum below)
 # the tags (gamedb/tags.toml, taxonomy()); the automatic ones are derived by catalog.py (game_tags()) and never
 # listed in index.md: the file must mark exactly these automatic
 TAGS_FILE = REPO / "gamedb" / "tags.toml"
 AUTOMATIC_TAGS = ("gamepad", "keyboard-mouse", "own-data", "free-download", "low-memory")
 GENRE = "genre"
 ENGINE = "engine"     # the group whose tags are automatic: each leaf names its engine bundle (`engine`)
-CONTROLLERS = ["full", "partial", "keyboard", "unknown"]
-ID_RE = re.compile(r"[a-z0-9][a-z0-9-]{0,63}\Z")
-PKG_RE = re.compile(r"[a-z0-9][a-z0-9+.-]*[a-z0-9]\Z")
+CONTROLLERS = list(schema.enum("index", "controller"))
+ID_RE = re.compile(schema.spec("index", "id")["pattern"] + r"\Z")
+PKG_RE = re.compile(schema.spec("build", "packages", "[]")["pattern"] + r"\Z")
 URL_RE = re.compile(r"https?://[^\s]+\Z")
-# field: (type, required)
-FIELDS = {
-    "id": (str, True), "title": (str, True), "summary": (str, True),
-    "tags": (list, True), "license": (str, True), "homepage": (str, True), "data_guide": (str, False),
-    "data_steps": (list, False),
-    "controller": (str, True), "fps_cap": ((int, float), False), "medal_note": (str, False),
-    "known_issues": (list, False), "designed_for": (str, False),
-    "draft": (bool, False), "status": (str, False), "status_note": (str, False),
-}
-# build.toml (gamedb/README.md): key: (type, required for a published game). A closed set: a typo would
-# silently vanish. recipes: the bench runs that stand for the game, "<id>:<variant>" of its own recipe
-BUILD_KEYS = {
-    "packages": (list, True), "engine": (str, False), "suite": (str, True), "needs_data": (bool, True),
-    "data": (list, False), "desktop": (list, False), "divert": (list, False), "image_base": (bool, False),
-    "recipes": (list, False), "licensed": (list, False), "former_packages": (list, False),
-    "data_setup": (dict, False),
-}
-# [data_setup] (gamedb/README.md): the player's own data, imported with game-data-packager (gdp). key: (type,
-# required); every package one of the gdp game's (GDP_INDEX, made by gdp-index.py: offline, no docker)
-DATA_SETUP_KEYS = {"gdp": (str, True), "required": (list, True), "optional": (list, False),
-                   "downloads": (list, False), "fetch": (list, False), "alternatives": (list, False), "hint": (str, False), "original": (str, False), "editions": (dict, True)}
+# index.md's front matter: field: (type, required for a published game) (gamedb/schemas/index.toml)
+FIELDS = schema.fields("index")
+# build.toml (gamedb/schemas/build.toml): key: (type, required for a published game). A closed set: a typo
+# would silently vanish. recipes: the bench runs that stand for the game, "<id>:<variant>" of its own recipe
+BUILD_KEYS = schema.fields("build")
+# [data_setup]: the player's own data, imported with game-data-packager (gdp). key: (type, required); every
+# package one of the gdp game's (GDP_INDEX, made by gdp-index.py: offline, no docker)
+DATA_SETUP_KEYS = schema.fields("build", "data_setup")
 # [data_setup] editions = {package: edition}: what a data package holds (X-Walnut-Edition in the control of a
 # package walnut-games-helper import-data builds; the licensed suite's builders and the session harness read it)
-EDITIONS = ("shareware", "demo", "full", "expansion", "music", "remaster")
+EDITIONS = schema.enum("build", "data_setup", "editions", "*")
 GDP_MANIFEST = Path(__file__).resolve().parent / "gdp-manifest.json"
 GDP_INDEX = Path(__file__).resolve().parent / "gdp-packages.json"
 # an engine's build.toml: the packages the games run it from, its licensed data
-ENGINE_KEYS = {"packages": (list, False), "licensed": (list, False)}
+ENGINE_KEYS = schema.fields("engine-build")
 # [[licensed]] (gamedb/README.md): edition (EDITIONS, for a package [data_setup] editions doesn't name) and
 # release (a source or script build's fixed release, RELEASE_RE as walnut-games-helper's) are its
 # X-Walnut-Edition and X-Walnut-Release; input: game-data-packager makes it from the owner's copy
 # (make licensed-data), never from a download; builder retired: published once, built no more
-LICENSED_KEYS = {"name", "builder", "leak_files", "edition", "release", "input"}
-RELEASE_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._+-]{0,79}\Z")
-SUITES = ["free", "licensed", "none"]
-BUILDER_RE = re.compile(r"(source|script|retired|game-data-packager:[a-z0-9][a-z0-9-]*)\Z")
+LICENSED_KEYS = set(schema.types("build", "licensed"))
+RELEASE_RE = re.compile(schema.spec("build", "licensed", "release")["pattern"] + r"\Z")
+SUITES = list(schema.enum("build", "suite"))
+BUILDER_RE = re.compile(schema.spec("build", "licensed", "builder")["pattern"] + r"\Z")
 # a draft (draft = true: a candidate or a game we tried, not published: catalog.py, pack-catalog.py and
 # Hugo leave it out) needs only these; whatever else it has is checked as usual, nothing is filled in
-DRAFT_REQUIRED = {"id", "title", "status"}
-STATUSES = ["candidate", "tried", "blocked", "dropped", "impossible", "tested"]
+DRAFT_REQUIRED = set(schema.required("index", state="draft"))
+STATUSES = list(schema.enum("index", "status"))
 # what a game's folder may hold so far (gamedb/README.md; the later migration steps add theirs): the page,
 # the thumbnail, the sessions, our source packages, the licensed data packages and builders, upstream offers
 GAME_DIRS = ("rating", "packages", "licensed", "upstream", "benchmark", "desktop", "investigations", "guides")
@@ -139,10 +127,10 @@ GAME_FILES = ("index.md", "thumb.png", "build.toml", "upstream.md", "technical.m
 # todo.toml (gamedb/README.md): [[item]] tables with these keys (a closed set): kind one of TODO_KINDS, text,
 # added (a date), source (where it came from: "PLAN 2.6", "TESTS.md Next", ...); a session item may have
 # order (its place in the played-session queue, docs/TESTS.md's block), launcher and pc (the PC side)
-TODO_KINDS = ("session", "benchmark", "package", "fix", "research", "upstream")
-TODO_KEYS = {"kind": str, "text": str, "added": datetime.date, "source": str, "order": int, "launcher": str, "pc": str}
-TODO_REQUIRED = ("kind", "text", "added")
-TODO_SESSION_ONLY = ("order", "launcher", "pc")
+TODO_KINDS = schema.enum("todo", "item", "kind")
+TODO_KEYS = schema.types("todo", "item")
+TODO_REQUIRED = schema.required("todo", "item")
+TODO_SESSION_ONLY = tuple(k for k, v in schema.spec("todo", "item")["keys"].items() if v.get("only_when") == {"kind": "session"})
 # where a game's sessions (each one's result.toml and screenshots) live, relative to its folder
 SESSIONS = "rating/sessions"
 CONTENT = REPO / "gamedb" / "games"
@@ -297,7 +285,7 @@ def todo_errors(data):
 # an investigation (investigations/<date>-<slug>.md): TOML front matter with these keys (a closed set); id
 # is required, every other key a list of strings; games name game folders, sessions folders of
 # rating/sessions/ in one of those games, batches gamedb/benchmarks/batches.toml names
-INV_KEYS = ("id", "games", "driver_patches", "game_patches", "sessions", "batches")
+INV_KEYS = tuple(schema.types("investigation"))
 INV_FILE_RE = re.compile(r"\d{4}-\d{2}-\d{2}-[a-z0-9][a-z0-9-]*\.md\Z")
 # a guide (guides/<slug>.md, the game's Guides tab): markdown without front matter that starts with its "# " title;
 # game-data.md is the one the Overview's game data box links to
@@ -1009,8 +997,8 @@ def records_warnings(root):
     return bench_module("benchrecords").check_warnings(root)
 
 
-CAVEAT_KEYS = {"batch": str, "game": str, "variant": str, "kind": str, "why": str}
-CAVEAT_KINDS = ("invalid", "not-comparable")
+CAVEAT_KEYS = schema.types("caveats", "caveat")
+CAVEAT_KINDS = schema.enum("caveats", "caveat", "kind")
 
 
 def caveats_errors(root):

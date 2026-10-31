@@ -1,0 +1,9 @@
+# An id Tech 3 game's defaults we install (games/<id>/desktop/files/**/autoexec.cfg): seta and bind lines,
+# // comments.
+kind = "game-cfg"
+title = "A Quake III engine autoexec.cfg (desktop/files/**/autoexec.cfg)"
+doc = "gamedb/README.md#gamesiddesktop"
+paths = ["gamedb/games/*/desktop/files/**/autoexec.cfg"]
+format = "lines"
+comment = '//.*'
+line = '(seta [A-Za-z_0-9]+ "[^"]*"|bind [A-Za-z0-9_]+ "[^"]*")'

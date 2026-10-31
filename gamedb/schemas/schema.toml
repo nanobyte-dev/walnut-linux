@@ -1,0 +1,22 @@
+# The schemas themselves (gamedb/schemas/<kind>.toml), validated by tools/gamedb/schema.py's loader. A schema:
+#   kind = "<the file's name>", title, doc (where it is documented), paths = [globs: * within a path component,
+#   ** across them], format = toml | markdown | keylines (key: value lines) | desktop | ini | conf (KEY=value) |
+#   lines (each line matches `line`, `comment` lines skipped), state = "self" (a Markdown file's own draft key)
+#   or a path relative to the file's folder ("index.md": the game's draft key), shared_inputs (files that
+#   change how its files are judged, beyond the schema, schema.py and the refs), [enums] (lists a key's
+#   enum = "@name" uses), [keys.<key>] (the top level, or the front matter), other / other_keys / other_ref
+#   (keys not named: their spec, their pattern, the file that names them).
+# A key spec: type = str | int | float | number | bool | date | datetime | list | table | tables (an array of
+#   tables) | any; meaning (one line, the docs' table cell); required = true | false | "draft" | "published";
+#   required_when / only_when = {key = value} (a sibling key's value); enum, pattern (a full match), min,
+#   nonempty, ref (tags, metrics, batches, games: the value names one), items (a list's spec), keys (a
+#   table's), other; default, by = "hand", recommended (warned when missing), repeat (keylines).
+# Markdown: front_matter = toml | none | optional; [body] title (the first line's pattern), nonempty,
+#   other_sections, [[body.sections]] name or match, required, when = {front matter key = value}, meaning:
+#   the listed sections in that order. desktop and ini: [groups.<name>] (required, keys), other_groups (match,
+#   keys). no-schema.toml: [[entry]] paths and why, the files that have no schema on purpose.
+kind = "schema"
+title = "A schema (gamedb/schemas/*.toml)"
+doc = "gamedb/README.md#schemas"
+paths = ["gamedb/schemas/*.toml"]
+format = "schema"

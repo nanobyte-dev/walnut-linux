@@ -1,0 +1,45 @@
+# One investigation (investigations/<date>-<slug>.md of a game or an engine): front matter, then the story
+# (symptom, evidence, cause, fix). check.py checks the id is unique in its folder and that the sessions are
+# of its games; gamedb:<id>/<investigation-id> resolves by the id (tools/doclinks.py).
+kind = "investigation"
+title = "An investigation (investigations/<date>-<slug>.md)"
+doc = "gamedb/README.md#gamesidtechnicalmd-investigations"
+paths = ["gamedb/games/*/investigations/*.md", "gamedb/engines/*/investigations/*.md"]
+format = "markdown"
+front_matter = "toml"
+
+[keys.id]
+type = "str"
+required = true
+pattern = '[a-z0-9][a-z0-9-]{0,63}'
+meaning = "the investigation's id, unique in its folder, never renamed (gamedb:<game>/<id> points at it)"
+
+[keys.games]
+type = "list"
+items = { type = "str", ref = "games" }
+meaning = "the game folders it concerns"
+
+[keys.driver_patches]
+type = "list"
+items = { type = "str", pattern = '[a-z0-9][a-z0-9+.-]*/\S+' }
+meaning = "the driver and system patches it led to, `<package>/<number>` (`mesa/0046`, `linux/local-0009`)"
+
+[keys.game_patches]
+type = "list"
+items = { type = "str", pattern = '[a-z0-9][a-z0-9+.-]*/\S+' }
+meaning = "the game and engine patches it led to, `<package>/<number>` (`cube2/0010`)"
+
+[keys.sessions]
+type = "list"
+items = { type = "str", nonempty = true }
+meaning = "played sessions behind it: folders of rating/sessions/ in one of its games"
+
+[keys.batches]
+type = "list"
+items = { type = "str", ref = "batches" }
+meaning = "benchmark batches behind it, names in benchmarks/batches.toml"
+
+[body]
+title = '# \S.*'
+nonempty = true
+other_sections = true

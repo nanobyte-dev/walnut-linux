@@ -1,0 +1,9 @@
+# Runs found disturbed after the fact (gamedb/benchmarks/interfered.txt, bench/analysis/interference-scan.py
+# --write): the run directory, then the evidence. report.py and matrix.py leave them out.
+kind = "interfered"
+title = "The interfered runs (benchmarks/interfered.txt)"
+doc = "gamedb/benchmarks/README.md"
+paths = ["gamedb/benchmarks/interfered.txt"]
+format = "lines"
+comment = '#.*'
+line = 'ps3-bench-\d{8}T\d{6}Z-\S+ \S+: .+'

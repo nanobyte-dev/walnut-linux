@@ -1,0 +1,111 @@
+# The player's page of a game: TOML front matter between +++ lines, then the notes (the Overview tab) as
+# Markdown. gamedb/README.md "games/<id>/index.md"; tools/gamedb/check.py checks the rest (the id is the
+# folder's name, tags against gamedb/tags.toml, data_guide and data_steps against build.toml's needs_data).
+kind = "index"
+title = "A game's page (games/<id>/index.md)"
+doc = "gamedb/README.md#gamesidindexmd"
+paths = ["gamedb/games/*/index.md"]
+format = "markdown"
+front_matter = "toml"
+state = "self"
+
+[enums]
+status = ["candidate", "tried", "blocked", "dropped", "impossible", "tested"]
+controller = ["full", "partial", "keyboard", "unknown"]
+designed_for = ["pad", "keyboard-mouse"]
+
+[keys.id]
+type = "str"
+required = true
+pattern = '[a-z0-9][a-z0-9-]{0,63}'
+meaning = "the game's id, its folder's name; never renamed (references point at it)"
+
+[keys.title]
+type = "str"
+required = true
+nonempty = true
+meaning = "the game's name as players know it"
+
+[keys.summary]
+type = "str"
+required = "published"
+meaning = "one or two sentences on the game for the catalog's card"
+
+[keys.license]
+type = "str"
+required = "published"
+meaning = "the game's licence (engine and data)"
+
+[keys.homepage]
+type = "str"
+required = "published"
+pattern = 'https?://\S+'
+meaning = "the project's home page, an http(s) URL"
+
+[keys.tags]
+type = "list"
+items = { type = "str", ref = "tags" }
+required = "published"
+meaning = "tag ids of [tags.toml](tags.toml), the most specific of a subgroup only, none automatic; at least one genre for a published game ([Tags](#tags))"
+
+[keys.data_guide]
+type = "str"
+pattern = 'https?://\S+'
+meaning = "where a player reads how to get their own data: required when build.toml says `needs_data = true`, refused otherwise"
+
+[keys.data_steps]
+type = "list"
+items = { type = "str", nonempty = true }
+meaning = "the numbered steps of getting and setting up the data (sentences, `code` in backticks that pair up): required when build.toml says `needs_data = true`, refused otherwise"
+
+[keys.controller]
+type = "str"
+required = "published"
+enum = "@controller"
+meaning = "gamepad support: the controller badge"
+
+[keys.designed_for]
+type = "str"
+enum = "@designed_for"
+default = "pad"
+meaning = "the input the game was made for: `pad`, or `keyboard-mouse` for a PC game (the automatic tag keyboard-mouse)"
+
+[keys.fps_cap]
+type = "number"
+min = 0
+meaning = "the game's own frame rate cap, when it has one below 60 (the frame rate score is measured against it)"
+
+[keys.medal_note]
+type = "str"
+meaning = "a note shown next to the medal"
+
+[keys.known_issues]
+type = "list"
+items = { type = "str", nonempty = true }
+meaning = "the problems a player should know about, a sentence each"
+
+[keys.draft]
+type = "bool"
+meaning = "not published: catalog.py, pack-catalog.py and Hugo leave it out"
+
+[keys.status]
+type = "str"
+required = "draft"
+enum = "@status"
+meaning = "a draft's state: `candidate` worth trying, `tried` started on the PS3, `blocked` can't run here yet, `dropped` decided against, `impossible` no open engine, `tested`"
+
+[keys.status_note]
+type = "str"
+meaning = "why that status"
+
+[keys.description]
+type = "str"
+meaning = "Hugo's own description key (unused today)"
+
+[keys.date]
+type = "date"
+meaning = "Hugo's own date key (unused today)"
+
+[body]
+# the notes on the Overview tab: free Markdown, no title of their own (the page has the game's)
+other_sections = true

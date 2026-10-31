@@ -1,0 +1,85 @@
+# The player's answers to the end-of-session form as saved (rating/sessions/<run>/form.toml, the run's
+# session.toml from bench/harness/session-form.py, or a chat form written the same way). form_version 2 added
+# the checklist answers; the first form had sound, music, controls and notes.
+kind = "form"
+title = "A played session's form (form.toml)"
+doc = "gamedb/README.md#gamesidrating"
+paths = ["gamedb/games/*/rating/sessions/*/form.toml"]
+format = "toml"
+
+[keys.form_version]
+type = "int"
+enum = [1, 2]
+meaning = "the form's version (absent: 1)"
+
+[keys.sound]
+type = "str"
+enum = ["yes", "partly", "no"]
+meaning = "did the player hear the sound effects"
+
+[keys.music]
+type = "str"
+enum = ["yes", "no", "none"]
+meaning = "did the player hear the music (none: the game has none)"
+
+[keys.glitches]
+type = "str"
+enum = ["none", "minor", "broken"]
+meaning = "visual glitches the player saw"
+
+[keys.pad_menus]
+type = "str"
+enum = ["worked", "partly", "didnt", "na"]
+meaning = "the gamepad in the menus (na: not tried)"
+
+[keys.pad_play]
+type = "str"
+enum = ["seamless", "setup", "didnt", "na"]
+meaning = "the gamepad in play (setup: needed setup first; na: not tried)"
+
+[keys.keyboard_mouse]
+type = "str"
+enum = ["worked", "some", "na"]
+meaning = "keyboard and mouse (some: something didn't work; na: not used)"
+
+[keys.menus_modes]
+type = "str"
+enum = ["yes", "no"]
+meaning = "the menus and modes the player opened worked"
+
+[keys.saves_load]
+type = "str"
+enum = ["yes", "no", "na"]
+meaning = "saving and loading (na: not tried)"
+
+[keys.controls]
+type = "str"
+enum = ["full", "partial", "keyboard-mouse"]
+meaning = "the first form's controls answer, derived from the gamepad answers in version 2"
+
+[keys.notes]
+type = "str"
+required = true
+meaning = "the player's notes, as typed"
+
+[keys.saved]
+type = "str"
+pattern = '\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z'
+meaning = "when the form was saved (UTC)"
+
+[keys.form]
+type = "str"
+required = true
+enum = ["tk", "terminal", "chat"]
+meaning = "how it was filled in: the Tk window, the terminal prompt, or answers given in a chat"
+
+[keys.game]
+type = "str"
+required = true
+pattern = '[a-z0-9][a-z0-9-]{0,63}'
+meaning = "the game's id"
+
+[keys.variant]
+type = "str"
+required = true
+meaning = "the recipe variant the session ran (base)"

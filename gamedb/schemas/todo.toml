@@ -1,0 +1,49 @@
+# A game's or an engine's backlog (todo.toml): [[item]] tables, its items of docs/PLAN.md and docs/backlog/,
+# and its place in the played-session queue. blocks.py generates docs/TESTS.md's queue and the per-game
+# summaries from them. Never part of a package's version, never on the site.
+kind = "todo"
+title = "A backlog (todo.toml)"
+doc = "gamedb/README.md#gamesidtodotoml-upstreammd"
+paths = ["gamedb/games/*/todo.toml", "gamedb/engines/*/todo.toml"]
+format = "toml"
+
+[keys.item]
+type = "tables"
+meaning = "one table per item"
+
+[keys.item.keys.kind]
+type = "str"
+required = true
+enum = ["session", "benchmark", "package", "fix", "research", "upstream"]
+meaning = "`session` (a played session), `benchmark` (a scripted run: an A/B, a repeat, a smoke run), `package` (packaging, a default to set), `fix` (a game or engine patch), `research`, `upstream`"
+
+[keys.item.keys.text]
+type = "str"
+required = true
+nonempty = true
+meaning = "what to do, with the numbers it rests on and how to start; current state, not history"
+
+[keys.item.keys.added]
+type = "date"
+required = true
+meaning = "when the item was first written down (for a migrated item, its source's date)"
+
+[keys.item.keys.source]
+type = "str"
+meaning = "where it came from: `PLAN 2.6`, `backlog/games.md rank 19`, `TESTS.md Next`, ... (one PLAN item per `PLAN N.N`)"
+
+[keys.item.keys.order]
+type = "int"
+min = 1
+only_when = { kind = "session" }
+meaning = "a session item's place in the played-session queue (1 first; games may share a place)"
+
+[keys.item.keys.launcher]
+type = "str"
+only_when = { kind = "session" }
+meaning = "a session item's launchers (PS3 and PC)"
+
+[keys.item.keys.pc]
+type = "str"
+only_when = { kind = "session" }
+meaning = "a session item's PC side and its state"

@@ -1,0 +1,9 @@
+# Files an old image setup wrote into a home directory, now installed system-wide (games/<id>/desktop/
+# migrate-home.txt, read by ps3-migrate-home): "<path in the home> [<the packaged default>]" lines.
+kind = "migrate-home"
+title = "A game's migrate-home list (desktop/migrate-home.txt)"
+doc = "gamedb/README.md#gamesiddesktop"
+paths = ["gamedb/games/*/desktop/migrate-home.txt"]
+format = "lines"
+comment = '#.*'
+line = '(?!.*(^|/)\.\.(/|\s|$))[^/\s]\S*( /\S+)?'

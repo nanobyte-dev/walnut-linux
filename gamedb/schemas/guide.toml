@@ -1,0 +1,13 @@
+# A guide (games/<id>/guides/<slug>.md, the game's Guides tab): no front matter, the "# " title first, a
+# body; guides/game-data.md is "# Setting up the game data". check.py guide_errors() checks the names.
+kind = "guide"
+title = "A game's guide (guides/<slug>.md)"
+doc = "gamedb/README.md#gamesidguides"
+paths = ["gamedb/games/*/guides/*.md"]
+format = "markdown"
+front_matter = "none"
+
+[body]
+title = '# \S.*'
+nonempty = true
+other_sections = true

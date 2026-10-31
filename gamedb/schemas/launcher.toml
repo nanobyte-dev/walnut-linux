@@ -1,0 +1,77 @@
+# A menu launcher of ours (games/<id>/desktop/launchers/<name>.desktop), packed into ps3-games-integration
+# by tools/gamedb/pack-integration.py, which adds TryExec= and X-Walnut-Game= and checks the rest: exactly one
+# Exec, through ps3-game (game mode) unless X-Walnut-GameMode=false. check.py: X-Walnut-Requires names a file
+# of the game's data in the manifest.
+kind = "launcher"
+title = "A menu launcher (desktop/launchers/*.desktop)"
+doc = "gamedb/README.md#gamesiddesktop"
+paths = ["gamedb/games/*/desktop/launchers/*.desktop"]
+format = "desktop"
+
+[groups."Desktop Entry"]
+required = true
+meaning = "the launcher"
+
+[groups."Desktop Entry".keys.Type]
+type = "str"
+required = true
+enum = ["Application"]
+meaning = "Application"
+
+[groups."Desktop Entry".keys.Name]
+type = "str"
+required = true
+nonempty = true
+meaning = "the menu's name for it"
+
+[groups."Desktop Entry".keys.GenericName]
+type = "str"
+meaning = "what kind of game it is"
+
+[groups."Desktop Entry".keys.Comment]
+type = "str"
+required = true
+meaning = "the menu's tooltip"
+
+[groups."Desktop Entry".keys.Exec]
+type = "str"
+required = true
+nonempty = true
+meaning = "the command: `ps3-game <program> ...` (game mode), the program alone with X-Walnut-GameMode=false"
+
+[groups."Desktop Entry".keys.Icon]
+type = "str"
+required = true
+meaning = "the icon's name or path"
+
+[groups."Desktop Entry".keys.Terminal]
+type = "bool"
+required = true
+meaning = "false"
+
+[groups."Desktop Entry".keys.Categories]
+type = "str"
+required = true
+pattern = 'Game;([A-Za-z]+;)*'
+meaning = "the freedesktop categories, Game first"
+
+[groups."Desktop Entry".keys.Keywords]
+type = "str"
+meaning = "search words, `;`-separated"
+
+[groups."Desktop Entry".keys.NoDisplay]
+type = "bool"
+meaning = "true: started by the app, not shown in the menu"
+
+[groups."Desktop Entry".keys.StartupWMClass]
+type = "str"
+meaning = "the game window's class, when it differs from the program's name"
+
+[groups."Desktop Entry".keys.X-Walnut-Requires]
+type = "str"
+pattern = '(/[A-Za-z0-9._+-]+)+'
+meaning = "the data file the entry needs (an absolute path): ps3-game-menu shows it once that exists"
+
+[groups."Desktop Entry".keys.X-Walnut-GameMode]
+type = "bool"
+meaning = "false: not a game, no game mode (a setup tool)"

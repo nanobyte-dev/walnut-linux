@@ -17,7 +17,8 @@ evidence tables, research tables, "bugs the games found". Now: licensed-names, c
 the rules-1 calibration, score.py over the summary batch), suite-table (README.md: the suite's games, the
 summary batch's numbers and each game's medal from its played sessions, as the catalog computes it),
 session-queue (docs/TESTS.md: the played-session queue from the games' todo.toml, with each game's medal),
-todo-summary (docs/PLAN.md, docs/backlog/games.md: the per-game open work, counted from the todo.toml files).
+todo-summary (docs/PLAN.md, docs/backlog/games.md: the per-game open work, counted from the todo.toml files),
+schema-table (gamedb/README.md, gamedb/benchmarks/README.md: a schema's key table, gamedb/schemas/).
 """
 import argparse
 import importlib.util
@@ -167,7 +168,60 @@ def gen_todo_summary(repo, args):
     return "\n".join(out) + "\n"
 
 
+TYPE_WORDS = {"str": "string", "int": "integer", "float": "float", "number": "number", "bool": "bool", "date": "date",
+              "datetime": "date-time", "list": "list", "table": "table", "tables": "array of tables", "any": "any"}
+
+
+def _type_word(s):
+    """a spec's type in words: "list of strings", "list of lists of strings", "array of tables" """
+    s = {"type": s} if isinstance(s, str) else s
+    t = s.get("type", "any")
+    if t == "list" and "items" in s:
+        w = _type_word(s["items"])
+        return "list of " + (w.replace("list of", "lists of", 1) if w.startswith("list of") else w + "s")
+    return TYPE_WORDS.get(t, t)
+
+
+def gen_schema_table(repo, args):
+    """a schema's key table (gamedb/schemas/<kind>.toml, tools/gamedb/schema.py): KIND [KEY...], the table at
+    that key path ("*" a table's other keys); a row per key: its type, whether it is required, its allowed
+    values or pattern, its meaning"""
+    if not args:
+        raise ValueError("schema-table takes KIND [KEY...]")
+    sch = _load("gamedb_schema", Path(repo) / "tools" / "gamedb" / "schema.py")
+    d = Path(repo) / "gamedb" / "schemas"
+    kind, path = args[0], args[1:]
+    enums = sch.load(d)[kind].get("enums", {})
+    out = ["| Key | Type | Required | Values | Meaning |", "|---|---|---|---|---|"]
+    for k, s in (sch.spec(kind, *path, d=d).get("keys") or {}).items():
+        s = {"type": s} if isinstance(s, str) else s
+        t = s.get("type", "any")
+        name = "`[%s]`" % k if t == "table" else "`[[%s]]`" % k if t == "tables" else "`%s`" % k
+        r = s.get("required", False)
+        req = "yes" if r is True else r or ""     # "published": for a published game, "draft": for a draft
+        if "required_when" in s:
+            req = "where " + ", ".join("%s = %s" % (a, b) for a, b in s["required_when"].items())
+        e = s.get("enum")
+        e = enums.get(e[1:], []) if isinstance(e, str) else e
+        items = s.get("items") if isinstance(s.get("items"), dict) else {}
+        other = s.get("other") if isinstance(s.get("other"), dict) else {}
+        e = e or items.get("enum") or other.get("enum")
+        e = enums.get(e[1:], []) if isinstance(e, str) else e
+        pat = s.get("pattern") or items.get("pattern")
+        vals = ", ".join("`%s`" % str(x).lower() if isinstance(x, bool) else "`%s`" % x for x in e) if e else \
+            "`%s`" % pat.replace("|", "\\|") if pat else ""
+        ref = s.get("ref") or items.get("ref")
+        if ref:
+            vals = (vals + "; " if vals else "") + "names in %s" % sch.REFS[ref][0]
+        if "only_when" in s:
+            vals = (vals + "; " if vals else "") + "only where " + ", ".join("%s = %s" % x for x in s["only_when"].items())
+        out.append("| %s | %s | %s | %s | %s |" % (name, _type_word(s), req, vals,
+                                                  _cell(s.get("meaning", ""))))
+    return "\n".join(out) + "\n"
+
+
 GENERATORS = {
+    "schema-table": gen_schema_table,
     "licensed-names": gen_licensed_names,
     "calibration": gen_calibration,
     "suite-table": gen_suite_table,

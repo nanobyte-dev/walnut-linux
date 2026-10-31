@@ -1,0 +1,89 @@
+# The patch register (gamedb/patches/<slug>/patch.md): one entry per patch, or per group of patches that are
+# one change, of a kernel, driver, library or tool series (packages/**). TOML front matter, then the text that
+# explains the patch; a stability entry also carries its Investigation (what crashed and how it showed, why,
+# how it was found, the minimal repro) and its Validation on the PS3. tools/gamedb/patches.py checks the
+# register against the series (every series patch has exactly one entry).
+kind = "patch"
+title = "A patch register entry (patches/<slug>/patch.md)"
+doc = "docs/GAMEDB.md"
+paths = ["gamedb/patches/*/patch.md"]
+format = "markdown"
+front_matter = "toml"
+
+[enums]
+category = ["stability", "correctness", "performance", "feature", "port", "build", "security", "diagnostics", "config"]
+
+[keys.component]
+type = "str"
+required = true
+pattern = '[a-z0-9][a-z0-9+.-]*'
+meaning = "the package whose series holds the patches (`mesa`, `linux`, `ps3rsx`, a library)"
+
+[keys.patches]
+type = "list"
+items = { type = "str", pattern = '[^/\s][^\s]*' }
+required = true
+meaning = "the patches, as paths in the series folder (`patches/0046-....patch`): names survive renumbering; empty for a change to our own code (ps3rsx), named in aliases by version and commit"
+
+[keys.aliases]
+type = "list"
+items = { type = "str", nonempty = true }
+meaning = "older names docs use for it (`Mesa 0046`, an absorbed patch's name after a merge)"
+
+[keys.category]
+type = "str"
+required = true
+enum = "@category"
+meaning = "stability (a crash, hang, wedge or data loss), correctness (wrong output), performance, feature, port, build, security, diagnostics or config"
+
+[keys.switch]
+type = "str"
+nonempty = true
+meaning = "the run-time switch that turns it off or on (an env variable, a module parameter), or `none` (then default is `always on`)"
+
+[keys.default]
+type = "str"
+nonempty = true
+meaning = "what it does by default (`always on`, `off`, the switch's default value)"
+
+[keys.gating]
+type = "str"
+pattern = '(is_ps3|switch \S+|ps3rsx-only|none: .+)'
+required_when = { component = "mesa" }
+only_when = { component = "mesa" }
+meaning = "Mesa only: how it is kept to the PS3: `is_ps3`, `switch NAME`, `ps3rsx-only`, or `none: why`"
+
+[keys.authors]
+type = "list"
+items = { type = "str", nonempty = true }
+meaning = "its authors when it is third-party work (OtherOS++'s ps3/ patches credited by name)"
+
+[keys.forwarded]
+type = "str"
+nonempty = true
+meaning = "whether and where it went upstream (`no`, a URL, `not-needed: why`)"
+
+[keys.tests]
+type = "list"
+items = { type = "str", pattern = '(ps3:\S.*|[a-z0-9][a-z0-9-]*)' }
+meaning = "what exercises it: a host suite (a tools/run-tests.sh name), or `ps3:<program>` (and its arguments) run on the PS3"
+
+[keys.batches]
+type = "list"
+items = { type = "str", ref = "batches" }
+meaning = "the benchmark batches that measured its effect, names in benchmarks/batches.toml"
+
+[body]
+title = '# \S.*'
+nonempty = true
+other_sections = true
+
+[[body.sections]]
+name = "Investigation"
+when = { category = "stability" }
+meaning = "a stability fix: what crashed and how it showed, why it happens (or \"cause unknown\"), how it was found, the minimal repro test"
+
+[[body.sections]]
+name = "Validation"
+when = { category = "stability" }
+meaning = "a stability fix on the PS3, written for people: the date, the versions, what happened with the fix off and on, the few lines of output that prove it (or why it has none yet)"

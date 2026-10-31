@@ -1,0 +1,89 @@
+# A played session's review questionnaire as answered (rating/sessions/<run>/review.md, the run's REVIEW.md
+# from tools/gamedb/review.py): "key: value" lines and # comments. Rules-1 reviews hold only the verdict;
+# rules 2 answer every line but minor (tools/gamedb/import-run.py REVIEW_REQUIRED, which refuses a "?").
+kind = "review"
+title = "A played session's review (review.md)"
+doc = "gamedb/README.md#gamesidrating"
+paths = ["gamedb/games/*/rating/sessions/*/review.md"]
+format = "keylines"
+
+[keys.verdict]
+type = "str"
+required = true
+pattern = '(ok|minor|wrong)\b.*'
+meaning = "the picture: `ok`, `minor` or `wrong`, then what the shots show"
+
+[keys.stretched]
+type = "str"
+pattern = '(yes|no)(:.*)?'
+meaning = "circles and characters out of proportion: yes (where) or no"
+
+[keys.text_px]
+type = "str"
+pattern = '(none|\d+(:.*)?)'
+meaning = "the smallest menu or HUD text, its height in px at 1080p, and where; or none"
+
+[keys.pointer]
+type = "str"
+pattern = '(visible|hidden)(:.*)?'
+meaning = "a mouse pointer over the game: visible or hidden"
+
+[keys.garbage]
+type = "str"
+repeat = true
+pattern = '(no|(pc|ps3):.*)'
+meaning = "garbage textures or geometry (-60): no, or pc|ps3: where"
+
+[keys.missing]
+type = "str"
+repeat = true
+pattern = '(no|(pc|ps3):.*)'
+meaning = "a missing element (HUD, models, shadows, an effect) (-25): no, or pc|ps3: where"
+
+[keys.colours]
+type = "str"
+repeat = true
+pattern = '(no|(pc|ps3):.*)'
+meaning = "wrong colours or blending (-25): no, or pc|ps3: where"
+
+[keys.flicker]
+type = "str"
+repeat = true
+pattern = '(no|(pc|ps3):.*)'
+meaning = "flicker, z-fighting or one-frame glitches (-15): no, or pc|ps3: where"
+
+[keys.lighting]
+type = "str"
+repeat = true
+pattern = '(no|(pc|ps3):.*)'
+meaning = "lighting or shading differs (-10): no, or pc|ps3: where"
+
+[keys.softer]
+type = "str"
+repeat = true
+pattern = '(no|(pc|ps3):.*)'
+meaning = "softer or less detailed, from Walnut's own defaults (-5): no, or pc|ps3: where"
+
+[keys.minor]
+type = "str"
+repeat = true
+pattern = '(no|(pc|ps3):.*)'
+meaning = "a minor cosmetic quirk (rules 2.3, optional): no, or pc|ps3: where"
+
+[keys.defect]
+type = "str"
+repeat = true
+pattern = '[a-z]+ (pc|ps3):.*'
+meaning = "another defect: `<category> <pc|ps3>: <what>`"
+
+[keys.broken]
+type = "str"
+repeat = true
+pattern = '(none|[a-z_]+ (pc|ps3):.*)'
+meaning = "anything broken (a menu, a mode, saves, the pad): none, or `<item> <pc|ps3>: <what>`, a line each"
+
+[keys.check]
+type = "str"
+repeat = true
+pattern = '[a-z_]+ (yes|partly|no|na)'
+meaning = "a checklist answer the reviewer corrects: `<item> yes|partly|no|na`"

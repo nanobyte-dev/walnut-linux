@@ -1,0 +1,41 @@
+# An engine that is its own upstream project (engines/<e>/engine.md): TOML front matter, then a short note.
+# gamedb/README.md "engines/<e>/"; check.py checks games against the bundles and tags.toml's engine tag.
+kind = "engine"
+title = "An engine's page (engines/<e>/engine.md)"
+doc = "gamedb/README.md#enginese"
+paths = ["gamedb/engines/*/engine.md"]
+format = "markdown"
+front_matter = "toml"
+
+[keys.id]
+type = "str"
+required = true
+pattern = '[a-z0-9][a-z0-9-]{0,63}'
+meaning = "the engine's id, its folder's name"
+
+[keys.title]
+type = "str"
+required = true
+nonempty = true
+meaning = "the engine's name (its engine tag's label in tags.toml)"
+
+[keys.homepage]
+type = "str"
+required = true
+pattern = 'https?://\S+'
+meaning = "the engine project's home page"
+
+[keys.license]
+type = "str"
+required = true
+meaning = "the engine's licence"
+
+[keys.games]
+type = "list"
+items = { type = "str", ref = "games" }
+required = true
+meaning = "the game bundles that run on it (each one's build.toml says `engine` = this id)"
+
+[body]
+nonempty = false
+other_sections = true
