@@ -69,17 +69,26 @@ O='-o Dir::Etc::SourceList=/dev/null -o Dir::Etc::SourceParts=/var/tmp/ps3-deplo
 -o Dpkg::Options::=--force-confold -t walnut-deploy'
 sudo DEBIAN_FRONTEND=noninteractive dpkg --configure -a	# an install interrupted earlier
 sudo apt-get \$U -qq update
+# aptf ERE ARG...: sudo apt-get ARG..., showing only the lines of its output that match ERE (its
+# errors as they come), and failing with apt-get's status: a filter's || true hid a failed install
+# (the deploy reported success). apt-get's status goes through a file: no pipefail needed in this shell.
+aptf() {
+	re=\$1; shift
+	{ sudo DEBIAN_FRONTEND=noninteractive apt-get \"\$@\" && echo 0 > /var/tmp/ps3-deploy/apt.rc || echo \$? > /var/tmp/ps3-deploy/apt.rc; } |
+		{ grep -E \"\$re\" || true; }	# no line matched: not a failure
+	rc=\$(cat /var/tmp/ps3-deploy/apt.rc)
+	[ \"\$rc\" = 0 ] || { echo \"!! apt-get \$* failed (exit \$rc)\"; return \"\$rc\"; }
+}
 ours() {	# installed packages that this deploy has a build of (kernels only with KERNELS=1)
 	dpkg-query -W -f='\${Package}\n' | sort -u | comm -12 - avail |
 		if [ '${KERNELS:-0}' = 1 ]; then cat; else grep -vE '^(linux-(image|headers|kbuild)|ps3rsx-modules)'; fi
 }
 upgrade() {
 	pk=\$(ours)
-	sudo DEBIAN_FRONTEND=noninteractive apt-get \$O -q --no-remove install --only-upgrade \$pk |
-		grep -E '^(Setting up|Unpacking|E:|W:)' || true
+	aptf '^(Setting up|Unpacking|E:|W:)' \$O -q --no-remove install --only-upgrade \$pk
 }
-echo '--- upgrade (simulated)'; sudo apt-get \$O -s --no-remove install --only-upgrade \$(ours) | grep -E '^(Inst|Remv)' || true
-echo '--- install $* (simulated)'; sudo apt-get \$O -s install $* | grep -E '^(Inst|Remv|E:)' || true
+echo '--- upgrade (simulated)'; aptf '^(Inst|Remv)' \$O -s --no-remove install --only-upgrade \$(ours)
+echo '--- install $* (simulated)'; aptf '^(Inst|Remv|E:)' \$O -s install $*
 if [ '${DRY_RUN:-0}' = 1 ]; then
 	echo '>> DRY_RUN: simulations only'
 	[ -z \"\$stopped\" ] || sudo systemctl start getty@tty1
@@ -88,9 +97,10 @@ fi
 # Kernel and Mesa installs need the RAM the desktop holds: two kernels unpacked next to a
 # running desktop thrashed swap on the USB disk into a 30-minute stall (2026-10-16). The desktop
 # is stopped for them (STOP_DESKTOP=auto; 1 always, 0 never) and started again afterwards.
-heavy=\$(sudo apt-get \$O -s install $* \$(ours) 2>/dev/null | grep -cE '^Inst (linux-image|linux-headers|mesa-libgallium|libgl1-mesa-dri)' || true)
+heavy=\$(aptf '^Inst (linux-image|linux-headers|mesa-libgallium|libgl1-mesa-dri)' \$O -s install $* \$(ours) 2>/dev/null) ||
+	{ echo '!! the install simulation failed'; exit 1; }
 stopped=
-if [ '${STOP_DESKTOP:-auto}' = 1 ] || { [ '${STOP_DESKTOP:-auto}' = auto ] && [ \"\$heavy\" -gt 0 ]; }; then
+if [ '${STOP_DESKTOP:-auto}' = 1 ] || { [ '${STOP_DESKTOP:-auto}' = auto ] && [ -n \"\$heavy\" ]; }; then
 	if pidof Xorg >/dev/null; then
 		echo '>> stopping the desktop for this install'
 		sudo systemctl stop getty@tty1
@@ -110,14 +120,14 @@ if [ -n \"\$want_rm\" ]; then
 else
 	NOREMOVE=--no-remove
 fi
-sudo DEBIAN_FRONTEND=noninteractive apt-get \$O -q \$NOREMOVE install $* | grep -E '^(Setting up|Unpacking|Removing|E:|W:)' || true
+aptf '^(Setting up|Unpacking|Removing|E:|W:)' \$O -q \$NOREMOVE install $*
 upgrade
 sudo apt-get check >/dev/null && echo '>> apt-get check: ok'
 [ ! -x /usr/lib/ps3/sbin/ps3-migrate-home ] || sudo /usr/lib/ps3/sbin/ps3-migrate-home \$(id -un)
 [ -z \"\$stopped\" ] || { echo '>> starting the desktop again'; sudo systemctl start getty@tty1; }
 if [ '${AUTOREMOVE:-0}' = 1 ]; then
-	echo '--- autoremove --purge'; sudo apt-get \$O -s autoremove --purge | grep ^Purg || true
-	sudo DEBIAN_FRONTEND=noninteractive apt-get \$O -q autoremove --purge | grep -E '^(Removing|Purging)' || true
+	echo '--- autoremove --purge'; aptf '^Purg' \$O -s autoremove --purge
+	aptf '^(Removing|Purging)' \$O -q autoremove --purge
 fi
 cd / && rm -rf /var/tmp/ps3-deploy"
 rm -rf "$REPO"
