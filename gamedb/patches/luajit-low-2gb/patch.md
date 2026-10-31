@@ -6,7 +6,7 @@ category = "stability"
 switch = "none"
 default = "always on"
 forwarded = "no"
-tests = []
+tests = ["luajit-low-2gb"]
 batches = []
 +++
 # LuaJIT on ppc64 big-endian allocates in the low 2 GB
@@ -22,9 +22,11 @@ serves every LuaJIT program on the image, not only Luanti.
 - **Why:** whenever the state landed between 2 and 4 GB, LuaJIT refused its own allocation.
 - **How it was found:** Luanti's first ppc64 build
   ([gamedb:luanti/luajit-state-allocation](../../games/luanti/investigations/2026-10-17-luajit-state-allocation.md)).
-- **Minimal repro:** a minimal program that calls `luaL_newstate()` in the ppc64 chroot (qemu-user honours
-  the hints like the kernel): 16 of 40 starts failed before, 60 of 60 passed after. Not in the repository
-  yet; proposed as a host suite under qemu-ppc64.
+- **Minimal repro:** a minimal program that calls `luaL_newstate()` (qemu-user honours the hints like the
+  kernel): 16 of 40 starts failed before the patch in the ppc64 chroot, 60 of 60 passed after.
+  `tools/run-tests.sh --only luajit-low-2gb` (`packages/patched/libs/luajit/tests/low-2gb.sh`) links it
+  statically against our deb's library and against the stock one (orig tarball, built for ppc64) and starts each
+  100 times under qemu-ppc64: ours 0 failures, stock 48 to 58 of 100.
 
 ## Validation
 
