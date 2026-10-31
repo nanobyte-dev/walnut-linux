@@ -17,4 +17,4 @@ if echo 'int main(void){return 0;}' | gcc -fsanitize=address,undefined -x c -o "
 	gcc "${CF[@]}" -g -fsanitize=address,undefined -fno-sanitize-recover=all -o "$O/test-san" \
 		packages/patched/kernel/linux/tests/ps3disk-guard-test.c
 	"$O/test-san" "${1:-500}" 12345
-else echo "(sanitizer run skipped: gcc has no ASan/UBSan here)"; fi
+else echo "SKIP ${TEST_SUITE:-ps3disk-guard}:sanitizers gcc has no ASan/UBSan here"; fi

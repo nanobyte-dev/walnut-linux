@@ -7,7 +7,7 @@ switch = "none"
 default = "always on"
 gating = "none: nouveau's fence code and nv30's transfers, for every nouveau driver and nv30 card"
 forwarded = "no"
-tests = ["mesa-query-steal"]
+tests = ["mesa-alloc-fail", "mesa-transfer-cpu"]
 batches = []
 +++
 
@@ -48,8 +48,8 @@ It follows [mesa-upload-null](../mesa-upload-null/patch.md) (0047) and
   After that crash the RSX also stopped drawing for a fresh X until a power cycle; that is a separate
   driver question in [TESTS.md](../../../docs/TESTS.md), not fixed here.
 - **Minimal repro:** `packages/patched/graphics/mesa/tests/alloc-fail-test.c` (fences with a full and
-  with no GART, against a fake GPU) and `transfer-cpu-test.c` (texture transfers with a full GART), both
-  in `tools/run-tests.sh --only mesa-query-steal`.
+  with no GART, against a fake GPU) and `transfer-cpu-test.c` (texture transfers with a full GART), in
+  `tools/run-tests.sh --only mesa-alloc-fail` and `--only mesa-transfer-cpu`.
 
 ## Validation
 

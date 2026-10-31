@@ -107,7 +107,7 @@ rm -rf "$W/msrc"
 # Phase B's pieces: the amd64 busybox-static (the PS3's version), ps3-imgmap-boot static for amd64,
 # the rdinit wrapper that gives the virtual disks the PS3's names before the initramfs's /init runs
 PHASEB=1
-make --no-print-directory -s initrd-busybox >/dev/null 2>&1 || { echo "(Phase B skipped: no busybox-static debs)"; PHASEB=0; }
+make --no-print-directory -s initrd-busybox >/dev/null 2>&1 || { echo "SKIP ${TEST_SUITE:-ssdimg-vm}:phase-b no busybox-static debs"; PHASEB=0; }
 BB_AMD64=$(ls build/downloads/initrd/busybox-static_*_amd64.deb 2>/dev/null | head -1)
 REL_W=${W#"$ROOT"/}
 if [ $PHASEB = 1 ]; then
@@ -131,7 +131,7 @@ if [ $PHASEB = 1 ]; then
 		GUARDSIM=1
 		cp "$W/guardsim/ps3guard_sim.ko" "$W/e2e-wrap/"
 	else
-		echo "(the kernel guard's parts skipped: no ps3guard_sim for $KVER, kernel headers in $MODS/build?)"
+		echo "SKIP ${TEST_SUITE:-ssdimg-vm}:kernel-guard no ps3guard_sim for $KVER (kernel headers in $MODS/build?)"
 		tail -5 "$W/guardsim.log" 2>/dev/null
 	fi
 	python3 -I tools/ssdimg/mkcpio.py "$W/e2e-wrap" "$W/e2e-wrap.cpio" || exit 1
@@ -434,6 +434,6 @@ sys.stdout.write(stamp.manifest("/linux/walnut.img", uuid.UUID(iu), size, 16, "/
 	wrefused "the manifest's image size isn't the file's" "$W/hdd1-bad.img" "the install says"
 	rm -f "$W/neg.img" "$W/notfat.img" "$W/hdd1-bad.img" "$W/bad.body" "$W/bad.conf"
 else
-	echo "(the internal install's test skipped: needs Phase B, ps3guard_sim, mkfs.vfat and mtools)"
+	echo "SKIP ${TEST_SUITE:-ssdimg-vm}:internal-install needs Phase B, ps3guard_sim, mkfs.vfat and mtools"
 fi
 exit $rc

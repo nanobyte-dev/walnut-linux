@@ -7,7 +7,7 @@ switch = "none"
 default = "always on"
 gating = "none: generic push buffer fixes; the staging counter it adds is used only by 0007's PS3 limit"
 forwarded = "no"
-tests = []
+tests = ["mesa-alloc-fail"]
 batches = []
 +++
 
@@ -37,9 +37,12 @@ renumbered when it moved into Debian's source package.
 - **How it was found:** bringing up kmscube and the first GL clients on ps3rsx (commit 97ffb04,
   2026-10-14: "flush of a context that never queued anything"), and the out-of-GART init failure on
   2026-10-15 (commit 7d11f9d).
-- **Minimal repro:** None yet: proposed an EGL test that creates a context, makes it current and calls
-  `glFlush()` before any draw, then destroys a context created while the GART is exhausted (or a fake
-  winsys in the `mesa-query-steal` suite that fails `nouveau_pushbuf_new`).
+- **Minimal repro:** `packages/patched/graphics/mesa/tests/context-pushbuf-test.c`
+  (`tools/run-tests.sh --only mesa-alloc-fail`): `nv30_context.c` compiled whole against a fake winsys.
+  `flush`: a context that never queued anything is flushed, and the kick must come with push buffer
+  space; `destroy`: a context without a push buffer (its init failed) is destroyed. Against
+  `nv30_context.c` as it was before this patch both must fail, and do: the kick with `cur` NULL, and a
+  SEGV in `PUSH_KICK` from `nv30_context_destroy`. The `rsvd_kick` part is not covered.
 
 ## Validation
 

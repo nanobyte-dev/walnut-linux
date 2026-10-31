@@ -7,7 +7,7 @@ switch = "none"
 default = "always on"
 gating = "none: generic fixes in u_upload, u_vbuf and st/mesa, plus nv30's zero-stride attributes, for every driver"
 forwarded = "no"
-tests = []
+tests = ["mesa-alloc-fail"]
 batches = []
 +++
 
@@ -40,10 +40,12 @@ later for SuperTuxKart. The early [mesa-mm-slab-oom](../mesa-mm-slab-oom/patch.m
 - **How it was found:** the session's crash, the link register placed on a fresh process's library
   layout and resolved with ps3.819's symbols
   ([gamedb:sauerbraten/online-crashes](../../games/sauerbraten/investigations/2026-10-24-online-crashes.md)).
-- **Minimal repro:** None yet: proposed a host test in the style of
-  `packages/patched/graphics/mesa/tests/alloc-fail-test.c` that makes the upload buffer allocation fail
-  and checks that `u_upload_alloc()` returns no stale buffer, leaks nothing and that the current
-  attributes are not copied.
+- **Minimal repro:** the u_upload part: `packages/patched/graphics/mesa/tests/alloc-fail-test.c` part
+  `upload` (`tools/run-tests.sh --only mesa-alloc-fail`) fails the new upload buffer and its map, and
+  checks that `u_upload_alloc()` returns no stale buffer, hands the previous one back for release and
+  leaks nothing. Against `u_upload_mgr.c` as it was before this patch it must fail, and does
+  (`FAIL ... failed allocation left *outbuf`, then a use after free). The u_vbuf, st/mesa and nv30
+  zero-stride parts have no host test: they need a whole draw path (a mesa-shim run, a later round).
 
 ## Validation
 

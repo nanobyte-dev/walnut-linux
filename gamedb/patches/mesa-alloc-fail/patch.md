@@ -7,7 +7,7 @@ switch = "none"
 default = "always on"
 gating = "none: nouveau's shared buffer code, every nouveau driver"
 forwarded = "no"
-tests = ["mesa-query-steal"]
+tests = ["mesa-alloc-fail"]
 batches = []
 +++
 
@@ -43,8 +43,11 @@ and texture uploads.
   is a 64 MB CMA area shared by everything, so it happens in big games.
 - **How it was found:** gamedb:sauerbraten/online-crashes and
   [LOG-FINDINGS.md item 2](../../../docs/games/LOG-FINDINGS.md#2-a-failed-buffer-allocation-ends-in-a-segfault).
-- **Minimal repro:** `packages/patched/graphics/mesa/tests/alloc-fail-test.c`, part of
-  `tools/run-tests.sh --only mesa-query-steal`.
+- **Minimal repro:** `packages/patched/graphics/mesa/tests/alloc-fail-test.c` part `mm-fallback`
+  (`tools/run-tests.sh --only mesa-alloc-fail`): room for 3 MiB but not the 4 MiB slab, and a 1 MiB
+  request must still get a buffer of its own. Against `nouveau_mm.c` as it was before this patch it
+  must fail, and does (`FAIL ... a buffer of its own comes without a slab allocation`). The map,
+  discard and migrate paths in `nouveau_buffer.c` have no host case.
 
 ## Validation
 

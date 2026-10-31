@@ -7,7 +7,7 @@ switch = "NV30_PS3_RECOVER"
 default = "on"
 gating = "ps3rsx-only"
 forwarded = "not-needed (ps3rsx only)"
-tests = []
+tests = ["mesa-alloc-fail"]
 batches = []
 +++
 
@@ -49,7 +49,12 @@ why accepting later pushes is safe.
   mpv without 0052 keeps playing with every frame cancelled; with one submit rejected by hand the next
   frame re-sends the whole state (346 words against 36) and the final GPU state equals the run without
   the rejection; egl-gears, gl-mipread, gl-genmip and gl-texsub finish with 2-3 rejected submits each.
-  Proposed: one of those shim runs as a host suite.
+  On the host, the fence part only: `packages/patched/graphics/mesa/tests/alloc-fail-test.c` part
+  `fence-cancel` (`tools/run-tests.sh --only mesa-alloc-fail`): a fence whose submission was cancelled
+  never lands, and its wait must still end, through the context's current fence. Against
+  `nouveau_fence.c` as it was before this patch the wait fails (`FAIL ... cancelled submission
+  failed`). The state-lost path (re-sending the state) stays with the shim runs: a mesa-shim suite is
+  a later round (privileged docker and the ppc64 Mesa debs).
 
 ## Validation
 

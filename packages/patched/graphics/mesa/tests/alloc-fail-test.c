@@ -11,7 +11,14 @@
  *   (before 0049 it was NULL and the next kick segfaulted at 0x20, SuperTuxKart 2026-10-26); the
  *   GPU's submitted work is waited for first, which gives buffers back; a fence without a wait
  *   object is emitted without one and its wait polls the sequence.
- * (tools/run-tests.sh --only mesa-query-steal runs it; skipped without build/work/mesa) */
+ *   nouveau_mm with no slab and no memory at all (0002): no buffer, no allocation.
+ *   nouveau_fence with a submission ps3rsx cancelled (0053): its fence never lands, and its wait
+ *   still ends, through the context's current fence.
+ * Parts can run alone (alloc-fail-test upload mm-fallback mm-nomem fence). tools/run-tests.sh --only
+ * mesa-alloc-fail runs them all, then upload and mm-nomem against u_upload_mgr.c and nouveau_mm.c as
+ * they were before 0047 and 0002, mm-fallback before 0048 and fence-cancel before 0053, which must
+ * fail (skipped without
+ * build/work/mesa) */
 #include "util/u_upload_mgr.c"
 #include "nouveau_mm.c"
 #include "nouveau_fence.c"
@@ -159,26 +166,47 @@ void simple_mtx_init(simple_mtx_t *m, int type) { (void)type; memset(m, 0, sizeo
 void simple_mtx_destroy(simple_mtx_t *m) { (void)m; }
 #endif
 
-static void test_mm(void)
+static struct nouveau_mman *mm;
+static struct nouveau_bo *mmbo;
+static uint32_t mmoff = 123;
+
+/* 0048: room for 3 MiB at once, not for the 4 MiB slab of 1 MiB chunks */
+static void test_mm_fallback(void)
+{
+	struct nouveau_mm_allocation *a;
+
+	bo_limit = 3 << 20;
+	a = nouveau_mm_allocate(mm, 1 << 20, &mmbo, &mmoff);
+	CHECK(mmbo != NULL, "1 MiB request with no room for a 4 MiB slab: no buffer");
+	CHECK(!a && mmoff == 0, "a buffer of its own comes without a slab allocation (alloc %p, offset %u)",
+	      (void *)a, mmoff);
+	CHECK(!mmbo || mmbo->size >= (1 << 20), "its size %llu", mmbo ? (unsigned long long)mmbo->size : 0ull);
+	nouveau_bo_ref(NULL, &mmbo);
+}
+
+/* 0002: no room at all, no slab: the caller sees no buffer (before 0002 the allocator took a chunk
+ * from the empty bucket's list head: a write into the bucket itself, AddressSanitizer stops there) */
+static void test_mm_nomem(void)
+{
+	struct nouveau_mm_allocation *a;
+
+	bo_limit = 0;
+	a = nouveau_mm_allocate(mm, 1 << 20, &mmbo, &mmoff);
+	CHECK(!a && !mmbo, "no memory: alloc %p bo %p", (void *)a, (void *)mmbo);
+}
+
+static void test_mm(int fallback, int nomem)
 {
 	union nouveau_bo_config cfg = { 0 };
-	struct nouveau_mman *mm = nouveau_mm_create(NULL, NOUVEAU_BO_GART, &cfg);
+	struct nouveau_mm_allocation *a;
 	struct nouveau_bo *bo = NULL;
-	uint32_t off = 123;
+	uint32_t off = 0;
 
-	/* room for 3 MiB at once, not for the 4 MiB slab of 1 MiB chunks */
-	bo_limit = 3 << 20;
-	struct nouveau_mm_allocation *a = nouveau_mm_allocate(mm, 1 << 20, &bo, &off);
-	CHECK(bo != NULL, "1 MiB request with no room for a 4 MiB slab: no buffer");
-	CHECK(!a && off == 0, "a buffer of its own comes without a slab allocation (alloc %p, offset %u)",
-	      (void *)a, off);
-	CHECK(!bo || bo->size >= (1 << 20), "its size %llu", bo ? (unsigned long long)bo->size : 0ull);
-	nouveau_bo_ref(NULL, &bo);
-
-	/* no room at all: the caller sees no buffer */
-	bo_limit = 0;
-	a = nouveau_mm_allocate(mm, 1 << 20, &bo, &off);
-	CHECK(!a && !bo, "no memory: alloc %p bo %p", (void *)a, (void *)bo);
+	mm = nouveau_mm_create(NULL, NOUVEAU_BO_GART, &cfg);
+	if (fallback)
+		test_mm_fallback();
+	if (nomem)
+		test_mm_nomem();
 
 	/* room for slabs again: chunks from a slab */
 	bo_limit = ~0ull;
@@ -199,6 +227,7 @@ static struct nouveau_context fctx;
 static struct nouveau_pushbuf fpush;
 static uint32_t pushmem[64];
 static uint32_t gpu_seq;		/* the last sequence the GPU wrote */
+static uint32_t lost_seq;		/* a fence whose submission ps3rsx cancelled: never written */
 static int emits, emits_nobo, waits, polls, polls_to_signal, kicks;
 
 static void fake_emit(struct pipe_context *p, uint32_t *sequence, struct nouveau_bo *wait)
@@ -223,7 +252,7 @@ int nouveau_bo_wait(struct nouveau_bo *bo, uint32_t access, struct nouveau_clien
 {
 	(void)access; (void)client;
 	waits++;
-	if (bo->offset > gpu_seq)
+	if (bo->offset > gpu_seq && bo->offset != lost_seq)
 		gpu_seq = bo->offset;
 	return 0;
 }
@@ -355,11 +384,70 @@ static void test_fence(void)
 	CHECK(fence_count() == 0 && bos == 0, "%u fences, %d wait objects left", fence_count(), bos);
 }
 
-int main(void)
+/* 0053: ps3rsx cancelled the submission a fence was in (-ECANCELED, nouveau_device::cancelled):
+ * that fence's sequence never lands. Its waiter submits the context's current fence and waits for
+ * that one; before 0053 the wait failed (glFinish and the buffer maps that wait went on unsynced). */
+static void test_fence_cancel(void)
 {
-	test_upload();
-	test_mm();
-	test_fence();
+	static struct nouveau_device dev;
+	struct nouveau_fence *f = NULL;
+
+	fscreen.device = &dev;
+	fscreen.fence.emit = fake_emit;
+	fscreen.fence.update = fake_update;
+	if (!fscreen.fence.head && !fscreen.fence.sequence)
+		nouveau_fence_list_init(&fscreen.fence);
+	fpush.cur = pushmem;
+	fpush.end = pushmem + ARRAY_SIZE(pushmem);
+	fctx.screen = &fscreen;
+	fctx.pushbuf = &fpush;
+	bo_limit = ~0ull;
+	bo_cap = -1;
+	if (!fctx.fence)
+		CHECK(nouveau_fence_new(&fctx, &fctx.fence), "a current fence");
+
+	simple_mtx_lock(&fscreen.fence.lock);
+	_nouveau_fence_ref(fctx.fence, &f);
+	CHECK(nouveau_fence_kick(f), "kick of the batch that will be cancelled");
+	CHECK(fctx.fence && fctx.fence != f, "no new current fence after the kick");
+	lost_seq = f->sequence;
+	dev.cancelled = 1;
+	waits = 0;
+	CHECK(_nouveau_fence_wait(f, NULL), "the wait on a fence of a cancelled submission failed (it never lands)");
+	CHECK(f->state == NOUVEAU_FENCE_STATE_SIGNALLED, "state %d after the wait", f->state);
+	CHECK(waits == 2, "%d kernel waits, want 2 (its own, then the current fence's)", waits);
+	_nouveau_fence_ref(NULL, &f);
+	simple_mtx_unlock(&fscreen.fence.lock);
+	lost_seq = 0;
+	dev.cancelled = 0;
+	fscreen.device = NULL;
+}
+
+/* alloc-fail-test [PART...]: upload, mm-fallback, mm-nomem, fence, fence-cancel; all of them by default (the
+ * suite also runs single parts against the files without the patches, which must fail) */
+static int nparts;
+static char **parts;
+static int want(const char *name)
+{
+	for (int i = 0; i < nparts; i++)
+		if (!strcmp(parts[i], name))
+			return 1;
+	return nparts == 0;
+}
+
+int main(int argc, char **argv)
+{
+	nparts = argc - 1;
+	parts = argv + 1;
+	setvbuf(stdout, NULL, _IONBF, 0);
+	if (want("upload"))
+		test_upload();
+	if (want("mm-fallback") || want("mm-nomem"))
+		test_mm(want("mm-fallback"), want("mm-nomem"));
+	if (want("fence"))
+		test_fence();
+	if (want("fence-cancel"))
+		test_fence_cancel();
 	printf("%s: %d checks, %d failed\n", fails ? "FAIL" : "ok", checks, fails);
 	return fails != 0;
 }
