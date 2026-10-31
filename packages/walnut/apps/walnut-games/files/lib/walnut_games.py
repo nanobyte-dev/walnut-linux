@@ -1341,7 +1341,7 @@ class ImportView:
 
 # ---- the queue: one action at a time, the rest waiting (the bottom of the window) -------------------
 
-QUEUE_CLOSED, QUEUE_OPEN = "\u25b6", "\u25bc"      # the queue's toggle: its list shown or not
+QUEUE_CLOSED, QUEUE_OPEN = "\u25b8", "\u25be"      # the queue's toggle (small triangles): its list shown or not
 RUNNING_LABEL = {"install": "Installing\u2026", "remove": "Removing\u2026", "remove-data": "Removing data\u2026",
                  "install-repo-data": "Installing data\u2026", "import": "Importing\u2026"}
 
@@ -1975,6 +1975,12 @@ class App:
         st.configure("Source.TButton", background=ENTRY, foreground=TEXT, anchor="w", padding=(12, 8), justify="left")
         st.map("Source.TButton", background=[("active", BORDER), ("focus", BORDER)])
         st.configure("Link.TButton", background=PANEL, foreground=LINK, padding=(round(8 * s), round(4 * s)))
+        # the queue's show/hide arrow: a small flat disclosure triangle, not a button that reads like an action
+        st.configure("Disclosure.TButton", background=PANEL, foreground=MUTED, font=self.f["small"],
+                     padding=(round(2 * s), 0), borderwidth=0, relief="flat", bordercolor=PANEL,
+                     lightcolor=PANEL, darkcolor=PANEL, focuscolor=PANEL)
+        st.map("Disclosure.TButton", foreground=[("active", TEXT), ("focus", TEXT)],
+               background=[("active", PANEL), ("focus", BORDER)], bordercolor=[("focus", ACCENT_LIGHT)])
         st.map("Link.TButton", foreground=[("active", LINK_HOVER), ("focus", LINK_HOVER)],
                background=[("active", PANEL), ("focus", BORDER)], bordercolor=[("focus", ACCENT_LIGHT)])
         # a screenshot thumbnail in the pane (opens it in Details)
@@ -2787,8 +2793,9 @@ class App:
         tk.Frame(q, height=1, bg=BORDER).pack(side="top", fill="x", pady=(0, round(6 * s)))
         head = ttk.Frame(q, style="Panel.TFrame")
         head.pack(side="top", fill="x")
-        self.q_toggle = ttk.Button(head, text=QUEUE_CLOSED, width=3, command=self.toggle_queue)
-        self.q_toggle.pack(side="left", padx=(0, round(8 * s)))
+        self.q_toggle = ttk.Button(head, text=QUEUE_CLOSED, width=2, style="Disclosure.TButton",
+                                   command=self.toggle_queue)
+        self.q_toggle.pack(side="left", padx=(0, round(6 * s)))
         self.q_status = ttk.Label(head, text="", foreground=TEXT, background=PANEL, anchor="w")
         self.q_status.pack(side="left", fill="x", expand=True)
         self.q_more = ttk.Label(head, text="", style="Muted.TLabel", background=PANEL)
