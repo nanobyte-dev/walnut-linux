@@ -15,6 +15,10 @@ data_steps = [
 ]
 controller = "full"
 designed_for = "keyboard-mouse"
+known_issues = [
+  "Day of the Tentacle Remastered's files can't be imported, only the original DOS release (CD or floppy).",
+  "Nobody has played a session of it on Walnut yet, only smoke-tested. The Spanish floppy release reached the hotel lobby.",
+]
 +++
 
 Day of the Tentacle runs on ScummVM, Debian's package, from your own copy: Walnut Games makes a

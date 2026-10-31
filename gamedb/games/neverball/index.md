@@ -7,6 +7,7 @@ license = "GPL-2.0-or-later"
 license_source = "debian/copyright of Debian's neverball 1.6.0+git20180603-3"
 homepage = "https://neverball.org/"
 controller = "full"
+known_issues = []
 +++
 
 Neverball (Debian's 2018 snapshot of 1.6, with Neverputt) runs with the right picture at about 66

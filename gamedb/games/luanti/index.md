@@ -8,6 +8,10 @@ license_source = "debian/copyright of Debian's luanti 5.15.2+dfsg-2"
 homepage = "https://www.luanti.org/"
 controller = "keyboard"
 designed_for = "keyboard-mouse"
+known_issues = [
+  "Exploring away from the spawn point stalls: the latest played session had a 27 fps median, about 11.6 s of stutter a minute and frames up to 3.9 s.",
+  "Very little memory is left while it runs, 11 to 15 MB free, so swapping makes stalls grow the longer you explore.",
+]
 +++
 
 Luanti 5.15.2 runs on Walnut's own build, since Debian ships none for this CPU, with LuaJIT and the

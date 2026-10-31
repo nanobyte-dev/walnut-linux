@@ -8,6 +8,10 @@ license_source = "ScummVM's COPYING (GPL version 3, github.com/scummvm/scummvm; 
 homepage = "https://wiki.scummvm.org/index.php?title=Drascula:_The_Vampire_Strikes_Back"
 controller = "full"
 designed_for = "keyboard-mouse"
+known_issues = [
+  "A first test on the PS3 couldn't identify the game's data and didn't start; with the current data package it starts on a PC, but it hasn't been run on the PS3 again.",
+  "Nobody has played a session of it on Walnut yet, only smoke-tested.",
+]
 +++
 
 Drascula runs on ScummVM with the free release Debian packages and its CD music, installed by Walnut

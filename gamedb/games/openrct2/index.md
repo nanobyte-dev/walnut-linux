@@ -17,6 +17,12 @@ data_steps = [
 ]
 controller = "keyboard"
 designed_for = "keyboard-mouse"
+known_issues = [
+  "It draws only with the software renderer at 960x540 scaled up, and runs at 21 to 24 frames a second in Electric Fields.",
+  "A big park is slower: about 10 frames a second in Six Flags Magic Mountain, with 2,700 guests.",
+  "Loading a park freezes the game for up to 9 s while the console swaps, and memory stays nearly all in use.",
+  "Nobody has played it through a session on Walnut yet, so its sound hasn't been judged.",
+]
 +++
 
 OpenRCT2 0.5.6 with Walnut's big-endian port (upstream builds only for little-endian CPUs), on its software

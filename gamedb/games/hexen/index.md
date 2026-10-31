@@ -17,6 +17,11 @@ data_steps = [
 ]
 controller = "keyboard"
 designed_for = "keyboard-mouse"
+known_issues = [
+  "Nobody has played it through a session on Walnut yet: only the title screen and the demo have run, and its speed hasn't been measured.",
+  "DSDA-Doom's MIDI music chops on the PS3: about 465 sound underruns a minute with the synthesizer on the SPEs (measured with Freedoom, not with this WAD).",
+  "The Macintosh CD's Hexen.WAD plays without the OPL music player, only with the fluidsynth one.",
+]
 +++
 
 Hexen: Beyond Heretic runs on DSDA-Doom, the Doom port Walnut packages and patches for the PS3 (big-endian sound

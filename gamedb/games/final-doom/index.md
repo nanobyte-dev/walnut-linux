@@ -16,6 +16,10 @@ data_steps = [
 ]
 controller = "keyboard"
 designed_for = "keyboard-mouse"
+known_issues = [
+  "Nobody has played it through a session on Walnut yet, and it has not been tried with the TNT or Plutonia WADs.",
+  "DSDA-Doom's MIDI music chops on the PS3: about 465 sound underruns a minute with the synthesizer on the SPEs (measured with Freedoom, not with these WADs).",
+]
 +++
 
 Final Doom runs on DSDA-Doom, the Doom port Walnut packages and patches for the PS3 (big-endian sound

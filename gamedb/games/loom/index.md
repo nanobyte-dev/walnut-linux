@@ -15,6 +15,10 @@ data_steps = [
 ]
 controller = "full"
 designed_for = "keyboard-mouse"
+known_issues = [
+  "The VGA talkie (CD, Steam, GOG) can't be imported yet because its music is a CD audio track; only the EGA floppy releases work.",
+  "Nobody has played a session of it on Walnut yet, only smoke-tested. The Spanish EGA release reached the difficulty choice.",
+]
 +++
 
 Loom runs on ScummVM, Debian's package, from your own copy: Walnut Games makes a package of its files

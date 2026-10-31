@@ -7,6 +7,7 @@ license = "GPL-2.0-or-later"
 license_source = "debian/copyright of Debian's neverball 1.6.0+git20180603-3"
 homepage = "https://neverball.org/"
 controller = "full"
+known_issues = []
 +++
 
 Neverputt, the mini-golf game that comes with Neverball, runs fullscreen at 1920x1080 on Walnut's package at about 60 frames a second (1% low 44), with its music and effects. It plays with the DualShock or the mouse.

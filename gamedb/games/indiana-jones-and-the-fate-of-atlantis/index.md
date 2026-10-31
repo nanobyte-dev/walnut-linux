@@ -15,6 +15,9 @@ data_steps = [
 ]
 controller = "full"
 designed_for = "keyboard-mouse"
+known_issues = [
+  "Nobody has played a session of it on Walnut yet, only smoke-tested. The Spanish floppy release reached Indy in the store room.",
+]
 +++
 
 Fate of Atlantis runs on ScummVM, Debian's package, from your own copy: Walnut Games makes a package

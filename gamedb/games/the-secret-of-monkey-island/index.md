@@ -15,6 +15,10 @@ data_steps = [
 ]
 controller = "full"
 designed_for = "keyboard-mouse"
+known_issues = [
+  "The Special Edition sold on Steam and GOG is not supported, only the DOS release (CD or VGA floppies).",
+  "Nobody has played a session of it on Walnut yet, only smoke-tested. The Spanish VGA floppy release reached Guybrush on the dock.",
+]
 +++
 
 The Secret of Monkey Island runs on ScummVM, Debian's package, from your own copy: Walnut Games makes

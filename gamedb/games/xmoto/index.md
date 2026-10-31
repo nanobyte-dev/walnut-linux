@@ -7,6 +7,9 @@ license = "GPL-2.0-or-later"
 license_source = "debian/copyright of Debian's xmoto 0.6.3+repack-1"
 homepage = "https://xmoto.tuxfamily.org/"
 controller = "full"
+known_issues = [
+  "The engine sound is quiet under the music.",
+]
 +++
 
 X-Moto 0.6.3 runs at 1920x1080 with the right picture and sound. Walnut's package batches the game's

@@ -8,6 +8,9 @@ license_source = "ScummVM's COPYING (GPL version 3, github.com/scummvm/scummvm; 
 homepage = "https://wiki.scummvm.org/index.php?title=Beneath_a_Steel_Sky"
 controller = "full"
 designed_for = "keyboard-mouse"
+known_issues = [
+  "Nobody has played a session of it on Walnut yet: only its intro was seen on the PS3, with the sound running, and it has not been run since.",
+]
 +++
 
 Beneath a Steel Sky runs on ScummVM with the free CD version Debian packages (with speech), installed

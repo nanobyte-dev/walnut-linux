@@ -8,6 +8,9 @@ license_source = "ScummVM's COPYING (GPL version 3, github.com/scummvm/scummvm; 
 homepage = "https://wiki.scummvm.org/index.php?title=Flight_of_the_Amazon_Queen"
 controller = "full"
 designed_for = "keyboard-mouse"
+known_issues = [
+  "Nobody has played a session of it on Walnut yet, only smoke-tested. Its one PS3 run only showed the game starting with the sound running, and no screenshots were taken.",
+]
 +++
 
 Flight of the Amazon Queen runs on ScummVM with the free CD version Debian packages (with speech),

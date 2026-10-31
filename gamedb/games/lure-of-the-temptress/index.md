@@ -8,6 +8,9 @@ license_source = "ScummVM's COPYING (GPL version 3, github.com/scummvm/scummvm; 
 homepage = "https://wiki.scummvm.org/index.php?title=Lure_of_the_Temptress"
 controller = "full"
 designed_for = "keyboard-mouse"
+known_issues = [
+  "Nobody has played a session of it on Walnut yet, only smoke-tested. Its one PS3 run only showed the game starting with the sound running, and no screenshots were taken.",
+]
 +++
 
 Lure of the Temptress runs on ScummVM with the free release Debian packages, installed by Walnut

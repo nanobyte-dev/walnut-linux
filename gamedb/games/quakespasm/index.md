@@ -17,6 +17,11 @@ data_steps = [
 ]
 controller = "keyboard"
 designed_for = "keyboard-mouse"
+known_issues = [
+  "The interface is tiny at 1080p: the status bar numbers and the centre messages are about 8 px high.",
+  "A DualShock 3 plugged in by USB but not activated with the PS button makes the menu cursor run up as if a direction were held.",
+  "A few frames take up to 0.6 s, about half a second of stutter a minute.",
+]
 +++
 
 QuakeSpasm 0.96.3 is Debian's package, unpatched, and plays the shareware demo1 timedemo at about 91
