@@ -13,7 +13,7 @@ layout and the build commands are in [LAYOUT.md](LAYOUT.md).
 |---|---|
 | [PLAN.md](PLAN.md) | The goal, where we are, the user's open decisions (D1-D14) and the five stages of work with their item numbers |
 | [TESTS.md](TESTS.md) | The PS3 test queue and the log of every batch that ran, with its results commit |
-| [VALIDATION.md](VALIDATION.md) | The stability patches on the PS3: each repro, how its fix is turned off, what off shows, the sessions and their safety steps |
+| [VALIDATION.md](VALIDATION.md) | The stability patches: the fix ladder (each fix one rung at a time, the tests at every rung; host, then the PS3's Mesa and kernel sessions) and the safety steps of every session |
 
 ## Measured facts (top level)
 

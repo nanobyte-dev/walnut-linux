@@ -16,12 +16,15 @@ What it checks (each an error, exit 1):
   - `tests` names suites of tools/run-tests.sh (PS3 tests are written "ps3:<program>") and `batches`
     names batches of gamedb/benchmarks/batches.toml;
   - a slug is lower-case words joined by "-", never a patch number (no word like 0046).
-Unknown front matter keys are warnings (gamedb/schemas/patch.toml is the schema).
+Unknown front matter keys are warnings (gamedb/schemas/patch.toml is the schema), and so are (the fix ladder,
+docs/VALIDATION.md) stability entries that name no test, and a component whose top rung failed in
+tools/ladder.py's last run here (build/tmp/ladder/result.json, when it exists).
 Output: the counts per category per component, then "patches: ok" or the errors. --list prints every
 entry with its component, category and patch count.
 Stdlib only. Not an input of walnut-games (its VERSION_PATHS), so register work doesn't rebuild it.
 """
 import argparse
+import json
 import re
 import sys
 import tomllib
@@ -30,6 +33,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent.parent
 PACKAGES = REPO / "packages"
 REGISTER = REPO / "gamedb" / "patches"
+LADDER_RESULT = REPO / "build" / "tmp" / "ladder" / "result.json"	# tools/ladder.py's last run
 
 CATEGORIES = ("stability", "correctness", "performance", "feature", "port", "build", "security",
               "diagnostics", "config")
@@ -147,8 +151,8 @@ def read_register(errors, warnings, suites, batches):
         if comp == "kernel-ps3" and not fm.get("authors"):
             errors.append(f"{rel}: a kernel-ps3 entry needs authors (credit the OtherOS++ and psx-place authors)")
         for t in fm.get("tests", []):
-            if not t.startswith("ps3:") and t not in suites:
-                errors.append(f"{rel}: test {t!r} is no suite of tools/run-tests.sh (a PS3 test is 'ps3:<program>')")
+            if not t.startswith("ps3:") and t.split(":", 1)[0] not in suites:
+                errors.append(f"{rel}: test {t!r} is no suite of tools/run-tests.sh (one part of it 'suite:part'; a PS3 test is 'ps3:<program>')")
         for b in fm.get("batches", []):
             if b not in batches:
                 errors.append(f"{rel}: batch {b!r} not in gamedb/benchmarks/batches.toml")
@@ -198,6 +202,19 @@ def main():
         row = counts[comp]
         print(f"{comp:18} " + " ".join(f"{row.get(c, 0) or '':>5}" for c in CATEGORIES) + f"  {sum(row.values()):7}")
     print(f"{len(entries)} entries, {len(claimed)} of {len(series)} series patches claimed")
+    # the fix ladder (tools/ladder.py, docs/VALIDATION.md): a stability fix with no test can't be on it,
+    # and a top rung that failed in the last run is a regression waiting to ship
+    untested = sorted(s for s, (_, fm) in entries.items() if fm.get("category") == "stability" and not fm.get("tests"))
+    if untested:
+        warnings.append(f"{len(untested)} stability entries name no test (they can't be on the fix ladder): " + ", ".join(untested))
+    try:
+        ladder = json.loads(LADDER_RESULT.read_text()).get("components", {})
+    except (OSError, ValueError):
+        ladder = {}
+    for comp, r in sorted(ladder.items()):
+        if isinstance(r, dict) and r.get("top_ok") is False:
+            warnings.append(f"the fix ladder's top rung failed for {comp} ({r.get('date')}, {r.get('mode')}): "
+                            + ", ".join(r.get("top_failing", [])) + " (make ladder; build/tmp/ladder/result.json)")
     for w in warnings:
         print("warning: " + w)
     for e in errors:

@@ -25,6 +25,15 @@
 
 static int fails, checks;
 
+/* nouveau_device::cancelled comes with 0053: in a tree without it (tools/ladder.py's lower rungs)
+ * nothing tells the fence code about a cancelled submission, and fence-cancel must fail.
+ * host-tests.sh defines HAVE_DEVICE_CANCELLED when the tree's nouveau.h has the field. */
+#ifdef HAVE_DEVICE_CANCELLED
+#define SET_CANCELLED(dev, v) ((dev).cancelled = (v))
+#else
+#define SET_CANCELLED(dev, v) ((void)(dev), (void)(v))
+#endif
+
 #define CHECK(cond, ...) do { checks++; if (!(cond)) { fails++; printf("FAIL %s:%d: ", __FILE__, __LINE__); \
 	printf(__VA_ARGS__); printf("\n"); } } while (0)
 
@@ -411,7 +420,7 @@ static void test_fence_cancel(void)
 	CHECK(nouveau_fence_kick(f), "kick of the batch that will be cancelled");
 	CHECK(fctx.fence && fctx.fence != f, "no new current fence after the kick");
 	lost_seq = f->sequence;
-	dev.cancelled = 1;
+	SET_CANCELLED(dev, 1);
 	waits = 0;
 	CHECK(_nouveau_fence_wait(f, NULL), "the wait on a fence of a cancelled submission failed (it never lands)");
 	CHECK(f->state == NOUVEAU_FENCE_STATE_SIGNALLED, "state %d after the wait", f->state);
@@ -419,7 +428,7 @@ static void test_fence_cancel(void)
 	_nouveau_fence_ref(NULL, &f);
 	simple_mtx_unlock(&fscreen.fence.lock);
 	lost_seq = 0;
-	dev.cancelled = 0;
+	SET_CANCELLED(dev, 0);
 	fscreen.device = NULL;
 }
 

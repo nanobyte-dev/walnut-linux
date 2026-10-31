@@ -45,7 +45,7 @@ ROOTFS_VARS_NOW := $(foreach v,DEBIAN_SNAPSHOT DEBIAN_SUITE DEBIAN_MIRROR SOURCE
 $(shell mkdir -p $(BUILD); [ "$$(cat $(ROOTFS_VARS) 2>/dev/null)" = "$(ROOTFS_VARS_NOW)" ] || echo "$(ROOTFS_VARS_NOW)" > $(ROOTFS_VARS))
 ROOTFS_BASE_INPUTS := $(ROOTFS_PACKAGES) tools/build-rootfs.sh $(ROOTFS_VARS)
 
-.PHONY: xcc-toolchain gamedb-catalog gamedb-app-pages walnut-rate-bench walnut-server walnut-site walnut-server-test public-push initrd-ssd initrd-walnut initrd-busybox publish du clean-ephemeral chroot packages ps3rsx-modules snd-ps3-ko netboot-deb spu-toolchain spu-tests spu-deploy help all builder rootfs rootfs-base checksums nfs-root usb-root usb-root-petitboot deploy listen shell clean gpu-deploy test test-slow commit-tests hooks ps3-reboot bench-push bench-pull bench-shots bench-ref bench-matrix \
+.PHONY: xcc-toolchain gamedb-catalog gamedb-app-pages walnut-rate-bench walnut-server walnut-site walnut-server-test public-push initrd-ssd initrd-walnut initrd-busybox publish du clean-ephemeral chroot packages ps3rsx-modules snd-ps3-ko netboot-deb spu-toolchain spu-tests spu-deploy help all builder rootfs rootfs-base checksums nfs-root usb-root usb-root-petitboot deploy listen shell clean gpu-deploy test test-slow ladder ladder-ps3-libs commit-tests hooks ps3-reboot bench-push bench-pull bench-shots bench-ref bench-matrix \
 	classicube-audio game-data gdp-index gdp-manifest licensed-data game-debs game-deploy gamedb-integration
 
 help:
@@ -81,6 +81,8 @@ help:
 	@echo "Tests (no PS3):"
 	@echo "  make test         every quick host test suite, a summary table (tools/run-tests.sh)"
 	@echo "  make test-slow    the same plus the container-based ones (autogm); ONLY=<suite> runs one"
+	@echo "  make ladder       the fix ladder's top rung (FULL=1: every rung; tools/ladder.py, docs/VALIDATION.md)"
+	@echo "  make ladder-ps3-libs  each Mesa rung's libraries for the PS3 ladder (RUNGS=\"0 8\")"
 	@echo "  make commit-tests the commit hook's checks on the staged changes (RANGE=A..B, ALL=1: every file)"
 	@echo "  make hooks        install the commit hooks (.git/hooks/pre-commit, commit-msg: tools/hooks/)"
 	@echo "Run:"
@@ -615,6 +617,26 @@ $(XCC_TREE)/.done: build-containers/Dockerfile.xcc | $(BUILDER_STAMP)
 	cid=$$(docker create $(XCC_TAG)) && docker export $$cid | tar -x -C $(XCC_TREE).tmp --anchored --exclude=dev --exclude=proc --exclude=sys; \
 		rc=$$?; docker rm $$cid >/dev/null; [ $$rc = 0 ]
 	rm -rf $(XCC_TREE) && mv $(XCC_TREE).tmp $(XCC_TREE) && touch $@
+# The fix ladder (tools/ladder.py, docs/VALIDATION.md): Mesa's stability fixes one rung at a time, the host
+# tests at each rung against the register's expectations. make ladder runs the top rung (every fix, every
+# test passes; the run-tests suite fix-ladder), FULL=1 every rung of every component; REV=<commit> takes
+# Mesa's series from a commit instead of the working tree. LADDER_DIR (config.local.mk) holds the clone.
+LADDER_DIR ?= $(CURDIR)/$(BUILD)/tmp/ladder/trees
+ladder:
+	LADDER_DIR=$(LADDER_DIR) python3 -I tools/ladder.py $(if $(filter 1,$(FULL)),,--top) $(if $(REV),--rev $(REV))
+# Each rung's Mesa libraries for the PS3 ladder (ps3-gpu-tools' rsx-ladder.sh, copied along) in build/testsets/ladder/rungNN/
+# {lib,dri}, plus manifest.txt: RUNGS="0 8" (default every rung), REV as above. Cross-built like BUILD=xcc
+# packages (tools/ladder-mesa-build.sh); needs Mesa's build-dependency chroot (make mesa-deb once).
+ladder-ps3-libs: $(XCC_TREE)/.done | $(REPO_BUILDER_STAMP)
+	@tools/disk-check.sh
+	LADDER_DIR=$(LADDER_DIR) python3 -I tools/ladder.py --prepare --manifest $(BUILD)/testsets/ladder/manifest.txt $(if $(REV),--rev $(REV))
+	cp packages/walnut/tools/ps3-gpu-tools/scripts/rsx-ladder.sh $(BUILD)/testsets/ladder/
+	flock $(LADDER_DIR)/.lock sh -c 'for r in "$$@"; do \
+		n=$$(printf %02d $$r); git -C $(LADDER_DIR)/mesa checkout -q -f ladder/rung$$n && git -C $(LADDER_DIR)/mesa clean -qfdx && \
+		docker run --rm --privileged -v $(CURDIR):/work -v $(XCC_ROOT):/xcc -v $(LADDER_DIR):/ladder -w /work \
+			-e OWNER=$(UID_GID) -e JOBS=8 -e XCC_TREE=/xcc/$(notdir $(XCC_TREE)) -e LADDER=/ladder $(REPO_BUILDER_TAG) \
+			tools/ladder-mesa-build.sh $$r || exit 1; \
+	done' sh $(or $(RUNGS),$$(sed -n 's/^rung \([0-9]*\) .*/\1/p' $(BUILD)/testsets/ladder/manifest.txt))
 DEB_JOBS ?= 16
 # Changing a Debian-source package's patches (docs/PACKAGING.md): make <pkg>-work makes a git tree
 # in build/work/<pkg> (Debian's tree, then one commit per patch of ours; FORCE=1 discards unsaved

@@ -20,3 +20,5 @@ USB_DISK_ID         := usb-VENDOR_MODEL_SERIAL-0:0
 # The USB root's PARTUUID for netboot-deb ROOT=usb and the image's default boot menu (default
 # 50533301-02, the fixed id of the first installs; a FORMAT=1 install prints the new disk's)
 #USB_ROOT_PARTUUID  := 1a2b3c4d-02
+# The fix ladder's Mesa clone and rung build tree (tools/ladder.py; about 2 GB): a bigger disk than /home
+#LADDER_DIR := /mnt/data/ps3/ladder
