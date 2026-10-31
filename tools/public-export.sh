@@ -5,7 +5,7 @@
 # "Claude-Session: ...", "Generated with [Claude Code]..."), then a scan of the whole history that
 # stops on anything that must never be public (tools/public-strip-blobs.txt lists blobs left out, e.g. a
 # third-party image whose licence forbids redistribution; tools/public-replace.local.txt, untracked, text
-# replaced in every file of every commit, e.g. the console's NOR dump hash). It checks for backups/ or firmware/ paths,
+# replaced in every file and every commit message of every commit, e.g. the console's NOR dump hash). It checks for backups/ or firmware/ paths,
 # NOR/NAND dumps and disk images, licensed game data paths, private keys. The licensed packages' sources
 # (packages/licensed/, gamedb/<games|engines>/<id>/licensed/, and as a second check any packages/**/<name>/
 # of a licensed name: tools/licensed.py names) are left out of every commit, and so are the played sessions'
@@ -24,6 +24,10 @@ command -v git-filter-repo >/dev/null || { echo "!! git-filter-repo is missing: 
 # it can't be published itself), one filter-repo expression per line (regex:...==>...)
 REPL=${WALNUT_PUBLIC_REPLACE:-$SRC/tools/public-replace.local.txt}
 [ -r "$REPL" ] || { echo "!! no $REPL (the private replace list)" >&2; exit 2; }
+# fail closed: an empty list hides nothing; a glob: entry, which filter-repo anchors to the end of the text on
+# newer Pythons (it would replace nothing inside a line), is refused rather than trusted
+grep -q '[^[:space:]]' "$REPL" || { echo "!! $REPL has no pattern" >&2; exit 2; }
+! grep -q '^glob:' "$REPL" || { echo "!! $REPL: glob: entries aren't supported (write them as regex:)" >&2; exit 2; }
 rm -rf "$DIR"
 git clone -q --no-local --single-branch --branch main "$SRC" "$DIR"
 cd "$DIR"
@@ -36,7 +40,7 @@ licensed=$(python3 -I "$SRC/tools/licensed.py" names) && [ -n "$licensed" ] ||
 drop=(--path packages/licensed/ --path-glob 'gamedb/*/*/licensed/*' --path-regex '^gamedb/(.+/)?raw/')
 for n in $licensed; do drop+=(--path-glob "packages/*/$n/*" --path-glob "packages/*/*/$n/*"); done
 git filter-repo --quiet --force --invert-paths "${drop[@]}" --strip-blobs-with-ids "$DIR/.git/strip-blobs" \
-	--replace-text "$REPL" --message-callback '
+	--replace-text "$REPL" --replace-message "$REPL" --message-callback '
 import re
 lines = message.split(b"\n")
 drop = re.compile(rb"^\s*(Co-Authored-By:\s*Claude.*|Claude-Session:.*|.*Generated with \[Claude Code\].*)$", re.I)
@@ -63,9 +67,15 @@ raw=$(printf '%s\n' "$paths" | grep -E '^gamedb/(.+/)?raw/' || true)
 for b in $(cat .git/strip-blobs); do
 	git cat-file -e "$b" 2>/dev/null && { echo "!! stripped blob $b is still in the history"; bad=1; }
 done
-while IFS= read -r e; do	# every replaced pattern must be gone
-	case $e in regex:*) pat=${e#regex:}; pat=${pat%%==>*} ;; *) pat=$(printf '%s' "${e%%==>*}" | sed 's/[][\\.*^$]/\\&/g') ;; esac
+msgs=$(git log --all --format=%B)
+while IFS= read -r e || [ -n "$e" ]; do	# every replaced pattern must be gone, from the files and from the messages
+	e=${e%$'\r'}; e=${e%==>*}	# as filter-repo reads a line: CR dropped, the replacement after the last ==>
+	case $e in regex:*) pat=${e#regex:} ;; *) pat=$(printf '%s' "${e#literal:}" | sed 's/[][\\.*^$+?(){}|]/\\&/g') ;; esac
 	[ -z "$pat" ] || [ -z "$(git log --all -p -G "$pat" --format=%h | head -1)" ] || { echo "!! a replaced text is still in the history"; bad=1; }
+	case $e in regex:*) mflag=-E ;; *) mflag=-F; pat=${e#literal:} ;; esac
+	[ -n "$pat" ] || continue
+	rc=0; grep -q "$mflag" -- "$pat" <<< "$msgs" || rc=$?	# 1: not there; 0 found, 2 a broken pattern: both stop
+	[ $rc = 1 ] || { echo "!! a replaced text is still in a commit message (or its pattern doesn't compile)"; bad=1; }
 done < "$REPL"
 keys=$(git log --all -p -G '^[+-]?-----BEGIN [A-Z ]*PRIVATE KEY-----' --format=%h | head -5 || true)
 [ -z "$keys" ] || { echo "!! private key text in commits: $keys"; bad=1; }
