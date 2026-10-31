@@ -38,11 +38,13 @@ meaning = "stability (a crash, hang, wedge or data loss), correctness (wrong out
 
 [keys.switch]
 type = "str"
+required = true
 nonempty = true
 meaning = "the run-time switch that turns it off or on (an env variable, a module parameter), or `none` (then default is `always on`)"
 
 [keys.default]
 type = "str"
+required = true
 nonempty = true
 meaning = "what it does by default (`always on`, `off`, the switch's default value)"
 
@@ -60,6 +62,7 @@ meaning = "its authors when it is third-party work (OtherOS++'s ps3/ patches cre
 
 [keys.forwarded]
 type = "str"
+required = true
 nonempty = true
 meaning = "whether and where it went upstream (`no`, a URL, `not-needed: why`)"
 
