@@ -50,7 +50,7 @@ started from that launcher gets no game mode.
 - The player's own games: game-data-packager's ScummVM packages ([data_setup] in each bundle), made by
   Walnut Games' Add game files or `walnut-data import`. Our game-data-packager adds what Debian's lacks
   for the player's copies: the Spanish VGA floppy release of The Secret of Monkey Island (patch 0016),
-  the Spanish EGA release of Loom (0017), and `--no-launchers` for ScummVM games (0018: no `.desktop` link
+  the Spanish EGA release of Loom (0017), and `--no-launchers` for ScummVM games (part of 0004: no `.desktop` link
   into game-data-packager-runtime, no icon; the import would refuse the link). Day of the Tentacle's CD
   releases install `monster.sou` or its FLAC repack `monster.sof`, whichever the copy has: the import's
   manifest lists both as optional files (tools/gamedb/gdp-manifest.py). Loom's VGA talkie (`loom-en-data`)

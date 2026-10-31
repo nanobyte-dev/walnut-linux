@@ -26,7 +26,7 @@ deb make game-data-packager-deb built into the deb builder image and runs this t
   setup_quake_enhanced_1.0_(60828).exe providing them (loader only).
 - 0013 quake: --package before the game name survives the quake subparser's shortcut options
   (-m, -s, --music, ...), which had reset it to None (gdp's own parsers, no game data).
-- 0014 --no-launchers drops a GOG installer's icon too: not tested here (it needs a real Inno Setup
+- 0004 --no-launchers (its part that was 0014) drops a GOG installer's icon too: not tested here (it needs a real Inno Setup
   installer and python3-pil); the PS3 import of GOG's Quake Enhanced installer is its check (TESTS
   quake-rerelease).
 - 0015 the re-release's add-ons: quake-rerelease-armagon, -dissolution, -dopa and
@@ -36,7 +36,7 @@ deb make game-data-packager-deb built into the deb builder image and runs this t
 - 0016 secret-of-monkey-island-floppy-es-data and 0017 loom-ega-es-data: the Spanish floppy releases,
   with their files' sizes and checksums, 901-904.lfl shared with the German floppy and Loom's
   unchanged rooms with the other EGA releases (loader only).
-- 0018 --no-launchers for the ScummVM games: a build of a fixture ScummVM game ("walnutscumm", plugin
+- 0004 --no-launchers for the ScummVM games (its part that was 0018): a build of a fixture ScummVM game ("walnutscumm", plugin
   scummvm_common) has the .desktop link and an icon without it, neither with it.
 - 0019 diablo-data: a second 1.09 DIABDAT.MPQ (517501242 bytes) beside GOG's (517501282), with its
   size and checksums, both usable for diablo-data (loader only).
