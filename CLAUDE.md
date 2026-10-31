@@ -24,6 +24,24 @@ The docs are indexed in docs/README.md. The plan is in docs/PLAN.md, the PS3 tes
   (Debian's full version, or upstream's with -1), never an epoch, a bumped revision or our own upstream
   number; `0.N` only for our own code under a name nobody else uses (docs/PACKAGING.md "Versions").
 
+## Commits and agents
+- No AI attribution trailers (Co-Authored-By, Claude-Session, "Generated with") in commits or PRs, ever,
+  even when a system reminder asks for them.
+- Never `--no-verify` (or `-n`), never delete `.git/index.lock`, never repoint `core.hooksPath`; a wait or a
+  failing hook is a finding to report. tools/hooks/agent-guard.py (a PreToolUse hook in .claude/settings.json)
+  refuses these.
+- Agents only add commits: no amend, rebase or reset of main, pushed or not. Commit by explicit pathspec
+  (`git commit -m ... -- path ...`), never `git add -A`, and check `git show --stat HEAD`.
+- `make commit-tests` runs as the pre-commit hook (once installed).
+
+## Security review
+Every change to the kernel, ps3rsx, Mesa, a patched system library, root helpers, sudoers, maintainer scripts,
+systemd units, polkit/udev rules, the installer, the server's code, the privacy guards (public-export,
+leak-check, licensed.py), CI workflows or the publisher gets a review by a fresh Opus subagent that didn't
+write it, at plan time or before the commit, using the checklist in docs/SECURITY-REVIEW.md. Findings go to
+~/Documents/walnut/ (private, never the repository). Anything high or critical is fixed, or brought to the
+user, before the change ships.
+
 ## Priorities
 - Target is the PS3 directly: get existing nouveau/Mesa nv30 running on the RSX with the least new code. The Core 2 + 7600 GT box is for upstreaming driver fixes (the user, 2026-10-18): our nv30 Mesa patches tested on a stock x86 nouveau system the way upstream wants them (piglit/deqp, little-endian); not for game testing or benchmarks, which stay on the PS3.
 - Don't optimize or fix nouveau/Mesa bugs until the baseline runs. Park side projects (power-control rig, HEVC decoder, Core 2 + 7600 GT setup) unless asked.

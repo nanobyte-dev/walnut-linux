@@ -38,6 +38,7 @@ layout and the build commands are in [LAYOUT.md](LAYOUT.md).
 | [PACKAGING.md](PACKAGING.md) | The base system and toolchain, how our software becomes Debian packages, the apt repository, deploys |
 | [GAMEDB.md](GAMEDB.md) | Walnut Games: the games database (walnut.nanobyte.dev/gamedb/) and the launcher app, how games are tested, scored and given medals |
 | [PACKAGING.md#game-data](PACKAGING.md#game-data) | Game data import: `walnut-data import`, the app's "Add game files...", the helper and its manifest (the app side in [GAMEDB.md](GAMEDB.md), the `[data_setup]` keys in [gamedb/README.md](../gamedb/README.md)) |
+| [SECURITY-REVIEW.md](SECURITY-REVIEW.md) | The checklist for the security review of a change to the kernel, drivers, Mesa, root code, installer, CI or the server (generic; findings stay private) |
 | [WALNUT-SERVER.md](WALNUT-SERVER.md) | walnut.nanobyte.dev's containers, and why concurrent uploads, publishes and ccache writes can't break anything |
 | [release/ALPHA.md](release/ALPHA.md) | Walnut 0.1-alpha, the first public release: plan, milestones M0-M9, the review's blockers, cuts, verification |
 | [release/TESTING-0.1.md](release/TESTING-0.1.md) | Testing the nightlies before 0.1.0: feedback from the PS3 and what was done about each |

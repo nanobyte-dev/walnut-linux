@@ -6,7 +6,7 @@
  *   Now: the map waits for the GPU and drains the staging pools, tries again, then hands out malloc
  *   memory; the unmap maps the texture (waiting for the GPU's use of it) and the CPU writes the
  *   texels where the GPU would have: swizzled, linear and DXT1 textures, a sub-box, a read back.
- * (tools/run-tests.sh --only mesa-query-steal runs it; skipped without build/work/mesa) */
+ * (tools/run-tests.sh --only mesa-transfer-cpu runs it; skipped without build/work/mesa) */
 #include "nv30/nv30_miptree.c"
 #include "nv30/nv30_transfer.c"
 
@@ -104,6 +104,10 @@ bool util_try_blit_via_copy_region(struct pipe_context *c, const struct pipe_bli
 void util_copy_framebuffer_state(struct pipe_framebuffer_state *d, const struct pipe_framebuffer_state *s)
 { (void)d; (void)s; }
 int64_t os_time_get_nano(void) { return 0; }
+/* nv30_state_lost (nv30_state_validate.c, called by nv30_state_check_lost since 0053) and the log */
+void nv30_state_lost(struct nv30_context *nv30) { (void)nv30; }
+void mesa_log(enum mesa_log_level l, const char *tag, const char *f, ...)
+{ va_list ap; va_start(ap, f); (void)l; fprintf(stderr, "%s: ", tag); vfprintf(stderr, f, ap); va_end(ap); }
 void _simple_mtx_plain_init_once(simple_mtx_t *m) { (void)m; }
 void util_call_once_data_slow(once_flag *once, util_call_once_data_func func, const void *val)
 {

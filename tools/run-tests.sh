@@ -14,16 +14,16 @@
 #            an NV40 vertex program interpreter with and without it), mesa-minmax-vmx (Mesa 0044's
 #            AltiVec index min/max against the scalar loops, on the host and as ppc64 under qemu),
 #            mesa-query-steal (Mesa 0046: nv30's queries when the report slots run out, against a
-#            fake GPU, under AddressSanitizer; with it Mesa 0047-0049's alloc-fail-test: u_upload_mgr,
-#            nouveau_mm and nouveau_fence when buffers cannot be had, and 0049's transfer-cpu-test:
-#            nv30 texture uploads and reads by the CPU when the GART is full), mesa-point-smooth
+#            fake GPU, under AddressSanitizer), mesa-alloc-fail (0047-0049's alloc-fail-test: u_upload_mgr,
+#            nouveau_mm and nouveau_fence when buffers cannot be had), mesa-transfer-cpu (0049's
+#            transfer-cpu-test: nv30 texture uploads and reads by the CPU when the GART is full), mesa-point-smooth
 #            (Mesa 0050's round GL_POINT_SMOOTH points: the fragment program variant on Mesa's
 #            TGSI interpreter over each point's square, and its NV40 translation),
 #            ssdimg (the SSD test
 #            drive's stamp.py, ps3-imgmap on a fake UFS layer, ps3-vswap's device-mapper backing;
 #            ps3-imgmap-boot's maps and tables against ps3-imgmap's; both tools' write guard
 #            registration against a model of the kernel's side), ps3-boot (ps3-update-kboot's
-#            entries and its /etc/kboot.d extras on a fake root), leak-check (tools/leak-check.py on
+#            entries and its /etc/kboot.d extras on a fake root), agent-guard (tools/hooks/agent-guard.py, the PreToolUse hook: refused and allowed commands), leak-check (tools/leak-check.py on
 #            synthetic packages and sources), repo-tools (tools/test_repo_tools.py: pkg-dir.sh,
 #            licensed.py, deb-version.sh's patterns, doclinks.py, blocks.py, image-packages.sh on small
 #            fake trees), licensed (tools/licensed.py check on this tree), workflows
@@ -183,25 +183,45 @@ t_querysteal() {
 		-I$M/src/gallium/include -I$M/src/gallium/auxiliary -I$M/src/gallium/drivers/nouveau -I$M/src/util \
 		-I$M/src/mapi -I$M/src/mesa -I$M/src/compiler/nir -I$M/src/compiler -I$M/src/gallium/winsys/nouveau/drm \
 		-I$M/src/nouveau/headers -o $T/query-steal-test packages/patched/graphics/mesa/tests/query-steal-test.c || exit 1
-	$T/query-steal-test || exit 1
-	if grep -q 'reallocate_or_keep' $M/src/gallium/drivers/nouveau/nouveau_buffer.c; then
-		gcc -g -O1 -std=gnu11 -Wall -Werror -fsanitize=address,undefined -DHAVE_PTHREAD -D_GNU_SOURCE \
-			-DHAVE_TIMESPEC_GET -DHAVE_STRUCT_TIMESPEC -DUTIL_ARCH_BIG_ENDIAN=0 -DUTIL_ARCH_LITTLE_ENDIAN=1 -I$G \
-			-I$M/include -I$M/src -I$M/src/gallium/include -I$M/src/gallium/auxiliary \
-			-I$M/src/gallium/drivers/nouveau -I$M/src/util -I$M/src/mapi -I$M/src/mesa -I$M/src/compiler/nir \
-			-I$M/src/compiler -I$M/src/gallium/winsys/nouveau/drm -I$M/src/nouveau/headers \
-			-o $T/alloc-fail-test packages/patched/graphics/mesa/tests/alloc-fail-test.c || exit 1
-		$T/alloc-fail-test || exit 1
-	else echo "(alloc-fail part skipped: build/work/mesa without patch 0048)"; fi
-	if grep -q 'nv30_transfer_map_cpu' $M/src/gallium/drivers/nouveau/nv30/nv30_miptree.c; then
-		gcc -g -O1 -std=gnu11 -Wall -Werror -fsanitize=address,undefined -DHAVE_PTHREAD -D_GNU_SOURCE \
-			-DHAVE_TIMESPEC_GET -DHAVE_STRUCT_TIMESPEC -DUTIL_ARCH_BIG_ENDIAN=0 -DUTIL_ARCH_LITTLE_ENDIAN=1 -I$G \
-			-I$M/include -I$M/src -I$M/src/gallium/include -I$M/src/gallium/auxiliary \
-			-I$M/src/gallium/drivers/nouveau -I$M/src/util -I$M/src/mapi -I$M/src/mesa -I$M/src/compiler/nir \
-			-I$M/src/compiler -I$M/src/gallium/winsys/nouveau/drm -I$M/src/nouveau/headers \
-			-o $T/transfer-cpu-test packages/patched/graphics/mesa/tests/transfer-cpu-test.c || exit 1
-		$T/transfer-cpu-test
-	else echo "(transfer-cpu part skipped: build/work/mesa without patch 0049)"; fi
+	$T/query-steal-test
+}
+t_allocfail() {
+	local M=build/work/mesa T=build/tmp/tests
+	grep -q 'reallocate_or_keep' $M/src/gallium/drivers/nouveau/nouveau_buffer.c 2>/dev/null || { echo "skip: no build/work/mesa with patch 0048 (make mesa-work)"; exit 77; }
+	need gcc
+	local G=$T/mesa-gen N=$M/src/compiler/nir
+	mkdir -p $G/util/format
+	python3 $M/src/util/format/u_format_table.py $M/src/util/format/u_format.yaml --enums > $G/util/format/u_format_gen.h &&
+	python3 $M/src/compiler/builtin_types_h.py $G/builtin_types.h &&
+	python3 $N/nir_opcodes_h.py > $G/nir_opcodes.h && python3 $N/nir_builder_opcodes_h.py > $G/nir_builder_opcodes.h &&
+	python3 $N/nir_intrinsics_h.py --out $G/nir_intrinsics.h &&
+	python3 $N/nir_intrinsics_indices_h.py --out $G/nir_intrinsics_indices.h || exit 1
+	gcc -g -O1 -std=gnu11 -Wall -Werror -fsanitize=address,undefined -DHAVE_PTHREAD -D_GNU_SOURCE \
+		-DHAVE_TIMESPEC_GET -DHAVE_STRUCT_TIMESPEC -DUTIL_ARCH_BIG_ENDIAN=0 -DUTIL_ARCH_LITTLE_ENDIAN=1 -I$G \
+		-I$M/include -I$M/src -I$M/src/gallium/include -I$M/src/gallium/auxiliary \
+		-I$M/src/gallium/drivers/nouveau -I$M/src/util -I$M/src/mapi -I$M/src/mesa -I$M/src/compiler/nir \
+		-I$M/src/compiler -I$M/src/gallium/winsys/nouveau/drm -I$M/src/nouveau/headers \
+		-o $T/alloc-fail-test packages/patched/graphics/mesa/tests/alloc-fail-test.c || exit 1
+	$T/alloc-fail-test
+}
+t_transfercpu() {
+	local M=build/work/mesa T=build/tmp/tests
+	grep -q 'nv30_transfer_map_cpu' $M/src/gallium/drivers/nouveau/nv30/nv30_miptree.c 2>/dev/null || { echo "skip: no build/work/mesa with patch 0049 (make mesa-work)"; exit 77; }
+	need gcc
+	local G=$T/mesa-gen N=$M/src/compiler/nir
+	mkdir -p $G/util/format
+	python3 $M/src/util/format/u_format_table.py $M/src/util/format/u_format.yaml --enums > $G/util/format/u_format_gen.h &&
+	python3 $M/src/compiler/builtin_types_h.py $G/builtin_types.h &&
+	python3 $N/nir_opcodes_h.py > $G/nir_opcodes.h && python3 $N/nir_builder_opcodes_h.py > $G/nir_builder_opcodes.h &&
+	python3 $N/nir_intrinsics_h.py --out $G/nir_intrinsics.h &&
+	python3 $N/nir_intrinsics_indices_h.py --out $G/nir_intrinsics_indices.h || exit 1
+	gcc -g -O1 -std=gnu11 -Wall -Werror -fsanitize=address,undefined -DHAVE_PTHREAD -D_GNU_SOURCE \
+		-DHAVE_TIMESPEC_GET -DHAVE_STRUCT_TIMESPEC -DUTIL_ARCH_BIG_ENDIAN=0 -DUTIL_ARCH_LITTLE_ENDIAN=1 -I$G \
+		-I$M/include -I$M/src -I$M/src/gallium/include -I$M/src/gallium/auxiliary \
+		-I$M/src/gallium/drivers/nouveau -I$M/src/util -I$M/src/mapi -I$M/src/mesa -I$M/src/compiler/nir \
+		-I$M/src/compiler -I$M/src/gallium/winsys/nouveau/drm -I$M/src/nouveau/headers \
+		-o $T/transfer-cpu-test packages/patched/graphics/mesa/tests/transfer-cpu-test.c || exit 1
+	$T/transfer-cpu-test
 }
 t_autogm() {
 	if ! { command -v Xvfb >/dev/null && command -v openbox >/dev/null; } &&
@@ -247,9 +267,12 @@ run mesa-staging-pool bash -c "$(declare -f need t_stagingpool); t_stagingpool"
 run mesa-vtx-snorm8 bash -c "$(declare -f need t_vtxsnorm8); t_vtxsnorm8"
 run mesa-minmax-vmx bash -c "$(declare -f need t_minmaxvmx); t_minmaxvmx"
 run mesa-query-steal bash -c "$(declare -f need t_querysteal); t_querysteal"
+run mesa-alloc-fail bash -c "$(declare -f need t_allocfail); t_allocfail"
+run mesa-transfer-cpu bash -c "$(declare -f need t_transfercpu); t_transfercpu"
 run mesa-point-smooth bash -c "$(declare -f need t_pointsmooth); t_pointsmooth"
 run ssdimg python3 tools/ssdimg/test_ssdimg.py
 run ps3-boot python3 packages/walnut/system/ps3-boot/tests/test_kboot.py
+run agent-guard python3 -I tools/hooks/test_agent_guard.py
 run leak-check python3 tools/test_leak_check.py
 run repo-tools python3 -I tools/test_repo_tools.py
 run licensed python3 -I tools/licensed.py check
