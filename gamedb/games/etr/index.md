@@ -4,6 +4,7 @@ title = "Extreme Tux Racer"
 summary = "A 3D downhill racing game in which Tux the penguin slides down snowy courses collecting herrings."
 tags = ["racing", "sports", "family", "single-player", "3d", "penguin", "downhill", "courses"]
 license = "GPL-2.0-or-later"
+license_source = "debian/copyright of Debian's extremetuxracer 0.8.4-2"
 homepage = "https://sourceforge.net/projects/extremetuxracer/"
 controller = "full"
 +++

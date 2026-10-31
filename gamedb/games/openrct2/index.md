@@ -4,6 +4,7 @@ title = "OpenRCT2"
 summary = "An open source re-implementation of RollerCoaster Tycoon 2: build a theme park, its rides and coasters, and keep the guests happy."
 tags = ["simulation", "management", "single-player", "2d", "remake", "theme-park", "tycoon"]
 license = "GPL-3.0-or-later engine, commercial game data"
+license_source = "our debian/copyright of openrct2 0.5.6+ds (GPL-3, upstream's release, github.com/OpenRCT2/OpenRCT2); the game data is the player's own copy"
 homepage = "https://openrct2.io/"
 data_guide = "https://wiki.debian.org/Games/GameDataPackager"
 data_steps = [

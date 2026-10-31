@@ -4,6 +4,7 @@ title = "Day of the Tentacle"
 summary = "LucasArts' 1993 time-travel comedy: Bernard, Hoagie and Laverne pass things to each other across three centuries to stop Purple Tentacle. Played with ScummVM from your own copy."
 tags = ["point-and-click", "sci-fi", "single-player", "2d"]
 license = "GPL-3.0-or-later engine (ScummVM), commercial game data"
+license_source = "ScummVM's COPYING (GPL version 3, github.com/scummvm/scummvm; Debian's debian/copyright of scummvm 2026.4.0+dfsg-1 still says GPL-2+); the game data is the player's own copy"
 homepage = "https://wiki.scummvm.org/index.php?title=Day_of_the_Tentacle"
 data_guide = "https://wiki.scummvm.org/index.php?title=Day_of_the_Tentacle"
 data_steps = [

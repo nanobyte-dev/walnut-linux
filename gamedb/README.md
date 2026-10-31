@@ -102,6 +102,7 @@ The body is the notes on the game's Overview tab; a how-to (setting up the data,
 | `title` | string | yes |  | the game's name as players know it |
 | `summary` | string | published |  | one or two sentences on the game for the catalog's card |
 | `license` | string | published |  | the game's licence (engine and data) |
+| `license_source` | string |  |  | where the licence was read: a package's debian/copyright (Debian's, with its version, or ours) or upstream's licence file; the game data's own when it has one (a published game's commit needs it: tools/commit_tests/checks/gamedb.py) |
 | `homepage` | string | published | `https?://\S+` | the project's home page, an http(s) URL |
 | `tags` | list of strings | published | names in gamedb/tags.toml | tag ids of [tags.toml](tags.toml), the most specific of a subgroup only, none automatic; at least one genre for a published game ([Tags](#tags)) |
 | `data_guide` | string |  | `https?://\S+` | where a player reads how to get their own data: required when build.toml says `needs_data = true`, refused otherwise |

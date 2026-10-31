@@ -4,6 +4,7 @@ title = "QuakeSpasm"
 summary = "A modern source port of id Software's Quake, with the original campaign and mods."
 tags = ["fps", "horror", "single-player", "3d", "first-person", "mods"]
 license = "GPL-2.0-or-later"
+license_source = "debian/copyright of Debian's quakespasm 0.96.3+dfsg-2"
 homepage = "https://quakespasm.sourceforge.net/"
 data_guide = "https://quakespasm.sourceforge.net/"
 data_steps = [

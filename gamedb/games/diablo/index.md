@@ -5,6 +5,7 @@ summary = "A dark fantasy action RPG: descend through the dungeon beneath Tristr
 tags = ["action", "fantasy", "single-player", "online-multiplayer"]
 homepage = "https://github.com/diasurgical/devilutionX"
 license = "Sustainable-Use-1.0 (non-free: non-commercial use only)"
+license_source = "our debian/copyright of devilutionx 1.5.5 (upstream's LICENSE, github.com/diasurgical/devilutionX); the game data is the player's own copy"
 controller = "full"
 data_guide = "https://wiki.debian.org/Games/GameDataPackager"
 data_steps = [

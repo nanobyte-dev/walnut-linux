@@ -4,6 +4,7 @@ title = "The Secret of Monkey Island"
 summary = "Lucasfilm Games' 1990 pirate comedy: Guybrush Threepwood wants to be a pirate and ends up chasing the ghost LeChuck. Played with ScummVM from your own copy."
 tags = ["point-and-click", "fantasy", "single-player", "2d"]
 license = "GPL-3.0-or-later engine (ScummVM), commercial game data"
+license_source = "ScummVM's COPYING (GPL version 3, github.com/scummvm/scummvm; Debian's debian/copyright of scummvm 2026.4.0+dfsg-1 still says GPL-2+); the game data is the player's own copy"
 homepage = "https://wiki.scummvm.org/index.php?title=The_Secret_of_Monkey_Island"
 data_guide = "https://wiki.scummvm.org/index.php?title=The_Secret_of_Monkey_Island"
 data_steps = [

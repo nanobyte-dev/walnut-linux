@@ -4,6 +4,7 @@ title = "Warzone 2100"
 summary = "A 3D real-time strategy game: build a base, research technology, command tanks."
 tags = ["rts", "sci-fi", "single-player", "online-multiplayer", "bots", "3d", "top-down", "campaign", "skirmish"]
 license = "GPL-2.0-or-later"
+license_source = "our debian/copyright of warzone2100 4.3.5 (GPL-2+, upstream's release, wz2100.net)"
 homepage = "https://wz2100.net/"
 controller = "keyboard"
 designed_for = "keyboard-mouse"

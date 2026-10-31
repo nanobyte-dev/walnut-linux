@@ -4,6 +4,7 @@ title = "BZFlag"
 summary = "A 3D tank battle game: drive and shoot across online servers or against computer tanks."
 tags = ["shooter", "online-multiplayer", "bots", "3d"]
 license = "LGPL-2.1-only OR MPL-2.0"
+license_source = "debian/copyright of Debian's bzflag 2.4.30-4"
 homepage = "https://www.bzflag.org/"
 controller = "partial"
 designed_for = "keyboard-mouse"

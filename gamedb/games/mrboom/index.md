@@ -4,6 +4,7 @@ title = "Mr.Boom"
 summary = "A Bomberman clone for up to eight players: drop bombs, blow up the walls and your friends, last one standing wins."
 tags = ["arcade", "action", "local-multiplayer", "bots", "2d", "top-down", "remake", "bomberman"]
 license = "MIT"
+license_source = "debian/copyright of Debian's mrboom 5.5+ds-1"
 homepage = "https://mrboom.mumblecore.org/"
 controller = "full"
 known_issues = [

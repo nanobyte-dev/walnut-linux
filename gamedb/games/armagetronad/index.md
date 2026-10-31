@@ -4,6 +4,7 @@ title = "Armagetron Advanced"
 summary = "A 3D Tron light cycle game: leave a wall behind you and make the others crash into it."
 tags = ["arcade", "action", "sci-fi", "single-player", "local-multiplayer", "online-multiplayer", "bots", "3d", "remake", "tron"]
 license = "GPL-2.0-or-later"
+license_source = "debian/copyright of Debian's armagetronad 0.2.9.3.0-1"
 homepage = "https://www.armagetronad.org/"
 controller = "full"
 known_issues = ["On a first start the game shows a language menu and a player setup that wait for a key press."]

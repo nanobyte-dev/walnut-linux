@@ -4,6 +4,7 @@ title = "Chromium B.S.U."
 summary = "A fast vertical arcade shooter: fly a lone ship against waves of enemies and keep the supply ships alive."
 tags = ["shooter", "arcade", "single-player", "2d", "top-down"]
 license = "Clarified-Artistic AND Expat"
+license_source = "debian/copyright of Debian's chromium-bsu 0.9.16.1-5"
 homepage = "https://chromium-bsu.sourceforge.io/"
 controller = "full"
 +++

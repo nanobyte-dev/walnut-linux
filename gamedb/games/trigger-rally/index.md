@@ -4,6 +4,7 @@ title = "Trigger Rally"
 summary = "A 3D rally racing game: drive a rally car over dirt tracks against the clock."
 tags = ["racing", "single-player", "3d"]
 license = "GPL-2.0-or-later"
+license_source = "debian/copyright of Debian's trigger-rally 0.6.6.1-4"
 homepage = "https://trigger-rally.sourceforge.io/"
 controller = "keyboard"
 designed_for = "keyboard-mouse"

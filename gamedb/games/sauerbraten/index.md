@@ -4,6 +4,7 @@ title = "Sauerbraten"
 summary = "Cube 2: Sauerbraten, the 2020 Edition: a fast first person shooter with bots, over 200 maps and an in-game map editor."
 tags = ["fps", "arena", "single-player", "online-multiplayer", "bots", "3d", "first-person", "map-editor"]
 license = "Zlib"
+license_source = "our debian/copyright of sauerbraten-walnut (Zlib, sauerbraten.org) and Debian's of cube2 0.0.20201229+dfsg-1"
 homepage = "http://sauerbraten.org/"
 data_guide = "http://sauerbraten.org/"
 data_steps = [

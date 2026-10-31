@@ -4,6 +4,7 @@ title = "dsda-doom"
 summary = "A Doom source port with an OpenGL renderer, accurate demo playback and many mod features."
 tags = ["fps", "single-player", "first-person", "mods"]
 license = "GPL-2.0-or-later"
+license_source = "debian/copyright of Debian's dsda-doom 0.30.1+dfsg-1 and of freedoom 0.13.0-3 (BSD-3-clause)"
 homepage = "https://github.com/kraflab/dsda-doom"
 controller = "keyboard"
 designed_for = "keyboard-mouse"

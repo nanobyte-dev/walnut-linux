@@ -4,6 +4,7 @@ title = "Neverputt"
 summary = "A 3D mini golf game: putt a ball around imaginative courses in as few strokes as possible."
 tags = ["sports", "single-player", "local-multiplayer", "3d"]
 license = "GPL-2.0-or-later"
+license_source = "debian/copyright of Debian's neverball 1.6.0+git20180603-3"
 homepage = "https://neverball.org/"
 controller = "full"
 +++

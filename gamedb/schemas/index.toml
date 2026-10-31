@@ -36,6 +36,11 @@ type = "str"
 required = "published"
 meaning = "the game's licence (engine and data)"
 
+[keys.license_source]
+type = "str"
+nonempty = true
+meaning = "where the licence was read: a package's debian/copyright (Debian's, with its version, or ours) or upstream's licence file; the game data's own when it has one (a published game's commit needs it: tools/commit_tests/checks/gamedb.py)"
+
 [keys.homepage]
 type = "str"
 required = "published"

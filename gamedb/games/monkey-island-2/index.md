@@ -4,6 +4,7 @@ title = "Monkey Island 2: LeChuck's Revenge"
 summary = "The 1991 sequel: Guybrush hunts for the treasure of Big Whoop while the zombie pirate LeChuck hunts for him. Played with ScummVM from your own copy."
 tags = ["point-and-click", "fantasy", "single-player", "2d"]
 license = "GPL-3.0-or-later engine (ScummVM), commercial game data"
+license_source = "ScummVM's COPYING (GPL version 3, github.com/scummvm/scummvm; Debian's debian/copyright of scummvm 2026.4.0+dfsg-1 still says GPL-2+); the game data is the player's own copy"
 homepage = "https://wiki.scummvm.org/index.php?title=Monkey_Island_2:_LeChuck%27s_Revenge"
 data_guide = "https://wiki.scummvm.org/index.php?title=Monkey_Island_2:_LeChuck%27s_Revenge"
 data_steps = [

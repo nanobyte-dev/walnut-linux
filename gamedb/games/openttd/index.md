@@ -4,6 +4,7 @@ title = "OpenTTD"
 summary = "A transport simulation: build railways, roads, ships and airports and run a profitable company."
 tags = ["simulation", "management", "single-player", "online-multiplayer", "2d", "remake", "transport", "tycoon"]
 license = "GPL-2.0-only"
+license_source = "debian/copyright of Debian's openttd 15.1-1"
 homepage = "https://www.openttd.org/"
 controller = "keyboard"
 designed_for = "keyboard-mouse"

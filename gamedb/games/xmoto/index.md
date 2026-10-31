@@ -4,6 +4,7 @@ title = "X-Moto"
 summary = "A 2D motorbike trials game: ride through physics-based levels without falling off, collecting strawberries."
 tags = ["platformer", "racing", "single-player", "2d", "side-on", "physics", "bike", "levels"]
 license = "GPL-2.0-or-later"
+license_source = "debian/copyright of Debian's xmoto 0.6.3+repack-1"
 homepage = "https://xmoto.tuxfamily.org/"
 controller = "full"
 +++
