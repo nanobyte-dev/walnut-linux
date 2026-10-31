@@ -60,7 +60,6 @@ import hashlib
 import json
 import mmap
 import os
-import random
 import re
 import struct
 import subprocess
