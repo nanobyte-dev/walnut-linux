@@ -11,6 +11,7 @@ override_dh_auto_install:
 	install -D -m 755 files/bin/walnut-games $(P)/usr/bin/walnut-games
 	install -D -m 755 files/bin/walnut-data $(P)/usr/bin/walnut-data
 	install -D -m 644 files/lib/walnut_games.py $(P)/usr/lib/walnut-games/walnut_games.py
+	install -D -m 644 files/lib/walnut_palette.py $(P)/usr/lib/walnut-games/walnut_palette.py
 	install -D -m 755 files/sbin/walnut-games-helper $(P)/usr/lib/ps3/sbin/walnut-games-helper
 	install -D -m 440 debian/sudoers $(P)/etc/sudoers.d/walnut-games
 	install -D -m 644 files/applications/walnut-games.desktop $(P)/usr/share/applications/walnut-games.desktop

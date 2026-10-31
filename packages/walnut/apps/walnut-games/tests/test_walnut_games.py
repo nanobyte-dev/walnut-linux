@@ -37,6 +37,7 @@ import io
 import json
 import os
 import shutil
+import re
 import signal
 import stat
 import subprocess
@@ -1821,6 +1822,14 @@ class DataWindow(unittest.TestCase):
         finally:
             proc.terminate()
             proc.wait()
+
+
+class Palette(unittest.TestCase):
+    def test_colours_only_in_the_palette(self):
+        """every colour comes from walnut_palette.py: the app's code writes no colour value of its own"""
+        code = (PKG / "files" / "lib" / "walnut_games.py").read_text()
+        self.assertEqual(re.findall(r"#[0-9a-fA-F]{6}\b|#[0-9a-fA-F]{3}\b(?=[\"'])", code), [])
+        self.assertIs(app.MEDAL_COLORS, sys.modules["walnut_palette"].MEDAL_COLORS)
 
 
 if __name__ == "__main__":

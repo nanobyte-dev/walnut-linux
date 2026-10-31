@@ -88,17 +88,14 @@ HELPER = "/usr/lib/ps3/sbin/walnut-games-helper"
 MENU_TOOL = "/usr/lib/ps3/desktop/ps3-game-menu"
 APPS = "/usr/share/applications"
 
-# the Walnut palette (the website's)
-BG, PANEL, BORDER = "#14304d", "#0e2238", "#1d3e61"
-ACCENT, ACCENT_DEEP, ACCENT_LIGHT = "#d49a5c", "#b5763a", "#e3ae73"
-TEXT, MUTED, ENTRY = "#ececec", "#b4bec9", "#091726"     # text white, secondary text light gray
-LINK, LINK_HOVER = ACCENT, ACCENT_LIGHT                   # yellow is for links only (the user, 2026-10-31)
-CARD_HOVER = "#12304f"
+# the Walnut palette: walnut_palette.py, next to this file (also when a test loads this file by its path)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from walnut_palette import (BG, PANEL, BORDER, ENTRY, CARD_HOVER, BUTTON_HOVER, TEXT, TEXT_FOCUS,  # noqa: E402
+                            MUTED, DISABLED, ON_ACCENT, ON_DARK, ACCENT, ACCENT_DEEP, ACCENT_LIGHT, LINK,
+                            LINK_HOVER, MEDAL_COLORS)
 
 MEDAL_ORDER = ["Platinum", "Gold", "Silver", "Bronze", "Tin", "Rust", "Scrap", "Untested"]
 OLD_MEDALS = {"Tin"}    # rules 1's scale only (rules 2.1 has none): in the filter only when a game has it
-MEDAL_COLORS = {"Platinum": "#e5e4e2", "Gold": "#d4af37", "Silver": "#c0c0c0", "Bronze": "#cd7f32",
-                "Tin": "#9a9ea3", "Rust": "#8a4b32", "Scrap": "#5f5a55", "Untested": "#6f7a86"}
 QUICK_EXIT_S = 20   # a game that quits sooner than this gets a note in the status line
 
 
@@ -246,7 +243,7 @@ def score_of(game):
 def pill_text_color(fill):
     """dark text on light fills, light on dark ones"""
     r, g, b = (int(fill[i:i + 2], 16) for i in (1, 3, 5))
-    return "#14304d" if 0.299 * r + 0.587 * g + 0.114 * b > 110 else "#f4f4f4"
+    return ON_ACCENT if 0.299 * r + 0.587 * g + 0.114 * b > 110 else ON_DARK
 
 
 def dpkg_installed(packages, runner=None):
@@ -1500,7 +1497,7 @@ class App:
         st.theme_use("clam")
         st.configure(".", background=BG, foreground=TEXT, fieldbackground=ENTRY, bordercolor=BORDER,
                      lightcolor=BORDER, darkcolor=BORDER, troughcolor=PANEL, font=self.f["base"],
-                     focuscolor=ACCENT_LIGHT, insertcolor=TEXT, selectbackground=ACCENT, selectforeground="#14304d")
+                     focuscolor=ACCENT_LIGHT, insertcolor=TEXT, selectbackground=ACCENT, selectforeground=ON_ACCENT)
         st.configure("TFrame", background=BG)
         st.configure("Panel.TFrame", background=PANEL)
         st.configure("TLabel", background=BG, foreground=TEXT)
@@ -1519,31 +1516,31 @@ class App:
         r.option_add("*TCombobox*Listbox.background", ENTRY)
         r.option_add("*TCombobox*Listbox.foreground", TEXT)
         r.option_add("*TCombobox*Listbox.selectBackground", ACCENT)
-        r.option_add("*TCombobox*Listbox.selectForeground", "#14304d")
+        r.option_add("*TCombobox*Listbox.selectForeground", ON_ACCENT)
         r.option_add("*TCombobox*Listbox.font", self.f["base"])
         st.configure("TCheckbutton", background=BG, foreground=TEXT, indicatorbackground=ENTRY,
                      indicatorforeground=ACCENT_LIGHT, padding=pad - 2, indicatorsize=round(12 * s),
                      focusthickness=2)
         st.map("TCheckbutton", background=[("focus", BORDER), ("active", BG)], indicatorbackground=[("selected", ENTRY)],
-               foreground=[("active", "#ffffff"), ("focus", "#ffffff")])
+               foreground=[("active", TEXT_FOCUS), ("focus", TEXT_FOCUS)])
         st.configure("Filter.TCheckbutton", background=PANEL, padding=round(4 * s))
         st.map("Filter.TCheckbutton", background=[("focus", BORDER), ("active", PANEL)],
-               foreground=[("active", "#ffffff"), ("focus", "#ffffff")])
+               foreground=[("active", TEXT_FOCUS), ("focus", TEXT_FOCUS)])
         st.configure("TButton", background=BORDER, foreground=TEXT, bordercolor=BORDER, padding=(round(12 * s), pad),
                      relief="flat", focusthickness=2)
-        st.map("TButton", background=[("disabled", PANEL), ("active", "#26507c"), ("focus", "#26507c")],
-               foreground=[("disabled", "#6c7d90")], bordercolor=[("focus", ACCENT_LIGHT)],
+        st.map("TButton", background=[("disabled", PANEL), ("active", BUTTON_HOVER), ("focus", BUTTON_HOVER)],
+               foreground=[("disabled", DISABLED)], bordercolor=[("focus", ACCENT_LIGHT)],
                lightcolor=[("focus", ACCENT_LIGHT)], darkcolor=[("focus", ACCENT_LIGHT)])
         accent = dict(background=[("disabled", PANEL), ("pressed", ACCENT_DEEP), ("active", ACCENT_LIGHT),
                                   ("focus", ACCENT_LIGHT)],
-                      foreground=[("disabled", "#6c7d90")], bordercolor=[("focus", TEXT)],
+                      foreground=[("disabled", DISABLED)], bordercolor=[("focus", TEXT)],
                       lightcolor=[("focus", TEXT)], darkcolor=[("focus", TEXT)])
-        st.configure("Accent.TButton", background=ACCENT, foreground="#14304d", font=self.f["bold"],
-                     focuscolor="#14304d")
+        st.configure("Accent.TButton", background=ACCENT, foreground=ON_ACCENT, font=self.f["bold"],
+                     focuscolor=ON_ACCENT)
         st.map("Accent.TButton", **accent)
         # the pane's main button: Install, Add game files..., Play
-        st.configure("Main.TButton", background=ACCENT, foreground="#14304d", font=self.f["main"],
-                     padding=(round(20 * s), round(10 * s)), focuscolor="#14304d")
+        st.configure("Main.TButton", background=ACCENT, foreground=ON_ACCENT, font=self.f["main"],
+                     padding=(round(20 * s), round(10 * s)), focuscolor=ON_ACCENT)
         st.map("Main.TButton", **accent)
         st.configure("Source.TButton", background=ENTRY, foreground=TEXT, anchor="w", padding=(12, 8), justify="left")
         st.map("Source.TButton", background=[("active", BORDER), ("focus", BORDER)])
@@ -1559,7 +1556,7 @@ class App:
         for o in ("Vertical", "Horizontal"):
             st.configure(o + ".TScrollbar", background=BORDER, troughcolor=PANEL, bordercolor=PANEL,
                          arrowcolor=MUTED, lightcolor=BORDER, darkcolor=BORDER, arrowsize=round(14 * s))
-            st.map(o + ".TScrollbar", background=[("active", "#26507c")])
+            st.map(o + ".TScrollbar", background=[("active", BUTTON_HOVER)])
 
     def _build(self):
         r = self.root
