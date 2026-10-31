@@ -36,5 +36,16 @@ rm -f "$W/chrt.log"
 PS3_GAME_RT_AUDIO=off start
 sh "$RA" scan "$W/st" $g 2> "$W/log4"
 [ ! -s "$W/chrt.log" ] && grep -q 'PS3_GAME_RT_AUDIO=off' "$W/log4" && ok "PS3_GAME_RT_AUDIO=off" || bad "PS3_GAME_RT_AUDIO=off: $(cat "$W/chrt.log" "$W/log4" 2>/dev/null)"
+# stat_of on a /proc/<pid>/stat line: utime (field 14) + stime (15) is ST_CPU, the start time (22) and
+# the policy (41); the name has a space and a ')' (the fields count from the last ') '). $12 there
+# once read as ${1}2: ST_CPU was always 0 and the 80% demotion never fired.
+mkdir "$W/task"
+f=; i=3; while [ $i -le 52 ]; do
+	case $i in 3) v=S ;; 14) v=500 ;; 15) v=250 ;; 22) v=987654 ;; 41) v=2 ;; *) v=$i ;; esac
+	f="$f $v"; i=$((i + 1))
+done
+echo "4321 (SDL Audio) x)$f" > "$W/task/stat"
+got=$(sed -n '/^stat_of() {/,/^}/p' "$RA" > "$W/stat_of.sh" && . "$W/stat_of.sh" && stat_of "$W/task" && echo "$ST_CPU $ST_START $ST_POL")
+[ "$got" = "750 987654 2" ] && ok "stat_of: ST_CPU, ST_START, ST_POL from a stat line" || bad "stat_of: got '$got', want '750 987654 2'"
 echo "rt-audio-check: $pass passed, $fail failed"
 [ $fail = 0 ]

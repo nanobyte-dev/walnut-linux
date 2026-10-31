@@ -50,7 +50,7 @@ stat_of() {
 	_st=${_st##*) }
 	# shellcheck disable=SC2086 # the fields
 	set -- $_st
-	ST_CPU=$(($12 + $13)) ST_START=${20} ST_POL=${39}
+	ST_CPU=$((${12} + ${13})) ST_START=${20} ST_POL=${39}
 }
 
 # audio_fds PID: the process's sound descriptors, " 12 13 " (empty: none)

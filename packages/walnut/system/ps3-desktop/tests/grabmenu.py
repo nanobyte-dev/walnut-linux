@@ -8,7 +8,6 @@
 #     --spawn COMMAND    started (a session of its own, as jgmenu's spawn) once it holds them:
 #                        the menu still open while the game starts
 import ctypes
-import os
 import subprocess
 import sys
 import time
