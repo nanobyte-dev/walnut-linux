@@ -28,7 +28,7 @@
 #            drive's stamp.py, ps3-imgmap on a fake UFS layer, ps3-vswap's device-mapper backing;
 #            ps3-imgmap-boot's maps and tables against ps3-imgmap's; both tools' write guard
 #            registration against a model of the kernel's side), ps3-boot (ps3-update-kboot's
-#            entries and its /etc/kboot.d extras on a fake root), agent-guard (tools/hooks/agent-guard.py, the PreToolUse hook: refused and allowed commands), ps3-lease (tools/ps3's lease, and deploy.sh and play-test.sh refusing under someone else's), leak-check (tools/leak-check.py on
+#            entries and its /etc/kboot.d extras on a fake root), agent-guard (tools/hooks/agent-guard.py, the PreToolUse hook: refused and allowed commands), commit-tests (tools/commit_tests/tests: each commit check on good and bad cases, then the hooks end to end on a clone in build/tmp), commit-hooks (make hooks's stubs are installed in .git/hooks), ps3-lease (tools/ps3's lease, and deploy.sh and play-test.sh refusing under someone else's), leak-check (tools/leak-check.py on
 #            synthetic packages and sources), repo-tools (tools/test_repo_tools.py: pkg-dir.sh,
 #            licensed.py, deb-version.sh's patterns, doclinks.py, blocks.py, image-packages.sh on small
 #            fake trees), licensed (tools/licensed.py check on this tree), workflows
@@ -337,6 +337,8 @@ run luajit-low-2gb packages/patched/libs/luajit/tests/low-2gb.sh
 run ssdimg python3 tools/ssdimg/test_ssdimg.py
 run ps3-boot python3 packages/walnut/system/ps3-boot/tests/test_kboot.py
 run agent-guard python3 -I tools/hooks/test_agent_guard.py
+run commit-tests bash -c "python3 -I tools/commit_tests/tests/test_checks.py && python3 -I tools/commit_tests/tests/test_e2e.py"
+run commit-hooks tools/hooks/install.sh --check
 run ps3-lease bash tools/test_ps3_lease.sh
 run leak-check python3 tools/test_leak_check.py
 run repo-tools python3 -I tools/test_repo_tools.py
