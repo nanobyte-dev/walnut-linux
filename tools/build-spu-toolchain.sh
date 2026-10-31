@@ -24,14 +24,14 @@ tar -xf "$D/binutils-$SPU_BINUTILS_VERSION.tar.xz" -C "$SRC"
 tar -xf "$D/gcc-$SPU_GCC_VERSION.tar.xz" -C "$SRC"
 tar -xf "$D/newlib-$SPU_NEWLIB_VERSION.tar.gz" -C "$SRC"
 for p in packages/patched/toolchain/spu/gcc/*.patch; do patch -d "$SRC/gcc-$SPU_GCC_VERSION" -p1 -s < "$p"; done
-for p in $(ls packages/patched/toolchain/spu/binutils/*.patch 2>/dev/null); do patch -d "$SRC/binutils-$SPU_BINUTILS_VERSION" -p1 -s < "$p"; done
+for p in packages/patched/toolchain/spu/binutils/*.patch; do [ -e "$p" ] || continue; patch -d "$SRC/binutils-$SPU_BINUTILS_VERSION" -p1 -s < "$p"; done
 # Newlib patches: packages/patched/toolchain/spu/newlib-<version>/, else newlib-<major.minor>/, else newlib/ (1.20.0)
 NLPATCHES=packages/patched/toolchain/spu/newlib
 for d in "packages/patched/toolchain/spu/newlib-$SPU_NEWLIB_VERSION" "packages/patched/toolchain/spu/newlib-$(echo "$SPU_NEWLIB_VERSION" | cut -d. -f1,2)"; do
 	[ -d "$d" ] && { NLPATCHES=$d; break; }
 done
 echo ">> newlib patches: $NLPATCHES"
-for p in $(ls "$NLPATCHES"/*.patch 2>/dev/null); do patch -d "$SRC/newlib-$SPU_NEWLIB_VERSION" -p1 -s < "$p"; done
+for p in "$NLPATCHES"/*.patch; do [ -e "$p" ] || continue; patch -d "$SRC/newlib-$SPU_NEWLIB_VERSION" -p1 -s < "$p"; done
 export PATH="$DEST$PREFIX/bin:$PATH"
 export CFLAGS="-O2" CXXFLAGS="-O2"
 
