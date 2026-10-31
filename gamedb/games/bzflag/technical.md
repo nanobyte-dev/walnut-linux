@@ -64,7 +64,11 @@ has no `set callsign` line (a callsign equal to the default, empty, is written c
 the game saves "Player" there at exit (`saveIdentity` 2), and a callsign the player types later is kept. On the PC
 (Debian's 2.4.30 amd64 under Xvfb, keys by xdotool): the first start showed Callsign: Player, Start Server > Start,
 Connect joined the green team as Player with the robots Player00-02; the config then had `set callsign Player`,
-and the second start (through the config branch) showed Player again.
+and the second start (through the config branch) showed Player again. On the PS3 (2026-10-31,
+ps3-games-integration 0.1159, a config without a callsign, keys by XTEST): the same, with the menu's
+`ps3-game` start in game mode: Callsign: Player, Start Server > Start ("Server started.", `bzfs` running),
+Server: localhost, Connect joined the Purple team as Player with Player00-02 as robot tanks, the tank
+spawned, Quit saved `set callsign Player`. The DualShock-only run is still to do.
 
 Public servers (the Join Game > Find Server list, 244 listed on 2026-10-29) often require a registered
 account: the session of 2026-10-29 was refused with "This callsign is registered. You must use global
