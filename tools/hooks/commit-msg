@@ -1,0 +1,9 @@
+#!/bin/sh
+# git's commit-msg hook (make hooks installs .git/hooks/commit-msg, a stub that runs this file): strips AI
+# attribution lines from the message, then runs the commit tests the staged changes select
+# (tools/commit_tests/run.py; make commit-tests runs them by hand). Exit 1 refuses the commit.
+case $1 in /*) msg=$1 ;; *) msg=$PWD/$1 ;; esac
+top=$(git rev-parse --show-toplevel) || exit 1
+cd "$top" || exit 1
+command -v python3 >/dev/null || { echo "commit-tests: no python3: nothing can be checked, so nothing is committed" >&2; exit 1; }
+exec python3 -I tools/commit_tests/run.py --hook commit-msg "$msg"

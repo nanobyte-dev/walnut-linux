@@ -42,8 +42,14 @@ Design
   regeneration after a game-data-packager upgrade diffs as the files that changed. Regenerate when
   our game-data-packager changes or a [data_setup] names a new package (gamedb/README.md
   "[data_setup]"); check.py says when a [data_setup] package is missing from it.
+- tools/gamedb/gdp-manifest.series: the sha256 of our game-data-packager patch series (series_hash(): the
+  series file and every patch it names), written with the manifest, so the commit tests
+  (tools/commit_tests/checks/generated.py) can tell a series change the manifest hasn't followed yet.
+  A separate file, not a key of the manifest: walnut-games packs the manifest, and a hash there would
+  rebuild it for nothing.
 """
 import argparse
+import hashlib
 import importlib.util
 import json
 import sys
@@ -53,6 +59,8 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent.parent
 OUT = HERE / "gdp-manifest.json"
+SERIES_OUT = HERE / "gdp-manifest.series"
+PATCHES = Path("packages/patched/tools/game-data-packager/patches")
 # the most a music package's Ogg Vorbis track may hold (no checksum: ripped and encoded audio differs from
 # copy to copy): ten minutes at about 850 kbit/s, far above oggenc's default quality (~112 kbit/s)
 TRACK_MAX = 64 << 20
@@ -236,6 +244,19 @@ def data_setup_packages(games_dir=None):
     return dict(sorted(names.items()))
 
 
+def series_hash(repo=REPO):
+    """the sha256 of game-data-packager's patch series: the series file, then each patch it names (its name
+    and bytes), in order"""
+    d = Path(repo) / PATCHES
+    series = (d / "series").read_bytes()
+    h = hashlib.sha256(series)
+    for line in series.decode().splitlines():
+        name = line.split("#", 1)[0].strip()
+        if name:
+            h.update(b"\0" + name.split()[0].encode() + b"\0" + (d / name.split()[0]).read_bytes())
+    return h.hexdigest()
+
+
 def render(data):
     """the committed text: the version, then per package its fields and one file per line"""
     blocks = []
@@ -276,6 +297,8 @@ def main(argv=None):
         print("gdp-manifest.py: game-data-packager has no %s" % sorted(set(want) - set(data["packages"])), file=sys.stderr)
         return 2
     Path(a.out).write_text(render(data))
+    if Path(a.out).resolve() == OUT.resolve():
+        SERIES_OUT.write_text("%s  %s/series and its patches (gdp-manifest.py series_hash)\n" % (series_hash(), PATCHES))
     print("gdp-manifest: game-data-packager %s, %d packages, %d files -> %s" % (
         data["gdp_version"], len(data["packages"]), sum(len(v["files"]) for v in data["packages"].values()), a.out))
     return 0

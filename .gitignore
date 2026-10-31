@@ -9,3 +9,4 @@
 /backups/
 __pycache__/
 tools/public-replace.local.txt
+tools/commit-private.local.txt

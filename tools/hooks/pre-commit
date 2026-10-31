@@ -1,0 +1,8 @@
+#!/bin/sh
+# git's pre-commit hook (make hooks installs .git/hooks/pre-commit, a stub that runs this file): refuses a
+# commit whose staged files also have unstaged changes. The checks themselves run in commit-msg, where the
+# message (and its Commit-Tests-Skip lines) exists (tools/commit_tests/run.py).
+top=$(git rev-parse --show-toplevel) || exit 1
+cd "$top" || exit 1
+command -v python3 >/dev/null || { echo "commit-tests: no python3: nothing can be checked, so nothing is committed" >&2; exit 1; }
+exec python3 -I tools/commit_tests/run.py --hook pre-commit

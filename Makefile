@@ -45,7 +45,7 @@ ROOTFS_VARS_NOW := $(foreach v,DEBIAN_SNAPSHOT DEBIAN_SUITE DEBIAN_MIRROR SOURCE
 $(shell mkdir -p $(BUILD); [ "$$(cat $(ROOTFS_VARS) 2>/dev/null)" = "$(ROOTFS_VARS_NOW)" ] || echo "$(ROOTFS_VARS_NOW)" > $(ROOTFS_VARS))
 ROOTFS_BASE_INPUTS := $(ROOTFS_PACKAGES) tools/build-rootfs.sh $(ROOTFS_VARS)
 
-.PHONY: xcc-toolchain gamedb-catalog gamedb-app-pages walnut-rate-bench walnut-server walnut-site walnut-server-test public-push initrd-ssd initrd-walnut initrd-busybox publish du clean-ephemeral chroot packages ps3rsx-modules snd-ps3-ko netboot-deb spu-toolchain spu-tests spu-deploy help all builder rootfs rootfs-base checksums nfs-root usb-root usb-root-petitboot deploy listen shell clean gpu-deploy test test-slow ps3-reboot bench-push bench-pull bench-shots bench-ref bench-matrix \
+.PHONY: xcc-toolchain gamedb-catalog gamedb-app-pages walnut-rate-bench walnut-server walnut-site walnut-server-test public-push initrd-ssd initrd-walnut initrd-busybox publish du clean-ephemeral chroot packages ps3rsx-modules snd-ps3-ko netboot-deb spu-toolchain spu-tests spu-deploy help all builder rootfs rootfs-base checksums nfs-root usb-root usb-root-petitboot deploy listen shell clean gpu-deploy test test-slow commit-tests hooks ps3-reboot bench-push bench-pull bench-shots bench-ref bench-matrix \
 	classicube-audio game-data gdp-index gdp-manifest licensed-data game-debs game-deploy gamedb-integration
 
 help:
@@ -81,6 +81,8 @@ help:
 	@echo "Tests (no PS3):"
 	@echo "  make test         every quick host test suite, a summary table (tools/run-tests.sh)"
 	@echo "  make test-slow    the same plus the container-based ones (autogm); ONLY=<suite> runs one"
+	@echo "  make commit-tests the commit hook's checks on the staged changes (RANGE=A..B, ALL=1: every file)"
+	@echo "  make hooks        install the commit hooks (.git/hooks/pre-commit, commit-msg: tools/hooks/)"
 	@echo "Run:"
 	@echo "  make netboot-deb  boot a kernel from $(BUILD)/debs/linux from Petitboot (FLAVOUR=release|debug,"
 	@echo "                    ROOT=nfs|usb)"
@@ -320,6 +322,14 @@ initrd-ssd: $(BB_PPC64) | $(BUILDER_STAMP)
 
 test:
 	tools/run-tests.sh $(if $(ONLY),--only $(ONLY))
+# The commit tests (tools/commit_tests/run.py; the hooks run them on every commit once make hooks installed
+# them): the staged changes by default, RANGE=A..B what changed between two commits, ALL=1 every tracked file
+# (the backlog); ONLY=check[,check] limits them, V=1 prints each check's time
+commit-tests:
+	python3 -I tools/commit_tests/run.py $(if $(ALL),--all,$(if $(RANGE),--range $(RANGE),--staged)) $(if $(ONLY),--only $(ONLY)) $(if $(V),-v)
+# .git/hooks/pre-commit and commit-msg: stubs that run tools/hooks/<name> (Git LFS's hooks stay as they are)
+hooks:
+	tools/hooks/install.sh
 test-slow:
 	tools/run-tests.sh --slow $(if $(ONLY),--only $(ONLY))
 spu-deploy:
