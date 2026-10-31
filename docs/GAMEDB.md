@@ -521,20 +521,42 @@ Filters opens a panel of the catalog's tag groups (`tag_groups`, gamedb/tags.tom
 some game has: a game shows when it has one of the ticked tags in each group (OR within a group, AND
 across groups, as on the site); the list follows each tick, Done, Escape or Circle closes it. A card opens the game in the right-hand
 pane (PLAN 5.11): its name, medal and score with the hours played, then the actions, then a quick glance.
-The window follows the Walnut palette (`walnut_games.py` has the colours).
+The window follows the Walnut palette (`walnut_palette.py` has the colours, by name).
 
-- **One main button follows the state** (`main_action`): Install; installed with its required data
-  missing, Add game files...; then Play (with several launchers a menu of them, each with its medal);
-  Importing... while an import of this game runs; off while the helper or an import runs, for a game
-  only on the website, or without a launcher. Under it the smaller ones (`side_actions`): Add game
-  files... when it isn't the main one (optional data, the full game in place of a free edition, or the
-  data before the game is installed), Install from Walnut licensed, Try again with download, Remove and
-  Remove data (only with data installed: the helper's `remove-data`, the game stays). The REQUIRED: or
-  OPTIONAL: line is one line under the Add game files... button it concerns. The import's and the
-  helper's progress, errors, the "Also add" buttons and a partial import's notice are under them.
+- **One main button follows the state** (`main_action`), with **Details** next to it: Install; installed
+  with its required data missing, Add game files...; then Play (with several launchers a menu of them,
+  each with its medal); off for a game only on the website or without a launcher. While the game has an
+  action in the queue the button says so and is off: Queued, then Installing..., Removing...,
+  Importing.... Install and Add game files... queue their action while another runs; Play is off while
+  any action runs. Under it the smaller ones (`side_actions`): Add game files... when it isn't the main
+  one (optional data, the full game in place of a free edition, or the data before the game is
+  installed), Install from Walnut licensed, Try again with download, Remove and Remove data (only with
+  data installed: the helper's `remove-data`, the game stays). The REQUIRED: or OPTIONAL: line is one
+  line under the Add game files... button it concerns. The "Also add" buttons, a partial import's notice
+  and a status line (a game starting, Refresh's answer, an import's result) are under them; progress is
+  the queue's.
+- **The queue** (`ActionQueue`, the bottom of the window, the user 2026-10-31): install, remove, remove
+  data, Install from Walnut licensed and imports go into one queue and run one at a time (the helper
+  holds one lock anyway), so the player goes on browsing and queues more meanwhile. Hidden while empty.
+  Collapsed it is one status row, the action and "step N of M: what - X of Y MB" with "about N min left"
+  once there is a pace, and a determinate bar; the ▶ / ▼ toggle opens the list of the actions (a waiting
+  one has Remove; a failed one stays with its error and Dismiss, and the queue goes on with the next) and
+  the running one's last lines. A success shows in the status row for a few seconds. The d-pad reaches
+  the toggle and the list's buttons like any control. Closing the window with actions waiting asks first;
+  the one running carries on (the helper and walnut-data run on their own, as before).
+- **The bar** (`Progress`) is made of the plan, step, progress and count lines of the helper and
+  walnut-data (below). Each step weighs its expected time on the PS3: bytes at a rate for the steps
+  with a size (`STEP_RATE`: reading the source 10 MB/s, the disc in the drive 2.3 MB/s, gdp's deb 14,
+  the helper's checked copy 12, its deb and apt 10, from RollerCoaster Tycoon 2's 581 MB: 102 s for
+  gdp from a folder, about 8 min in all from the PS3's drive), seconds for the rest (`STEP_SECONDS`:
+  the package lists 25, an install 30). Inside a step the bar follows its bytes (count), else its
+  percentage, else the time since it began, up to 95 % of the step (gdp writing its deb, the helper's
+  dpkg-deb): never a bar that only bounces. The time left is the time so far times the share left over
+  the share done (the weights are expected seconds), shown from 3 % and 5 s on. An import started in a
+  terminal is one step filled by time.
 - **The glance**: up to 3 key numbers (the median frame rate, the smoothness score, the installed size
   from `apt-cache show`), the controller and the installed data's edition, up to 4 screenshot thumbnails
-  (a click opens it in Details), Details, Technical notes, Open on the web and the game's home page.
+  (a click opens it in Details), Technical notes, Open on the web and the game's home page.
   The aspects, the launchers' ratings, known issues, the data steps and the patches are in Details.
 - **Details** is the site's pages for the app (`tools/gamedb/build.sh --app`, packaged in
   `/usr/share/walnut-games/pages/`, docs/PACKAGING.md "Walnut Games' catalog and pages") in
@@ -590,7 +612,12 @@ The window follows the Walnut palette (`walnut_games.py` has the colours).
   can't lead to. Each launcher starts through its runtime menu copy
   (`$XDG_RUNTIME_DIR/ps3-game-menu/applications/`, Exec through `ps3-game`), else `ps3-game` plus the
   entry's Exec (field codes cut out, no shell). With more than one launcher, Play opens a menu of them
-  by their names. Its output goes to `~/.cache/walnut-games/<id>.log`; a game that quits within 20 s
+  by their names. Hidden and NoDisplay entries are left out (`entry_shown`: OpenRCT2's package also
+  ships its saved-game, scenario and openrct2:// handlers, all Name=OpenRCT2, which made Play a menu of
+  four alike), except our data launchers (`X-Walnut-Requires`, packed NoDisplay), offered once every
+  file they name exists. Two entries left with the same Name are told apart (`distinct_labels`): their
+  Comment when those differ, else the arguments only one has, else a number. A test runs every GameDB
+  launcher and the menu entries of the debs in build/debs through it: no game has two alike. Its output goes to `~/.cache/walnut-games/<id>.log`; a game that quits within 20 s
   says so in the status line. Play is
   off while an install or removal runs: game mode would freeze the helper with dpkg's lock held. After
   either, the app runs `ps3-game-menu "$XDG_RUNTIME_DIR/ps3-game-menu"` so the new entry exists.
@@ -610,7 +637,11 @@ The window follows the Walnut palette (`walnut_games.py` has the colours).
   metapackage still installed) manual when apt has it automatic, so removing a metapackage leaves no game
   to autoremove;
   it never runs autoremove; SIGHUP and SIGPIPE are ignored, so closing the app never stops dpkg halfway.
-  Output is `progress N text`, `log`, `error` lines; exit 0 done, 2 refused, 1 apt failed.
+  Output is `plan STEP...` (its steps, at its start: lists, download, install; remove; check, deb, apt for
+  import-data), `step STEP text` (one begins), `progress N text` (percent of the current step: apt's
+  APT::Status-Fd dlstatus for downloads and the lists, pmstatus for unpacking and removing), `count DONE
+  TOTAL` (bytes: the download from apt's "Need to get" and its percentage, import-data's checked copy),
+  `log`, `error` lines; exit 0 done, 2 refused, 1 apt failed.
 - **Game data.** A game whose data comes from the player's own copy (Doom, Quake's full game, RollerCoaster
   Tycoon 2 for OpenRCT2, TTD's original graphics for OpenTTD) has a `[data_setup]` in its build.toml
   (gamedb/README.md): the game-data-packager (gdp) game, the packages any one of which makes it playable, the
@@ -626,10 +657,17 @@ The window follows the Walnut palette (`walnut_games.py` has the colours).
   with a label under it that starts with the tag REQUIRED: or OPTIONAL: and names the original game
   (`[data_setup] original`, default the game's title). Play stays off while required data is missing. The chooser is a window of big buttons (the pad is the pointer; arrows, Enter, Escape):
   the disc in the drive, `/media` and `/run/media` mounts, GOG and Steam folders, `*.iso`, `*.img`, `*.zip`,
-  `*.exe` and `gog_*.sh` in Downloads and the home folder, Other file and Other folder, with the game's hint.
-  The import runs in its own session with its output in `~/.cache/walnut-games/import.log`; the app shows
-  the step, the file being read, the elapsed time, the last log lines and a moving bar. Closing the app
-  leaves it running; reopened, the app finds it by walnut-data's lock. Errors are in English from gdp's
+  `*.exe` and `gog_*.sh` in Downloads and the home folder, with the game's hint above; it is one list,
+  "Select a source" (`source_list`): a free download the game has, the sources found (the disc by its
+  label), then From a file... and From a folder... (Tk's dialogs), each naming what this game takes
+  (`source_kinds`): the installers and archives game-data-packager knows for its packages (the data
+  manifest's `archives`: a GOG installer, a .zip archive, a Linux installer...; a file only found inside
+  a disc or under a non-free unpacker is not offered) and the disc images walnut-data opens (a test keeps
+  them the same as its code); an installed copy, the disc's files, a Steam or GOG folder when gdp knows
+  such a release. No buttons under the list. A choice queues the import. It runs in its own session with
+  its output in `~/.cache/walnut-games/import.log`, read into the queue's row and bar. Closing the app
+  leaves it running; reopened, the app finds it by walnut-data's lock and shows it as the queue's
+  running action. Errors are in English from gdp's
   kinds (`not-found`, `unknown-version`, `unsuitable`, `needs-download` with "Try again with download",
   `no-space` with walnut-data's figures, `failed` with the last log lines). After an import or an install
   `ps3-game-menu --reload` shows the launchers the data added (`X-Walnut-Requires`), and the page names them.
@@ -646,7 +684,12 @@ The window follows the Walnut palette (`walnut_games.py` has the colours).
   installs it after apt's simulation shows nothing else changing (docs/PACKAGING.md "Data built on the
   console"). `walnut-data list` shows each game's data state, `remove <id>` and `install-repo <id>` call
   the helper's `remove-data` and `install-repo-data`. Every helper action holds one lock; a second is
-  refused as busy, and `status` says `importing` meanwhile.
+  refused as busy, and `status` says `importing` meanwhile. For the app's bar an import also says `plan
+  read:B build:B check:B deb:B apt:B` (gdp reads the sources and builds, then the helper's checked
+  copy, deb and apt for each package, with the bytes; first as expected, again with what gdp made),
+  `step read ...` and `step build ...` (gdp's "building"), and `count DONE TOTAL` as gdp's `file` lines
+  reach the packages' files (`ReadCount`: by base name and size against the manifest, each once); the
+  helper's lines pass through without its plan.
 - **Editions.** Sessions record the data (see "Sessions merge on the same data edition" above), and a
   rating merges only sessions on the newest one's editions.
 - Tests: `packages/walnut/apps/walnut-games/tests/test_walnut_data.py` (make test ONLY=walnut-data): import-data
@@ -655,8 +698,12 @@ The window follows the Walnut palette (`walnut_games.py` has the colours).
   `packages/walnut/apps/walnut-games/tests/test_walnut_games.py` (make test ONLY=walnut-games): the helper's validation,
   catalog mapping, cascade refusal (with a fake `apt-get -s`), install arguments and status relay (a fake
   apt-get writes to the status descriptor), Exec parsing, filters, the main button in every state, the
-  walnut:// links and the hand-off, the pad's buttons, and window smoke tests on a private Xvfb/Xvnc
-  (skipped when neither exists): the pane's states, Details with and without (a fake) tkinterweb.
+  walnut:// links and the hand-off, the pad's buttons, Play's launchers (OpenRCT2's four entries, data
+  launchers, the labels told apart, every GameDB launcher and build/debs' entries), the bar (plan, step,
+  count, time-filled steps, the estimate), the queue (order, removal, a failure then the next), the
+  source list, and window smoke tests on a private Xvfb/Xvnc (skipped when neither exists): the pane's
+  states, Details with and without (a fake) tkinterweb, the queue with a fake helper (collapsed,
+  expanded, the d-pad down to it, a removal, the close question, a failure then the next).
 
 **The HTML view** (Details, PLAN 5.11) is Tkhtml 3.0 through TkinterWeb: packages `tk-html3` and
 `python3-tkinterweb` (packages/repackaged/; neither is in Debian, and PyPI's wheels carry Tkhtml for x86

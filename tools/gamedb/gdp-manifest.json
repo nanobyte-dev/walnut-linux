@@ -2,6 +2,7 @@
  "gdp_version": "89",
  "packages": {
   "dayofthetentacle-de-data": {
+   "archives": [],
    "conflicts": [],
    "edition": "full",
    "game": "tentacle",
@@ -17,6 +18,7 @@
    }
   },
   "dayofthetentacle-en-data": {
+   "archives": [],
    "conflicts": [],
    "edition": "full",
    "game": "tentacle",
@@ -33,6 +35,7 @@
    }
   },
   "dayofthetentacle-es-data": {
+   "archives": [],
    "conflicts": [],
    "edition": "full",
    "game": "tentacle",
@@ -49,6 +52,7 @@
    }
   },
   "dayofthetentacle-floppy-de-data": {
+   "archives": [],
    "conflicts": [],
    "edition": "full",
    "game": "tentacle",
@@ -64,6 +68,7 @@
    }
   },
   "dayofthetentacle-floppy-en-data": {
+   "archives": [],
    "conflicts": [],
    "edition": "full",
    "game": "tentacle",
@@ -79,6 +84,7 @@
    }
   },
   "dayofthetentacle-floppy-es-data": {
+   "archives": [],
    "conflicts": [],
    "edition": "full",
    "game": "tentacle",
@@ -94,6 +100,7 @@
    }
   },
   "dayofthetentacle-floppy-fr-data": {
+   "archives": [],
    "conflicts": [],
    "edition": "full",
    "game": "tentacle",
@@ -109,6 +116,7 @@
    }
   },
   "dayofthetentacle-floppy-it-data": {
+   "archives": [],
    "conflicts": [],
    "edition": "full",
    "game": "tentacle",
@@ -124,6 +132,7 @@
    }
   },
   "dayofthetentacle-fr-data": {
+   "archives": [],
    "conflicts": [],
    "edition": "full",
    "game": "tentacle",
@@ -140,6 +149,7 @@
    }
   },
   "dayofthetentacle-it-data": {
+   "archives": [],
    "conflicts": [],
    "edition": "full",
    "game": "tentacle",
@@ -156,6 +166,7 @@
    }
   },
   "diablo-data": {
+   "archives": [{"format": "innoextract", "name": "setup_diablo_1.09_hellfire_v4_(78466).exe", "top": true}],
    "conflicts": [],
    "edition": "full",
    "game": "diablo",
@@ -174,6 +185,7 @@
    }
   },
   "diablo-hellfire-data": {
+   "archives": [{"format": "innoextract", "name": "setup_diablo_1.09_hellfire_v4_(78466).exe", "top": true}],
    "conflicts": [],
    "edition": "expansion",
    "game": "diablo",
@@ -190,6 +202,7 @@
    }
   },
   "doom-wad": {
+   "archives": [{"format": "innoextract", "name": "setup_doom_3_bfg_1.14_(13452)_(g).exe", "top": true}, {"format": "innoextract", "name": "setup_the_ultimate_doom_2.0.0.3.exe", "top": true}],
    "conflicts": [],
    "edition": "full",
    "game": "doom",
@@ -205,6 +218,7 @@
    }
   },
   "doom2-wad": {
+   "archives": [{"format": "innoextract", "name": "setup_doom2_2.0.0.6.exe", "top": true}, {"format": "innoextract", "name": "setup_doom_3_bfg_1.14_(13452)_(g).exe", "top": true}],
    "conflicts": [],
    "edition": "full",
    "game": "doom2",
@@ -219,6 +233,7 @@
    }
   },
   "fate-of-atlantis-de-data": {
+   "archives": [{"format": "deb", "name": "gog_indiana_jones_and_the_fate_of_atlantis_1.1.0.24.deb", "top": true}, {"format": "zip", "name": "gog_indiana_jones_and_the_fate_of_atlantis_2.2.0.27.sh", "top": true}, {"format": "zip", "name": "gog_indiana_jones_and_the_fate_of_atlantis_french_2.2.0.27.sh", "top": true}, {"format": "zip", "name": "gog_indiana_jones_and_the_fate_of_atlantis_german_2.2.0.27.sh", "top": true}, {"format": "zip", "name": "gog_indiana_jones_and_the_fate_of_atlantis_italian_2.2.0.27.sh", "top": true}, {"format": "zip", "name": "gog_indiana_jones_and_the_fate_of_atlantis_spanish_2.2.0.27.sh", "top": true}, {"format": "zip", "name": "indiana_jones_and_the_fate_of_atlantis_de_gog_2_20145.sh", "top": true}, {"format": "zip", "name": "indiana_jones_and_the_fate_of_atlantis_en_gog_2_20145.sh", "top": true}, {"format": "zip", "name": "indiana_jones_and_the_fate_of_atlantis_es_gog_2_20145.sh", "top": true}, {"format": "zip", "name": "indiana_jones_and_the_fate_of_atlantis_fr_gog_2_20145.sh", "top": true}, {"format": "zip", "name": "indiana_jones_and_the_fate_of_atlantis_it_gog_2_20145.sh", "top": true}, {"format": "innoextract", "name": "setup_indiana_jones_and_the_fate_of_atlantis_1.0_(20270).exe", "top": true}, {"format": "innoextract", "name": "setup_indiana_jones_and_the_fate_of_atlantis_2.1.0.8.exe", "top": true}, {"format": "innoextract", "name": "setup_indiana_jones_and_the_fate_of_atlantis_french_2.0.0.7.exe", "top": true}, {"format": "innoextract", "name": "setup_indiana_jones_and_the_fate_of_atlantis_german_2.0.0.7.exe", "top": true}, {"format": "innoextract", "name": "setup_indiana_jones_and_the_fate_of_atlantis_italian_2.1.0.8.exe", "top": true}, {"format": "innoextract", "name": "setup_indiana_jones_and_the_fate_of_atlantis_spanish_2.0.0.7.exe", "top": true}],
    "conflicts": [],
    "edition": "full",
    "game": "atlantis",
@@ -236,6 +251,7 @@
    }
   },
   "fate-of-atlantis-en-data": {
+   "archives": [{"format": "deb", "name": "gog_indiana_jones_and_the_fate_of_atlantis_1.1.0.24.deb", "top": true}, {"format": "zip", "name": "gog_indiana_jones_and_the_fate_of_atlantis_2.2.0.27.sh", "top": true}, {"format": "zip", "name": "gog_indiana_jones_and_the_fate_of_atlantis_french_2.2.0.27.sh", "top": true}, {"format": "zip", "name": "gog_indiana_jones_and_the_fate_of_atlantis_german_2.2.0.27.sh", "top": true}, {"format": "zip", "name": "gog_indiana_jones_and_the_fate_of_atlantis_italian_2.2.0.27.sh", "top": true}, {"format": "zip", "name": "gog_indiana_jones_and_the_fate_of_atlantis_spanish_2.2.0.27.sh", "top": true}, {"format": "zip", "name": "indiana_jones_and_the_fate_of_atlantis_de_gog_2_20145.sh", "top": true}, {"format": "zip", "name": "indiana_jones_and_the_fate_of_atlantis_en_gog_2_20145.sh", "top": true}, {"format": "zip", "name": "indiana_jones_and_the_fate_of_atlantis_es_gog_2_20145.sh", "top": true}, {"format": "zip", "name": "indiana_jones_and_the_fate_of_atlantis_fr_gog_2_20145.sh", "top": true}, {"format": "zip", "name": "indiana_jones_and_the_fate_of_atlantis_it_gog_2_20145.sh", "top": true}, {"format": "innoextract", "name": "setup_indiana_jones_and_the_fate_of_atlantis_1.0_(20270).exe", "top": true}, {"format": "innoextract", "name": "setup_indiana_jones_and_the_fate_of_atlantis_2.1.0.8.exe", "top": true}, {"format": "innoextract", "name": "setup_indiana_jones_and_the_fate_of_atlantis_french_2.0.0.7.exe", "top": true}, {"format": "innoextract", "name": "setup_indiana_jones_and_the_fate_of_atlantis_german_2.0.0.7.exe", "top": true}, {"format": "innoextract", "name": "setup_indiana_jones_and_the_fate_of_atlantis_italian_2.1.0.8.exe", "top": true}, {"format": "innoextract", "name": "setup_indiana_jones_and_the_fate_of_atlantis_spanish_2.0.0.7.exe", "top": true}],
    "conflicts": [],
    "edition": "full",
    "game": "atlantis",
@@ -253,6 +269,7 @@
    }
   },
   "fate-of-atlantis-es-data": {
+   "archives": [{"format": "deb", "name": "gog_indiana_jones_and_the_fate_of_atlantis_1.1.0.24.deb", "top": true}, {"format": "zip", "name": "gog_indiana_jones_and_the_fate_of_atlantis_2.2.0.27.sh", "top": true}, {"format": "zip", "name": "gog_indiana_jones_and_the_fate_of_atlantis_french_2.2.0.27.sh", "top": true}, {"format": "zip", "name": "gog_indiana_jones_and_the_fate_of_atlantis_german_2.2.0.27.sh", "top": true}, {"format": "zip", "name": "gog_indiana_jones_and_the_fate_of_atlantis_italian_2.2.0.27.sh", "top": true}, {"format": "zip", "name": "gog_indiana_jones_and_the_fate_of_atlantis_spanish_2.2.0.27.sh", "top": true}, {"format": "zip", "name": "indiana_jones_and_the_fate_of_atlantis_de_gog_2_20145.sh", "top": true}, {"format": "zip", "name": "indiana_jones_and_the_fate_of_atlantis_en_gog_2_20145.sh", "top": true}, {"format": "zip", "name": "indiana_jones_and_the_fate_of_atlantis_es_gog_2_20145.sh", "top": true}, {"format": "zip", "name": "indiana_jones_and_the_fate_of_atlantis_fr_gog_2_20145.sh", "top": true}, {"format": "zip", "name": "indiana_jones_and_the_fate_of_atlantis_it_gog_2_20145.sh", "top": true}, {"format": "innoextract", "name": "setup_indiana_jones_and_the_fate_of_atlantis_1.0_(20270).exe", "top": true}, {"format": "innoextract", "name": "setup_indiana_jones_and_the_fate_of_atlantis_2.1.0.8.exe", "top": true}, {"format": "innoextract", "name": "setup_indiana_jones_and_the_fate_of_atlantis_french_2.0.0.7.exe", "top": true}, {"format": "innoextract", "name": "setup_indiana_jones_and_the_fate_of_atlantis_german_2.0.0.7.exe", "top": true}, {"format": "innoextract", "name": "setup_indiana_jones_and_the_fate_of_atlantis_italian_2.1.0.8.exe", "top": true}, {"format": "innoextract", "name": "setup_indiana_jones_and_the_fate_of_atlantis_spanish_2.0.0.7.exe", "top": true}],
    "conflicts": [],
    "edition": "full",
    "game": "atlantis",
@@ -270,6 +287,7 @@
    }
   },
   "fate-of-atlantis-floppy-de-data": {
+   "archives": [{"format": "deb", "name": "gog_indiana_jones_and_the_fate_of_atlantis_1.1.0.24.deb", "top": true}, {"format": "zip", "name": "gog_indiana_jones_and_the_fate_of_atlantis_2.2.0.27.sh", "top": true}, {"format": "zip", "name": "gog_indiana_jones_and_the_fate_of_atlantis_french_2.2.0.27.sh", "top": true}, {"format": "zip", "name": "gog_indiana_jones_and_the_fate_of_atlantis_german_2.2.0.27.sh", "top": true}, {"format": "zip", "name": "gog_indiana_jones_and_the_fate_of_atlantis_italian_2.2.0.27.sh", "top": true}, {"format": "zip", "name": "gog_indiana_jones_and_the_fate_of_atlantis_spanish_2.2.0.27.sh", "top": true}, {"format": "zip", "name": "indiana_jones_and_the_fate_of_atlantis_de_gog_2_20145.sh", "top": true}, {"format": "zip", "name": "indiana_jones_and_the_fate_of_atlantis_en_gog_2_20145.sh", "top": true}, {"format": "zip", "name": "indiana_jones_and_the_fate_of_atlantis_es_gog_2_20145.sh", "top": true}, {"format": "zip", "name": "indiana_jones_and_the_fate_of_atlantis_fr_gog_2_20145.sh", "top": true}, {"format": "zip", "name": "indiana_jones_and_the_fate_of_atlantis_it_gog_2_20145.sh", "top": true}, {"format": "innoextract", "name": "setup_indiana_jones_and_the_fate_of_atlantis_1.0_(20270).exe", "top": true}, {"format": "innoextract", "name": "setup_indiana_jones_and_the_fate_of_atlantis_2.1.0.8.exe", "top": true}, {"format": "innoextract", "name": "setup_indiana_jones_and_the_fate_of_atlantis_french_2.0.0.7.exe", "top": true}, {"format": "innoextract", "name": "setup_indiana_jones_and_the_fate_of_atlantis_german_2.0.0.7.exe", "top": true}, {"format": "innoextract", "name": "setup_indiana_jones_and_the_fate_of_atlantis_italian_2.1.0.8.exe", "top": true}, {"format": "innoextract", "name": "setup_indiana_jones_and_the_fate_of_atlantis_spanish_2.0.0.7.exe", "top": true}],
    "conflicts": [],
    "edition": "full",
    "game": "atlantis",
@@ -286,6 +304,7 @@
    }
   },
   "fate-of-atlantis-floppy-es-data": {
+   "archives": [{"format": "deb", "name": "gog_indiana_jones_and_the_fate_of_atlantis_1.1.0.24.deb", "top": true}, {"format": "zip", "name": "gog_indiana_jones_and_the_fate_of_atlantis_2.2.0.27.sh", "top": true}, {"format": "zip", "name": "gog_indiana_jones_and_the_fate_of_atlantis_french_2.2.0.27.sh", "top": true}, {"format": "zip", "name": "gog_indiana_jones_and_the_fate_of_atlantis_german_2.2.0.27.sh", "top": true}, {"format": "zip", "name": "gog_indiana_jones_and_the_fate_of_atlantis_italian_2.2.0.27.sh", "top": true}, {"format": "zip", "name": "gog_indiana_jones_and_the_fate_of_atlantis_spanish_2.2.0.27.sh", "top": true}, {"format": "zip", "name": "indiana_jones_and_the_fate_of_atlantis_de_gog_2_20145.sh", "top": true}, {"format": "zip", "name": "indiana_jones_and_the_fate_of_atlantis_en_gog_2_20145.sh", "top": true}, {"format": "zip", "name": "indiana_jones_and_the_fate_of_atlantis_es_gog_2_20145.sh", "top": true}, {"format": "zip", "name": "indiana_jones_and_the_fate_of_atlantis_fr_gog_2_20145.sh", "top": true}, {"format": "zip", "name": "indiana_jones_and_the_fate_of_atlantis_it_gog_2_20145.sh", "top": true}, {"format": "innoextract", "name": "setup_indiana_jones_and_the_fate_of_atlantis_1.0_(20270).exe", "top": true}, {"format": "innoextract", "name": "setup_indiana_jones_and_the_fate_of_atlantis_2.1.0.8.exe", "top": true}, {"format": "innoextract", "name": "setup_indiana_jones_and_the_fate_of_atlantis_french_2.0.0.7.exe", "top": true}, {"format": "innoextract", "name": "setup_indiana_jones_and_the_fate_of_atlantis_german_2.0.0.7.exe", "top": true}, {"format": "innoextract", "name": "setup_indiana_jones_and_the_fate_of_atlantis_italian_2.1.0.8.exe", "top": true}, {"format": "innoextract", "name": "setup_indiana_jones_and_the_fate_of_atlantis_spanish_2.0.0.7.exe", "top": true}],
    "conflicts": [],
    "edition": "full",
    "game": "atlantis",
@@ -302,6 +321,7 @@
    }
   },
   "fate-of-atlantis-fr-data": {
+   "archives": [{"format": "deb", "name": "gog_indiana_jones_and_the_fate_of_atlantis_1.1.0.24.deb", "top": true}, {"format": "zip", "name": "gog_indiana_jones_and_the_fate_of_atlantis_2.2.0.27.sh", "top": true}, {"format": "zip", "name": "gog_indiana_jones_and_the_fate_of_atlantis_french_2.2.0.27.sh", "top": true}, {"format": "zip", "name": "gog_indiana_jones_and_the_fate_of_atlantis_german_2.2.0.27.sh", "top": true}, {"format": "zip", "name": "gog_indiana_jones_and_the_fate_of_atlantis_italian_2.2.0.27.sh", "top": true}, {"format": "zip", "name": "gog_indiana_jones_and_the_fate_of_atlantis_spanish_2.2.0.27.sh", "top": true}, {"format": "zip", "name": "indiana_jones_and_the_fate_of_atlantis_de_gog_2_20145.sh", "top": true}, {"format": "zip", "name": "indiana_jones_and_the_fate_of_atlantis_en_gog_2_20145.sh", "top": true}, {"format": "zip", "name": "indiana_jones_and_the_fate_of_atlantis_es_gog_2_20145.sh", "top": true}, {"format": "zip", "name": "indiana_jones_and_the_fate_of_atlantis_fr_gog_2_20145.sh", "top": true}, {"format": "zip", "name": "indiana_jones_and_the_fate_of_atlantis_it_gog_2_20145.sh", "top": true}, {"format": "innoextract", "name": "setup_indiana_jones_and_the_fate_of_atlantis_1.0_(20270).exe", "top": true}, {"format": "innoextract", "name": "setup_indiana_jones_and_the_fate_of_atlantis_2.1.0.8.exe", "top": true}, {"format": "innoextract", "name": "setup_indiana_jones_and_the_fate_of_atlantis_french_2.0.0.7.exe", "top": true}, {"format": "innoextract", "name": "setup_indiana_jones_and_the_fate_of_atlantis_german_2.0.0.7.exe", "top": true}, {"format": "innoextract", "name": "setup_indiana_jones_and_the_fate_of_atlantis_italian_2.1.0.8.exe", "top": true}, {"format": "innoextract", "name": "setup_indiana_jones_and_the_fate_of_atlantis_spanish_2.0.0.7.exe", "top": true}],
    "conflicts": [],
    "edition": "full",
    "game": "atlantis",
@@ -318,6 +338,7 @@
    }
   },
   "fate-of-atlantis-it-data": {
+   "archives": [{"format": "deb", "name": "gog_indiana_jones_and_the_fate_of_atlantis_1.1.0.24.deb", "top": true}, {"format": "zip", "name": "gog_indiana_jones_and_the_fate_of_atlantis_2.2.0.27.sh", "top": true}, {"format": "zip", "name": "gog_indiana_jones_and_the_fate_of_atlantis_french_2.2.0.27.sh", "top": true}, {"format": "zip", "name": "gog_indiana_jones_and_the_fate_of_atlantis_german_2.2.0.27.sh", "top": true}, {"format": "zip", "name": "gog_indiana_jones_and_the_fate_of_atlantis_italian_2.2.0.27.sh", "top": true}, {"format": "zip", "name": "gog_indiana_jones_and_the_fate_of_atlantis_spanish_2.2.0.27.sh", "top": true}, {"format": "zip", "name": "indiana_jones_and_the_fate_of_atlantis_de_gog_2_20145.sh", "top": true}, {"format": "zip", "name": "indiana_jones_and_the_fate_of_atlantis_en_gog_2_20145.sh", "top": true}, {"format": "zip", "name": "indiana_jones_and_the_fate_of_atlantis_es_gog_2_20145.sh", "top": true}, {"format": "zip", "name": "indiana_jones_and_the_fate_of_atlantis_fr_gog_2_20145.sh", "top": true}, {"format": "zip", "name": "indiana_jones_and_the_fate_of_atlantis_it_gog_2_20145.sh", "top": true}, {"format": "innoextract", "name": "setup_indiana_jones_and_the_fate_of_atlantis_1.0_(20270).exe", "top": true}, {"format": "innoextract", "name": "setup_indiana_jones_and_the_fate_of_atlantis_2.1.0.8.exe", "top": true}, {"format": "innoextract", "name": "setup_indiana_jones_and_the_fate_of_atlantis_french_2.0.0.7.exe", "top": true}, {"format": "innoextract", "name": "setup_indiana_jones_and_the_fate_of_atlantis_german_2.0.0.7.exe", "top": true}, {"format": "innoextract", "name": "setup_indiana_jones_and_the_fate_of_atlantis_italian_2.1.0.8.exe", "top": true}, {"format": "innoextract", "name": "setup_indiana_jones_and_the_fate_of_atlantis_spanish_2.0.0.7.exe", "top": true}],
    "conflicts": [],
    "edition": "full",
    "game": "atlantis",
@@ -334,6 +355,7 @@
    }
   },
   "heretic-wad": {
+   "archives": [{"format": "innoextract", "name": "setup_heretic_shadow_of_the_serpent_riders_1.3_(42801).exe", "top": true}],
    "conflicts": [],
    "edition": "full",
    "game": "heretic",
@@ -347,6 +369,7 @@
    }
   },
   "hexen-deathkings-wad": {
+   "archives": [],
    "conflicts": [],
    "edition": "expansion",
    "game": "hexen",
@@ -360,6 +383,7 @@
    }
   },
   "hexen-wad": {
+   "archives": [{"format": "innoextract", "name": "setup_hexen_beyond_heretic_1.1_(42801).exe", "top": true}],
    "conflicts": [],
    "edition": "full",
    "game": "hexen",
@@ -373,6 +397,7 @@
    }
   },
   "loom-ega-data": {
+   "archives": [{"format": "zip", "name": "loomup.exe", "top": false}, {"format": "zip", "name": "loomup.zip", "top": true}],
    "conflicts": [],
    "edition": "full",
    "game": "loom",
@@ -463,6 +488,7 @@
    }
   },
   "loom-ega-de-data": {
+   "archives": [{"format": "zip", "name": "loomup.exe", "top": false}, {"format": "zip", "name": "loomup.zip", "top": true}],
    "conflicts": [],
    "edition": "full",
    "game": "loom",
@@ -553,6 +579,7 @@
    }
   },
   "loom-ega-es-data": {
+   "archives": [],
    "conflicts": [],
    "edition": "full",
    "game": "loom",
@@ -639,6 +666,7 @@
    }
   },
   "loom-ega-fr-data": {
+   "archives": [{"format": "zip", "name": "loomup.exe", "top": false}, {"format": "zip", "name": "loomup.zip", "top": true}],
    "conflicts": [],
    "edition": "full",
    "game": "loom",
@@ -729,6 +757,7 @@
    }
   },
   "monkey-island2-de-alt-data": {
+   "archives": [],
    "conflicts": [],
    "edition": "full",
    "game": "monkey2",
@@ -745,6 +774,7 @@
    }
   },
   "monkey-island2-de-data": {
+   "archives": [],
    "conflicts": [],
    "edition": "full",
    "game": "monkey2",
@@ -761,6 +791,7 @@
    }
   },
   "monkey-island2-en-data": {
+   "archives": [],
    "conflicts": [],
    "edition": "full",
    "game": "monkey2",
@@ -777,6 +808,7 @@
    }
   },
   "monkey-island2-es-data": {
+   "archives": [],
    "conflicts": [],
    "edition": "full",
    "game": "monkey2",
@@ -793,6 +825,7 @@
    }
   },
   "monkey-island2-fr-data": {
+   "archives": [],
    "conflicts": [],
    "edition": "full",
    "game": "monkey2",
@@ -809,6 +842,7 @@
    }
   },
   "monkey-island2-it-alt-data": {
+   "archives": [],
    "conflicts": [],
    "edition": "full",
    "game": "monkey2",
@@ -825,6 +859,7 @@
    }
   },
   "monkey-island2-it-data": {
+   "archives": [],
    "conflicts": [],
    "edition": "full",
    "game": "monkey2",
@@ -841,6 +876,7 @@
    }
   },
   "plutonia-wad": {
+   "archives": [{"format": "innoextract", "name": "setup_final_doom_2.0.0.5.exe", "top": true}],
    "conflicts": [],
    "edition": "full",
    "game": "final-doom",
@@ -855,6 +891,7 @@
    }
   },
   "quake-music": {
+   "archives": [{"format": "zip", "name": "quake_campaign_soundtrack.zip", "top": true}],
    "conflicts": [],
    "edition": "music",
    "game": "quake",
@@ -869,6 +906,7 @@
    }
   },
   "quake-registered": {
+   "archives": [{"format": "cat", "name": "q101_int.1", "top": true}, {"format": "lha", "name": "q101_int.exe", "top": false}, {"format": "zip", "name": "quake106.zip", "top": true}, {"format": "lha", "name": "resource.1", "top": true}, {"format": "lha", "name": "resource.1", "top": false}, {"format": "innoextract", "name": "setup_quake_the_offering_2.0.0.6.exe", "top": true}],
    "conflicts": ["quake-shareware"],
    "edition": "full",
    "game": "quake",
@@ -888,6 +926,7 @@
    }
   },
   "quake-rerelease": {
+   "archives": [{"format": "zip", "name": "QuakeEX.kpf", "top": false}, {"format": "zip", "name": "quake_campaign_soundtrack.zip", "top": true}, {"format": "innoextract", "name": "setup_quake_enhanced_1.0_(60828).exe", "top": true}],
    "conflicts": [],
    "edition": "remaster",
    "game": "quake",
@@ -912,6 +951,7 @@
    }
   },
   "quake-rerelease-armagon": {
+   "archives": [{"format": "innoextract", "name": "setup_quake_enhanced_1.0_(60828).exe", "top": true}],
    "conflicts": [],
    "edition": "expansion",
    "game": "quake",
@@ -933,6 +973,7 @@
    }
   },
   "quake-rerelease-dimension-of-the-machine": {
+   "archives": [{"format": "innoextract", "name": "setup_quake_enhanced_1.0_(60828).exe", "top": true}],
    "conflicts": [],
    "edition": "expansion",
    "game": "quake",
@@ -946,6 +987,7 @@
    }
   },
   "quake-rerelease-dissolution": {
+   "archives": [{"format": "innoextract", "name": "setup_quake_enhanced_1.0_(60828).exe", "top": true}],
    "conflicts": [],
    "edition": "expansion",
    "game": "quake",
@@ -967,6 +1009,7 @@
    }
   },
   "quake-rerelease-dopa": {
+   "archives": [{"format": "innoextract", "name": "setup_quake_enhanced_1.0_(60828).exe", "top": true}],
    "conflicts": [],
    "edition": "expansion",
    "game": "quake",
@@ -980,6 +1023,7 @@
    }
   },
   "quake-shareware": {
+   "archives": [{"format": "zip", "name": "quake106.zip", "top": true}, {"format": "lha", "name": "resource.1", "top": true}, {"format": "lha", "name": "resource.1", "top": false}, {"format": "innoextract", "name": "setup_quake_the_offering_2.0.0.6.exe", "top": true}],
    "conflicts": ["quake-registered"],
    "edition": "shareware",
    "game": "quake",
@@ -995,6 +1039,7 @@
    }
   },
   "quake2-demo-data": {
+   "archives": [{"format": "zip", "name": "q2-3.20-x86-full-ctf.exe", "top": true}, {"format": "zip", "name": "q2-314-demo-x86.exe", "top": true}, {"format": "innoextract", "name": "setup_quake2_quad_damage_2.0.0.3.exe", "top": true}],
    "conflicts": [],
    "edition": "demo",
    "game": "quake2",
@@ -1192,6 +1237,7 @@
    }
   },
   "quake2-full-data": {
+   "archives": [{"format": "tar.gz", "name": "dm_64.tar.gz", "top": true}, {"format": "tar.gz", "name": "match1.tar.gz", "top": true}, {"format": "zip", "name": "q2-3.20-x86-full-ctf.exe", "top": true}, {"format": "zip", "name": "q2-314-demo-x86.exe", "top": true}, {"format": "tar.gz", "name": "q2ctf4a.tar.gz", "top": true}, {"format": "innoextract", "name": "setup_quake2_quad_damage_2.0.0.3.exe", "top": true}],
    "conflicts": [],
    "edition": "full",
    "game": "quake2",
@@ -1564,6 +1610,7 @@
    }
   },
   "quake2-music": {
+   "archives": [],
    "conflicts": [],
    "edition": "music",
    "game": "quake2",
@@ -1578,6 +1625,7 @@
    }
   },
   "quake3-data": {
+   "archives": [{"format": "tar.gz", "name": "linuxq3ademo-1.11-6.x86.gz.sh", "top": true}, {"format": "tar.gz", "name": "linuxq3apoint-1.32b-3.x86.run", "top": true}, {"format": "innoextract", "name": "setup_quake3_2.0.0.2.exe", "top": true}],
    "conflicts": [],
    "edition": "full",
    "game": "quake3",
@@ -1819,6 +1867,7 @@
    }
   },
   "quake3-team-arena-data": {
+   "archives": [{"format": "tar.gz", "name": "linuxq3apoint-1.32b-3.x86.run", "top": true}, {"format": "innoextract", "name": "setup_quake3_2.0.0.2.exe", "top": true}],
    "conflicts": [],
    "edition": "expansion",
    "game": "quake3",
@@ -1835,6 +1884,7 @@
    }
   },
   "roller-coaster-tycoon2-data": {
+   "archives": [{"format": "unrar-nonfree", "name": "RollerCoasterTycoon2TTP_EN.exe", "top": true}, {"format": "zip", "name": "RollerCoasterTycoon2TTP_EN.zip", "top": true}, {"format": "unshield", "name": "data1.cab", "top": true}, {"format": "unshield", "name": "data1.cab", "top": true}, {"format": "innoextract", "name": "setup_rollercoaster_tycoon2_2.0.0.6.exe", "top": true}, {"format": "innoextract", "name": "setup_rollercoaster_tycoon2_2.0.0.6.exe", "top": true}, {"format": "innoextract", "name": "setup_rollercoaster_tycoon_2_triple_thrill_pack_2.01.043_(17987).exe", "top": true}],
    "conflicts": [],
    "edition": "full",
    "game": "roller-coaster-tycoon2",
@@ -2885,6 +2935,7 @@
    }
   },
   "roller-coaster-tycoon2-wacky-worlds-time-twister-data": {
+   "archives": [{"format": "unrar-nonfree", "name": "RollerCoasterTycoon2TTP_EN.exe", "top": true}, {"format": "zip", "name": "RollerCoasterTycoon2TTP_EN.zip", "top": true}, {"format": "unshield", "name": "data1.cab", "top": true}, {"format": "innoextract", "name": "setup_rollercoaster_tycoon2_2.0.0.6.exe", "top": true}, {"format": "innoextract", "name": "setup_rollercoaster_tycoon2_2.0.0.6.exe", "top": true}, {"format": "innoextract", "name": "setup_rollercoaster_tycoon_2_triple_thrill_pack_2.01.043_(17987).exe", "top": true}],
    "conflicts": [],
    "edition": "expansion",
    "game": "roller-coaster-tycoon2",
@@ -4313,6 +4364,7 @@
    }
   },
   "secret-of-monkey-island-de-data": {
+   "archives": [],
    "conflicts": [],
    "edition": "full",
    "game": "monkey",
@@ -4353,6 +4405,7 @@
    }
   },
   "secret-of-monkey-island-en-data": {
+   "archives": [],
    "conflicts": [],
    "edition": "full",
    "game": "monkey",
@@ -4393,6 +4446,7 @@
    }
   },
   "secret-of-monkey-island-floppy-de-data": {
+   "archives": [],
    "conflicts": [],
    "edition": "full",
    "game": "monkey",
@@ -4414,6 +4468,7 @@
    }
   },
   "secret-of-monkey-island-floppy-en-data": {
+   "archives": [],
    "conflicts": [],
    "edition": "full",
    "game": "monkey",
@@ -4435,6 +4490,7 @@
    }
   },
   "secret-of-monkey-island-floppy-es-data": {
+   "archives": [],
    "conflicts": [],
    "edition": "full",
    "game": "monkey",
@@ -4460,6 +4516,7 @@
    }
   },
   "secret-of-monkey-island-fr-data": {
+   "archives": [],
    "conflicts": [],
    "edition": "full",
    "game": "monkey",
@@ -4500,6 +4557,7 @@
    }
   },
   "secret-of-monkey-island-it-data": {
+   "archives": [],
    "conflicts": [],
    "edition": "full",
    "game": "monkey",
@@ -4540,6 +4598,7 @@
    }
   },
   "tnt-wad": {
+   "archives": [{"format": "innoextract", "name": "setup_final_doom_2.0.0.5.exe", "top": true}, {"format": "zip", "name": "tnt31fix.zip", "top": true}, {"format": "zip", "name": "tnt31fix.zip", "top": true}, {"format": "zip", "name": "tnt31fix.zip", "top": true}],
    "conflicts": [],
    "edition": "full",
    "game": "final-doom",
@@ -4555,6 +4614,7 @@
    }
   },
   "transport-tycoon-deluxe-data": {
+   "archives": [],
    "conflicts": [],
    "edition": "full",
    "game": "ttd",
@@ -4573,6 +4633,7 @@
    }
   },
   "transport-tycoon-deluxe-music": {
+   "archives": [],
    "conflicts": [],
    "edition": "music",
    "game": "ttd",
@@ -4607,6 +4668,7 @@
    }
   },
   "transport-tycoon-deluxe-music-fm": {
+   "archives": [],
    "conflicts": [],
    "edition": "music",
    "game": "ttd",

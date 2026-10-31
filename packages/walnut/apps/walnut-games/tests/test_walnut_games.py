@@ -23,6 +23,13 @@ walnut-games).
   single instance's lock and hand-off, the .desktop file's scheme handler; Details' tabs and where a
   clicked link goes; the d-pad's focus moves (nav_pick), the text scale, the pad's buttons and the reader
   (old presses dropped).
+- Play's launchers: OpenRCT2's four menu entries (its handlers are NoDisplay) give one, data launchers
+  only with their files, labels told apart; every GameDB launcher and build/debs' menu entries, no two
+  alike. The queue's bar (Progress: plan, step, count, time-filled steps, the estimate), the queue (order,
+  removal, a failure then the next), the "Select a source" list and its kinds (the data manifest's
+  archives, walnut-data's disc images).
+- A queue window test with a fake helper: collapsed and expanded, the d-pad down to it, a waiting action
+  removed, the close question, a failure then the next (WALNUT_SHOT=file.png: a picture of it).
 - A smoke test that builds the window on a private X server (Xvfb or Xvnc, started here on its own
   display); skipped when neither is installed. It never uses the DISPLAY of the person running it. It
   goes through the pane's states, the walnut:// dispatch, Details without tkinterweb (the website opens)
@@ -38,6 +45,7 @@ import json
 import os
 import shutil
 import re
+import shlex
 import signal
 import stat
 import subprocess
@@ -282,12 +290,45 @@ class Install(unittest.TestCase):
         self.assertIn("DPkg::Lock::Timeout=60", o)
 
     def test_status_lines(self):
-        self.assertEqual(helper.status_line("dlstatus:1:50.0:Downloading x"), ("progress", "20 Downloading x"))
-        self.assertEqual(helper.status_line("pmstatus:alpha:50:Unpacking alpha"), ("progress", "70 Unpacking alpha"))
-        self.assertEqual(helper.status_line("pmstatus:alpha:100:Done"), ("progress", "100 Done"))
+        self.assertEqual(helper.status_line("dlstatus:1:50.0:Downloading x"), ("dl", 50.0, "Downloading x"))
+        self.assertEqual(helper.status_line("pmstatus:alpha:50:Unpacking alpha"), ("pm", 50.0, "Unpacking alpha"))
+        self.assertEqual(helper.status_line("pmstatus:alpha:140:Done"), ("pm", 100.0, "Done"))
         self.assertIsNone(helper.status_line("garbage"))
         self.assertIsNone(helper.status_line("pmstatus:a:x:y"))
         self.assertEqual(helper.status_line("pmerror:a:0:oops")[0], "log")
+        # the steps apt's two kinds of line count for, by the apt-get run
+        self.assertEqual(helper.apt_steps(["update"]), ("lists", None))
+        self.assertEqual(helper.apt_steps(["install", "--no-remove", "alpha"]), ("download", "install"))
+        self.assertEqual(helper.apt_steps(["install", "--reinstall", "/var/lib/x/alpha-data.deb"]), (None, "apt"))
+        self.assertEqual(helper.apt_steps(["remove", "alpha"]), (None, "remove"))
+        # apt's "Need to get": what it downloads (the first figure when part is in the cache), SI units
+        self.assertEqual(helper.need_bytes("Need to get 45.2 MB of archives."), 45200000)
+        self.assertEqual(helper.need_bytes("Need to get 12.0 MB/45.2 MB of archives."), 12000000)
+        self.assertEqual(helper.need_bytes("Need to get 0 B/3,104 kB of archives."), 0)
+        self.assertEqual(helper.need_bytes("Need to get 1,204 kB of archives."), 1204000)
+        self.assertIsNone(helper.need_bytes("After this operation, 2 MB of additional disk space will be used."))
+        # a step line when apt moves into a step, the percentage in it, the download's bytes once known
+        steps, state = {"dl": "download", "pm": "install"}, {"step": "download", "need": None}
+        S = helper.status_says
+        self.assertEqual(S(("dl", 20.0, "Downloading alpha"), steps, state), [("progress", "20 Downloading alpha")])
+        state["need"] = 50000000
+        self.assertEqual(S(("dl", 50.0, "x"), steps, state), [("progress", "50 x"), ("count", "25000000 50000000")])
+        self.assertEqual(S(("pm", 10.0, "Unpacking alpha"), steps, state),
+                         [("step", "install installing"), ("progress", "10 Unpacking alpha")])
+        self.assertEqual(state["step"], "install")
+        self.assertEqual(S(("pm", 60.0, ""), steps, state), [("progress", "60 installing")])
+        self.assertEqual(S(("log", None, "pmerror x"), steps, state), [("log", "pmerror x")])
+        self.assertEqual(S(None, steps, state), [])
+
+    def test_plan_and_steps_of_each_action(self):
+        """each helper action says its plan first and a step line as it goes: what the app's bar is made of"""
+        stream = lambda args: (0, [])   # noqa: E731
+        _, out = run_say(helper.do_install, "alpha", GAMES, stream, lambda: 3 * 86400, FREE)
+        self.assertEqual([l for l in out if l.split()[0] in ("plan", "step")],
+                         ["plan lists download install", "step lists updating the package lists",
+                          "step download downloading alpha alpha-data"])
+        _, out = run_say(helper.do_install, "alpha", GAMES, stream, lambda: 600, FREE)
+        self.assertEqual(out[0], "plan download install")
 
     def test_apt_stream_relays_status_descriptor(self):
         with tempfile.TemporaryDirectory() as d:
@@ -310,8 +351,9 @@ exit 7
             finally:
                 helper.APT_GET = old
         self.assertEqual(rc, 7)
-        self.assertIn("progress 10 Downloading alpha", out)
-        self.assertIn("progress 100 Configuring alpha", out)
+        self.assertEqual([l for l in out if not l.startswith("log")],
+                         ["step download downloading", "progress 25 Downloading alpha", "step install installing",
+                          "progress 100 Configuring alpha"])
         self.assertTrue(any(l.startswith("log args: -y -o Dpkg::Options::=--force-confold") for l in out))
         self.assertIn("E: something", tail)
         fds = int([l for l in out if l.startswith("log fds:")][0].split()[-1])
@@ -940,17 +982,25 @@ class PaneActions(unittest.TestCase):
         self.assertIsNone(M(None, False, True, [], 0, True, None))
         self.assertEqual(M(QS, False, True, ["setup"], 0, True, False), ("install", "Install", True))
         self.assertEqual(M(QS, False, False, [], 0, True, None), ("install", "Install", False))   # web-only game
-        self.assertEqual(M(QS, False, True, [], 0, False, None), ("install", "Install", False))   # helper busy
+        # another action runs: Install and Add game files... queue theirs
+        self.assertEqual(M(QS, False, True, [], 0, False, None), ("install", "Install", True))
         self.assertEqual(M(QS, True, True, ["setup"], 1, True, False), ("add-data", "Add game files\u2026", True))
-        self.assertEqual(M(QS, True, True, ["repo", "setup"], 1, False, False)[:2], ("add-data", "Add game files\u2026"))
-        self.assertFalse(M(QS, True, True, ["setup"], 1, False, False)[2])
+        self.assertEqual(M(QS, True, True, ["repo", "setup"], 1, False, False), ("add-data", "Add game files\u2026", True))
+        # the game's own action in the queue: Queued while it waits, what it does while it runs, off
+        a = app.Action("install", "quakespasm", "QuakeSpasm")
+        self.assertEqual(M(QS, False, True, [], 0, False, None, a), ("queued", "Queued", False))
+        a.state = "running"
+        self.assertEqual(M(QS, False, True, [], 0, False, None, a), ("running", "Installing\u2026", False))
+        a = app.Action("import", "quakespasm", "QuakeSpasm", "/media/u/Q")
+        a.state = "running"
+        self.assertEqual(M(QS, True, True, ["setup"], 1, False, False, a), ("running", "Importing\u2026", False))
         self.assertEqual(M(QS, True, True, ["importing"], 1, False, False), ("importing", "Importing\u2026", False))
         self.assertEqual(M(QS, True, True, [], 1, True, True), ("play", "Play", True))
         self.assertEqual(M(QS, True, True, ["full"], 2, True, True), ("play", "Play \u25be", True))  # a menu
         self.assertEqual(M(TTD, True, True, ["add"], 1, True, None), ("play", "Play", True))   # optional data only
         self.assertEqual(M(QS, True, True, [], 0, True, True), ("play", "Play", False))        # no launcher found
         self.assertEqual(M(QS, True, True, [], 1, True, False), ("play", "Play", False))       # data missing
-        self.assertEqual(M(QS, True, True, [], 1, False, True), ("play", "Play", False))       # helper busy
+        self.assertEqual(M(QS, True, True, [], 1, False, True), ("play", "Play", False))       # an action runs
 
     def test_smaller_buttons(self):
         S = app.side_actions
@@ -1642,7 +1692,8 @@ old_have = app.have
 app.have = set(old_have) | {"quakespasm"}; app.update_buttons(); root.update()
 assert app.main_kind == "add-data" and app.b_main["text"] == "Add game files\\u2026", "Play waits for the required data"
 assert str(app.b_main["state"]) == "normal" and not mapped(app.b_data) and mapped(app.b_note) and mapped(app.b_remove)
-assert int(app.b_note.grid_info()["row"]) == int(app.b_main.grid_info()["row"]) + 1, "the note under the main button"
+assert int(app.b_note.grid_info()["row"]) == int(app.main_row.grid_info()["row"]) + 1, "the note under the main button"
+assert app.b_details.master is app.main_row and mapped(app.b_details), "Details next to the main button"
 app.repo = {"quake-licensed-data"}; app.update_buttons(); root.update()
 assert mapped(app.b_repo) and not mapped(app.b_data), "licensed next to the main button"
 app.repo = set()
@@ -1675,7 +1726,10 @@ def walk(wd):
         walk(c)
 walk(app.chooser)
 assert "Download the free shareware (needs the network)" in texts, texts
-assert any(t.startswith("File: quake106.zip") for t in texts) and "Other file\\u2026" in texts and "Cancel" in texts, texts
+assert any(t.startswith("File: quake106.zip") for t in texts) and "Cancel" not in texts, texts
+assert texts[-2] == "From a file\\u2026\\nA GOG installer (.exe), a .zip archive or a disc image (.iso, .img, .cue/.bin, .mdf/.mds)", texts
+assert texts[-1] == "From a folder\\u2026\\nAn installed copy, the files of the disc or a GOG folder", texts
+assert [k for k, _, _, _ in app.chooser_items] == ["fetch", "source", "source", "file", "folder"], app.chooser_items
 if len(sys.argv) > 4:      # a picture of the chooser
     root.update(); time.sleep(0.5); root.update()
     import subprocess
@@ -1687,7 +1741,8 @@ t = time.time()
 saw_file = False
 while not app.imp.done and time.time() - t < 30:
     root.update(); time.sleep(0.05)
-    saw_file = saw_file or "Reading pak0.pak" in app.imp_detail["text"]
+    saw_file = saw_file or (app.imp.file.startswith("pak0.pak") and mapped(app.q_frame) and
+                            app.q_status["text"].startswith("Add game files for QuakeSpasm from quake106.zip"))
 assert app.imp.done, "import never ended"
 assert saw_file, "no file line shown"
 msg = app.d_status["text"]
@@ -1803,6 +1858,11 @@ class DataWindow(unittest.TestCase):
                               tests=[]),
                          dict(TTD, rating=rating, tests=[])]
                 Path(d, "catalog.json").write_text(json.dumps({"games": games}))
+                Path(d, "data-manifest.json").write_text(json.dumps({"packages": {"quake-registered": {
+                    "files": {"usr/share/games/quake/id1/pak1.pak": [{"size": 34257856, "release": "106"}]},
+                    "archives": [{"format": "innoextract", "name": "setup_quake_the_offering_2.0.0.6.exe", "top": True},
+                                 {"format": "zip", "name": "quake106.zip", "top": True},
+                                 {"format": "lha", "name": "resource.1", "top": True}]}}}))
                 home = Path(d, "home")
                 (home / "Downloads").mkdir(parents=True)
                 (home / "GOG Games/Quake").mkdir(parents=True)
@@ -1819,6 +1879,489 @@ class DataWindow(unittest.TestCase):
                                    env=env, capture_output=True, text=True, timeout=180)
                 self.assertEqual(r.returncode, 0, r.stderr)
                 self.assertIn("data smoke ok", r.stdout)
+        finally:
+            proc.terminate()
+            proc.wait()
+
+
+# OpenRCT2's own menu entries (openrct2 0.5.6+ds-1+ps3.940, build/debs/openrct2, 2026-10-31): the launcher, then
+# the handlers of its saved games, scenarios and openrct2:// links, NoDisplay and all four Name=OpenRCT2
+OPENRCT2_ENTRIES = {
+    "io.openrct2.openrct2.desktop": "Name=OpenRCT2\nComment=Open Source re-implementation of RollerCoaster Tycoon 2.\n"
+                                    "Exec=openrct2 %u\nCategories=Game;Simulation;\n",
+    "io.openrct2.savegame.desktop": "Name=OpenRCT2\nExec=openrct2 %f\nNoDisplay=true\n"
+                                    "MimeType=application/x-openrct2-savegame;\n",
+    "io.openrct2.scenario.desktop": "Name=OpenRCT2\nExec=openrct2 %f\nNoDisplay=true\n"
+                                    "MimeType=application/x-openrct2-scenario;\n",
+    "io.openrct2.uri.desktop": "Name=OpenRCT2\nExec=openrct2 handle-uri %u\nNoDisplay=true\n"
+                               "MimeType=x-scheme-handler/openrct2;\n"}
+
+
+class Launchers(unittest.TestCase):
+    """which menu entries Play offers, and their labels (the user, 2026-10-31: OpenRCT2's Play showed four
+    launchers all called OpenRCT2)"""
+
+    def tree(self, d, entries):
+        apps = Path(d) / "apps"
+        apps.mkdir(exist_ok=True)
+        for name, text in entries.items():
+            (apps / name).write_text("[Desktop Entry]\nType=Application\n" + text)
+        return apps
+
+    def test_openrct2_offers_its_launcher_only(self):
+        with tempfile.TemporaryDirectory() as d:
+            apps = self.tree(d, OPENRCT2_ENTRIES)
+            shipped = ["/usr/games/openrct2"] + [str(apps / n) for n in OPENRCT2_ENTRIES]
+            got = app.play_commands({"id": "openrct2", "packages": ["openrct2"]}, None, str(apps),
+                                    files=lambda: shipped)
+            self.assertEqual(got, [("OpenRCT2", ["ps3-game", "openrct2"], None)])
+            # the same with the runtime copies ps3-game-menu makes of all four (Exec through ps3-game)
+            rt = Path(d) / "run" / "applications"
+            rt.mkdir(parents=True)
+            for n, text in OPENRCT2_ENTRIES.items():
+                (rt / n).write_text("[Desktop Entry]\n" + text.replace("Exec=", "Exec=ps3-game "))
+            got = app.play_commands({"id": "openrct2", "packages": ["openrct2"]}, str(rt.parent), str(apps),
+                                    files=lambda: shipped)
+            self.assertEqual([c[0] for c in got], ["OpenRCT2"])
+            # named in the catalog's desktop list: still left out when hidden
+            got = app.play_commands({"id": "openrct2", "desktop": sorted(OPENRCT2_ENTRIES)}, None, str(apps))
+            self.assertEqual([c[0] for c in got], ["OpenRCT2"])
+
+    def test_data_launchers_show_once_their_files_exist(self):
+        with tempfile.TemporaryDirectory() as d:
+            data = Path(d) / "pak0.pak"
+            apps = self.tree(d, {"q-glsl.desktop": "Name=Q\nExec=ps3-game quakespasm\nNoDisplay=true\n"
+                                                   "X-Walnut-Requires=%s\n" % data,
+                                 "q-two.desktop": "Name=Q2\nExec=ps3-game quakespasm -game x\n"
+                                                  "X-Walnut-Requires=%s;%s.b\n" % (data, data),
+                                 "q-hidden.desktop": "Name=H\nExec=ps3-game quakespasm\nHidden=true\n"})
+            g = {"id": "quakespasm", "desktop": ["q-glsl.desktop", "q-two.desktop", "q-hidden.desktop"]}
+            self.assertEqual(app.play_commands(g, None, str(apps)), [])
+            data.write_bytes(b"x")
+            self.assertEqual([c[0] for c in app.play_commands(g, None, str(apps))], ["Q"])
+            Path(str(data) + ".b").write_bytes(b"x")                       # every file it names
+            self.assertEqual([c[0] for c in app.play_commands(g, None, str(apps))], ["Q", "Q2"])
+            self.assertTrue(app.entry_shown({"NoDisplay": "false"}))
+            self.assertFalse(app.entry_shown({"NoDisplay": "true"}))
+            self.assertFalse(app.entry_shown({"Hidden": "true", "X-Walnut-Requires": "/"}, lambda p: True))
+
+    def test_labels_told_apart(self):
+        L = app.distinct_labels
+        self.assertEqual(L([("A", "", ["ps3-game", "a"]), ("B", "", ["ps3-game", "b"])]), ["A", "B"])
+        # the same name: their comments when those differ
+        self.assertEqual(L([("G", "OpenGL", ["ps3-game", "g", "-gl"]), ("G", "Software", ["ps3-game", "g", "-sw"])]),
+                         ["G (OpenGL)", "G (Software)"])
+        # no comments (or the same one): the argument only that entry has; none: the plain name for it
+        self.assertEqual(L([("OpenRCT2", "", ["ps3-game", "openrct2"]),
+                            ("OpenRCT2", "", ["ps3-game", "openrct2", "handle-uri"])]),
+                         ["OpenRCT2", "OpenRCT2 (handle-uri)"])
+        self.assertEqual(L([("G", "same", ["ps3-game", "g", "+set", "r", "1"]),
+                            ("G", "same", ["ps3-game", "g", "+set", "r", "2"])]), ["G (1)", "G (2)"])
+        # nothing differs: numbered, never two the same
+        got = L([("X", "", ["ps3-game", "x"]), ("X", "", ["ps3-game", "x"]), ("X", "", ["ps3-game", "x"])])
+        self.assertEqual(got, ["X", "X (2)", "X (3)"])
+        long = "c" * 80
+        self.assertEqual(L([("G", long, ["g"]), ("G", "short", ["g"])])[0], "G (" + "c" * 57 + "…)")
+        # through play_commands, with the Comment of the entry
+        with tempfile.TemporaryDirectory() as d:
+            apps = self.tree(d, {"g1.desktop": "Name=G\nComment=GL 2\nExec=ps3-game g +r 2\n",
+                                 "g2.desktop": "Name=G\nComment=GL 1\nExec=ps3-game g +r 1\n"})
+            got = app.play_commands({"desktop": ["g1.desktop", "g2.desktop"]}, None, str(apps))
+            self.assertEqual([c[0] for c in got], ["G (GL 2)", "G (GL 1)"])
+
+    def test_no_two_launchers_of_a_game_read_the_same(self):
+        """every GameDB game's launchers (gamedb/games/*/desktop/launchers, as pack-integration installs them,
+        their data present) and, when a build is at hand, the menu entries of the debs in build/debs: Play's
+        labels are all different"""
+        spec = importlib.util.spec_from_file_location("pack_integration_t", REPO / "tools/gamedb/pack-integration.py")
+        pi = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(pi)
+        with tempfile.TemporaryDirectory() as d:
+            apps = Path(d) / "apps"
+            apps.mkdir()
+            progs = {}
+            for gdir in sorted((REPO / "gamedb/games").glob("*/desktop/launchers")):
+                gid = gdir.parts[-3]
+                for f in sorted(gdir.glob("*.desktop")):
+                    (apps / f.name).write_bytes(pi.launcher(gid, f))
+                    e = app.desktop_entry(str(apps / f.name))
+                    p = pi.program(shlex.split(e["Exec"]))
+                    progs.setdefault(gid, set()).add(p if p.startswith("/") else "/usr/games/" + p)
+            shipped = {}
+            for deb in sorted((REPO / "build/debs").glob("*/*.deb")):
+                if "dbgsym" in deb.name:
+                    continue
+                shipped.setdefault(deb.name.split("_")[0], []).extend(deb_desktop_files(deb, apps))
+            self.assertTrue(progs)
+            for gid in sorted(progs):
+                files = sorted(progs[gid]) + [str(apps / n) for n in shipped.get(gid, [])]
+                got = app.play_commands({"id": gid, "packages": [gid]}, None, str(apps), files=lambda: files,
+                                        exists=lambda p: True)
+                labels = [c[0] for c in got]
+                self.assertEqual(len(labels), len(set(labels)), (gid, labels))
+            for pkg, names in sorted(shipped.items()):
+                files = ["/usr/games/" + pkg] + [str(apps / n) for n in names]
+                got = app.play_commands({"packages": [pkg]}, None, str(apps), files=lambda: files, exists=lambda p: True)
+                labels = [c[0] for c in got]
+                self.assertEqual(len(labels), len(set(labels)), (pkg, labels))
+
+
+def deb_desktop_files(deb, dest):
+    """the menu entries a .deb ships, copied to dest; their names ([] when ar or tar can't read it)"""
+    import tarfile
+    out = []
+    with tempfile.TemporaryDirectory() as t:
+        try:
+            names = subprocess.run(["ar", "t", str(deb)], capture_output=True, text=True, timeout=60).stdout.split()
+            member = next(n for n in names if n.startswith("data.tar"))
+            subprocess.run(["ar", "x", str(deb), member], cwd=t, check=True, timeout=120)
+            with tarfile.open(os.path.join(t, member)) as tf:
+                for m in tf:
+                    n = m.name.lstrip("./")
+                    if n.startswith("usr/share/applications/") and n.endswith(".desktop") and m.isfile():
+                        Path(dest, os.path.basename(n)).write_bytes(tf.extractfile(m).read())
+                        out.append(os.path.basename(n))
+        except (OSError, StopIteration, subprocess.SubprocessError, tarfile.TarError):
+            return []
+    return out
+
+
+class Bar(unittest.TestCase):
+    """the queue's determinate bar (Progress) over an action's steps, from the helper's and walnut-data's lines"""
+
+    def test_lines_parse(self):
+        P = app.parse_helper_line
+        self.assertEqual(P("plan lists download install"), ("plan", [("lists", None), ("download", None),
+                                                                     ("install", None)]))
+        self.assertEqual(P("plan read:581016002 build:581016002 check:12 deb:12 apt:12")[1][:2],
+                         [("read", 581016002), ("build", 581016002)])
+        self.assertIsNone(P("plan Bad:1"))
+        self.assertEqual(P("step download downloading openrct2"), ("step", "download", "downloading openrct2"))
+        self.assertEqual(P("count 1024 2048"), ("count", 1024, 2048))
+        self.assertIsNone(P("count x 2"))
+        self.assertEqual(app.parse_import_line("count 5 10"), ("count", 5, 10))
+        self.assertEqual(app.parse_import_line("step read reading the files of RCT2"),
+                         ("step", "read", "reading the files of RCT2"))
+        # game-data-packager's own step (no kind) leaves the bar alone
+        b = app.Progress("import", t0=0)
+        b.feed(app.parse_import_line("gdp step searching /m"), now=1)
+        self.assertEqual(b.steps, [])
+
+    def test_install_steps(self):
+        """an install with stale lists: three steps, each filled by what apt says"""
+        b = app.Progress("install", t0=0)
+        for line in ("plan lists download install", "step lists updating the package lists", "progress 50 x"):
+            b.feed(app.parse_helper_line(line), now=1)
+        w = [b.step_weight(s) for s in b.steps]
+        self.assertEqual(w, [25.0, 10.0, 30.0])
+        self.assertAlmostEqual(b.fraction(now=2), 12.5 / 65)
+        self.assertEqual(b.status(now=2), "step 1 of 3: updating the package lists")
+        for line in ("step download downloading openrct2", "progress 40 Downloading", "count 20000000 50000000"):
+            b.feed(app.parse_helper_line(line), now=10)
+        self.assertAlmostEqual(b.fraction(now=10), (25 + 4) / 65)       # the count wins over the percentage
+        self.assertEqual(b.status(now=10), "step 2 of 3: downloading openrct2 — 19 of 47 MB · about 10 s left")
+        b.feed(app.parse_helper_line("step install installing"), now=20)
+        b.feed(app.parse_helper_line("progress 50 Unpacking openrct2"), now=20)
+        self.assertAlmostEqual(b.fraction(now=20), (35 + 15) / 65)
+        self.assertTrue(b.status(now=20).startswith("step 3 of 3: installing · about "))
+        b.finish()
+        self.assertEqual(b.fraction(now=21), 1.0)
+        self.assertIsNone(b.eta(now=21))
+
+    def test_import_steps_by_bytes_and_by_time(self):
+        """RollerCoaster Tycoon 2 from a folder: read and the checked copy by bytes, the debs by time"""
+        n = 581016002
+        b = app.Progress("import", t0=0)
+        b.feed(app.parse_import_line("plan read:%d build:%d check:%d deb:%d apt:%d" % ((n,) * 5)), now=0)
+        self.assertEqual([round(b.step_weight(s)) for s in b.steps], [58, 42, 48, 58, 58])
+        b.feed(app.parse_import_line("step read reading the files of RCT2"), now=0)
+        b.feed(app.parse_import_line("count %d %d" % (n // 2, n)), now=29)
+        self.assertAlmostEqual(b.fraction(now=29), 29.05 / 264.8, places=2)
+        self.assertEqual(b.status(now=29), "step 1 of 5: reading the files of RCT2 — 277 of 554 MB · about 4 min left")
+        b.feed(app.parse_import_line("step build building the package roller-coaster-tycoon2-data"), now=58)
+        # no line while gdp writes the deb: its time since it began, never more than STEP_TIME_CAP of it
+        self.assertAlmostEqual(b.step_fraction(b.steps[1], 58 + 21), 0.5, places=1)
+        self.assertEqual(b.step_fraction(b.steps[1], 58 + 400), app.STEP_TIME_CAP)
+        # the plan again once gdp is done (the packages it made): the steps begun stay
+        b.feed(app.parse_import_line("plan read:%d build:%d check:%d deb:%d apt:%d" % ((n,) * 5)), now=100)
+        self.assertEqual((b.cur, b.steps[0]["done"], b.steps[1]["text"]),
+                         (1, True, "building the package roller-coaster-tycoon2-data"))
+        for line in ("step check checking the files of roller-coaster-tycoon2-data", "progress 30 checking x",
+                     "count 174304800 %d" % n):
+            b.feed(app.parse_import_line(line), now=110)
+        self.assertEqual(b.cur, 2)
+        self.assertTrue(b.steps[1]["done"])
+        self.assertEqual(b.status(now=110)[:60], "step 3 of 5: checking the files of roller-coaster-tycoon2-da")
+        # the disc in the drive reads at its speed: the read step weighs more
+        disc = app.Progress("import", t0=0, disc=True)
+        disc.plan([("read", n), ("build", n)])
+        self.assertEqual(round(disc.step_weight(disc.steps[0])), 253)
+
+    def test_no_plan_and_odd_plans(self):
+        # an import started in a terminal (no lines): one step, by time
+        b = app.Progress("import", t0=0)
+        self.assertAlmostEqual(b.fraction(now=30), 0.1)
+        self.assertEqual(b.fraction(now=10 ** 6), app.STEP_TIME_CAP)
+        self.assertEqual(b.status(now=1), "importing")
+        # a progress line before any step: the action's own kind, one step
+        b = app.Progress("remove", t0=0)
+        b.feed(app.parse_helper_line("progress 100 not installed"), now=1)
+        self.assertEqual((len(b.steps), b.fraction(now=1)), (1, 1.0))
+        # a step the plan doesn't have is put after the current one
+        b = app.Progress("install", t0=0)
+        b.plan([("download", None), ("install", None)])
+        b.start("lists", "", now=0)
+        self.assertEqual([s["kind"] for s in b.steps], ["lists", "download", "install"])
+        # a plan that doesn't go on from here keeps the steps done
+        b.start("download", "", now=1)
+        b.plan([("check", 10), ("apt", 10)])
+        self.assertEqual([s["kind"] for s in b.steps], ["lists", "download", "check", "apt"])
+
+    def test_texts(self):
+        self.assertEqual(app.size_text(120 << 20, 581 << 20), "120 of 581 MB")
+        self.assertEqual(app.size_text(1 << 19, 3 << 20), "0.5 of 3.0 MB")
+        self.assertEqual(app.left_text(200), "about 3 min left")
+        self.assertEqual(app.left_text(42), "about 40 s left")
+        self.assertEqual(app.left_text(1), "about 5 s left")
+        b = app.Progress("install", t0=0)
+        b.plan([("install", None)])
+        b.start("install", "installing", now=0)
+        b.percent(50, now=0)
+        self.assertIsNone(b.eta(now=4))            # not 5 s yet: no pace
+        self.assertAlmostEqual(b.eta(now=10), 10)
+        self.assertEqual(b.status(now=10), "installing · about 10 s left")    # one step: no "step 1 of 1"
+
+
+class Queue(unittest.TestCase):
+    """the queue at the bottom of the window: one action at a time, in order"""
+
+    def test_order_removal_and_a_failure_then_the_next(self):
+        q = app.ActionQueue()
+        a = q.add(app.Action("install", "alpha", "Alpha"))
+        b = q.add(app.Action("import", "quakespasm", "QuakeSpasm", "/media/u/QUAKE"))
+        c = q.add(app.Action("remove", "beta", "Beta", then=["remove-data"]))
+        self.assertIsNone(q.add(app.Action("install", "alpha", "Alpha")))        # the same one already waits
+        self.assertEqual(len(q), 3)
+        self.assertIs(q.next(), a)
+        self.assertIsNone(q.next())                                              # one at a time
+        self.assertIs(q.pending("alpha"), a)
+        self.assertEqual(q.waiting(), [b, c])
+        self.assertFalse(q.remove(a))                                            # the running one stays
+        self.assertTrue(q.remove(b))                                             # a waiting one goes
+        self.assertIsNone(q.pending("quakespasm"))
+        q.finish(a, False, "failed: E: broken")
+        self.assertEqual((a.state, a.error, q.failed()), ("failed", "failed: E: broken", [a]))
+        self.assertIsNone(q.pending("alpha"))
+        self.assertIs(q.next(), c)                                               # the queue goes on
+        self.assertEqual(c.then, ["remove-data"])
+        q.finish(c, True)
+        self.assertEqual(q.items, [a])                                           # a success leaves
+        self.assertFalse(q.busy())
+        self.assertIsNone(q.next())
+        self.assertTrue(q.remove(a))                                             # a failure dismissed
+        self.assertEqual(len(q), 0)
+        # the same action again once the first has ended
+        self.assertIsNotNone(q.add(app.Action("install", "alpha", "Alpha")))
+
+    def test_labels(self):
+        self.assertEqual(app.Action("install", "openrct2", "OpenRCT2").label(), "Install OpenRCT2")
+        self.assertEqual(app.Action("remove-data", "doom", "Doom").label(), "Remove the game data of Doom")
+        self.assertEqual(app.Action("import", "openrct2", "OpenRCT2", "/dev/sr0").label(),
+                         "Add game files for OpenRCT2 from sr0")
+        self.assertEqual(app.Action("import", "quakespasm", "QuakeSpasm", "/m/Q/", ["quake-music"]).label(),
+                         "Add game files for QuakeSpasm (Quake Music) from Q")
+        self.assertEqual(app.Action("import", "quakespasm", "QuakeSpasm", None, ["quake-shareware"]).label(),
+                         "Add game files for QuakeSpasm (Quake Shareware)")
+
+
+class Sources(unittest.TestCase):
+    """the "Select a source" list of Add game files..."""
+
+    MAN = {"roller-coaster-tycoon2-data": {
+        "files": {"usr/share/games/roller-coaster-tycoon2/Data/ch.dat": [{"size": 1, "release": "cd"},
+                                                                        {"size": 2, "release": "ttp"}]},
+        "archives": [{"format": "innoextract", "name": "setup_rollercoaster_tycoon2_2.0.0.8.exe", "top": True},
+                     {"format": "zip", "name": "RollerCoasterTycoon2TTP_EN.zip", "top": True},
+                     {"format": "innoextract", "name": "RollerCoasterTycoon2TTP_EN.exe", "top": False},
+                     {"format": "unshield", "name": "data1.cab", "top": True},
+                     {"format": "unrar-nonfree", "name": "RCT2.rar", "top": True}]}}
+    RCT2 = {"id": "openrct2", "title": "OpenRCT2", "packages": ["openrct2"],
+            "data_setup": {"gdp": "roller-coaster-tycoon2", "required": ["roller-coaster-tycoon2-data"]}}
+
+    def test_the_list(self):
+        sources = [("Disc in the drive: RCT2", "/dev/sr0")]
+        items = app.source_list(self.RCT2, set(), sources, self.MAN)
+        self.assertEqual([(k, l) for k, l, _, _ in items],
+                         [("source", "Disc in the drive: RCT2"), ("file", "From a file…"),
+                          ("folder", "From a folder…")])
+        self.assertEqual(items[0][3], "/dev/sr0")
+        self.assertEqual(items[1][2], "A GOG installer (.exe), a .zip archive or a disc image "
+                                      "(.iso, .img, .cue/.bin, .mdf/.mds)")
+        self.assertEqual(items[2][2], "An installed copy, the files of the disc or a GOG folder")
+        # a free download first, until it is installed; nothing found: the file and the folder only
+        items = app.source_list(QS, set(), [], {})
+        self.assertEqual([k for k, _, _, _ in items], ["fetch", "file", "folder"])
+        self.assertEqual(items[0][1:], ("Download the free shareware (needs the network)", "", "quake-shareware"))
+        self.assertEqual(items[1][2], "A disc image (.iso, .img, .cue/.bin, .mdf/.mds)")
+        self.assertEqual(items[2][2], "An installed copy or the files of the disc")
+        self.assertEqual([k for k, _, _, _ in app.source_list(QS, {"quake-shareware"}, [], {})], ["file", "folder"])
+
+    def test_kinds(self):
+        K = app.archive_kind
+        self.assertEqual(K({"format": "innoextract", "name": "setup_x.exe", "top": True}), app.GOG_EXE)
+        self.assertEqual(K({"format": "id-shr-extract", "name": "q2-314-demo-x86.EXE", "top": True}),
+                         "an installer (.exe)")
+        self.assertEqual(K({"format": "tar.gz", "name": "linuxq3ademo-1.11-6.x86.gz.sh", "top": True}),
+                         "a Linux installer (.sh, .run)")
+        self.assertIsNone(K({"format": "zip", "name": "inner.zip", "top": False}))          # inside another
+        self.assertIsNone(K({"format": "lha", "name": "resource.1", "top": True}))          # a disc's own file
+        self.assertIsNone(K({"format": "unrar-nonfree", "name": "x.rar", "top": True}))     # not free to unpack
+        steam = {"q": {"files": {"a": [{"size": 1, "release": "steam"}]},
+                       "archives": [{"format": "innoextract", "name": "setup_q.exe", "top": True},
+                                    {"format": "x", "name": "q2.exe", "top": True}]}}
+        files, folders = app.source_kinds({"data_setup": {"gdp": "q", "required": ["q"]}}, steam)
+        self.assertEqual(files[0], "a GOG or other installer (.exe)")
+        self.assertIn("a Steam folder", folders)
+        self.assertEqual(app.kinds_text(["a"]), "a")
+        self.assertEqual(app.kinds_text(["a", "b", "c"]), "a, b or c")
+
+    def test_disc_images_are_walnut_datas(self):
+        """the disc images the list names are the ones walnut-data opens (its code)"""
+        loader = importlib.machinery.SourceFileLoader("walnut_data_t", str(PKG / "files/bin/walnut-data"))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        wd = importlib.util.module_from_spec(spec)
+        loader.exec_module(wd)
+        names = [e for k in app.DISC_IMAGES for e in k.split("/")]
+        self.assertEqual(set(names[:len(wd.IMAGE_SUFFIXES)]), set(wd.IMAGE_SUFFIXES))
+        self.assertIsNotNone(wd.cue_for)                           # .cue/.bin: the cue sheet's tracks
+        with tempfile.TemporaryDirectory() as d:
+            for n in names:
+                Path(d, "x" + n).write_bytes(b"")
+            self.assertEqual(wd.cue_for(str(Path(d, "x.bin"))), str(Path(d, "x.cue")))
+            self.assertEqual(wd.mds_for(str(Path(d, "x.mdf"))), str(Path(d, "x.mds")))
+
+    def test_the_packaged_manifest_has_archives(self):
+        man = json.loads((REPO / "tools/gamedb/gdp-manifest.json").read_text())["packages"]
+        files, folders = app.source_kinds(dict(self.RCT2), man)
+        self.assertEqual(files[0], app.GOG_EXE)
+        self.assertIn("a GOG folder", folders)
+
+
+QUEUE_SMOKE = """
+import sys, os, json, time
+sys.path.insert(0, sys.argv[1])
+import tkinter as tk
+import walnut_games as w
+asked = []
+w.messagebox.askyesno = lambda title, q, parent=None: (asked.append(q), False)[1]
+root = tk.Tk()
+app = w.App(root, data=sys.argv[2], runtime_dir=None, online=False)
+root.update()
+def mapped(x):
+    return bool(x.winfo_ismapped())
+def wait(cond, secs=30):
+    t = time.time()
+    while not cond() and time.time() - t < secs:
+        root.update(); time.sleep(0.03)
+    assert cond(), "timed out"
+assert not mapped(app.q_frame), "no queue while it is empty"
+app.select("alpha"); root.update()
+app.main_pressed(); root.update()
+a = app.queue.running()
+assert a is not None and a.kind == "install" and a.gid == "alpha" and app.busy == ("alpha", "install")
+assert app.b_main["text"] == "Installing\\u2026" and str(app.b_main["state"]) == "disabled"
+wait(lambda: a.progress.cur >= 0 and mapped(app.q_frame))
+# another game: browse to it and queue its install meanwhile
+app.select("gamma"); root.update()
+assert app.b_main["text"] == "Install" and str(app.b_main["state"]) == "normal", app.b_main["text"]
+app.main_pressed(); root.update()
+assert app.b_main["text"] == "Queued" and str(app.b_main["state"]) == "disabled"
+g = app.queue.waiting()[0]
+assert g.gid == "gamma" and "1 waiting" in app.q_more["text"], app.q_more["text"]
+# collapsed: the status row and the bar only; the toggle opens the list
+assert mapped(app.q_bar) and not mapped(app.q_list)
+wait(lambda: " MB" in app.q_status["text"])
+assert app.q_status["text"].startswith("Install Alpha \\u00b7 step 1 of 2: downloading alpha \\u2014 "), app.q_status["text"]
+assert " of 1.9 MB" in app.q_status["text"] and 0 < float(app.q_bar["value"]) <= 1000, app.q_status["text"]
+app.toggle_queue(); root.update()
+assert mapped(app.q_list) and app.q_toggle["text"] == w.QUEUE_OPEN
+rows = [[c.cget("text") for c in r.winfo_children()] for r in app.q_rows]
+assert rows[0] == ["Now: Install Alpha"] and rows[1] == ["Waiting: Install Gamma", "Remove"], rows
+# the pad reaches the queue: down from the cards
+app.select("alpha"); app.canvas.focus_set(); root.update()
+app._key_nav(None, "Down"); root.update()
+f = root.focus_get()
+assert str(f).startswith(str(app.q_frame)), f
+# a waiting action removed
+[b for b in app.q_rows[1].winfo_children() if b.winfo_class() == "TButton"][0].invoke(); root.update()
+assert not app.queue.waiting() and app.queue.pending("gamma") is None
+app.select("gamma"); root.update()
+assert app.b_main["text"] == "Install"
+app.main_pressed()
+app.select("beta"); root.update()
+app.main_pressed(); root.update()
+assert [x.gid for x in app.queue.waiting()] == ["gamma", "beta"]
+# closing with actions waiting asks (and stays when the answer is no)
+app.on_close(); root.update()
+assert asked and "2 actions are in the queue" in asked[0] and root.winfo_exists(), asked
+if len(sys.argv) > 3:
+    root.update(); time.sleep(0.3); root.update()
+    import subprocess
+    subprocess.run(["magick", "import", "-window", "root", sys.argv[3]])
+# the next one starts when the first ends; a failure stays in the list and the queue goes on
+wait(lambda: app.queue.running() is not None and app.queue.running().gid == "gamma")
+wait(lambda: app.queue.running() is not None and app.queue.running().gid == "beta")
+wait(lambda: app.queue.running() is None)
+assert [(x.gid, x.state) for x in app.queue.items] == [("beta", "failed")], [(x.gid, x.state) for x in app.queue.items]
+assert "refused: no such luck" in app.queue.items[0].error, app.queue.items[0].error
+root.update()
+rows = [[c.cget("text") for c in r.winfo_children()] for r in app.q_rows]
+assert rows == [["Failed: Install Beta: refused: no such luck", "Dismiss"]], rows
+assert mapped(app.q_frame) and not mapped(app.q_bar)
+app.remove_queued(app.queue.items[0]); root.update()
+assert not len(app.queue)
+wait(lambda: not mapped(app.q_frame), 15)
+root.destroy()
+print("queue smoke ok")
+"""
+QUEUE_HELPER = """#!/bin/sh
+echo "plan download install"
+echo "step download downloading $2"
+echo "log Need to get 2 MB of archives."
+for p in 20 60 100; do echo "progress $p Downloading $2"; echo "count $((p * 20000)) 2000000"; sleep 0.3; done
+echo "step install installing"
+echo "progress 50 Unpacking $2"
+sleep 0.3
+if [ "$2" = beta ]; then echo "error refused: no such luck"; exit 2; fi
+echo "progress 100 installed"
+"""
+
+
+class QueueWindow(unittest.TestCase):
+    def test_queue_on_a_private_x_server(self):
+        if app.tk is None:
+            self.skipTest("python3-tk is not installed")
+        srv = x_server()
+        if srv is None:
+            self.skipTest("no Xvfb or Xvnc installed")
+        proc, display = srv
+        try:
+            with tempfile.TemporaryDirectory() as d:
+                games = [dict(good_game(gid), tests=[]) for gid in ("alpha", "beta", "gamma")]
+                Path(d, "catalog.json").write_text(json.dumps({"games": games}))
+                aux = Path(d, "aux")
+                aux.mkdir()
+                (aux / "helper").write_text(QUEUE_HELPER)
+                (aux / "helper").chmod(0o755)
+                (aux / "sudo").write_text('#!/bin/sh\nshift; shift; exec %s "$@"\n' % (aux / "helper"))
+                (aux / "sudo").chmod(0o755)
+                env = {k: v for k, v in os.environ.items() if k not in ("WAYLAND_DISPLAY", "XDG_RUNTIME_DIR")}
+                env.update(DISPLAY=display, XDG_CACHE_HOME=d, PATH=str(aux) + ":/bin:/usr/bin")
+                extra = [os.environ["WALNUT_SHOT"]] if os.environ.get("WALNUT_SHOT") else []
+                r = subprocess.run([sys.executable, "-c", QUEUE_SMOKE, str(PKG / "files/lib"), d] + extra,
+                                   env=env, capture_output=True, text=True, timeout=180)
+                self.assertEqual(r.returncode, 0, r.stderr)
+                self.assertIn("queue smoke ok", r.stdout)
         finally:
             proc.terminate()
             proc.wait()

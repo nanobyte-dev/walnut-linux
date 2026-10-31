@@ -98,8 +98,13 @@ Design
 - remove: `walnut-games-helper remove-data GAME` (the game's data packages only). install-repo:
   `walnut-games-helper install-repo-data GAME` (its data from the configured apt sources).
 - Output, one item per line, flushed: "gdp step|file|generated|error ..." (gdp's progress lines),
-  "log text" (gdp's own output and notes), the helper's lines as they come ("progress N text",
-  "log text", "error text"), "error text" for this program's own failures.
+  "log text" (gdp's own output and notes), the helper's lines as they come ("step STEP text", "progress
+  N text", "count DONE TOTAL", "log text", "error text"; its "plan" is left out), "error text" for this
+  program's own failures. For Walnut Games' bar (walnut_games.Progress) an import also says "plan
+  read:B build:B check:B deb:B apt:B ..." (plan_line: the steps with their bytes, check/deb/apt once per
+  package imported; first as expected, again with the packages gdp made), "step read ..." when it
+  starts on the sources, "count DONE TOTAL" as gdp's file lines reach the packages' files (ReadCount:
+  by name and size against the data manifest) and "step build ..." when gdp builds a package.
 - Exit codes: 0 done; 2 refused, nothing changed (bad arguments, an unknown game, a missing source,
   the helper refused); 1 failed (gdp or the helper failed, or gdp made no package).
 - Partial results. After gdp, the packages asked for are compared with the debs it made. Required means
@@ -1067,9 +1072,10 @@ def unit_command(cmd, tmp, fifo, private_net):
     return unit + cmd
 
 
-def relay_progress(fd, errors, generated):
+def relay_progress(fd, errors, generated, count=None):
     """gdp's --progress-fd lines as 'gdp ...'; its error lines kept in errors, the debs it says it made in
-    generated"""
+    generated. With count (a ReadCount): a "count DONE TOTAL" line after each file line that counted, and
+    "step build ..." when gdp starts building a package (its "step building NAME")"""
     with os.fdopen(fd, "rb") as f:
         for raw in f:
             line = raw.decode("utf-8", "replace").rstrip()
@@ -1079,11 +1085,18 @@ def relay_progress(fd, errors, generated):
                     errors.append(line[6:])
                 elif line.startswith("generated "):
                     generated.append(line[10:])
+                elif count is not None and line.startswith("file "):
+                    name, _, size = line[5:].rpartition(" ")
+                    if size.isdigit() and count.file(name, int(size)):
+                        say("count", "%d %d" % (count.done, count.total))
+                elif count is not None and line.startswith("step building "):
+                    say("step", "build building the package " + line[len("step building "):])
 
 
-def run_gdp(cmd, tmp, base, sandbox, private_net, progress):
+def run_gdp(cmd, tmp, base, sandbox, private_net, progress, count=None):
     """run gdp (cmd has '--progress-fd FD' to be filled in); its return code, its error lines (and a
-    no-space one for an ENOSPC in its output) and the debs its progress lines say it made"""
+    no-space one for an ENOSPC in its output) and the debs its progress lines say it made (count: the
+    ReadCount its file lines go to)"""
     errors, generated = [], []
     env = dict(os.environ, TMPDIR=tmp)
     fifo = reader = keep = None
@@ -1108,7 +1121,7 @@ def run_gdp(cmd, tmp, base, sandbox, private_net, progress):
         full = unit_command(cmd, tmp, None, private_net) if sandbox else cmd
         pass_fds = ()
     if rfd is not None:
-        reader = threading.Thread(target=relay_progress, args=(rfd, errors, generated), daemon=True)
+        reader = threading.Thread(target=relay_progress, args=(rfd, errors, generated, count), daemon=True)
         reader.start()
     try:
         p = subprocess.Popen(full, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -1154,7 +1167,10 @@ def helper_lines(stream):
         line = raw.decode("utf-8", "replace").rstrip()
         if line:
             kind = line.split(" ", 1)[0]
-            print(line if kind in ("progress", "log", "error", "status") else "log " + line, flush=True)
+            if kind == "plan":
+                continue      # the import's own plan (plan_line) has the helper's steps
+            print(line if kind in ("progress", "log", "error", "status", "step", "count") else "log " + line,
+                  flush=True)
             if kind == "error":
                 rc_error = line
     return rc_error
@@ -1226,6 +1242,64 @@ def music_entries(pkgs, path=None):
         if music_tracks(e) and isinstance(e["tracks"].get("source"), str) and e["tracks"]["source"].count("%02d") == 1:
             out[p] = e["tracks"]
     return out
+
+
+class ReadCount:
+    """gdp's "file NAME BYTES" lines (one per file it checks or unpacks) counted against the data manifest:
+    a file of one of the packages (its base name, any case, at one of its sizes) counts once, at its size;
+    total: each such file at its largest size, a file two of the packages share (quake-shareware's and
+    quake-registered's pak0.pak) once. Music tracks are not counted (their size is unknown)."""
+
+    def __init__(self, pkgs, man):
+        self.slot, self.size, self.seen, self.done = {}, {}, set(), 0
+        for p in pkgs:
+            for path, alts in ((man or {}).get(p) or {}).get("files", {}).items():
+                sizes = sorted({a["size"] for a in alts if isinstance(a.get("size"), int)})
+                if not sizes:
+                    continue
+                slot = (os.path.basename(path).lower(), sizes[-1])
+                self.size[slot] = sizes[-1]
+                for n in sizes:
+                    self.slot.setdefault((slot[0], n), slot)
+        self.total = sum(self.size.values())
+
+    def file(self, name, size):
+        """a file line: True when it counted (a new file of the packages)"""
+        slot = self.slot.get((os.path.basename(name.replace("//", "/")).lower(), size))
+        if slot is None or slot in self.seen:
+            return False
+        self.seen.add(slot)
+        self.done = min(self.total, self.done + size)
+        return True
+
+
+def package_bytes(pkg, man):
+    """the bytes of one package's files as the helper's checked copy counts them (each at its largest size, a
+    music track at the helper's expected size)"""
+    e = (man or {}).get(pkg) or {}
+    try:
+        return sum(max(a["size"] for a in alts) for alts in e.get("files", {}).values()) + \
+            (music_tracks(e) or 0) * MUSIC_TRACK_BYTES
+    except (ValueError, KeyError, TypeError):
+        return 0
+
+
+def plan_line(read_total, imports, man):
+    """the import's steps for Walnut Games' bar (walnut_games.Progress): gdp reads the source (read: the
+    bytes ReadCount expects) and builds the debs (build), then for each package imported the helper's
+    checked copy (check), its own deb (deb) and apt (apt), each with the package's bytes"""
+    items = ["read:%d" % read_total, "build:%d" % read_total]
+    for p in imports:
+        b = package_bytes(p, man)
+        items += ["check:%d" % b, "deb:%d" % b, "apt:%d" % b]
+    return " ".join(items)
+
+
+def expected_imports(ds, pkgs, asked):
+    """the packages an import is expected to bring, for its first plan: every -p package; for a plain
+    import the first of the game's base (gdp makes those the source has, one of them is enough), and the
+    real list follows once gdp is done"""
+    return list(pkgs) if asked else list(pkgs[:1])
 
 
 def existing(path):
@@ -1365,6 +1439,11 @@ def cmd_import(game_id, sources, asked, no_download, games):
                                     if kind == "path" and os.path.isfile(what)))
             check_space(total, archive, base, unpack=unpack, extra=sum(extra for _, _, extra in plans)
                         + (DOWNLOAD_BYTES if download == "--download" else 0))
+        man = load_manifest() or {}
+        count = ReadCount(pkgs, man)
+        say("plan", plan_line(count.total, expected_imports(ds, pkgs, asked), man))
+        say("step", "read reading the files" + (" of %s" % ", ".join(os.path.basename(x.rstrip("/")) or x
+                                                                       for x in sources) if sources else ""))
         paths = list(dict.fromkeys(p for plan in plans for p in src.open(plan)))
         sandbox = user_manager()
         private_net = sandbox and download == "--no-download" and private_network_works()
@@ -1372,7 +1451,7 @@ def cmd_import(game_id, sources, asked, no_download, games):
             say("log", "no systemd user manager: game-data-packager runs without its sandbox")
         cmd = gdp_command(ds, pkgs, paths, out, download, "FD" if progress else None, no_launchers)
         say("log", "running game-data-packager %s for %s" % (ds["gdp"], " ".join(pkgs)))
-        rc, errors, generated = run_gdp(cmd, tmp, base, sandbox, private_net, progress)
+        rc, errors, generated = run_gdp(cmd, tmp, base, sandbox, private_net, progress, count)
         if rc != 0:
             # a failed gdp may leave a deb it was still writing (ENOSPC): only those it said it made count
             for n in (os.listdir(out) if os.path.isdir(out) else []):
@@ -1395,6 +1474,7 @@ def cmd_import(game_id, sources, asked, no_download, games):
         for pkg, by in superseded([p for p, _ in debs], ds).items():
             say("log", "%s not imported: %s takes its place" % (pkg, by))
             debs = [(p, d) for p, d in debs if p != pkg]
+        say("plan", plan_line(count.total, [p for p, _ in debs], man))
         worst = 0
         for pkg, deb in debs:
             rc = import_deb(game_id, pkg, deb)

@@ -225,6 +225,12 @@ class ImportData(Dirs):
         self.assertEqual(args[:4], ["install", "--no-install-recommends", "--reinstall", "--no-remove"])
         self.assertTrue(args[-1].endswith("/alpha-data.deb"))
         self.assertIn("progress 100 installed alpha-data (full, cd)", out)
+        # the bar's lines: the plan, each step, the checked copy's bytes (each file at its largest size)
+        self.assertEqual([l for l in out if l.split(" ", 1)[0] in ("plan", "step", "count")],
+                         ["plan check deb apt", "step check checking the files of alpha-data",
+                          "count %d 4507" % len(A), "count %d 4507" % (len(A) + len(B)),
+                          "count %d 4507" % (len(A) + len(B) + len(MAN)),
+                          "step deb making the package alpha-data", "step apt installing alpha-data"])
         self.assert_clean()
 
     def test_other_alternative_and_its_release(self):
@@ -630,6 +636,9 @@ def prog(line):
     if fd is not None:
         os.write(fd, (line + "\n").encode())
 prog("step searching " + a[-1])
+for f in os.environ.get("FAKE_GDP_FILES", "").split():        # NAME:BYTES, its file lines
+    name, _, size = f.rpartition(":")
+    prog("file %s %s" % (name, size))
 print("game-data-packager talking")
 if os.environ.get("FAKE_GDP_FAIL"):
     prog("error " + os.environ.get("FAKE_GDP_ERROR", "not-found no files"))
@@ -645,6 +654,9 @@ skip = os.environ.get("FAKE_GDP_SKIP", "").split()
 for pkg in pkgs:
     if pkg not in skip:
         open(os.path.join(out, pkg + "_89_all.deb"), "wb").write(b"TARDATA:" + pkg.encode())
+for p in pkgs:
+    if p not in skip:
+        prog("step building " + p)
 pkg = pkgs[0]
 if os.environ.get("FAKE_GDP_EXTRA"):
     open(os.path.join(out, "heretic-shareware-wad_1.2_all.deb"), "wb").write(b"x")
@@ -661,6 +673,10 @@ data = sys.stdin.buffer.read() if sys.argv[1] == "import-data" else b""
 with open(os.environ["FAKE_LOG"], "a") as f:
     f.write(json.dumps({"helper": sys.argv[1:], "stdin": data.decode()}) + "\n")
 rc = int(os.environ.get("FAKE_HELPER_RC", "0"))
+if os.environ.get("FAKE_HELPER_STEPS"):
+    print("plan check deb apt")
+    print("step check checking the files of " + sys.argv[3])
+    print("count 10 20")
 print("progress 100 installed" if rc == 0 else "error refused: no")
 sys.exit(rc)
 '''
@@ -910,6 +926,47 @@ class DataImport(unittest.TestCase):
         # out/ and tmp/ gone, the lock left (free); the deb gone as soon as dpkg-deb had it open
         self.assertEqual(sorted(os.listdir(self.t / "cache/walnut-data")), ["import.lock"])
         self.assertIsNone(wd.import_state(str(self.t / "cache/walnut-data")))
+
+    def test_the_bar_s_lines(self):
+        """the plan, the read step counted by the files gdp names (the manifest's, by name and size, each
+        once), gdp's build step, the plan again with what gdp made, the helper's steps without its plan"""
+        rct = "usr/share/games/roller-coaster-tycoon2/"
+        man = {"gdp_version": "89", "packages": {"roller-coaster-tycoon2-data": {
+            "files": {rct + "Data/g1.dat": [{"size": 3000, "sha256": "0" * 64}, {"size": 2900, "sha256": "1" * 64}],
+                      rct + "Data/ch.dat": [{"size": 1000, "sha256": "2" * 64}]}}}}
+        (self.t / "manifest.json").write_text(json.dumps(man))
+        wd.MANIFEST = str(self.t / "manifest.json")
+        os.environ.update(FAKE_GDP_FILES="setup.exe:600000 setup.exe//app/Data/G1.DAT:2900 Data/g1.dat:2900 "
+                                         "Readme.txt:1000 Data/ch.dat:1000 Data/ch.dat:999", FAKE_HELPER_STEPS="1")
+        rc, out = self.imp(self.t / "src")
+        self.assertEqual(rc, 0, out)
+        bar = [l for l in out if l.split(" ", 1)[0] in ("plan", "step", "count")]
+        self.assertEqual(bar, ["plan read:4000 build:4000 check:4000 deb:4000 apt:4000",
+                               "step read reading the files of src",
+                               "count 2900 4000", "count 3900 4000",
+                               "step build building the package roller-coaster-tycoon2-data",
+                               "plan read:4000 build:4000 check:4000 deb:4000 apt:4000",
+                               "step check checking the files of roller-coaster-tycoon2-data", "count 10 20"])
+
+    def test_read_count_and_the_plan(self):
+        man = {"quake-shareware": {"files": {"usr/share/games/quake/id1/pak0.pak": [{"size": 18689235}]}},
+               "quake-registered": {"files": {"usr/share/games/quake/id1/pak0.pak": [{"size": 18689235}],
+                                              "usr/share/games/quake/id1/pak1.pak": [{"size": 34257856}]}},
+               "quake-music": {"files": {}, "tracks": {"source": "id1/music/track%02d.ogg", "first": 2, "last": 11}}}
+        c = wd.ReadCount(["quake-registered", "quake-shareware"], man)
+        self.assertEqual(c.total, 18689235 + 34257856)                  # the shared pak0.pak once
+        self.assertTrue(c.file("/media/u/QUAKE/ID1/PAK0.PAK", 18689235))
+        self.assertFalse(c.file("id1/pak0.pak", 18689235))              # once
+        self.assertFalse(c.file("id1/pak1.pak", 5))                     # not its size
+        self.assertFalse(c.file("quake.exe", 34257856))                 # not its name
+        self.assertTrue(c.file("resource.1//id1/pak1.pak", 34257856))
+        self.assertEqual(c.done, c.total)
+        self.assertEqual(wd.ReadCount(["quake-music"], man).total, 0)  # tracks: no size to count
+        self.assertEqual(wd.plan_line(10, ["quake-registered", "quake-music"], man),
+                         "read:10 build:10 check:52947091 deb:52947091 apt:52947091 check:%d deb:%d apt:%d"
+                         % ((10 * wd.MUSIC_TRACK_BYTES,) * 3))
+        self.assertEqual(wd.expected_imports({}, ["a", "b"], []), ["a"])
+        self.assertEqual(wd.expected_imports({}, ["a", "b"], ["a", "b"]), ["a", "b"])
 
     def test_import_in_a_unit_with_the_fifo(self):
         wd.SYSTEMD_RUN = str(self.t / "systemd-run")

@@ -95,8 +95,12 @@ Design
   every Inst must be one of those names, nothing is removed (--no-remove).
 - SIGHUP and SIGPIPE are ignored: closing the app must not stop dpkg halfway. apt and dpkg get
   SIGPIPE back at its default (subprocess restore_signals); SIGHUP stays ignored for them.
-- Output, one item per line, flushed: "progress N text", "log text", "error text", "status text".
-  When stdout is gone the program keeps working and says nothing.
+- Output, one item per line, flushed: "plan STEP..." (the steps this action takes, once at its start:
+  lists, download, install, remove; check, deb, apt for import-data), "step STEP text" (a step begins),
+  "progress N text" (N percent of the current step), "count DONE TOTAL" (bytes of the current step,
+  when known: the download, from apt's "Need to get" and its percentages, and import-data's checked
+  copy), "log text", "error text", "status text". Walnut Games draws one bar over the steps from
+  these (walnut_games.Progress). When stdout is gone the program keeps working and says nothing.
 - Exit codes: 0 done, 2 refused (a message says why, nothing was changed; "busy" too), 1 apt, dpkg or
   dpkg-deb failed.
 - stdlib only. The functions take the catalog path and a command runner so that
@@ -158,7 +162,12 @@ class AptFailed(Exception):
     """apt-get or apt-mark failed (exit code 1)"""
 
 
+CURRENT = {"step": None}     # the step said last ("step STEP text"): apt_stream goes on in it
+
+
 def say(kind, text=""):
+    if kind == "step":
+        CURRENT["step"] = text.split(" ", 1)[0]
     try:
         sys.stdout.write((kind + " " + text).rstrip() + "\n")
         sys.stdout.flush()
@@ -227,9 +236,26 @@ def lists_age(lists=LISTS):
     return time.time() - max(times) if times else None
 
 
-def apt_stream(args, status_to_progress=True):
-    """run apt-get ARGS with its status on our own pipe, relaying 'progress' and 'log' lines; the
-    return code. A line of apt's output that is an error stays in the returned tail."""
+def apt_steps(args):
+    """the steps (for dlstatus, for pmstatus) an apt-get run reports in: update downloads the lists;
+    install downloads and installs (a .deb of import-data: installs only, as "apt"); remove removes"""
+    if args[:1] == ["update"]:
+        return "lists", None
+    if args[:1] == ["remove"]:
+        return None, "remove"
+    if any(a.endswith(".deb") for a in args):
+        return None, "apt"
+    return "download", "install"
+
+
+STEP_TEXT = {"lists": "updating the package lists", "download": "downloading", "install": "installing",
+             "remove": "removing", "apt": "installing the package"}
+
+
+def apt_stream(args):
+    """run apt-get ARGS with its status on our own pipe, relaying 'step', 'progress', 'count' and 'log'
+    lines (apt_steps: which step its download and its unpacking count for); the return code. A line of
+    apt's output that is an error stays in the returned tail."""
     r, w = os.pipe()
     cmd = [APT_GET] + APT_OPTS + ["-o", "APT::Status-Fd=%d" % w] + args
     p = subprocess.Popen(cmd, env=ENV, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -240,6 +266,8 @@ def apt_stream(args, status_to_progress=True):
     sel.register(p.stdout, selectors.EVENT_READ, "out")
     bufs = {"status": b"", "out": b""}
     tail = []
+    steps = dict(zip(("dl", "pm"), apt_steps(args)))
+    state = {"step": CURRENT["step"], "need": None}
     while sel.get_map():
         for key, _ in sel.select():
             fd = key.fileobj
@@ -253,10 +281,12 @@ def apt_stream(args, status_to_progress=True):
                 line, bufs[kind] = bufs[kind].split(b"\n", 1)
                 text = line.decode("utf-8", "replace").rstrip()
                 if kind == "status":
-                    msg = status_line(text)
-                    if msg:
+                    for msg in status_says(status_line(text), steps, state):
                         say(*msg)
                 elif text:
+                    n = need_bytes(text)
+                    if n is not None:
+                        state["need"] = n
                     say("log", text)
                     tail.append(text)
                     del tail[:-30]
@@ -266,24 +296,56 @@ def apt_stream(args, status_to_progress=True):
 
 
 def status_line(line):
-    """apt's APT::Status-Fd line as ("progress", "N text"), or None. Downloads fill the first
-    40 percent of the bar, unpacking and configuring the rest."""
+    """apt's APT::Status-Fd line as (kind, percent, text): "dl" (dlstatus: downloading), "pm" (pmstatus:
+    unpacking, configuring, removing), "log" (pmerror, pmconffile: percent None); None for the rest"""
     parts = line.split(":", 3)
     if len(parts) < 4:
         return None
     kind, _, pct, text = parts
+    if kind in ("pmerror", "pmconffile"):
+        return ("log", None, "%s %s" % (kind, text.strip()))
+    if kind not in ("dlstatus", "pmstatus"):
+        return None
     try:
         pct = float(pct)
     except ValueError:
         return None
-    pct = max(0.0, min(100.0, pct))
-    if kind == "dlstatus":
-        return ("progress", "%d %s" % (pct * 0.4, text.strip() or "downloading"))
-    if kind == "pmstatus":
-        return ("progress", "%d %s" % (40 + pct * 0.6, text.strip() or "installing"))
-    if kind in ("pmerror", "pmconffile"):
-        return ("log", "%s %s" % (kind, text.strip()))
-    return None
+    return (kind[:2], max(0.0, min(100.0, pct)), text.strip())
+
+
+def status_says(st, steps, state):
+    """the lines one status_line result makes: a "step" line when apt moves into the step it counts for
+    (steps: {"dl": step, "pm": step}), its "progress" in that step, and a "count" of the download's bytes
+    once apt has said how much it needs (state["need"]); state["step"] is the step it is in"""
+    if st is None:
+        return []
+    kind, pct, text = st
+    if kind == "log":
+        return [("log", text)]
+    out, step = [], steps.get(kind)
+    if step and state.get("step") != step:
+        state["step"] = step
+        out.append(("step", "%s %s" % (step, STEP_TEXT.get(step, step))))
+    out.append(("progress", "%d %s" % (pct, text or ("downloading" if kind == "dl" else "installing"))))
+    if kind == "dl" and state.get("need"):
+        out.append(("count", "%d %d" % (state["need"] * pct / 100, state["need"])))
+    return out
+
+
+NEED_RE = re.compile(r"^Need to get ([0-9][0-9.,]*) ?([kMG]?B)(?:/([0-9][0-9.,]*) ?([kMG]?B))? of archives")
+UNITS = {"B": 1, "kB": 1000, "MB": 1000 ** 2, "GB": 1000 ** 3}
+
+
+def need_bytes(line):
+    """the bytes apt-get still has to download, from its "Need to get 45.2 MB of archives." (or "12.0
+    MB/45.2 MB", part of it in the cache: the first); None for any other line"""
+    m = NEED_RE.match(line)
+    if not m:
+        return None
+    try:
+        return int(float(m.group(1).replace(",", "")) * UNITS[m.group(2)])
+    except (KeyError, ValueError):
+        return None
 
 
 # ---- install and remove -----------------------------------------------------------------------
@@ -316,8 +378,10 @@ def check_sections(pkgs, runner=run):
 def do_install(game_id, games, stream=apt_stream, age=lists_age, runner=run):
     pkgs = game_packages(game_id, games)
     a = age()
-    if a is None or a > STALE_SECONDS:
-        say("progress", "0 updating the package lists")
+    stale = a is None or a > STALE_SECONDS
+    say("plan", ("lists " if stale else "") + "download install")
+    if stale:
+        say("step", "lists updating the package lists")
         rc, tail = stream(["update"])
         if rc != 0:
             # an old index may still hold the package; say so and try
@@ -339,7 +403,7 @@ def do_install(game_id, games, stream=apt_stream, age=lists_age, runner=run):
                           % (game_id, ", ".join(extra[:8]) + (" ..." if len(extra) > 8 else "")))
         if gone:
             say("log", "%s takes the place of %s" % (" ".join(pkgs), " ".join(gone)))
-    say("progress", "0 installing " + " ".join(pkgs))
+    say("step", "download downloading " + " ".join(pkgs))
     rc, tail = stream(["install"] + ([] if gone else ["--no-remove"]) + pkgs)
     if rc != 0:
         say("error", "apt-get install failed (%d)%s" % (rc, ": " + tail[-1] if tail else ""))
@@ -432,6 +496,8 @@ def do_remove(game_id, games, runner=run, stream=apt_stream):
     if not have:
         say("progress", "100 not installed" if not shared else "100 nothing of this game's own to remove")
         return
+    say("plan", "remove")
+    say("step", "remove removing " + " ".join(have))
     rc, sim = runner([APT_GET, "-s", "-o", "Debug::NoLocking=1", "remove"] + have)
     if rc != 0:
         say("error", "apt-get -s remove failed: " + (sim.strip().splitlines() or ["?"])[-1])
@@ -812,6 +878,9 @@ def read_stream(src, pkg, entry, root, cap):
     tracks_max = (entry.get("tracks") or {}).get("max_size", 0)
     links = entry.get("symlinks") or {}
     done, total, skipped = {}, 0, 0
+    # what the copy is expected to come to, for the count lines: each file at its largest size, a music
+    # track at its expected size
+    want = sum(max(a["size"] for a in alts) for alts in files.values()) + len(tracks) * TRACK_EXPECT
     src = StreamTail(src)
     try:
         tf = tarfile.open(fileobj=src, mode="r|")
@@ -837,7 +906,7 @@ def read_stream(src, pkg, entry, root, cap):
                 if total > cap:
                     raise Refused("the data is larger than %s's files" % pkg)
                 room(root, m.size, total - m.size)
-                say("progress", "%d checking %s" % (min(39, 40 * len(done) // max(len(files) + len(tracks), 1)), path))
+                say("progress", "%d checking %s" % (min(99, 100 * len(done) // max(len(files) + len(tracks), 1)), path))
                 copy_ogg(tf.extractfile(m), m.size, root, path)
                 done[path] = None
                 continue
@@ -855,7 +924,8 @@ def read_stream(src, pkg, entry, root, cap):
             total += m.size
             if total > cap:
                 raise Refused("the data is larger than %s's files" % pkg)
-            say("progress", "%d checking %s" % (min(39, 40 * total // max(cap, 1)), path))
+            say("progress", "%d checking %s" % (min(99, 100 * total // max(want, 1)), path))
+            say("count", "%d %d" % (total, want))
             done[path] = copy_checked(tf.extractfile(m), m.size, alts, root, path)
         if not src.zero_block_at(tf.offset):
             # tarfile ends quietly at a stream cut between two members or inside a header
@@ -1032,7 +1102,8 @@ def do_import_data(game_id, pkg, games, src, manifest, gdp_version, runner=run, 
     try:
         root = os.path.join(stage, "root")
         os.mkdir(root, 0o755)
-        say("progress", "0 checking the files of " + pkg)
+        say("plan", "check deb apt")
+        say("step", "check checking the files of " + pkg)
         found = read_stream(src, pkg, entry, root, cap)
         doc = os.path.join(root, "usr/share/doc", pkg)
         os.makedirs(doc, 0o755, exist_ok=True)
@@ -1049,7 +1120,7 @@ def do_import_data(game_id, pkg, games, src, manifest, gdp_version, runner=run, 
                                | os.O_NOFOLLOW, 0o644), "w") as f:
             f.write(control_text(pkg, entry, gdp_version, release, kb))
         deb = os.path.join(stage, "%s.deb" % pkg)
-        say("progress", "40 making the package " + pkg)
+        say("step", "deb making the package " + pkg)
         # dpkg-deb writes the data member to a temporary file in TMPDIR first (/tmp is a 55 MB tmpfs
         # on the PS3: RCT2's 550 MB failed with ENOSPC there), so it goes next to the deb
         ENV["TMPDIR"] = stage
@@ -1077,7 +1148,7 @@ def do_import_data(game_id, pkg, games, src, manifest, gdp_version, runner=run, 
                           % (pkg, ", ".join(extra[:8]) or "nothing (apt would not install it)"))
         if gone:
             say("log", "%s takes the place of %s" % (pkg, ", ".join(gone)))
-        say("progress", "40 installing " + pkg)
+        say("step", "apt installing " + pkg)
         rc, tail = stream(["install", "--no-install-recommends", "--reinstall"] + ([] if gone else ["--no-remove"])
                           + [deb])
         if rc != 0:
@@ -1098,6 +1169,8 @@ def do_remove_data(game_id, games, runner=run, stream=apt_stream):
     if not have:
         say("progress", "100 no data of %s installed" % game_id)
         return
+    say("plan", "remove")
+    say("step", "remove removing " + " ".join(have))
     rc, sim = runner([APT_GET, "-s", "-o", "Debug::NoLocking=1", "remove"] + have)
     if rc != 0:
         say("error", "apt-get -s remove failed: " + (sim.strip().splitlines() or ["?"])[-1])
@@ -1135,8 +1208,10 @@ def do_install_repo_data(game_id, games, stream=apt_stream, age=lists_age, runne
         say("progress", "100 the data of %s is installed" % game_id)
         return
     a = age()
-    if a is None or a > STALE_SECONDS:
-        say("progress", "0 updating the package lists")
+    stale = a is None or a > STALE_SECONDS
+    say("plan", ("lists " if stale else "") + "download install")
+    if stale:
+        say("step", "lists updating the package lists")
         rc, tail = stream(["update"])
         if rc != 0:
             say("log", "apt-get update failed (%d): looking in the lists as they are" % rc)
@@ -1153,7 +1228,7 @@ def do_install_repo_data(game_id, games, stream=apt_stream, age=lists_age, runne
     if pkg not in inst or extra:
         raise Refused("installing %s would also change %s: nothing was changed"
                       % (pkg, ", ".join(extra[:8]) or "nothing (apt would not install it)"))
-    say("progress", "0 installing " + pkg)
+    say("step", "download downloading " + pkg)
     # the licensed-Section lock (check_sections) is waived: these are the game's data names, from apt
     rc, tail = stream(["install", "--no-remove", "--no-install-recommends", pkg])
     if rc != 0:

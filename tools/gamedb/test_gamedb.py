@@ -1189,8 +1189,11 @@ class PackIntegration(unittest.TestCase):
             finally:
                 del os.environ["SOURCE_DATE_EPOCH"]
             apps = Path(t) / "tree" / "tree" / "usr/share/applications"
-            got = wg.play_commands({"id": "quakespasm", "desktop": sorted(want)}, None, str(apps))
+            # (their data present: a data launcher shows once its file exists)
+            got = wg.play_commands({"id": "quakespasm", "desktop": sorted(want)}, None, str(apps), exists=lambda p: True)
             self.assertEqual(len(got), len(want))
+            self.assertEqual(wg.play_commands({"id": "quakespasm", "desktop": sorted(want)}, None, str(apps),
+                                              exists=lambda p: False), [])
             for (label, argv, cwd), name in zip(got, sorted(want)):
                 game, pakdir = want[name]
                 self.assertEqual(argv[:2], ["ps3-game", "quakespasm"], name)

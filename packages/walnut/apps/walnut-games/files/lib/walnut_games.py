@@ -22,18 +22,28 @@ Design
   game that exists only in the web catalog shows Install off, with the reason, until the next package
   update. Play and Remove work for any installed game.
 - Installed state comes from dpkg-query (no root). Install and Remove run
-  `sudo -n /usr/lib/ps3/sbin/walnut-games-helper install|remove ID` (it takes game ids only), its
-  "progress N text" lines drive the progress bar, and afterwards the menu entries are made again
-  (ps3-game-menu --reload "$XDG_RUNTIME_DIR/ps3-game-menu", which also restarts the menu), so the new
-  game starts through game mode. Play
-  is off while the helper runs: game mode would freeze it with dpkg's lock held.
+  `sudo -n /usr/lib/ps3/sbin/walnut-games-helper install|remove ID` (it takes game ids only), and
+  afterwards the menu entries are made again (ps3-game-menu --reload "$XDG_RUNTIME_DIR/ps3-game-menu",
+  which also restarts the menu), so the new game starts through game mode. Play is off while an action
+  runs: game mode would freeze the helper with dpkg's lock held.
+- The queue (ActionQueue, the bottom of the window, hidden while empty): install, remove, remove-data,
+  install-repo-data and imports are queued and run one at a time (the helper holds one lock anyway), so
+  the player browses and queues more meanwhile; the pane only shows a game's state (Queued, Installing...).
+  Collapsed it is one status row (the action, "step N of M: what - X of Y MB", the time left once there
+  is a pace) and a determinate bar (Progress: the helper's and walnut-data's plan, step, progress and count
+  lines; each step weighs its expected time on the PS3, a step that reports nothing is filled by its
+  time); the > / v toggle opens the list (a waiting action can be removed, a failed one stays with its
+  error until dismissed, the queue goes on after it) and the running one's last lines. Closing the window
+  with actions waiting asks first; the one running carries on.
 - At each start, in a thread, `sudo -n walnut-games-helper adopt` (adopt_games) marks the catalog games'
   automatic packages manual: the old ps3-games metapackages (gone since 2026-10-28) installed them as
   their dependencies, and autoremove would take them once a metapackage went. Failures are ignored;
   with nothing to adopt the helper changes nothing.
 - Play starts the runtime copy of the game's .desktop (its Exec already goes through ps3-game),
   else `ps3-game` plus the entry in /usr/share/applications with the field codes cut out and
-  split by shlex, never through a shell.
+  split by shlex, never through a shell. Hidden and NoDisplay entries (a file type's handler) are not
+  offered, a data launcher (X-Walnut-Requires) only once its files exist; two of the same Name are told
+  apart by their Comment or their own arguments (entry_shown, distinct_labels).
 - Game data (a game's catalog data_setup, GameDB build.toml [data_setup]): the page offers "Install from
   Walnut licensed" when the apt sources have one of its present_any names (apt-cache policy, once in a
   thread at start and on Refresh: the licensed suite; checked over every present_any name, since its
@@ -41,16 +51,18 @@ Design
   it that starts REQUIRED: or OPTIONAL: and names the original game ([data_setup] original); with only a
   free shareware or demo edition installed it stays, OPTIONAL, for the full game (whose import replaces
   the free one), and the chooser no longer offers that free download. Play stays
-  off while required data is missing. The chooser is a window of big buttons (the
-  pad is the pointer; arrows, Enter, Escape) listing find_sources: the disc in the drive (lsblk; not
-  mounted: /dev/sr0, which walnut-data mounts), /media/$USER/* and /run/media/$USER/*, ~/GOG Games/*,
-  Steam's steamapps/common/*, *.iso/*.img/*.cue/*.mdf/*.zip/*.exe/gog_*.sh in ~/Downloads and ~; Other file and
-  Other folder (Tk's dialogs). The game's hint is shown above. `walnut-data import GAME SOURCE` runs
+  off while required data is missing. The chooser is one list, "Select a source" (source_list; big
+  buttons, the pad is the pointer; arrows, Enter, Escape): a free download the game has, then
+  find_sources: the disc in the drive (lsblk; not mounted: /dev/sr0, which walnut-data mounts),
+  /media/$USER/* and /run/media/$USER/*, ~/GOG Games/*, Steam's steamapps/common/*,
+  *.iso/*.img/*.cue/*.mdf/*.zip/*.exe/gog_*.sh in ~/Downloads and ~; then From a file... and From a
+  folder... (Tk's dialogs), each with the kinds this game takes (source_kinds: the installers and
+  archives the data manifest's "archives" name, the disc images walnut-data opens; an installed copy,
+  Steam's and GOG's folders). The game's hint is shown above. `walnut-data import GAME SOURCE` runs
   in its own session with its output in ~/.cache/walnut-games/import.log (import.json: its pid, game,
-  start, source), which a thread reads as it grows: the step, the file being read, the elapsed time,
-  the last 3 log lines and a bar that only moves (no percentages). Closing the app leaves it running;
-  opened again, the app finds it by walnut-data's lock (~/.cache/walnut-data/import.lock, held for
-  the whole import) and shows it in place of the buttons. A failure is told by game-data-packager's
+  start, source), which a thread reads as it grows into the queue's row and bar. Closing the app leaves
+  it running; opened again, the app finds it by walnut-data's lock (~/.cache/walnut-data/import.lock,
+  held for the whole import) and shows it as the queue's running action. A failure is told by game-data-packager's
   error kind (import_error_message); unsuitable (a known release gdp refuses, e.g. Hexen 1.0) tells the release and gdp's reason;
   needs-download offers "Try again with download" (-p for the
   game's downloads packages) when the game has some. A plain import makes the game's base (its required
@@ -477,17 +489,61 @@ def entry_program(argv):
     return argv[i] if os.path.isabs(argv[i]) else os.path.basename(argv[i])   # a full path stays one
 
 
-def play_commands(game, runtime_dir=None, apps=APPS, files=None):
+def entry_shown(e, exists=os.path.exists):
+    """whether Play offers a menu entry: not Hidden; not NoDisplay (a file type's or a link's handler, like
+    OpenRCT2's savegame, scenario and openrct2:// entries, Name=OpenRCT2 all three), except a data launcher
+    of ours (X-Walnut-Requires=PATH[;PATH...], packed NoDisplay); a data launcher only when every file it
+    names exists (ps3-game-menu's rule: its runtime copy shows then)"""
+    if e.get("Hidden") == "true":
+        return False
+    req = [p for p in (e.get("X-Walnut-Requires") or "").split(";") if p.strip()]
+    if req:
+        return all(exists(p.strip()) for p in req)
+    return e.get("NoDisplay") != "true"
+
+
+def distinct_labels(entries):
+    """[(name, comment, argv)] -> one label each, no two the same: a name several entries share gets what
+    tells them apart, the Comment when theirs differ, else the arguments only that entry has, else a
+    number ("OpenRCT2 (2)")"""
+    by = {}
+    for i, (name, _, _) in enumerate(entries):
+        by.setdefault(name, []).append(i)
+    out = [name for name, _, _ in entries]
+    for name, idx in by.items():
+        if len(idx) < 2:
+            continue
+        comments = [(entries[i][1] or "").strip() for i in idx]
+        if all(comments) and len(set(comments)) == len(comments):
+            for i, c in zip(idx, comments):
+                out[i] = "%s (%s)" % (name, c if len(c) <= 60 else c[:57].rstrip() + "\u2026")
+            continue
+        for n, i in enumerate(idx):
+            others = {a for j in idx if j != i for a in entries[j][2]}
+            own = [a for a in entries[i][2][1:] if a not in others and a != "ps3-game"]
+            out[i] = "%s (%s)" % (name, " ".join(own)[:60]) if own else name
+    seen = {}
+    for i, label in enumerate(out):        # still the same (the same arguments): numbered
+        seen[label] = seen.get(label, 0) + 1
+        if seen[label] > 1:
+            out[i] = "%s (%d)" % (label, seen[label])
+    return out
+
+
+def play_commands(game, runtime_dir=None, apps=APPS, files=None, exists=None):
     """[(label, argv, cwd)]: every way to start the game, found from its packages' manifest (files:
     a callable giving the paths they ship): the menu entries they ship (a diverted one isn't there
     and drops out), then any shown menu entry that runs one of their programs (Walnut's own entries
     for a game, like OpenArena's two renderers). The catalog's optional `desktop` list comes first
     (an order, or an entry the manifest can't lead to). Each entry's runtime copy (ps3-game-menu's,
     Exec through ps3-game) wins over the installed one, which gets ps3-game put in front. The label
-    is the entry's Name. An entry stamped X-Walnut-Game=<id> (ps3-games-integration's launchers) is
-    only its own game's: games sharing an engine (dsda-doom: Freedoom, Doom, Heretic) don't list each
-    other's; an unstamped one counts for any game that leads to it."""
+    is the entry's Name, told apart from another of the same Name (distinct_labels). An entry stamped
+    X-Walnut-Game=<id> (ps3-games-integration's launchers) is only its own game's: games sharing an engine
+    (dsda-doom: Freedoom, Doom, Heretic) don't list each other's; an unstamped one counts for any game that
+    leads to it. Hidden and NoDisplay entries are left out, a data launcher until its files exist
+    (entry_shown; exists: os.path.exists)."""
     gid = game.get("id")
+    exists = exists or os.path.exists
     dirs = ([os.path.join(runtime_dir, "applications")] if runtime_dir else []) + [apps]
     shipped = files() if files else []
     # the programs by name (on PATH) and by full path (an Exec of /usr/lib/yamagi-quake2/quake2)
@@ -499,16 +555,16 @@ def play_commands(game, runtime_dir=None, apps=APPS, files=None):
 
     def add(name, e):
         argv = parse_exec(e["Exec"])
-        if not argv or name in seen or (gid and e.get("X-Walnut-Game", gid) != gid):
+        seen.add(name)          # found: a hidden one doesn't come back from the other directory
+        if not argv or (gid and e.get("X-Walnut-Game", gid) != gid) or not entry_shown(e, exists):
             return
         if os.path.basename(argv[0]) != "ps3-game":
             argv = ["ps3-game"] + argv
-        out.append((e.get("Name") or name[:-len(".desktop")], argv, e.get("Path") or None))
-        seen.add(name)
+        out.append((e.get("Name") or name[:-len(".desktop")], argv, e.get("Path") or None, e.get("Comment") or ""))
 
     for name in names:
         for d in dirs:
-            e = desktop_entry(os.path.join(d, name))
+            e = None if name in seen else desktop_entry(os.path.join(d, name))
             if e:
                 add(name, e)
                 break
@@ -520,10 +576,10 @@ def play_commands(game, runtime_dir=None, apps=APPS, files=None):
                 continue
             for name in found:
                 e = None if name in seen else desktop_entry(os.path.join(d, name))
-                if e and e.get("NoDisplay") != "true" and e.get("Hidden") != "true" and \
-                        entry_program(parse_exec(e["Exec"])) in progs:
+                if e and entry_shown(e, exists) and entry_program(parse_exec(e["Exec"])) in progs:
                     add(name, e)
-    return out
+    labels = distinct_labels([(label, comment, argv) for label, argv, _, comment in out])
+    return [(label, argv, cwd) for label, (_, argv, cwd, _) in zip(labels, out)]
 
 
 def adopt_games(helper=HELPER, runner=subprocess.run):
@@ -539,7 +595,9 @@ def adopt_games(helper=HELPER, runner=subprocess.run):
 
 
 def parse_helper_line(line):
-    """('progress', percent, text) | ('log', text) | ('error', text) | ('status', text) | None"""
+    """('progress', percent, text) | ('step', step, text) | ('plan', [(step, bytes or None)]) |
+    ('count', done, total) | ('log', text) | ('error', text) | ('status', text) | None (the helper's and
+    walnut-data's lines: progress is the percentage of the current step)"""
     kind, _, rest = line.rstrip("\n").partition(" ")
     if kind == "progress":
         pct, _, text = rest.partition(" ")
@@ -547,9 +605,188 @@ def parse_helper_line(line):
             return ("progress", max(0, min(100, int(pct))), text)
         except ValueError:
             return None
+    if kind == "step":
+        step, _, text = rest.partition(" ")
+        return ("step", step, text.strip()) if STEP_RE.match(step) else None
+    if kind == "plan":
+        items = []
+        for word in rest.split():
+            step, _, b = word.partition(":")
+            if not STEP_RE.match(step):
+                return None
+            items.append((step, int(b) if b.isdigit() else None))
+        return ("plan", items) if items else None
+    if kind == "count":
+        f = rest.split()
+        return ("count", int(f[0]), int(f[1])) if len(f) == 2 and f[0].isdigit() and f[1].isdigit() else None
     if kind in ("log", "error", "status"):
         return (kind, rest)
     return ("log", line.strip()) if line.strip() else None   # sudo's own messages
+
+
+# ---- the bar: one action's steps (the helper's and walnut-data's plan, step, progress and count lines) --
+
+STEP_RE = re.compile(r"^[a-z][a-z-]{0,15}$")
+# what a step does when its line says nothing more
+STEP_TEXT = {"lists": "updating the package lists", "download": "downloading", "install": "installing",
+             "remove": "removing", "read": "reading the game files", "build": "building the package",
+             "check": "checking the files", "deb": "making the package", "apt": "installing the package",
+             "import": "importing", "wait": "starting"}
+# how long a step takes on the PS3, its weight in the bar: bytes a second for the steps that carry a
+# size, measured on RollerCoaster Tycoon 2's 581 MB (docs/TESTS.md 10-27: game-data-packager made it
+# from a folder in 102 s, read and build; from the PS3's own drive the disc reads at about 2.3 MB/s and
+# the whole import takes about 8 min); seconds for the rest. A step that reports nothing is filled by
+# its time, up to STEP_TIME_CAP of it, so the bar never stands still or runs past it.
+STEP_RATE = {"read": 10e6, "build": 14e6, "check": 12e6, "deb": 10e6, "apt": 10e6, "download": 2e6}
+DISC_RATE = 2.3e6
+STEP_SECONDS = {"lists": 25, "download": 10, "install": 30, "remove": 15, "import": 300, "wait": 2}
+STEP_TIME_CAP = 0.95
+
+
+def size_text(done, total):
+    """"120 of 581 MB" """
+    if total >= 10 << 20:
+        return "%d of %d MB" % (done >> 20, total >> 20)
+    return "%.1f of %.1f MB" % (done / (1 << 20), total / (1 << 20))
+
+
+def left_text(secs):
+    """"about 3 min left", "about 40 s left" """
+    secs = max(0, int(secs))
+    if secs >= 90:
+        return "about %d min left" % round(secs / 60)
+    return "about %d s left" % max(5, 5 * round(secs / 5))
+
+
+class Progress:
+    """a determinate bar over an action's steps: plan (the steps, each a kind and its bytes when known),
+    step (one begins), progress (a percentage of the current step), count (its bytes done of a total).
+    Each step weighs what it takes in time (step_weight); the bar is the steps done plus the current one's
+    share (its count, else its percentage, else the time since it began over its weight). Without a plan
+    the action is one step of its kind (default), filled by time."""
+
+    def __init__(self, default="import", t0=None, disc=False):
+        self.t0 = t0 if t0 is not None else time.time()
+        self.disc, self.default = disc, default
+        self.steps, self.cur, self.planned = [], -1, False
+
+    @staticmethod
+    def _new(kind, nbytes=None):
+        return {"kind": kind, "bytes": nbytes, "text": "", "pct": None, "count": None, "t0": None, "done": False}
+
+    def plan(self, items):
+        """the steps: the ones already begun stay when the new plan starts with the same kinds"""
+        keep = 0
+        while keep <= self.cur and keep < len(items) and self.steps[keep]["kind"] == items[keep][0]:
+            keep += 1
+        if keep <= self.cur:
+            # a plan that doesn't go on from where this is: the steps done so far, then the new ones
+            items = [(s["kind"], s["bytes"]) for s in self.steps[:self.cur + 1]] + list(items)
+            keep = self.cur + 1
+        self.steps = self.steps[:keep] + [self._new(k, b) for k, b in items[keep:]]
+        self.planned = True
+
+    def start(self, kind, text="", now=None):
+        """a step begins: the next one of that kind after the current (the steps between are done); the
+        current one again only changes its text; a step the plan doesn't have is added"""
+        now = time.time() if now is None else now
+        if not self.steps and not self.planned:
+            self.steps = [self._new(kind)]
+            self.cur = 0
+        elif 0 <= self.cur < len(self.steps) and self.steps[self.cur]["kind"] == kind:
+            if text:
+                self.steps[self.cur]["text"] = text
+            return
+        else:
+            i = next((n for n in range(self.cur + 1, len(self.steps)) if self.steps[n]["kind"] == kind), None)
+            if i is None:
+                self.steps.insert(self.cur + 1, self._new(kind))
+                i = self.cur + 1
+            for s in self.steps[:i]:
+                s["done"] = True
+            self.cur = i
+        s = self.steps[self.cur]
+        s["text"], s["t0"] = text or s["text"], now
+
+    def _current(self, now=None):
+        if not 0 <= self.cur < len(self.steps):
+            self.start(self.default, "", now)
+        return self.steps[self.cur]
+
+    def percent(self, pct, now=None):
+        self._current(now)["pct"] = max(0, min(100, pct))
+
+    def count(self, done, total, now=None):
+        if total > 0:
+            self._current(now)["count"] = (max(0, min(done, total)), total)
+
+    def feed(self, ev, now=None):
+        """one parsed line (parse_helper_line, parse_import_line); the rest is ignored"""
+        if not ev:
+            return
+        if ev[0] == "plan":
+            self.plan(ev[1])
+        elif ev[0] == "step" and len(ev) == 3:      # (game-data-packager's own "gdp step" has no kind)
+            self.start(ev[1], ev[2], now)
+        elif ev[0] == "progress":
+            self.percent(ev[1], now)
+        elif ev[0] == "count":
+            self.count(ev[1], ev[2], now)
+
+    def finish(self):
+        for s in self.steps:
+            s["done"] = True
+
+    def step_weight(self, s):
+        """a step's expected seconds: its bytes at its rate (a disc reads at DISC_RATE), else STEP_SECONDS"""
+        rate = DISC_RATE if s["kind"] == "read" and self.disc else STEP_RATE.get(s["kind"])
+        if rate and s["bytes"]:
+            return max(2.0, s["bytes"] / rate)
+        return float(STEP_SECONDS.get(s["kind"], 20))
+
+    def step_fraction(self, s, now):
+        if s["done"]:
+            return 1.0
+        if s["count"]:
+            return s["count"][0] / s["count"][1]
+        if s["pct"] is not None:
+            return s["pct"] / 100.0
+        if s["t0"] is None:
+            return 0.0
+        return min(STEP_TIME_CAP, max(0.0, now - s["t0"]) / self.step_weight(s))
+
+    def fraction(self, now=None):
+        """the bar, 0 to 1"""
+        now = time.time() if now is None else now
+        if not self.steps:
+            return min(STEP_TIME_CAP, max(0.0, now - self.t0) / STEP_SECONDS.get(self.default, 20))
+        weights = [self.step_weight(s) for s in self.steps]
+        done = sum(w * self.step_fraction(s, now) for w, s in zip(weights, self.steps))
+        return max(0.0, min(1.0, done / sum(weights)))
+
+    def eta(self, now=None):
+        """the seconds left, from the pace so far (the weights are expected seconds, so the part of the bar
+        done took the time elapsed); None until there is a pace (3% of the bar and 5 s)"""
+        now = time.time() if now is None else now
+        f, el = self.fraction(now), now - self.t0
+        if f < 0.03 or el < 5 or f >= 1:
+            return None
+        return el * (1 - f) / f
+
+    def status(self, now=None):
+        """"step 2 of 5: building the package — 120 of 581 MB · about 3 min left" """
+        now = time.time() if now is None else now
+        if not 0 <= self.cur < len(self.steps):
+            text = STEP_TEXT.get(self.default, self.default)
+        else:
+            s = self.steps[self.cur]
+            text = s["text"] or STEP_TEXT.get(s["kind"], s["kind"])
+            if len(self.steps) > 1:
+                text = "step %d of %d: %s" % (self.cur + 1, len(self.steps), text)
+            if s["count"]:
+                text += " \u2014 " + size_text(*s["count"])
+        left = self.eta(now)
+        return text + (" \u00b7 " + left_text(left) if left is not None else "")
 
 
 # ---- game data (walnut-data, the helper's import-data / install-repo-data / remove-data) -----------
@@ -800,6 +1037,92 @@ def find_sources(home, user, disc=None, media_roots=None):
     return out[:MAX_SOURCES]
 
 
+# the disc images walnut-data opens for any game (its IMAGE_SUFFIXES, BIN/CUE and MDF/MDS: a test
+# keeps these the same as its code)
+DISC_IMAGES = (".iso", ".img", ".cue/.bin", ".mdf/.mds")
+# the installers and archives game-data-packager knows for a package (the data manifest's "archives": the
+# files that hold its files), by the end of their name, as the player knows the file; a file without one of
+# these ends (data1.cab or resource.1 on a disc, a patch) or one whose unpacker isn't free (unrar-nonfree)
+# is not offered as a file of its own
+GOG_EXE = "a GOG installer (.exe)"
+ARCHIVE_ENDS = ((".exe", "an installer (.exe)"), (".sh", "a Linux installer (.sh, .run)"),
+                (".run", "a Linux installer (.sh, .run)"), (".zip", "a .zip archive"), (".7z", "a .7z archive"),
+                (".tar.gz", "a .tar.gz archive"), (".tgz", "a .tar.gz archive"), (".tar.bz2", "a .tar.bz2 archive"),
+                (".deb", "a .deb package"))
+KIND_ORDER = [GOG_EXE] + list(dict.fromkeys(k for _, k in ARCHIVE_ENDS))
+NONFREE_UNPACKERS = ("unrar-nonfree", "unace-nonfree")
+
+
+def archive_kind(a):
+    """the chooser's name for an archive of the data manifest ({format, name, top}), or None"""
+    if not isinstance(a, dict) or not a.get("top") or a.get("format") in NONFREE_UNPACKERS:
+        return None
+    name = str(a.get("name") or "").lower()
+    for end, kind in ARCHIVE_ENDS:
+        if name.endswith(end):
+            return GOG_EXE if end == ".exe" and a.get("format") == "innoextract" else kind
+    return None
+
+
+def load_data_manifest(data=None):
+    """{package: entry} of the packaged data manifest (data-manifest.json), {} when it can't be read"""
+    try:
+        with open(os.path.join(data or DATA, "data-manifest.json"), encoding="utf-8") as f:
+            pk = json.load(f).get("packages")
+        return pk if isinstance(pk, dict) else {}
+    except (OSError, ValueError, AttributeError):
+        return {}
+
+
+def source_kinds(game, manifest):
+    """(file kinds, folder kinds) the chooser's From a file... and From a folder... name for a game: the
+    installers and archives game-data-packager knows for its data packages (the manifest's archives, an
+    archive only when a file of the game holds it), then the disc images walnut-data opens; an installed
+    copy and the disc's files, Steam's and GOG's folders when gdp knows a Steam or GOG release of them"""
+    ds = data_setup(game) or {}
+    pkgs = [p for k in ("required", "optional") for p in ds.get(k) or []]
+    kinds, releases = [], set()
+    for p in pkgs:
+        e = manifest.get(p) if isinstance(manifest.get(p), dict) else {}
+        for a in e.get("archives") or []:
+            k = archive_kind(a)
+            if k and k not in kinds:
+                kinds.append(k)
+        for alts in (e.get("files") or {}).values():
+            releases |= {a.get("release") for a in alts if isinstance(a, dict)}
+    gog = GOG_EXE in kinds or "gog" in releases
+    kinds.sort(key=KIND_ORDER.index)
+    if GOG_EXE in kinds and "an installer (.exe)" in kinds:     # GOG's and another's: one item
+        kinds = ["a GOG or other installer (.exe)" if k == GOG_EXE else k for k in kinds if k != "an installer (.exe)"]
+    files = kinds + ["a disc image (%s)" % ", ".join(DISC_IMAGES)]
+    folders = ["an installed copy", "the files of the disc"] + (["a Steam folder"] if "steam" in releases else []) + \
+        (["a GOG folder"] if gog else [])
+    return files, folders
+
+
+def kinds_text(kinds):
+    """"a, b or c" """
+    return kinds[0] if len(kinds) == 1 else ", ".join(kinds[:-1]) + " or " + kinds[-1]
+
+
+def source_list(game, have, sources, manifest):
+    """the chooser's one list, "Select a source", in order: [(kind, label, detail, value)]: the free
+    downloads not installed ("fetch": value the package), the detected sources (find_sources: the disc in the
+    drive by its label, mounted drives, installed copies, installers and images found; value the path), then
+    From a file... and From a folder... with the kinds this game takes (source_kinds)"""
+    ds = data_setup(game) or {}
+    out = []
+    for pkg in [p for p in ds.get("fetch") or [] if p not in have]:
+        ed = (ds.get("editions") or {}).get(pkg, "free version")
+        out.append(("fetch", "Download the free %s (needs the network)" % ed, "", pkg))
+    for label, path in sources:
+        out.append(("source", label, path, path))
+    files, folders = source_kinds(game, manifest)
+    out.append(("file", "From a file\u2026", kinds_text(files)[:1].upper() + kinds_text(files)[1:], None))
+    out.append(("folder", "From a folder\u2026", kinds_text(folders)[:1].upper() + kinds_text(folders)[1:], None))
+    return out
+
+
 def import_command(gid, source, packages=None, walnut_data=None):
     cmd = [walnut_data or WALNUT_DATA, "import"]
     for p in packages or []:
@@ -970,18 +1293,22 @@ def elapsed_text(secs):
 class ImportView:
     """what the page shows of a running import, fed walnut-data's lines (parse_import_line)"""
 
-    def __init__(self, gid, t0=None):
+    def __init__(self, gid, t0=None, disc=False, progress=None):
         self.gid, self.t0 = gid, t0 if t0 is not None else time.time()
+        self.prog = progress or Progress("import", self.t0, disc)    # the bar (the queue's)
         self.step, self.file, self.tail, self.errors = "Starting...", "", [], []
         self.gdp_kind, self.gdp_text, self.done = None, "", False
         self.addons = []                         # optional packages the source also holds (walnut-data: addon available)
         self.download, self.missing = [], []     # packages that need their download / (package, reason) not made
 
-    def feed(self, ev):
+    def feed(self, ev, now=None):
         if not ev:
             return
+        self.prog.feed(ev, now)
         k = ev[0]
-        if k == "step":
+        if k == "step" and len(ev) == 3:          # walnut-data's or the helper's: the bar's step
+            self.step, self.file = ev[2][:1].upper() + ev[2][1:], ""
+        elif k == "step":
             self.step, self.file = ev[1][:1].upper() + ev[1][1:], ""
         elif k == "file":
             self.file = os.path.basename(ev[1].replace("//", "/")) + \
@@ -1012,6 +1339,99 @@ class ImportView:
         return import_error_kind(self.gdp_kind, self.errors)
 
 
+# ---- the queue: one action at a time, the rest waiting (the bottom of the window) -------------------
+
+QUEUE_CLOSED, QUEUE_OPEN = "\u25b6", "\u25bc"      # the queue's toggle: its list shown or not
+RUNNING_LABEL = {"install": "Installing\u2026", "remove": "Removing\u2026", "remove-data": "Removing data\u2026",
+                 "install-repo-data": "Installing data\u2026", "import": "Importing\u2026"}
+
+
+class Action:
+    """one thing the queue runs: a helper action (install, remove, remove-data, install-repo-data) or a
+    walnut-data import (source, packages); state waiting, running, done or failed (error: why)"""
+    _n = 0
+
+    def __init__(self, kind, gid, title, source=None, packages=None, then=None):
+        Action._n += 1
+        self.n, self.kind, self.gid, self.title = Action._n, kind, gid, title
+        self.source, self.packages = source, list(packages or [])
+        self.then = list(then or [])      # helper actions run after it in the same turn (remove, remove-data)
+        self.state, self.error, self.message = "waiting", "", ""
+        self.progress = Progress(default="import" if kind == "import" else kind.split("-")[0])
+        self.tail = []                    # the last log lines (the queue's details)
+
+    def key(self):
+        return (self.kind, self.gid, self.source, tuple(self.packages))
+
+    def label(self):
+        """what the queue's row calls it"""
+        what = {"install": "Install %s", "remove": "Remove %s", "remove-data": "Remove the game data of %s",
+                "install-repo-data": "Install the game data of %s from Walnut licensed"}
+        if self.kind in what:
+            return what[self.kind] % self.title
+        src = os.path.basename((self.source or "").rstrip("/")) or self.source
+        add = ", ".join(data_package_name(p) for p in self.packages)
+        return "Add game files for %s%s%s" % (self.title, " (%s)" % add if add else "", " from " + src if src else "")
+
+
+class ActionQueue:
+    """the actions in order: the one running, the waiting ones, the failed ones until dismissed (a done one
+    leaves). One runs at a time (the helper holds one lock anyway); a failure doesn't stop the rest."""
+
+    def __init__(self):
+        self.items = []
+
+    def add(self, a):
+        """a queued (None when the same action is already waiting or running)"""
+        if any(i.key() == a.key() and i.state in ("waiting", "running") for i in self.items):
+            return None
+        self.items.append(a)
+        return a
+
+    def running(self):
+        return next((i for i in self.items if i.state == "running"), None)
+
+    def waiting(self):
+        return [i for i in self.items if i.state == "waiting"]
+
+    def failed(self):
+        return [i for i in self.items if i.state == "failed"]
+
+    def next(self):
+        """the next waiting action, now running; None while one runs or when none waits"""
+        if self.running() is not None:
+            return None
+        w = self.waiting()
+        if not w:
+            return None
+        w[0].state = "running"
+        return w[0]
+
+    def remove(self, a):
+        """a waiting action taken out, or a failed one dismissed; the running one stays"""
+        if a in self.items and a.state in ("waiting", "failed"):
+            self.items.remove(a)
+            return True
+        return False
+
+    def finish(self, a, ok, error=""):
+        """the running action ended: a success leaves the queue, a failure stays with its error"""
+        a.state, a.error = ("done", "") if ok else ("failed", error or "it failed")
+        a.progress.finish()
+        if ok and a in self.items:
+            self.items.remove(a)
+
+    def pending(self, gid):
+        """the action of game gid running or waiting, or None"""
+        return next((i for i in self.items if i.gid == gid and i.state in ("running", "waiting")), None)
+
+    def busy(self):
+        return any(i.state in ("running", "waiting") for i in self.items)
+
+    def __len__(self):
+        return len(self.items)
+
+
 def screenshots(game):
     """[(label, relative path)]: every test's pictures, as rendered on the PS3"""
     out = []
@@ -1023,20 +1443,26 @@ def screenshots(game):
 
 # ---- the pane's actions and glance, the Details view, the pad (PLAN 5.11) -----------------------
 
-def main_action(game, installed, can_install, acts, n_launchers, idle, data_ok):
+def main_action(game, installed, can_install, acts, n_launchers, idle, data_ok, pending=None):
     """the pane's main button, which follows the game's state: (kind, label, enabled), None without a game.
-    install: not installed (off for a game the packaged catalog doesn't have: can_install False);
-    add-data: installed, its required data missing (data_actions "setup"); importing: an import of this game
-    runs; play: Play, a menu of the launchers when there are several, off without one or while the required
-    data is missing (data_ok False). Off while the helper or an import runs (idle False)."""
+    pending: the game's action in the queue (Action): Queued while it waits, Installing... (RUNNING_LABEL)
+    while it runs, off; importing: an import of this game runs; install: not installed (off for a game the
+    packaged catalog doesn't have: can_install False); add-data: installed, its required data missing
+    (data_actions "setup"); play: Play, a menu of the launchers when there are several, off without one or
+    while the required data is missing (data_ok False). Install and Add game files... queue their action
+    while another runs; Play is off while anything runs (idle False: game mode would freeze the helper)."""
     if game is None:
         return None
+    if pending is not None:
+        if pending.state == "running":
+            return ("running", RUNNING_LABEL.get(pending.kind, "Working\u2026"), False)
+        return ("queued", "Queued", False)
     if "importing" in acts:
         return ("importing", "Importing…", False)
     if not installed:
-        return ("install", "Install", bool(can_install and idle))
+        return ("install", "Install", bool(can_install))
     if "setup" in acts:
-        return ("add-data", DATA_LABEL, bool(idle))
+        return ("add-data", DATA_LABEL, True)
     return ("play", "Play ▾" if n_launchers > 1 else "Play", bool(idle and n_launchers and data_ok is not False))
 
 
@@ -1412,6 +1838,10 @@ class App:
         self.shown, self.selected = [], None
         self.thumbs, self.cards = {}, {}
         self.busy = None                       # (id, "install"|"remove") while the helper runs
+        self.queue = ActionQueue()             # the actions, one running at a time (the bottom of the window)
+        self.q_open = False                    # the queue's details shown (its > / v toggle)
+        self.q_note = None                     # (text, until): what the last action did, shown a while
+        self._manifest = None                  # the data manifest, read when the chooser first opens
         self.imp = None                        # ImportView of the walnut-data import running (or just ended)
         self.imp_source = {}                   # game id -> the source of its last import (Try again)
         self.addons = {}                       # game id -> packages the last import's source also holds (Also add)
@@ -1610,6 +2040,8 @@ class App:
                               borderwidth=0, showhandle=False, opaqueresize=True)
         body.pack(fill="both", expand=True)
         self.body = body
+        self._build_queue()
+        r.protocol("WM_DELETE_WINDOW", self.on_close)
         left = ttk.Frame(body)
         self.pane_w = round(PANE_W * self.scale)
         self.details = ttk.Frame(body, style="Panel.TFrame", padding=round(14 * self.scale))
@@ -1666,9 +2098,14 @@ class App:
                                                   wraplength=wrap, justify="left", font=self.f["small"]))
         self.d_sum = row("summary", ttk.Label(d, text="", style="Muted.TLabel", background=PANEL, wraplength=wrap,
                                               justify="left"), pady=(4, 10))
-        # the main button, then what the data button adds (one line), the smaller buttons, the add-ons
-        self.b_main = row("main", ttk.Button(d, text="Install", style="Main.TButton", command=self.main_pressed),
-                          sticky="ew", pady=(0, 6))
+        # the main button with Details next to it, then what the data button adds (one line), the smaller
+        # buttons, the add-ons
+        self.main_row = row("main", ttk.Frame(d, style="Panel.TFrame"), sticky="ew", pady=(0, 6))
+        self.main_row.columnconfigure(0, weight=1)
+        self.b_main = ttk.Button(self.main_row, text="Install", style="Main.TButton", command=self.main_pressed)
+        self.b_main.grid(row=0, column=0, sticky="ew")
+        self.b_details = ttk.Button(self.main_row, text="Details", command=self.open_details)
+        self.b_details.grid(row=0, column=1, sticky="ns", padx=(round(8 * self.scale), 0))
         self.b_install = self.b_play = self.b_main      # one button now (the tests' and older names)
         self.b_note = ttk.Frame(d, style="Panel.TFrame")
         self.note_tag = ttk.Label(self.b_note, text="", font=self.f["bold"], foreground=TEXT, background=PANEL)
@@ -1697,14 +2134,11 @@ class App:
                                  pady=(0, 6))
         self.d_reason = row("reason", ttk.Label(d, text="", style="Muted.TLabel", background=PANEL, wraplength=wrap,
                                                 justify="left"))
-        # the activity strip (status, progress, an import's details): only while something happens
+        # the status line (a message: a game starting, Refresh's answer); progress is the queue's
         self.activity = row("activity", ttk.Frame(d, style="Panel.TFrame"), sticky="ew")
         self.d_status = ttk.Label(self.activity, text="", style="Muted.TLabel", background=PANEL, wraplength=wrap,
                                   justify="left")
         self.d_status.pack(side="top", anchor="w", pady=(4, 2))
-        self.progress = ttk.Progressbar(self.activity, maximum=100, mode="determinate")
-        self.imp_detail = ttk.Label(self.activity, text="", style="Muted.TLabel", background=PANEL, wraplength=wrap,
-                                    justify="left", font=self.f["small"])
         self._activity_after = None
         # the glance
         self.d_numbers = row("numbers", ttk.Frame(d, style="Panel.TFrame"), sticky="ew", pady=(12, 4))
@@ -1714,8 +2148,6 @@ class App:
         self.shot_w = (wrap - 8) // 2
         self.shot_h = self.shot_w * 9 // 16
         self.links = row("links", ttk.Frame(d, style="Panel.TFrame"), sticky="ew", pady=(10, 0))
-        self.b_details = ttk.Button(self.links, text="Details", command=self.open_details)
-        self.b_details.pack(side="top", anchor="w", pady=(0, 4))
         weblinks = ttk.Frame(self.links, style="Panel.TFrame")
         weblinks.pack(side="top", anchor="w")
         ttk.Button(weblinks, text="Technical notes", style="Link.TButton", command=self.open_technical).pack(side="left")
@@ -2143,7 +2575,9 @@ class App:
         line that says what Add game files... adds, the add-ons and a partial import's notice"""
         g = getattr(self, "g", None)
         inst = bool(g) and is_installed(g, self.have)
+        # idle: nothing runs (Play is off meanwhile); the game's own action in the queue turns its buttons off
         idle = self.busy is None and (self.imp is None or self.imp.done)
+        pending = self.queue.pending(g["id"]) if g else None
         can = bool(g) and g["id"] in self.pkg_ids
         reason = "Install it after the next Walnut Games update." if g and not can and not inst else ""
         self.d_reason.configure(text=reason)
@@ -2153,8 +2587,10 @@ class App:
                                          g.get("launchers")) if g and inst else []
         running = self.imp.gid if self.imp is not None and not self.imp.done else None
         acts = data_actions(g, self.have, self.repo, running) if g and g["id"] in self.pkg_data else []
-        main = main_action(g, inst, can, acts, len(self.play_cmds), idle, data_present(g, self.have) if g else None)
+        main = main_action(g, inst, can, acts, len(self.play_cmds), idle, data_present(g, self.have) if g else None,
+                           pending)
         self.main_kind = main[0] if main else None
+        free = pending is None and running != (g["id"] if g else None)    # the game's buttons can queue
         if main:
             self.b_main.configure(text=main[1], state="normal" if main[2] else "disabled")
         retry = bool(g) and not running and (
@@ -2168,7 +2604,7 @@ class App:
         x, r = 0, 0
         for key in side:       # the smaller buttons in rows as wide as the pane
             b = self.side_buttons[key]
-            b.configure(state="normal" if idle else "disabled")
+            b.configure(state="normal" if free else "disabled")
             # the data button is the accent one when nothing else offers the data
             if key == "add-data":
                 b.configure(style="TButton" if "repo" in acts or "full" in acts or g["id"] in self.retry
@@ -2187,7 +2623,7 @@ class App:
             self.note_tag.configure(text=tag)
             self.note_text.configure(text=text)
             self._row("note_main" if self.main_kind == "add-data" else "note_side", True, self.b_note)
-        self.update_data_extras(g, idle, running)
+        self.update_data_extras(g, free, running)
 
     def update_data_extras(self, g, idle, running):
         """the add-on buttons (Also add: NAME) and a partial import's notice"""
@@ -2206,33 +2642,13 @@ class App:
         self.partial_label.configure(text=part[1] if part else "")
         self._row("partial", bool(part))
 
-    def show_activity(self, text, progress=None, hide_after=None, detail=None):
-        """the status line (and the progress bar when progress is a number; "busy": a bar that only
-        moves, for an import, which has no percentages) under the buttons, a smaller detail text under
-        them; hide_after: seconds until it goes away by itself"""
+    def show_activity(self, text, hide_after=None):
+        """the pane's status line (a message; the queue at the bottom has the progress); hide_after: seconds
+        until it goes away by itself"""
         if self._activity_after:
             self.root.after_cancel(self._activity_after)
             self._activity_after = None
         self.d_status.configure(text=text)
-        if progress is None:
-            self.progress.stop()
-            self.progress.pack_forget()
-        else:
-            if progress == "busy":
-                if str(self.progress["mode"]) != "indeterminate":
-                    self.progress.configure(mode="indeterminate")
-                    self.progress.start(40)
-            else:
-                self.progress.stop()
-                self.progress.configure(mode="determinate", value=progress)
-            if not self.progress.winfo_ismapped():
-                self.progress.pack(side="top", fill="x")
-        if detail:
-            self.imp_detail.configure(text=detail)
-            if not self.imp_detail.winfo_ismapped():
-                self.imp_detail.pack(side="top", anchor="w", fill="x", pady=(4, 0))
-        else:
-            self.imp_detail.pack_forget()
         self._row("activity", True)
         if hide_after:
             self._activity_after = self.root.after(int(hide_after * 1000), self.hide_activity)
@@ -2245,41 +2661,67 @@ class App:
 
     def run_helper(self, op):
         """install, remove (with remove-data after it when the game has imported data installed) or
-        install-repo-data (its data from the apt sources) through the root helper, in a thread"""
+        install-repo-data (its data from the apt sources) through the root helper: queued (the queue runs
+        one action at a time, run_action); remove and remove-data ask first"""
         g = self.g
-        if not g or self.busy or (self.imp is not None and not self.imp.done):
+        if not g or self.queue.pending(g["id"]) is not None:
             return
-        ops = [op]
+        then = []
         if op == "remove":
             question, data = remove_question(g, self.info)
             if not messagebox.askyesno("Remove", question, parent=self.root):
                 return
             if data:
-                ops.append("remove-data")
+                then.append("remove-data")
         elif op == "remove-data":
             question, data = remove_data_question(g, self.info)
             if not data or not messagebox.askyesno("Remove data", question, parent=self.root):
                 return
-        self.busy = (g["id"], op)
         self.retry.pop(g["id"], None)
         self.partial.pop(g["id"], None)
-        self.show_activity({"install": "Installing %s...", "remove": "Removing %s...",
-                            "remove-data": "Removing the game data of %s...",
-                            "install-repo-data": "Installing the game data of %s from Walnut licensed..."}[op]
-                           % g["title"], progress=0)
+        self.queue_add(Action(op, g["id"], g["title"], then=then))
+
+    # -- the queue (the bottom of the window): one action at a time, more can be added meanwhile
+    def queue_add(self, a):
+        """an action into the queue; it starts at once when nothing runs. False when the same one waits"""
+        if self.queue.add(a) is None:
+            return False
+        self.pump()
         self.update_buttons()
+        self.show_queue()
+        return True
+
+    def pump(self):
+        """the next waiting action started when nothing runs"""
+        if self.busy or (self.imp is not None and not self.imp.done):
+            return
+        a = self.queue.next()
+        if a is None:
+            return
+        if a.kind == "import":
+            if not self._start_import(a):
+                self.pump()
+        else:
+            self._start_helper(a)
+
+    def _start_helper(self, a):
+        """the helper's action (and the ones that go with it: remove-data after remove), in a thread; its
+        lines come back as "helper" events, its end as a "done" event"""
+        ops = [a.kind] + a.then
+        self.busy = (a.gid, a.kind)
+        a.progress = Progress(default=a.kind.split("-")[0])
 
         def work():
             tail, rc = [], 0
             for one in ops:
                 try:
-                    p = subprocess.Popen(["sudo", "-n", self.helper, one, g["id"]], stdin=subprocess.DEVNULL,
+                    p = subprocess.Popen(["sudo", "-n", self.helper, one, a.gid], stdin=subprocess.DEVNULL,
                                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors="replace",
                                          start_new_session=True)
                     for line in p.stdout:
                         ev = parse_helper_line(line)
                         if ev:
-                            self.events.put(("helper",) + ev)
+                            self.events.put(("helper", a, ev))
                             if ev[0] in ("log", "error"):
                                 tail.append(ev[1])
                     rc = p.wait()
@@ -2288,8 +2730,164 @@ class App:
                 if rc != 0:
                     break
             self.regenerate_menu()
-            self.events.put(("done", g["id"], op, rc, tail[-3:]))
+            self.events.put(("done", a, rc, tail[-3:]))
         threading.Thread(target=work, daemon=True).start()
+
+    def helper_line(self, a, ev):
+        """a line of the running helper action: its bar, its last lines"""
+        a.progress.feed(ev)
+        if ev[0] in ("log", "error"):
+            a.tail = (a.tail + [ev[1]])[-3:]
+            if ev[0] == "error":
+                a.error = ev[1]
+        self.show_queue()
+
+    def helper_done(self, a, rc, tail):
+        """the helper action ended: the queue goes on with the next one; a failure stays in the queue's list
+        with its error"""
+        self.busy = None
+        self.refresh_installed()
+        self.check_repo()       # what the sources offer beyond what is installed changed
+        ok = {"install": "installed", "remove": "removed", "install-repo-data": "data installed",
+              "remove-data": "data removed"}.get(a.kind, "done")
+        if rc == 0:
+            self.queue.finish(a, True)
+            self.note(a.title + " " + ok + ".")
+        else:
+            why = a.error or (tail[-1] if tail else "") or "it failed, no details"
+            self.queue.finish(a, False, "refused: " + why if rc == 2 and not why.startswith(("refused", "busy")) else why)
+        self.apply_filters_keep()
+        self.pump()
+        self.show_queue()
+
+    def note(self, text, secs=8):
+        """the queue's status row says what the last action did, for a while"""
+        self.q_note = (text, time.time() + secs)
+        self.root.after(int(secs * 1000) + 50, self.show_queue)
+
+    def remove_queued(self, a):
+        """the queue's Remove (a waiting action) or Dismiss (a failed one)"""
+        if self.queue.remove(a):
+            self.update_buttons()
+            self.show_queue()
+            if self.q_frame.winfo_ismapped():
+                self.q_toggle.focus_set()
+
+    def toggle_queue(self):
+        self.q_open = not self.q_open
+        self.show_queue()
+
+    def _build_queue(self):
+        """the queue at the bottom of the window: hidden while empty; one status row (the action running, its
+        step) and the bar; the > / v toggle opens the list of the actions (a waiting one can be removed, a
+        failed one dismissed) and the running one's last lines"""
+        s = self.scale
+        q = ttk.Frame(self.root, style="Panel.TFrame", padding=(round(12 * s), round(6 * s)))
+        self.q_frame = q
+        tk.Frame(q, height=1, bg=BORDER).pack(side="top", fill="x", pady=(0, round(6 * s)))
+        head = ttk.Frame(q, style="Panel.TFrame")
+        head.pack(side="top", fill="x")
+        self.q_toggle = ttk.Button(head, text=QUEUE_CLOSED, width=3, command=self.toggle_queue)
+        self.q_toggle.pack(side="left", padx=(0, round(8 * s)))
+        self.q_status = ttk.Label(head, text="", foreground=TEXT, background=PANEL, anchor="w")
+        self.q_status.pack(side="left", fill="x", expand=True)
+        self.q_more = ttk.Label(head, text="", style="Muted.TLabel", background=PANEL)
+        self.q_more.pack(side="right")
+        self.q_bar = ttk.Progressbar(q, maximum=1000, mode="determinate")
+        self.q_bar.pack(side="top", fill="x", pady=(round(4 * s), 0))
+        self.q_list = ttk.Frame(q, style="Panel.TFrame")
+        self.q_rows = []
+        self._q_tick = None
+
+    def show_queue(self):
+        """the queue's rows as they are now (and again each second while an action runs)"""
+        if not hasattr(self, "q_frame"):
+            return
+        now = time.time()
+        q, cur = self.queue, self.queue.running()
+        note = self.q_note if self.q_note and self.q_note[1] > now else None
+        if not len(q) and not note:
+            if self.q_frame.winfo_manager():
+                self.q_frame.pack_forget()
+            return
+        if not self.q_frame.winfo_manager():
+            slaves = self.root.pack_slaves()
+            self.q_frame.pack(side="bottom", fill="x", **({"before": slaves[0]} if slaves else {}))
+        self.q_toggle.configure(text=QUEUE_OPEN if self.q_open else QUEUE_CLOSED)
+        if cur is not None:
+            self.q_status.configure(text="%s \u00b7 %s" % (cur.label(), cur.progress.status(now)))
+            self.q_bar.configure(value=round(1000 * cur.progress.fraction(now)))
+            if not self.q_bar.winfo_manager():
+                self.q_bar.pack(side="top", fill="x", pady=(round(4 * self.scale), 0),
+                                **({"before": self.q_list} if self.q_list.winfo_manager() else {}))
+        else:
+            failed = q.failed()
+            self.q_status.configure(text=note[0] if note else (
+                "%s: %s" % (failed[-1].label(), failed[-1].error) if failed else ""))
+            self.q_bar.pack_forget()
+        more = len(q.waiting())
+        bad = len(q.failed())
+        self.q_more.configure(text=", ".join(t for t in ("%d waiting" % more if more else "",
+                                                          "%d failed" % bad if bad else "") if t))
+        self._queue_list(cur)
+        if cur is not None and self._q_tick is None:
+            self._q_tick = self.root.after(1000, self._queue_tick)
+
+    def _queue_tick(self):
+        self._q_tick = None
+        self.show_queue()
+
+    def _queue_list(self, cur):
+        """the expanded queue: each action on a row (Remove on a waiting one, Dismiss on a failed one), then
+        the running one's last lines"""
+        want = []
+        if self.q_open:
+            for a in self.queue.items:
+                if a.state == "running":
+                    want.append(("Now: " + a.label(), None, None))
+                elif a.state == "waiting":
+                    want.append(("Waiting: " + a.label(), "Remove", a))
+                elif a.state == "failed":
+                    want.append(("Failed: %s: %s" % (a.label(), a.error), "Dismiss", a))
+            if cur is not None:
+                v = self.imp if cur.kind == "import" and self.imp is not None else None
+                lines = (["Reading " + v.file] if v and v.file else []) + [l[:160] for l in (v.tail if v else cur.tail)]
+                if lines:
+                    want.append(("\n".join(lines), None, "detail"))
+        if [(t, b, id(a)) for t, b, a in want] == getattr(self, "_q_want", None):
+            return
+        self._q_want = [(t, b, id(a)) for t, b, a in want]
+        focused = self.root.focus_get() if self.q_rows else None
+        refocus = focused is not None and any(focused in r.winfo_children() for r in self.q_rows)
+        for r in self.q_rows:
+            r.destroy()
+        self.q_rows = []
+        for text, button, a in want:
+            r = ttk.Frame(self.q_list, style="Panel.TFrame")
+            r.pack(side="top", fill="x", pady=(round(4 * self.scale), 0))
+            ttk.Label(r, text=text, background=PANEL, justify="left", wraplength=max(400, self.root.winfo_width() - 300),
+                      **({"style": "Muted.TLabel", "font": self.f["small"]} if a == "detail" else {"foreground": TEXT})
+                      ).pack(side="left", anchor="w")
+            if button:
+                ttk.Button(r, text=button, command=lambda a=a: self.remove_queued(a)).pack(side="right")
+            self.q_rows.append(r)
+        if want and not self.q_list.winfo_manager():
+            self.q_list.pack(side="top", fill="x", pady=(round(4 * self.scale), 0))
+        elif not want:
+            self.q_list.pack_forget()
+        if refocus:
+            self.q_toggle.focus_set()
+
+    def on_close(self):
+        """closing the window: with actions still waiting, asked first (they would not run); the one running
+        goes on (the helper and walnut-data run on their own)"""
+        n = len(self.queue.waiting())
+        if n and not messagebox.askyesno(
+                "Walnut Games", "%d action%s in the queue will not run if you close Walnut Games. %s\n\nClose anyway?"
+                % (n, " is" if n == 1 else "s are", "The one running now carries on." if self.queue.running() else ""),
+                parent=self.root):
+            return
+        self.root.destroy()
 
     def regenerate_menu(self):
         """the session's menu entries made again (a new game, a data launcher whose files now exist) and
@@ -2304,11 +2902,12 @@ class App:
 
     # -- game data: the chooser, walnut-data import and its progress
     def open_chooser(self, g=None):
-        """the sources list (a window of big buttons: the pad's pointer clicks them; arrows, Enter and
-        Escape work too), with the game's hint and Other file / Other folder"""
+        """the "Select a source" list (a window of big buttons: the pad's pointer clicks them; arrows, Enter
+        and Escape work too) with the game's hint: source_list's items, the free downloads, the sources found,
+        From a file... and From a folder... with the kinds the game takes. A choice queues the import."""
         g = g or self.g
         ds = data_setup(g)
-        if not ds or self.busy or (self.imp is not None and not self.imp.done):
+        if not ds or self.queue.pending(g["id"]) is not None:
             return
         if self.filters_win is not None:
             self.close_filters()
@@ -2320,7 +2919,11 @@ class App:
                 pass
         home = os.path.expanduser("~")
         user = os.environ.get("USER") or os.path.basename(home)
-        sources = find_sources(home, user, disc_state())
+        self.disc = disc_state()
+        sources = find_sources(home, user, self.disc)
+        if self._manifest is None:
+            self._manifest = load_data_manifest(self.data)
+        items = source_list(g, self.have, sources, self._manifest)
         title = data_title(g)
         top = tk.Toplevel(self.root, bg=PANEL)
         self.chooser = top
@@ -2340,9 +2943,7 @@ class App:
         if ds.get("hint"):
             ttk.Label(box, text=ds["hint"], style="Muted.TLabel", background=PANEL, wraplength=w - 40,
                       justify="left").pack(anchor="w", pady=(4, 0))
-        ttk.Label(box, text="Where are your %s files?" % title, background=PANEL).pack(anchor="w", pady=(10, 4))
-        bottom = ttk.Frame(box, style="Panel.TFrame")
-        bottom.pack(side="bottom", fill="x", pady=(10, 0))
+        ttk.Label(box, text="Select a source", font=self.f["bold"], background=PANEL).pack(anchor="w", pady=(10, 4))
         area = ttk.Frame(box, style="Panel.TFrame")
         area.pack(fill="both", expand=True)
         canvas = tk.Canvas(area, bg=PANEL, highlightthickness=0)
@@ -2358,26 +2959,16 @@ class App:
             top.bind(ev, lambda e, d=d: canvas.yview_scroll(d * 2, "units"))
         buttons = []
 
-        def choose(path):
-            top.destroy()
+        def close():
+            try:
+                top.destroy()
+            except tk.TclError:
+                pass
             self.chooser = None
-            self.start_import(g, path)
 
-        for pkg in [p for p in ds.get("fetch") or [] if p not in self.have]:     # not the one installed
-            ed = (ds.get("editions") or {}).get(pkg, "free version")
-            b = ttk.Button(inner, text="Download the free %s (needs the network)" % ed, style="Source.TButton",
-                           command=lambda p=pkg: (top.destroy(), setattr(self, "chooser", None),
-                                                  self.start_import(g, None, [p])))
-            b.pack(fill="x", pady=2)
-            buttons.append(b)
-        for label, path in sources:
-            b = ttk.Button(inner, text=label + "\n" + path, style="Source.TButton", command=lambda p=path: choose(p))
-            b.pack(fill="x", pady=2)
-            buttons.append(b)
-        if not sources:
-            ttk.Label(inner, text="Nothing found yet: put the disc in the drive, plug in the drive that has the "
-                      "files, or pick a file or folder below.", style="Muted.TLabel", background=PANEL,
-                      wraplength=w - 60, justify="left").pack(anchor="w", pady=8)
+        def choose(path, packages=None):
+            close()
+            self.start_import(g, path, packages)
 
         def pick(folder):
             if folder:
@@ -2388,71 +2979,90 @@ class App:
             if path:
                 choose(path)
 
-        cancel = ttk.Button(bottom, text="Cancel", command=lambda: (top.destroy(), setattr(self, "chooser", None)))
-        other_file = ttk.Button(bottom, text="Other file\u2026", command=lambda: pick(False))
-        other_dir = ttk.Button(bottom, text="Other folder\u2026", command=lambda: pick(True))
-        for b in (other_file, other_dir):
-            b.pack(side="left", padx=(0, 8))
-        cancel.pack(side="right")
-        order = buttons + [other_file, other_dir, cancel]
+        if not any(kind == "source" for kind, _, _, _ in items):
+            ttk.Label(inner, text="Nothing found yet: put the disc in the drive, plug in the drive that has the "
+                      "files, or pick a file or folder.", style="Muted.TLabel", background=PANEL,
+                      wraplength=w - 60, justify="left").pack(anchor="w", pady=(0, 6))
+        for kind, label, detail, value in items:
+            cmd = {"fetch": lambda v=value: choose(None, [v]), "source": lambda v=value: choose(v),
+                   "file": lambda: pick(False), "folder": lambda: pick(True)}[kind]
+            b = ttk.Button(inner, text=label + ("\n" + detail if detail else ""), style="Source.TButton", command=cmd)
+            b.pack(fill="x", pady=2)
+            buttons.append(b)
 
         def move(d):
             f = top.focus_get()
-            i = order.index(f) if f in order else -1
-            j = max(0, min(len(order) - 1, i + d))
-            order[j].focus_set()
-            if order[j] in buttons:     # keep it in view
-                total = max(1, inner.winfo_height())
-                y = order[j].winfo_y()
-                top_y, bot_y = canvas.canvasy(0), canvas.canvasy(canvas.winfo_height())
-                if y < top_y or y + order[j].winfo_height() > bot_y:
-                    canvas.yview_moveto(max(0.0, (y - 8) / total))
+            i = buttons.index(f) if f in buttons else -1
+            j = max(0, min(len(buttons) - 1, i + d))
+            buttons[j].focus_set()
+            total = max(1, inner.winfo_height())     # keep it in view
+            y = buttons[j].winfo_y()
+            top_y, bot_y = canvas.canvasy(0), canvas.canvasy(canvas.winfo_height())
+            if y < top_y or y + buttons[j].winfo_height() > bot_y:
+                canvas.yview_moveto(max(0.0, (y - 8) / total))
             return "break"
 
         top.bind("<Down>", lambda e: move(1))
         top.bind("<Up>", lambda e: move(-1))
         top.bind("<Return>", lambda e: (top.focus_get().invoke() if hasattr(top.focus_get(), "invoke") else None,
                                         "break")[1])
-        top.bind("<Escape>", lambda e: cancel.invoke())
-        top.after(50, lambda: (order[0].focus_set(), self.pad_warp() if self.pad_recent() else None)
+        top.bind("<Escape>", lambda e: close())
+        top.protocol("WM_DELETE_WINDOW", close)
+        top.after(50, lambda: (buttons[0].focus_set(), self.pad_warp() if self.pad_recent() else None)
                   if top.winfo_exists() else None)
         self.chooser_sources = sources      # what was offered (the tests look)
+        self.chooser_items = items
 
     def import_paths(self):
         cache = cache_dir()
         return os.path.join(cache, "import.log"), os.path.join(cache, "import.json")
 
     def start_import(self, g, source, packages=None):
+        """walnut-data import of the game's data from source (packages: -p): queued; run_action starts it"""
+        self.retry.pop(g["id"], None)
+        self.partial.pop(g["id"], None)
+        return self.queue_add(Action("import", g["id"], g["title"], source, packages))
+
+    def _start_import(self, a):
         """walnut-data import in the background, its output to ~/.cache/walnut-games/import.log (the app
         reads it from there, so an import goes on when the app is closed, and is shown again when it
-        is opened: resume_import)"""
-        if self.busy or (self.imp is not None and not self.imp.done):
-            return
+        is opened: resume_import); False when it can't start (the queue's row says why)"""
+        g = self.by_id.get(a.gid, {"id": a.gid, "title": a.title})
         log, side = self.import_paths()
-        cmd = import_command(g["id"], source, packages)
+        cmd = import_command(a.gid, a.source, a.packages)
         try:
             os.makedirs(os.path.dirname(log), exist_ok=True)
             with open(log, "w") as out:
                 p = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT,
                                      start_new_session=True)
         except OSError as e:
-            self.show_activity("Can't start the import: %s" % e)
-            return
+            self.queue.finish(a, False, "can't start the import: %s" % e)
+            self.show_queue()
+            return False
         t0 = time.time()
         try:
             with open(side + ".part", "w") as f:
-                json.dump({"pid": p.pid, "game": g["id"], "t0": t0, "source": source}, f)
+                json.dump({"pid": p.pid, "game": a.gid, "t0": t0, "source": a.source, "packages": a.packages}, f)
             os.replace(side + ".part", side)
         except OSError:
             pass
-        self.retry.pop(g["id"], None)
-        self.partial.pop(g["id"], None)
-        self.imp_source[g["id"]] = source
+        self.imp_source[a.gid] = a.source
         self.imp_before = {c[0] for c in getattr(self, "play_cmds", [])} if self.g is g else set()
-        self.imp = ImportView(g["id"], t0)
-        self.watch_import(g["id"], log, proc=p)
-        self.show_import()
+        a.progress = Progress("import", t0, disc=self.is_disc(a.source))
+        self.imp = ImportView(a.gid, t0, progress=a.progress)
+        self.watch_import(a.gid, log, proc=p)
+        self.show_queue()
         self.update_buttons()
+        return True
+
+    def is_disc(self, source):
+        """whether an import reads the disc in the drive (its read step is the drive's speed)"""
+        if not source:
+            return False
+        if source == DISC or source.startswith("/dev/"):
+            return True
+        d = getattr(self, "disc", None)
+        return bool(d and d[1] and os.path.realpath(source) == os.path.realpath(d[1]))
 
     def add_on(self, pkg):
         """an add-on the last import's source also holds: walnut-data import -p PKG from the same source (a
@@ -2488,13 +3098,20 @@ class App:
         except (OSError, ValueError):
             meta = {}
         mine = meta.get("pid") == pid and meta.get("game") == gid
-        self.imp = ImportView(gid, meta.get("t0") if mine else None)
+        g = self.by_id.get(gid, {"title": gid})
+        a = Action("import", gid, g["title"], meta.get("source") if mine else None,
+                   meta.get("packages") if mine else None)
+        self.queue.add(a)
+        a.state = "running"
+        a.progress = Progress("import", meta.get("t0") if mine else None, disc=self.is_disc(meta.get("source")))
+        self.imp = ImportView(gid, a.progress.t0, progress=a.progress)
         if mine:
             self.imp_source[gid] = meta.get("source")
         else:
             self.imp.step = "Importing (started in a terminal)"
+            a.progress.start("import", "importing (started in a terminal)")
         self.watch_import(gid, log if mine else None)
-        self.show_import()
+        self.show_queue()
 
     def watch_import(self, gid, log, proc=None):
         """a thread reading the import's log as it grows ("import-line" events) until walnut-data exits
@@ -2524,29 +3141,18 @@ class App:
                 time.sleep(0.3)
             self.events.put(("import-done", gid, proc.wait() if proc is not None else None))
         threading.Thread(target=work, daemon=True).start()
-        self.root.after(1000, self._tick)
 
-    def _tick(self):
-        if self.imp is not None and not self.imp.done:
-            self.show_import()
-            self.root.after(1000, self._tick)
-
-    def show_import(self):
-        v = self.imp
-        if v is None:
-            return
-        g = self.by_id.get(v.gid, {"title": v.gid, "id": v.gid})
-        detail = ["Reading " + v.file] if v.file else []
-        detail.append("Elapsed " + elapsed_text(time.time() - v.t0))
-        detail += ["\u2022 " + l[:120] for l in v.tail]
-        self.show_activity("Importing the %s data for %s: %s" % (data_title(g), g["title"], v.step), progress="busy",
-                           detail="\n".join(detail))
+    def import_action(self, gid):
+        """the queue's running import of game gid, or None"""
+        a = self.queue.running()
+        return a if a is not None and a.kind == "import" and a.gid == gid else None
 
     def import_done(self, gid, rc):
         v = self.imp
         if v is None or v.gid != gid:
             return
         v.done = True
+        a = self.import_action(gid)
         self.refresh_installed()
         self.check_repo()
         g = self.by_id.get(gid)
@@ -2560,7 +3166,9 @@ class App:
             if note:
                 self.partial[gid] = (list(v.download), note)
             ed = edition_text(g, self.info) if g else ""
-            self.show_activity("The %s data is installed%s. Making the menu entries..." % (title, ": " + ed if ed else ""))
+            if a is not None:
+                self.queue.finish(a, True)
+            self.note("The %s data is installed%s. Making the menu entries..." % (title, ": " + ed if ed else ""))
 
             def work():
                 self.regenerate_menu()
@@ -2570,8 +3178,14 @@ class App:
             kind = v.kind()
             if kind == "needs-download" and g and data_setup(g).get("downloads") and self.imp_source.get(gid):
                 self.retry[gid] = self.imp_source[gid]
-            self.show_activity(import_error_message(kind, title, v.tail, v.errors, v.gdp_text))
+            msg = import_error_message(kind, title, v.tail, v.errors, v.gdp_text)
+            if a is not None:
+                self.queue.finish(a, False, msg)
+            if self.g is g:
+                self.show_activity(msg)
         self.apply_filters_keep()
+        self.pump()
+        self.show_queue()
 
     def menu_done(self, gid, ed):
         self._manifests.clear()
@@ -2580,11 +3194,14 @@ class App:
         new = []
         if g is not None and self.g is g:
             new = [c[0] for c in getattr(self, "play_cmds", []) if c[0] not in self.imp_before]
-        self.show_activity("The %s data is installed%s.%s" % (data_title(g) if g else gid, ": " + ed if ed else "",
-                                                               (" New in Play: " + ", ".join(new) + ".") if new else "") +
-                           (" Not everything was made: see the notice below." if gid in self.partial else ""),
-                           hide_after=None if gid in self.partial else 12)
+        text = "The %s data is installed%s.%s" % (data_title(g) if g else gid, ": " + ed if ed else "",
+                                                  (" New in Play: " + ", ".join(new) + ".") if new else "") + \
+            (" Not everything was made: see the notice in the game's page." if gid in self.partial else "")
+        self.note(text, 12)
+        if self.g is g:
+            self.show_activity(text, hide_after=None if gid in self.partial else 12)
         self.update_buttons()
+        self.show_queue()
 
     def _poll(self):
         self._hand_off_n += 1
@@ -2596,28 +3213,9 @@ class App:
             while True:
                 ev = self.events.get_nowait()
                 if ev[0] == "helper":
-                    if ev[1] == "progress":
-                        self.show_activity(ev[3], progress=ev[2])
-                    elif ev[1] == "error":
-                        self.show_activity(ev[2], progress=self.progress["value"])
+                    self.helper_line(ev[1], ev[2])
                 elif ev[0] == "done":
-                    _, gid, op, rc, tail = ev
-                    self.busy = None
-                    self.refresh_installed()
-                    ok = {"install": "installed", "remove": "removed", "install-repo-data": "data installed",
-                          "remove-data": "data removed"}.get(op, "done")
-                    self.check_repo()       # what the sources offer beyond what is installed changed
-                    title = self.by_id.get(gid, {"title": gid})["title"]
-                    # a success fades after a few seconds; a failure stays until the next action
-                    self.show_activity(title + (" " + ok + "." if rc == 0 else
-                                       ": " + op + " failed" + (" (refused)" if rc == 2 else "") + "."),
-                                       hide_after=6 if rc == 0 else None)
-                    if rc != 0:
-                        messagebox.showerror("Walnut Games", "%s %s failed:\n\n%s" % (
-                            {"install": "Installing", "remove": "Removing", "remove-data": "Removing the data of"}.get(
-                                op, "Installing the data of"), title,
-                            "\n".join(tail) or "no details"), parent=self.root)
-                    self.apply_filters_keep()
+                    self.helper_done(*ev[1:])
                 elif ev[0] == "played":
                     _, gid, rc, secs, log = ev
                     title = self.by_id[gid]["title"] if gid in self.by_id else gid
@@ -2630,7 +3228,7 @@ class App:
                 elif ev[0] == "import-line":
                     if self.imp is not None and self.imp.gid == ev[1] and not self.imp.done:
                         self.imp.feed(ev[2])
-                        self.show_import()
+                        self.show_queue()
                 elif ev[0] == "import-done":
                     self.import_done(ev[1], ev[2])
                 elif ev[0] == "menu-done":
@@ -2737,10 +3335,10 @@ class App:
             self.dispatch(self.main_kind, self.g["id"])
 
     def dispatch(self, action, gid, launcher=None):
-        """what the main button and the pages' walnut:// links do: install (the helper), add-data (the
-        chooser), play (the launcher named, else Play, a menu when there are several). The game is selected
-        first, so the pane shows the progress. False when it can't be done now (the status line says why
-        when it isn't plain from the pane)"""
+        """what the main button and the pages' walnut:// links do: install (queued for the helper), add-data
+        (the chooser), play (the launcher named, else Play, a menu when there are several). The game is
+        selected first, so the pane shows its state. False when it can't be done now (the status line says
+        why when it isn't plain from the pane)"""
         g = self.by_id.get(gid)
         if g is None or action not in WALNUT_ACTIONS:
             return False

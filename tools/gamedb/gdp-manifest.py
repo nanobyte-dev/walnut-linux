@@ -29,7 +29,9 @@ Design
   /usr/lib/quake3/base/baseq3/pak*.pk3; a link pointing out of its top directory or sitting where a
   file or another link goes stops the generator, as does an executable file, a file without size or
   checksum, two different files on one path, or a file where the helper writes its own (doc/<pkg>/copyright,
-  changelog*)).
+  changelog*)), archives (the installers and archives gdp knows that hold its files, through any archive in
+  between: [{format: gdp's unpacker, name, top: no other file of the game holds it}], for Walnut Games'
+  chooser, which names the kinds of file a player can give).
 - Music packages (gdp's rip_cd: quake-music, quake2-music): tracks {source: gdp's filename_format, the
   path gdp looks for ripped tracks under in a SOURCE folder (id1/music/track%02d.ogg), first, last (the
   CD track numbers), max_size (TRACK_MAX), paths: the exact installed path of every track}. Their audio
@@ -187,6 +189,26 @@ for name in want:
             clash = [t for t in tracks["paths"] if t in files]
             if clash:
                 errs.append("%s: %s is both a file and a CD track" % (name, clash[0]))
+    # the installers and archives gdp knows that hold the package's files, for Walnut Games' chooser (it
+    # names their kinds): gdp's unpacker, the file's name, top when no other file of the game holds it (a
+    # file the player may have, not data1.cab inside a disc)
+    need = set()
+    for w in list(p.install_files) + list(p.optional_files):
+        need.add(w.name)
+        need.update(w.alternatives or [])
+    def provided(f):          # the names of the files an archive holds (gdp's provides_files: WantedFiles)
+        return {getattr(x, "name", x) for x in (getattr(f, "provides_files", None) or ())}
+    held = {n for f in g.files.values() for n in provided(f)}
+    archives, changed = {}, True
+    while changed:
+        changed = False
+        for f in g.files.values():
+            pf = provided(f)
+            if f.unpack and f.name not in need and pf & need:
+                need.add(f.name)
+                archives[f.name] = {"format": str(f.unpack.get("format") or ""), "name": f.name.partition("?")[0],
+                                    "top": f.name not in held}
+                changed = True
     with tempfile.TemporaryDirectory() as d:
         control = deb._DebPackaging__generate_control(g, p, d, p.component)
     same = set(g.packages) - {name}
@@ -194,7 +216,8 @@ for name in want:
                  "edition": editions[name],
                  "conflicts": sorted(names(control.get("Conflicts")) & same),
                  "replaces": sorted(names(control.get("Replaces")) & same),
-                 "launchers": type(g).__module__.endswith("doom_common"), "symlinks": links}
+                 "launchers": type(g).__module__.endswith("doom_common"), "symlinks": links,
+                 "archives": sorted(archives.values(), key=lambda a: (a["name"], a["format"]))}
     if tracks:
         out[name]["tracks"] = tracks
 json.dump({"gdp_version": str(GAME_PACKAGE_VERSION), "packages": out, "errors": errs}, sys.stdout)
