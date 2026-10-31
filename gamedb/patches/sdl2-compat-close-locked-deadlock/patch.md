@@ -6,7 +6,7 @@ category = "stability"
 switch = "none"
 default = "always on"
 forwarded = "no"
-tests = []
+tests = ["sdl2-compat-close-locked"]
 batches = []
 +++
 # sdl2-compat: no deadlock when the app closes the audio device while holding its lock
@@ -27,10 +27,12 @@ then its locks are released and the device closed. A close from any other thread
   the lock.
 - **How it was found:** Armagetron's quit; the played session of 2026-10-25 then quit cleanly with the fix
   ([Armagetron Advanced](../../games/armagetronad/technical.md)).
-- **Minimal repro:** a test program that calls `SDL_LockAudioDevice()` then `SDL_CloseAudioDevice()` hangs
-  every time, with the dummy and the ALSA driver, through SDL2's API or SDL 1.2's (from the patch's
-  description; not in the repository yet). Proposed: that program as a host suite with the dummy driver and
-  a timeout.
+- **Minimal repro:** `packages/patched/graphics/sdl2-compat/tests/close-locked-test.sh` (host only, run it with
+  `tools/run-tests.sh --only sdl2-compat-close-locked`). It builds sdl2-compat 2.32.74 stock and with this patch,
+  then runs a small program (dlopen, no SDL headers) with the dummy audio driver: open the device, let the audio
+  thread run, `SDL_LockAudioDevice()`, then `SDL_CloseAudioDevice()`; once through SDL2's API and once through
+  SDL 1.2's (the host's sdl12-compat on our libSDL2). The stock build hangs every time (killed by the timeout) in
+  both; the patched build closes at once. About 35 s cold (two builds), 11 s warm (the two hangs' timeouts).
 
 ## Validation
 
