@@ -38,7 +38,12 @@ indexed ranges are expanded to every unit ([DRIVER.md](../../../docs/DRIVER.md#t
   fault behaviours, before any driver existed; the allowlist went in during the Phase 2 bring-up the same
   day ([DRIVER.md](../../../docs/DRIVER.md#phase-results-2026-10-14)), before Mesa was allowed to submit.
 - **Minimal repro:** `packages/walnut/drivers/ps3rsx/test/validate-test.c` sends M2MF methods to the
-  surface-2D object and expects a refusal (`tools/run-tests.sh --only ps3rsx-shadow`).
+  surface-2D object and expects a refusal; `allowlist_cases()` there covers the rest of the commit and the
+  first validator, each refusal next to an accepted word: JMP, CALL, RETURN and malformed headers, bursts
+  past the push, unknown object handles, host methods (the semaphore acquire), context DMA handles, every
+  method on the image-from-CPU object, SIFM's surface (`tools/run-tests.sh --only ps3rsx-shadow`). With each
+  check off (`fix-off.sh`, variants `allowlist`, `header`, `object-bind`, `host-method`, `context-dma`,
+  `sifm-surface`, `make -C packages/walnut/drivers/ps3rsx/test fix-off`) the cases fail.
 
 ## Validation
 

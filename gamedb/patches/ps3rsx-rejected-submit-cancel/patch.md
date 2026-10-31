@@ -41,10 +41,12 @@ drawing on it ([DRIVER.md](../../../docs/DRIVER.md#a-rejected-push-the-submit-is
   ([analysis](../../../docs/dumps/exception-0x105-mpv-vo-gpu.md)), then the mesa-shim on the PC, which runs
   ps3rsx's validator over every submit and answers like ps3rsx (`PS3SHIM_REJECT=N` rejects submits by hand).
 - **Minimal repro:** `validate-test.c` with a model of `submit.c` per submit: a rejected submit then one
-  that sends the state again, a rejected state push followed by a draw counting on it, a bind in a
-  cancelled submit, a draw split across a rejected submit, 1000 submits with 900 rejected, a client that
-  doesn't recover, mpv's X16 frame between its 0052 frames; each time the "GPU" stream must pass whole
-  (`tools/run-tests.sh --only ps3rsx-shadow`; 13 of these fail against the old validator).
+  that sends the state again, a rejected state push followed by a draw counting on it, a bind in a cancelled
+  submit, a draw split across a rejected submit, 1000 submits with 900 rejected, a client that doesn't
+  recover, mpv's X16 frame between its 0052 frames; each time the "GPU" stream must pass whole
+  (`tools/run-tests.sh --only ps3rsx-shadow`; 13 of these fail against the old validator). `fix-off.sh`
+  (`make -C packages/walnut/drivers/ps3rsx/test fix-off`) turns off the order checks (variant `prim-order`)
+  and the recovery (every rejection refusing the channel, `rejected-submit-cancel`): both fail the cases.
 
 ## Validation
 

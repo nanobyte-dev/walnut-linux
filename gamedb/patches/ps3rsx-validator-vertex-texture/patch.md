@@ -32,8 +32,9 @@ The vertex units are off the validator's fast path, which costs nothing since no
 - **How it was found:** task #16 (vertex texture fetch) in [backlog/graphics.md](../../../docs/backlog/graphics.md),
   by reading libgcm's NV40 vertex texture setup.
 - **Minimal repro:** `validate-test.c` sends good and bad words of each vertex texture method in each unit
-  (one write, a burst, non-incrementing; every FORMAT format byte and low byte),
-  `tools/run-tests.sh --only ps3rsx-shadow`.
+  (one write, a burst, non-incrementing; every FORMAT format byte and low byte), `tools/run-tests.sh --only
+  ps3rsx-shadow`; with the rule off (`fix-off.sh`, variant `vertex-texture`, `make -C
+  packages/walnut/drivers/ps3rsx/test fix-off`) the case fails.
 
 ## Validation
 

@@ -25,7 +25,9 @@ format, which [mesa-vbo-gpu-fetch](../mesa-vbo-gpu-fetch/patch.md) (Mesa 0005; t
 - **How it was found:** the Phase 2 bring-up on 2026-10-14, with `rsxdrm-smoke quirks` covering the formats
   Mesa uses and libgcm doesn't ([RSX.md](../../../docs/RSX.md#through-the-ps3rsx-driver)).
 - **Minimal repro:** `validate-test.c` tries every vertex format type and size in every slot
-  (`tools/run-tests.sh --only ps3rsx-shadow`); on the PS3, `rsxdrm-smoke quirks` checks the refusal.
+  (`tools/run-tests.sh --only ps3rsx-shadow`); with the rule off (`fix-off.sh`, variant `vertex-type0`,
+  `make -C packages/walnut/drivers/ps3rsx/test fix-off`) the case fails. On the PS3, `rsxdrm-smoke quirks`
+  checks the refusal.
 
 ## Validation
 

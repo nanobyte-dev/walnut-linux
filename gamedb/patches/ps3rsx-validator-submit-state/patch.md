@@ -31,8 +31,11 @@ fast path with the old checks over 120 million random words: same verdicts, mess
   [RSX.md](../../../docs/RSX.md#errors-and-what-wedges-the-gpu)).
 - **How it was found:** code reading during the 0.249 rework, which the profiles of 2026-10-16 asked for
   (the validator and shadow were 5 to 16% of each game's CPU).
-- **Minimal repro:** `validate-test.c` cancels a submit with a bind in it and checks that methods through
-  that subchannel are refused afterwards (`tools/run-tests.sh --only ps3rsx-shadow`).
+- **Minimal repro:** `validate-test.c` cancels a submit with a bind in it, and one whose first push (the
+  bind) passed and whose second was rejected, and checks that methods through that subchannel are refused
+  afterwards (`tools/run-tests.sh --only ps3rsx-shadow`); with each push's state kept as it passes
+  (`fix-off.sh`, variant `submit-state`, `make -C packages/walnut/drivers/ps3rsx/test fix-off`) the second
+  case fails.
 
 ## Validation
 

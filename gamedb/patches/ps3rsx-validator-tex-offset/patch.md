@@ -26,7 +26,9 @@ of wedging the GPU.
 - **How it was found:** counting the PFIFO cache entries in the exception dump put the fault in that blit
   ([gamedb:neverball/driver-bugs](../../games/neverball/investigations/2026-10-16-driver-bugs.md)).
 - **Minimal repro:** `validate-test.c` replays Neverball's misaligned blit source and expects the refusal
-  (`tools/run-tests.sh --only ps3rsx-shadow`); on the PS3, `gl-mipread` covers the Mesa side.
+  (`tools/run-tests.sh --only ps3rsx-shadow`); with the rule off (`fix-off.sh`, variant `tex-offset`, `make
+  -C packages/walnut/drivers/ps3rsx/test fix-off`) the case fails. On the PS3, `gl-mipread` covers the Mesa
+  side.
 
 ## Validation
 

@@ -500,8 +500,10 @@ publish:
 # build/aptly and patch work trees with unexported commits)
 du:
 	@df -h $(BUILD) | tail -1; du -sh $(BUILD)/* 2>/dev/null | sort -rh | head -25
+# never touches build/aptly, the work trees or build/testsets/<name> (the debs a PS3 validation
+# session was run with, docs/VALIDATION.md)
 clean-ephemeral:
-	@echo "deleting build/old, build/tmp, superseded experiment trees (keeping aptly, work trees, current outputs)"
+	@echo "deleting build/old, build/tmp, superseded experiment trees (keeping aptly, work trees, testsets, current outputs)"
 	docker run --rm -v $(CURDIR)/$(BUILD):/b alpine:3.20 sh -c 'cd /b && rm -rf old tmp/* spu-port spu-*-ref 2>/dev/null; true'
 	docker image prune -f >/dev/null; docker builder prune -f >/dev/null
 	@$(MAKE) --no-print-directory du

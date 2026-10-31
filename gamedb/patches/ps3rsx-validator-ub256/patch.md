@@ -30,8 +30,9 @@ which fetched R8G8B8_SNORM normals as UB256 with 3 components; 0043 now always f
 - **How it was found:** batch ssdroot6's 0043 run on 2026-10-19 (not part of a recorded batch), the dump
   read entry by entry.
 - **Minimal repro:** `validate-test.c` checks every vertex type and size in every slot (35,333 checks; the
-  old validator failed 1,935 of them), `tools/run-tests.sh --only ps3rsx-shadow`. The controlled PS3
-  re-test of 0043 is in [TESTS.md](../../../docs/TESTS.md) Next.
+  old validator failed 1,935 of them), `tools/run-tests.sh --only ps3rsx-shadow`; with the rule off
+  (`fix-off.sh`, variant `ub256`, `make -C packages/walnut/drivers/ps3rsx/test fix-off`) the case fails. The
+  controlled PS3 re-test of 0043 is in [TESTS.md](../../../docs/TESTS.md) Next.
 
 ## Validation
 

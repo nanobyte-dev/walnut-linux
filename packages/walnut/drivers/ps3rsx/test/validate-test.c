@@ -24,8 +24,16 @@
  *   across a rejected submit, repeated rejections, a client that doesn't recover, mpv's first
  *   frame cancelled and sent again from Mesa 0052. What reaches the "GPU" (the accepted
  *   pushes and the kernel's own END, in order) must pass the validator as one stream, and its
- *   state (shadow.c) must be only what accepted pushes set.
- * Built in userspace with inc/ (kernel stand-ins) by the Makefile here.
+ *   state (shadow.c) must be only what accepted pushes set;
+ * - two channels (the same model with last_chan, prim_owner and the state restore): no switch
+ *   while a primitive is open (a submit of the other channel waits for the END; after a second
+ *   the kernel ends it, refusing a channel that doesn't recover; a freed channel's is ended),
+ *   nothing but vertex data and the END inside a primitive on the "GPU";
+ * - the rest of the first validator and the allowlist commit (allowlist_cases()): JMP, CALL,
+ *   RETURN and malformed headers, bursts past the push, binds of unknown handles, host methods,
+ *   context DMA handles, the image-from-CPU object, SIFM's surface.
+ * Built in userspace with inc/ (kernel stand-ins) by the Makefile here; fix-off.sh builds it
+ * again with each rule off (a copy of validate.c, or OLD_* for the model) and expects failures.
  */
 #include "shim.h"
 #define PS3RSX_H	/* the driver header: not in userspace */
@@ -108,6 +116,7 @@ static int push(const u32 *words, u32 n)
 	u32 w[64];
 
 	memset(&vs, 0, sizeof(vs));
+	last_warn[0] = 0;
 	w[0] = HDR(1, 0);
 	w[1] = 0x31337000;
 	memcpy(&w[2], words, n * 4);
@@ -275,6 +284,126 @@ static void vtxtex_cases(void)
 	}
 }
 
+/*
+ * The rest of the first validator and the allowlist commit (f4084fc), each refusal next to the
+ * word it is not: headers, bursts, binds, host methods, context DMAs, image from CPU, SIFM's
+ * surface. One push each through a fresh channel state (run()) or after the 3D bind (push()).
+ */
+static void allowlist_cases(void)
+{
+	static const u32 handles[] = { 0x31337000, 0x31337303, 0x3137c0de, 0x313371c3, 0x31337a73,
+				       0x31337808, 0x3137af00 };
+	static const u32 bad_handles[] = { 0, 0x31337001, 0x31337100, 0xfeed0000, 0x66604200 };
+	static const u32 dmas[] = { 0, 0xfeed0000, 0xfeed0001, 0x66604200, 0x66606660, 0x66616661,
+				    0x66626660 };
+	static const u32 bad_dmas[] = { 0xfeed0002, 0x31337000, 0x66626661, 0xffffffff };
+	u32 i, m;
+
+	/* headers: plain, NOP and non-incrementing pass; JMP (old and new), CALL, RETURN and
+	 * the reserved bits don't */
+	{
+		static const u32 ok[] = { 0, HDR(1, 0x1740), 0x22, 0, NONINC | HDR(2, 0x1740), 0x22,
+					  0x22 };
+		static const u32 bad[] = { 0x20001000, 0x00001001, 0x00001002, 0x00020000,
+					   0x80000000 | HDR(1, 0x1740), 0x00010000 | HDR(1, 0x1740),
+					   HDR(1, 0x1740) | 1, HDR(1, 0x1740) | 2 };
+
+		CHECK(push(ok, ARRAY_SIZE(ok)) == 0, "plain, NOP and non-incrementing headers refused");
+		for (i = 0; i < ARRAY_SIZE(bad); i++) {
+			u32 w[3] = { bad[i], 0x22, 0x22 };
+
+			CHECK(push(w, 3) != 0 && strstr(last_warn, "jump/call/return"),
+			      "header %08x accepted (%s)", bad[i], last_warn);
+		}
+	}
+
+	/* a burst whose data the push doesn't hold, and one past the last method (the
+	 * allowlist refuses 0x1ff8 before the 0x1ffc check comes) */
+	{
+		static const u32 short_burst[] = { HDR(3, 0x1740), 0x22, 0x22 };
+		static const u32 full_burst[] = { HDR(3, 0x1740), 0x22, 0x22, 0x22 };
+		static const u32 top[] = { HDR(2, 0x1ff0), 0, 0 };
+		static const u32 past_top[] = { HDR(4, 0x1ff4), 0, 0, 0, 0 };
+
+		CHECK(push(short_burst, 3) != 0 && strstr(last_warn, "past the end of the push"),
+		      "a burst past the end of the push accepted (%s)", last_warn);
+		CHECK(push(full_burst, 4) == 0, "a complete burst refused (%s)", last_warn);
+		CHECK(push(top, 3) == 0, "a burst at 0x1ff0 refused (%s)", last_warn);
+		CHECK(push(past_top, 5) != 0, "a burst past 0x1ffc accepted");
+	}
+
+	/* binds: the hypervisor's handles on any subchannel, nothing else */
+	for (i = 0; i < ARRAY_SIZE(handles); i++)
+		for (u32 sc = 0; sc < 8; sc++) {
+			u32 w[2] = { HDRS(1, sc, 0), handles[i] };
+
+			CHECK(run(w, 2) == 0, "bind of %08x on subchannel %u refused", handles[i], sc);
+		}
+	for (i = 0; i < ARRAY_SIZE(bad_handles); i++) {
+		u32 w[2] = { HDRS(1, 2, 0), bad_handles[i] };
+
+		CHECK(run(w, 2) != 0 && strstr(last_warn, "unknown object handle"),
+		      "bind of unknown object %08x accepted (%s)", bad_handles[i], last_warn);
+	}
+
+	/* host methods: SET_REFERENCE and the semaphore context, offset and release, not the
+	 * FIFO semaphore acquire (it can block forever) nor the rest below 0x100 */
+	for (m = 0x04; m < 0x100; m += 4) {
+		const bool ok = m == 0x50 || m == 0x60 || m == 0x64 || m == 0x6c;
+		u32 w[2] = { HDRS(1, 0, m), 0x66616661 };
+
+		if (ok)
+			CHECK(run(w, 2) == 0, "host method %02x refused (%s)", m, last_warn);
+		else
+			CHECK(run(w, 2) != 0 && strstr(last_warn, "host method"),
+			      "host method %02x accepted%s", m, m == 0x68 ? " (semaphore acquire)" : "");
+	}
+
+	/* context DMA slots: the hypervisor's context DMAs only, on 3D and M2MF */
+	for (i = 0; i < ARRAY_SIZE(dmas); i++) {
+		u32 w3d[2] = { HDR(1, 0x184), dmas[i] };
+		u32 wcp[4] = { HDRS(1, 1, 0), 0x31337303, HDRS(1, 1, 0x184), dmas[i] };
+
+		CHECK(push(w3d, 2) == 0, "3D context DMA %08x refused (%s)", dmas[i], last_warn);
+		CHECK(run(wcp, 4) == 0, "M2MF context DMA %08x refused (%s)", dmas[i], last_warn);
+	}
+	for (i = 0; i < ARRAY_SIZE(bad_dmas); i++) {
+		u32 w3d[2] = { HDR(1, 0x184), bad_dmas[i] };
+		u32 wcp[4] = { HDRS(1, 1, 0), 0x31337303, HDRS(1, 1, 0x184), bad_dmas[i] };
+
+		CHECK(push(w3d, 2) != 0 && strstr(last_warn, "unknown context DMA"),
+		      "3D context DMA %08x accepted (%s)", bad_dmas[i], last_warn);
+		CHECK(run(wcp, 4) != 0 && strstr(last_warn, "unknown context DMA"),
+		      "M2MF context DMA %08x accepted (%s)", bad_dmas[i], last_warn);
+	}
+
+	/* image from CPU (0x308a): bound fine, every method refused (Mesa doesn't use it) */
+	for (m = 0x100; m < 0x2000; m += 4) {
+		u32 w[4] = { HDRS(1, 2, 0), 0x31337808, HDRS(1, 2, m), 0 };
+
+		CHECK(run(w, 4) != 0 && strstr(last_warn, "allowlist"),
+		      "image-from-CPU method %04x accepted (%s)", m, last_warn);
+	}
+
+	/* SIFM's surface (0x198): a surface 2D or swizzled surface object, not a DMA or 3D */
+	{
+		static const u32 surf_ok[] = { 0x313371c3, 0x31337a73 };
+		static const u32 surf_bad[] = { 0xfeed0000, 0x31337000, 0x31337303, 0 };
+
+		for (i = 0; i < ARRAY_SIZE(surf_ok); i++) {
+			u32 w[4] = { HDRS(1, 3, 0), 0x3137af00, HDRS(1, 3, 0x198), surf_ok[i] };
+
+			CHECK(run(w, 4) == 0, "SIFM surface %08x refused (%s)", surf_ok[i], last_warn);
+		}
+		for (i = 0; i < ARRAY_SIZE(surf_bad); i++) {
+			u32 w[4] = { HDRS(1, 3, 0), 0x3137af00, HDRS(1, 3, 0x198), surf_bad[i] };
+
+			CHECK(run(w, 4) != 0 && strstr(last_warn, "SIFM surface"),
+			      "SIFM surface %08x accepted (%s)", surf_bad[i], last_warn);
+		}
+	}
+}
+
 /* --- recovery: what submit.c does with a rejected push -------------------------------- */
 
 /* What reached the "GPU", in order: the accepted pushes and the kernel's own END */
@@ -290,51 +419,122 @@ static void gpu_put(const u32 *w, u32 n)
 	ngpu += n;
 }
 
-/* A channel as submit.c keeps it: validator state, recovering client or not */
+/* A channel as submit.c keeps it: validator state, recovering client or not, its id */
 struct tchan {
 	struct ps3rsx_vstate vs;
 	bool recover, broken;
-	u32 cancelled;
+	u32 cancelled, id;
 };
+
+/*
+ * The device as submit.c keeps it (exec_lock): the channel whose state the GPU holds
+ * (last_chan), the one with a primitive open on the GPU (prim_owner), each channel's state
+ * shadow (shadow.c, by id), and the test's clock: waited_1s when a submit waiting for another
+ * channel's primitive has waited out its second (wait_event_interruptible_timeout's HZ).
+ */
+static int last_chan = -1;
+static struct tchan *prim_owner;
+static bool waited_1s;
+static struct ps3rsx_shadow *chsh[2];
+static u32 restore_buf[RESTORE_MAX_WORDS];
+
+static struct ps3rsx_shadow *gpu_state(void);
+
+/* end_primitive(): BEGIN_END stop on the owner's 3D subchannel, nothing open any more */
+static void end_primitive(struct tchan *owner)
+{
+	u32 end[2] = { 0, 0 }, sc;
+
+	for (sc = 0; sc < 8 && owner->vs.bound[sc] != 0x31337000; sc++)
+		;
+	end[0] = HDRS(1, sc & 7, 0x1808);
+	gpu_put(end, 2);
+	owner->vs.prim_open = false;
+	prim_owner = NULL;
+}
 
 /*
  * One submit of npush pushes, as ps3rsx_ioctl_gem_pushbuf() and submit_rejected() run it: 0, or
  * -ECANCELED (rejected, the client recovers), -EINVAL (rejected, it doesn't: refused from now
- * on), -EIO (refused). Every push is checked against a copy of the channel's state, kept only
- * if all pass; a rejected submit sends nothing, except the END of a primitive the channel's
- * last accepted submit left open.
+ * on), -EIO (refused), -EAGAIN (it waits for another channel's open primitive: nothing sent,
+ * the test calls again once that channel ended it, or with waited_1s, when the kernel ends it
+ * itself and refuses that channel unless its client recovers). Another channel ran last: the
+ * channel's state goes first (ps3rsx_shadow_restore() against the GPU's, ctxsw). Every push is
+ * checked against a copy of the channel's state, kept only if all pass; a rejected submit
+ * sends nothing, except the END of a primitive the channel's last accepted submit left open.
+ * OLD_SWITCH (fix-off.sh): no wait, as before 7bd5891; OLD_SUBMIT_STATE: each push's state
+ * kept as it passes, as before 9e2a3b9; OLD_NO_RECOVER: every rejection refuses the channel, as
+ * before 1aeaf88.
  */
 static int submit(struct tchan *ch, u32 npush, const u32 *const *p, const u32 *n)
 {
 	struct ps3rsx_vstate vs;
-	u32 i, sc;
+	int nrestore = 0;
+	u32 i;
 
 	if (ch->broken)
 		return -EIO;
+#ifndef OLD_SWITCH
+	if (prim_owner && prim_owner != ch) {
+		struct tchan *owner = prim_owner;
+
+		if (!waited_1s)
+			return -EAGAIN;
+		end_primitive(owner);			/* close_stale_primitive() */
+		if (!owner->recover)
+			owner->broken = true;
+	}
+#endif
+	if (last_chan != (int)ch->id) {
+		struct ps3rsx_shadow *hw = gpu_state();
+
+		nrestore = ps3rsx_shadow_restore(chsh[ch->id], hw, restore_buf, RESTORE_MAX_WORDS);
+		ps3rsx_shadow_free(hw);
+		if (nrestore < 0) {
+			printf("FAIL: restore too long\n");
+			exit(1);
+		}
+	}
 	vs = ch->vs;
 	for (i = 0; i < npush; i++) {
-		if (!ps3rsx_validate(&vs, p[i], n[i]))
+		if (!ps3rsx_validate(&vs, p[i], n[i])) {
+#ifdef OLD_SUBMIT_STATE
+			ch->vs = vs;
+#endif
 			continue;
+		}
+#ifdef OLD_NO_RECOVER
+		if (1) {
+#else
 		if (!ch->recover) {
+#endif
 			ch->broken = true;
 			return -EINVAL;
 		}
-		if (ch->vs.prim_open) {
-			u32 end[2] = { 0, 0 };
-
-			for (sc = 0; sc < 8 && ch->vs.bound[sc] != 0x31337000; sc++)
-				;
-			end[0] = HDRS(1, sc & 7, 0x1808);
-			gpu_put(end, 2);
-			ch->vs.prim_open = false;
-		}
+		if (ch->vs.prim_open && prim_owner == ch)
+			end_primitive(ch);
 		ch->cancelled++;
 		return -ECANCELED;
 	}
-	for (i = 0; i < npush; i++)
+	gpu_put(restore_buf, nrestore);
+	for (i = 0; i < npush; i++) {
 		gpu_put(p[i], n[i]);
+		ps3rsx_shadow_push(chsh[ch->id], p[i], n[i]);
+	}
 	ch->vs = vs;
+	last_chan = ch->id;
+	prim_owner = vs.prim_open ? ch : NULL;
 	return 0;
+}
+
+/* chan_free(): a channel that goes away with a primitive open gets it ended */
+static void tchan_free(struct tchan *ch)
+{
+	if (last_chan == (int)ch->id)
+		last_chan = -1;
+	if (prim_owner == ch)
+		end_primitive(ch);
+	ch->broken = true;			/* gone: nothing more from it */
 }
 
 #define SUB1(ch, a) submit(ch, 1, (const u32 *const[]){ a }, (const u32[]){ ARRAY_SIZE(a) })
@@ -351,6 +551,35 @@ static int gpu_whole(void)
 	return ps3rsx_validate(&vs, gpu, ngpu);
 }
 
+/*
+ * What the RSX takes inside a primitive: vertex data and the END, nothing else (a state write
+ * there raised a graph exception, 7bd5891). 0, or 1 + the index of the first word that isn't.
+ */
+static u32 gpu_prim_clean(void)
+{
+	bool open = false;
+	u32 i = 0, k;
+
+	while (i < ngpu) {
+		u32 h = gpu[i], n = (h >> 18) & 0x7ff, m = h & 0x1ffc;
+
+		if (!h) {
+			i++;
+			continue;
+		}
+		for (k = 0; k < n && i + 1 + k < ngpu; k++) {
+			u32 mk = (h & NONINC) ? m : m + 4 * k;
+
+			if (mk == 0x1808 && ((h >> 13) & 7) == 7)
+				open = gpu[i + 1 + k] != 0;
+			else if (open && !prim_method(mk))
+				return i + 1;
+		}
+		i += 1 + n;
+	}
+	return 0;
+}
+
 /* The 3D state the GPU holds after the stream (shadow.c's replay of it) */
 static struct ps3rsx_shadow *gpu_state(void)
 {
@@ -365,14 +594,30 @@ static u32 reg3d(const struct ps3rsx_shadow *sh, u32 m)
 	return test_bit(m / 4, sh->reg3d_set) ? sh->reg3d[m / 4] : 0xdeadbeef;
 }
 
+static const u32 bind3d[] = { HDR(1, 0), 0x31337000 };
+
+/* A fresh device with channel 0 (ch), its 3D object bound */
 static void tchan_init(struct tchan *ch, bool recover)
 {
-	static const u32 bind[] = { HDR(1, 0), 0x31337000 };
-
 	memset(ch, 0, sizeof(*ch));
 	ch->recover = recover;
 	ngpu = 0;
-	CHECK(SUB1(ch, bind) == 0, "3D bind refused");
+	last_chan = -1;
+	prim_owner = NULL;
+	waited_1s = false;
+	ps3rsx_shadow_clear(chsh[0]);
+	ps3rsx_shadow_clear(chsh[1]);
+	CHECK(SUB1(ch, bind3d) == 0, "3D bind refused");
+}
+
+/* A fresh device with channels 0 (a) and 1 (b), each with its 3D object bound */
+static void tchan_init2(struct tchan *a, struct tchan *b, bool recover_a, bool recover_b)
+{
+	tchan_init(a, recover_a);
+	memset(b, 0, sizeof(*b));
+	b->id = 1;
+	b->recover = recover_b;
+	CHECK(SUB1(b, bind3d) == 0, "3D bind refused on channel 1");
 }
 
 /* Mesa-like words, on the 3D object at subchannel 7 */
@@ -393,9 +638,12 @@ static const u32 end_only[] = { HDR(1, 0x1808), 0 };
 static void recover_cases(void)
 {
 	struct ps3rsx_shadow *sh;
-	struct tchan ch;
+	struct tchan ch, ch1;
 	u32 before, i;
 	int r;
+
+	chsh[0] = ps3rsx_shadow_new();
+	chsh[1] = ps3rsx_shadow_new();
 
 	/* the primitive order, one push each (vertex data only inside BEGIN/END) */
 	{
@@ -455,6 +703,7 @@ static void recover_cases(void)
 	/* a bind in a cancelled submit doesn't count: methods on that subchannel are refused */
 	{
 		static const u32 bind_bad[] = { HDRS(1, 3, 0), 0x31337303, HDR(1, 0x1a04), X16 };
+		static const u32 bind3_m2mf[] = { HDRS(1, 3, 0), 0x31337303 };
 		static const u32 m2mf3[] = { HDRS(8, 3, 0x30c), 0x2fc000, 0x1945000, 0x1f0, 0x1f0,
 					     0x1f0, 1, 0x101, 0 };
 
@@ -463,6 +712,13 @@ static void recover_cases(void)
 		CHECK(SUB1(&ch, m2mf3) == -ECANCELED && strstr(last_warn, "no object bound"),
 		      "2: a copy through the cancelled bind not cancelled (%s)", last_warn);
 		CHECK(ngpu == before, "2: the cancelled bind's copy sent %u words", ngpu - before);
+		/* the bind in a push of its own that passed, the X16 in the next one (9e2a3b9) */
+		CHECK(SUB2(&ch, bind3_m2mf, state_b_bad) == -ECANCELED,
+		      "2: a bind push and an X16 push not cancelled");
+		CHECK(SUB1(&ch, m2mf3) == -ECANCELED && strstr(last_warn, "no object bound"),
+		      "2: a copy through the bind of a cancelled submit's first push not cancelled (%s)",
+		      last_warn);
+		CHECK(ngpu == before, "2: the cancelled bind push's copy sent %u words", ngpu - before);
 	}
 
 	/* 3. a draw split across submits, its rest in a rejected one: the kernel ends it */
@@ -535,6 +791,75 @@ static void recover_cases(void)
 	sh = gpu_state();
 	CHECK(reg3d(sh, 0x1a04) != X16, "6: the GPU holds the X16 format");
 	ps3rsx_shadow_free(sh);
+
+	/*
+	 * 7. no channel switch inside a primitive (7bd5891): channel 0's draw split across two
+	 * submits, a submit of channel 1 between them waits; nothing of it (its state restore, its
+	 * draw) reaches the GPU before channel 0's END, and then it runs on its own state
+	 */
+	tchan_init2(&ch, &ch1, true, true);
+	CHECK(SUB1(&ch1, state_c) == 0, "7: channel 1's state refused");
+	CHECK(SUB2(&ch, state_a, begin_inline) == 0, "7: channel 0's draw left open refused");
+	before = ngpu;
+	r = SUB2(&ch1, state_c, draw);
+	CHECK(r == -EAGAIN && ngpu == before,
+	      "7: channel 1's submit reached the GPU inside channel 0's primitive (%d, %u words)", r,
+	      ngpu - before);
+	CHECK(SUB1(&ch, inline_end) == 0, "7: the rest of channel 0's draw refused (%s)", last_warn);
+	CHECK(ngpu == before + ARRAY_SIZE(inline_end), "7: channel 0's END not next on the GPU");
+	r = SUB2(&ch1, state_c, draw);
+	CHECK(r == 0, "7: channel 1's submit after the END: %d (%s)", r, last_warn);
+	r = gpu_prim_clean();
+	CHECK(!r, "7: the GPU got word %08x inside a primitive (word %u)", r ? gpu[r - 1] : 0, r - 1);
+	CHECK(gpu_whole() == 0, "7: the GPU's stream fails as one stream (%s)", last_warn);
+	sh = gpu_state();
+	CHECK(reg3d(sh, 0x1a04) == L8_C && reg3d(sh, 0x1740) == 0x32,
+	      "7: channel 1 drew on channel 0's state");
+	ps3rsx_shadow_free(sh);
+
+	/*
+	 * 8. channel 0 never continues its draw: after a second the waiting submit of channel 1
+	 * ends it (close_stale_primitive()); channel 0 is refused from then on, or, when its
+	 * client recovers, its continuation is cancelled and it draws again
+	 */
+	for (i = 0; i < 2; i++) {
+		const bool rec = i;
+
+		tchan_init2(&ch, &ch1, rec, true);
+		CHECK(SUB2(&ch, state_a, begin_inline) == 0, "8: channel 0's draw left open refused");
+		before = ngpu;
+		CHECK(SUB2(&ch1, state_c, draw) == -EAGAIN && ngpu == before,
+		      "8: channel 1's submit reached the GPU inside channel 0's primitive");
+		waited_1s = true;
+		r = SUB2(&ch1, state_c, draw);
+		waited_1s = false;
+		CHECK(r == 0 && ngpu > before + 2 && gpu[before] == HDR(1, 0x1808) &&
+		      gpu[before + 1] == 0, "8: no END from the kernel before channel 1's submit (%d)", r);
+		r = SUB1(&ch, inline_end);
+		CHECK(r == (rec ? -ECANCELED : -EIO),
+		      "8: channel 0's continuation after the kernel's END: %d (recovering %d)", r, rec);
+		r = SUB2(&ch, state_a, draw);
+		CHECK(r == (rec ? 0 : -EIO), "8: channel 0's next draw: %d (recovering %d)", r, rec);
+		r = gpu_prim_clean();
+		CHECK(!r, "8: the GPU got word %08x inside a primitive (word %u)",
+		      r ? gpu[r - 1] : 0, r - 1);
+		CHECK(gpu_whole() == 0, "8: the GPU's stream fails as one stream (%s)", last_warn);
+	}
+
+	/* 9. channel 0 goes away with its primitive open: chan_free() ends it, channel 1 runs */
+	tchan_init2(&ch, &ch1, true, true);
+	CHECK(SUB2(&ch, state_a, begin_inline) == 0, "9: channel 0's draw left open refused");
+	CHECK(SUB2(&ch1, state_c, draw) == -EAGAIN, "9: channel 1 didn't wait for channel 0");
+	before = ngpu;
+	tchan_free(&ch);
+	CHECK(ngpu == before + 2 && gpu[before] == HDR(1, 0x1808) && gpu[before + 1] == 0,
+	      "9: no END for the freed channel's primitive");
+	CHECK(SUB2(&ch1, state_c, draw) == 0, "9: channel 1 after the free refused (%s)", last_warn);
+	CHECK(!gpu_prim_clean() && gpu_whole() == 0, "9: the GPU's stream isn't clean (%s)",
+	      last_warn);
+
+	ps3rsx_shadow_free(chsh[0]);
+	ps3rsx_shadow_free(chsh[1]);
 }
 
 int main(int argc, char **argv)
@@ -682,6 +1007,7 @@ int main(int argc, char **argv)
 		CHECK(run(sf2d, ARRAY_SIZE(sf2d)) != 0, "M2MF methods on the surface-2D object accepted");
 	}
 
+	allowlist_cases();
 	vtxtex_cases();
 	recover_cases();
 

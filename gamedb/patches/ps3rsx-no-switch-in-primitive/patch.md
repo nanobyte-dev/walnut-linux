@@ -6,7 +6,7 @@ category = "stability"
 switch = "none"
 default = "always on"
 forwarded = "no"
-tests = []
+tests = ["ps3rsx-shadow"]
 batches = []
 +++
 # No channel switch while a primitive is open
@@ -28,9 +28,14 @@ primitive ps3rsx had to close after a second of waiting is refused unless its cl
 - **Why:** the restore writes state methods, and the RSX doesn't take state changes inside a primitive.
 - **How it was found:** the software context switch's bring-up (Phase 4 on 2026-10-14: interleaved GL
   processes, `rsx-suite.sh multi`), [DRIVER.md](../../../docs/DRIVER.md#the-software-context-switch-the-state-shadow).
-- **Minimal repro:** None yet: proposed a host case in `validate-test.c` or `shadow-equiv` with two
-  channels, one draw split across two submits of the first, a submit of the second queued in between, and
-  the check that nothing of the second reaches the stream before the first one's END.
+- **Minimal repro:** `validate-test.c`, cases 7 to 9 of `recover_cases()` (the per-submit model of
+  `submit.c` with two channels, the state restore and `prim_owner`): channel 0's draw split across two
+  submits, a submit of channel 1 queued in between waits, and nothing of it reaches the "GPU" before channel
+  0's END; after a second the kernel ends a stale primitive (the channel refused unless its client
+  recovers), and a freed channel's primitive is ended; inside a primitive the "GPU" gets only vertex data
+  and the END (`tools/run-tests.sh --only ps3rsx-shadow`). The decision itself is inline in
+  `ps3rsx_ioctl_gem_pushbuf()`, so the model, not `submit.c`, is what runs; with the rule off (`fix-off.sh`,
+  variant `no-switch-in-primitive`, `make -C packages/walnut/drivers/ps3rsx/test fix-off`) case 7 fails.
 
 ## Validation
 

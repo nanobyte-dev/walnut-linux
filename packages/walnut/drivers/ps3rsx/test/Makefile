@@ -3,8 +3,11 @@
 # one, zero-test, ps3rsx_zero (src/zero.h, clear_dcbz) with the real dcbz loop on ppc64, and
 # validate-test, the validator against the streams that raised graph exceptions (validate.c;
 # fixtures/: mpv's first frame, captured with mesa-shim/), and validate-capture, a mesa-shim
-# capture's pushes through the validator.
+# capture's pushes through the validator; fix-off, validate-test with one stability rule turned off
+# at a time (fix-off.sh: a copy of validate.c edited under O, or an OLD_* define for the submit.c
+# model), each build expected to fail with its own FAIL line.
 #   make && make run		x86 with ASan/UBSan, x86 plain, ppc64 (big-endian) under qemu
+#   make fix-off			the rules off, one at a time: exits 0 only if each is caught
 #   ./count.sh			ppc64 instructions per word, both paths (qemu exec log)
 # ppc64 needs a ppc64 sysroot (SYSROOT: the Mesa cross build's) and qemu-ppc64-static.
 O ?= ../../../../../build/tmp/ps3rsx-test
@@ -45,6 +48,9 @@ $(O)/validate-test: validate-test.c ../src/validate.c ../src/shadow.c inc/shim.h
 $(O)/validate-capture: validate-capture.c ../src/validate.c ../src/shadow.c inc/shim.h
 	@mkdir -p $(O)
 	gcc $(CFLAGS) -Wno-unused-function -fsanitize=address,undefined -fno-sanitize-recover=undefined -o $@ $<
+# the old behaviour of each stability rule fails its case (fix-off.sh)
+fix-off: fix-off.sh validate-test.c ../src/validate.c ../src/shadow.c inc/shim.h
+	./fix-off.sh $(O)
 $(O)/cnt-ppc64: $(SRC) $(O)/libatomic_asneeded.a
 	powerpc64-linux-gnu-gcc -O2 -mcpu=cell -mno-altivec -fno-strict-aliasing -w -Iinc \
 		$(PPCFLAGS) -o $@ $<
@@ -55,6 +61,7 @@ run: all
 	$(O)/zero-test 20000 1
 	qemu-ppc64-static $(O)/zero-test-ppc64 20000 2
 	$(O)/validate-test
+	./fix-off.sh $(O)
 clean:
 	rm -rf $(O)
-.PHONY: all run clean
+.PHONY: all run clean fix-off

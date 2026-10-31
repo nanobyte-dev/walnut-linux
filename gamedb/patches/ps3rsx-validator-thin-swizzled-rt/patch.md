@@ -29,7 +29,9 @@ generation. Linear surfaces 1 pixel wide are fine.
 - **How it was found:** the crashes of 2026-10-14, isolated with egl-thin
   (`packages/walnut/tools/ps3-gpu-tools/scripts/rsx-thin-test.sh`) and a window resize repro.
 - **Minimal repro:** `validate-test.c` sends the 1-pixel-wide swizzled RT_FORMAT and expects the refusal
-  (`tools/run-tests.sh --only ps3rsx-shadow`); `rsx-thin-test.sh` is the PS3-side test of the shapes.
+  (`tools/run-tests.sh --only ps3rsx-shadow`); with the rule off (`fix-off.sh`, variant `thin-swizzled-rt`,
+  `make -C packages/walnut/drivers/ps3rsx/test fix-off`) the case fails. `rsx-thin-test.sh` is the PS3-side
+  test of the shapes.
 
 ## Validation
 

@@ -31,7 +31,8 @@ clients that don't recover ([ps3rsx-rejected-submit-cancel](../ps3rsx-rejected-s
   ([analysis](../../../docs/dumps/exception-0x105-mpv-vo-gpu.md), `docs/dumps/exception-0x105-mpv-vo-gpu.txt`).
 - **Minimal repro:** `validate-test.c` runs mpv's first frame as captured
   (`test/fixtures/mpv-vo-gpu-0x105.h`: refused; with the dither texture as L8, accepted) and every texture
-  format in every unit (`tools/run-tests.sh --only ps3rsx-shadow`).
+  format in every unit (`tools/run-tests.sh --only ps3rsx-shadow`); with the rule off (`fix-off.sh`, variant
+  `x16`, `make -C packages/walnut/drivers/ps3rsx/test fix-off`) the case fails.
 
 ## Validation
 

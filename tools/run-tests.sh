@@ -119,6 +119,8 @@ t_ps3rsx() {
 	"$O/shadow-equiv-fast" 1000000 100000 2 || exit 1
 	"$O/zero-test" 20000 1 || exit 1
 	"$O/validate-test" || exit 1
+	# each rule switched off in a copy of validate.c (or the submit model's old behaviour): its case must fail
+	make -C packages/walnut/drivers/ps3rsx/test O="$O" fix-off || exit 1
 	# big-endian run under qemu, when the cross compiler, the sysroot and qemu are there
 	if command -v powerpc64-linux-gnu-gcc >/dev/null && command -v qemu-ppc64-static >/dev/null &&
 	   [ -d build/mesa/sysroot ]; then
