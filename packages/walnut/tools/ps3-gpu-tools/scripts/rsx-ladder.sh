@@ -47,8 +47,10 @@ gl-pointsmooth|gl-pointsmooth|
 gl-dxt|gl-dxt|
 gl-genmip|gl-genmip|wedge
 gl-mipread|gl-mipread|wedge
-egl-thin|egl-thin 1 64|wedge
-rsxdrm-smoke_quirks|rsxdrm-smoke quirks|once'
+egl-thin|egl-thin 1 64|wedge'
+# rsxdrm-smoke quirks is not a rung test: it sends deliberately bad pushes to test ps3rsx's validator,
+# whose ladder runs on the host (fix-off.sh); on the PS3 it wedges the RSX whenever the installed driver
+# lacks a rule (session M, 2026-11-01: 0x106 on ps3rsx 0.924)
 names=() cmds=() flags=()
 while IFS='|' read -r n c f; do names+=("$n"); cmds+=("${c// P/ $P}"); flags+=("$f"); done <<<"$TESTS"
 declare -A fix=()
