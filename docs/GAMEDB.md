@@ -548,8 +548,8 @@ The window follows the Walnut palette (`walnut_games.py` has the colours).
   ignored. A tag's link (`tags/<id>/`) closes Details and filters the list by that tag (the app's own
   filter, not the tag's page). Without python3-tkinterweb (a Recommends), or for a game the copy doesn't have, Details opens
   the website in the browser.
-- **The pad and the TV.** The text and the pane scale with the screen (1.5x at 1080 lines;
-  `WALNUT_GAMES_SCALE` overrides) and the window fills it. The DualShock is the X pointer outside games
+- **The pad and the TV.** The text and the pane keep the app's own sizes at every resolution (the
+  user, 2026-10-31); `WALNUT_GAMES_SCALE` (0.75-3) makes them bigger, and above 1 the window fills the screen. The DualShock is the X pointer outside games
   (ps3-desktop's `40-joystick-pointer.conf`: the sticks move it, Cross is a left click, Circle a right
   click); the app reads the buttons the pointer leaves free from the pad's event device (no grab;
   presses queued while game mode froze the app are dropped): the d-pad moves the focus between the

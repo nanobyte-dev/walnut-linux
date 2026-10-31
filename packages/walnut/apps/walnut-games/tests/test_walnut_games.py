@@ -1114,13 +1114,12 @@ class PadAndFocus(unittest.TestCase):
         self.assertEqual(app.nav_pick((150, 0, 40, 20), [(0, 30, 200, 20)], "down"), 0)
 
     def test_scale(self):
-        self.assertEqual(app.ui_scale(1080, env=""), 1.5)
+        self.assertEqual(app.ui_scale(1080, env=""), 1.0)
         self.assertEqual(app.ui_scale(720, env=""), 1.0)
-        self.assertEqual(app.ui_scale(600, env=""), 1.0)
-        self.assertEqual(app.ui_scale(2160, env=""), 2.0)
+        self.assertEqual(app.ui_scale(2160, env=""), 1.0)
         self.assertEqual(app.ui_scale(1080, env="1.2"), 1.2)
         self.assertEqual(app.ui_scale(1080, env="9"), 3.0)
-        self.assertEqual(app.ui_scale(1080, env="x"), 1.5)
+        self.assertEqual(app.ui_scale(1080, env="x"), 1.0)
 
     def test_pad_devices_and_buttons(self):
         text = ("I: Bus=0003 Vendor=054c Product=0268\nN: Name=\"Sony PLAYSTATION(R)3 Controller Motion Sensors\"\n"

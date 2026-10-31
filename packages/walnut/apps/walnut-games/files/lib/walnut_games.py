@@ -1218,15 +1218,15 @@ def nav_pick(cur, cands, direction):
 
 
 def ui_scale(screen_h, env=None):
-    """how much bigger the text and the pane are than the app's 720-line sizes: 1 up to 720 lines, 1.5 at
-    1080 (the TV from the couch), at most 2; WALNUT_GAMES_SCALE (0.75-3) overrides"""
+    """how much bigger the text and the pane are than the app's own sizes: 1 at every resolution (the
+    user, 2026-10-31: no bigger text unasked); WALNUT_GAMES_SCALE (0.75-3) makes them bigger or smaller"""
     v = env if env is not None else os.environ.get("WALNUT_GAMES_SCALE")
     if v:
         try:
             return max(0.75, min(3.0, float(v)))
         except ValueError:
             pass
-    return max(1.0, min(2.0, screen_h / 720.0))
+    return 1.0
 
 
 # the gamepad's buttons the X pointer driver leaves free (ps3-desktop's 40-joystick-pointer.conf: the
