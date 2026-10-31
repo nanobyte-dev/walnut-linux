@@ -849,7 +849,7 @@ def parse_mds(path, size_of=os.path.getsize):
     if raw[16] != 1:
         raise Refused("%s is a version %d.%d descriptor: only version 1 (Alcohol 120%%'s .mds) is read"
                       % (path, raw[16], raw[17]))
-    tracks, last = [], {}
+    tracks = []
     try:
         medium, sessions = struct.unpack_from("<HH", raw, 18)
         sessions_at = struct.unpack_from("<I", raw, 80)[0]
