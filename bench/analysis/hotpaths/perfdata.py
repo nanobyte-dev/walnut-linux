@@ -27,7 +27,6 @@ def read(path):
         attrs.append((typ, config, stype, rfmt, flags))
     stype = attrs[0][2]
     flags = attrs[0][4]
-    sample_id_all = (flags >> 18) & 1
     has = {n: bool(stype & (1 << i)) for i, n in enumerate(SAMPLE_BITS)}
     if has['READ'] or has['BRANCH_STACK'] or has['REGS_USER'] or has['STACK_USER'] or has['RAW']:
         raise SystemExit('unsupported sample_type %x' % stype)

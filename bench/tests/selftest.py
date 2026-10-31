@@ -1908,7 +1908,7 @@ def loadprof_synthetic(tmp):
     bad = {k: (round(got[k], 4), round(v, 4)) for k, v in want.items() if abs(got[k] - v) > 1e-6}
     bad.update({k: (round(v, 4), 0) for k, v in got.items() if k not in want and v > 1e-6})
     check("loadprof: every made-up stack in its group, per phase", not bad, bad)
-    L, W = res["ph"]["load"], res["ph"]["warmup"]
+    L = res["ph"]["load"]
     main_want = sum(n * 0.002 for n, ph, pid, tid, *_ in LP_SAMPLES if ph == "load" and tid == 2000)
     check("loadprof: the main thread's load CPU (%.3f s) and the disk$0 thread apart" % main_want,
           abs(L["cpu_main"] - main_want) < 1e-6 and L["grp_main"]["shader.cache"] == 0 and L["grp"]["shader.cache"] > 0,
@@ -1969,7 +1969,6 @@ def client_load(tmp):
     fds = fake_perf(str(d / ".perfload.ctl"), str(d / ".perfload.ack"), log, delay=1.5)
     env = dict(env0, BENCH_DIR=str(d), BENCH_PERF_LOAD="1", FAKE_T0_FILE=str(d / "fake.t0"), BENCH_SHADERCACHE="cold",
                BENCH_PERF_LOAD_CTL="%s:%s" % (d / ".perfload.ctl", d / ".perfload.ack"))
-    t0 = time.time()
     p = subprocess.run(["bash", str(HARNESS / "client.sh"), "fakeload", "base"], env=env, capture_output=True, text=True)
     check("load client: exit 0", p.returncode == 0, p.stdout[-800:] + p.stderr[-800:])
     os.close(fds[0])
