@@ -3,7 +3,7 @@
 (docs/HOTPATHS.md). usage: categorize.py RUN.pkl... (one per game; writes summary.json here)
 A sample's hot path is the innermost Mesa frame (leaf outwards) that matches a RULES pattern, so
 memcpy, the kernel and ps3rsx under a Mesa function count for that function's category."""
-import pickle, glob, collections, re, sys, json
+import pickle, collections, re, sys, json
 
 MESA = ('libgallium', 'libGLX_mesa', 'libGL.so', 'libGLdispatch', 'libGLX.so', 'libEGL', 'dri_gbm')
 

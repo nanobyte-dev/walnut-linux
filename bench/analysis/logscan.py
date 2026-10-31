@@ -38,7 +38,6 @@ once, from game.log. A game's own rules (lines to ignore, text to strip before c
 import argparse
 import collections
 import json
-import os
 import re
 import sys
 from pathlib import Path

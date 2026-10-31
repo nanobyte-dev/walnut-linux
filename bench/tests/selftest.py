@@ -2053,7 +2053,6 @@ def lint():
           "kept short on purpose):\n  " + ", ".join(short))
     # the played tests (rating/test.toml) beside the recipes: one each, valid, its marks bash regexes too
     # (client.sh matches with [[ =~ ]]), its process the recipe's COMM; the session part is data, not code
-    import playdef
     import gamedata
     for g, d in games.dirs().items():
         f = gamedata.test_file(g)

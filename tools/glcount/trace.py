@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import sys, subprocess, array, os, re
+import sys, subprocess, array, os
 d = sys.argv[1]; fr = int(sys.argv[2]) if len(sys.argv) > 2 else 50
 exe = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'src/sauer_client')
 names = open(d + '/glc.names').read().split('\n')

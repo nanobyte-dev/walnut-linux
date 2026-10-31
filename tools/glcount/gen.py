@@ -1,4 +1,3 @@
-import sys
 names=[l.strip() for l in open('cnt/names.txt') if l.strip()]
 o=open('cnt/stubs.S','w')
 o.write('.text\n')

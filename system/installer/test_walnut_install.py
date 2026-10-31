@@ -13,7 +13,7 @@ from pathlib import Path
 import tarfile
 import tempfile
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 # Import walnut-install by path
 INSTALLER_DIR = Path(__file__).resolve().parent
