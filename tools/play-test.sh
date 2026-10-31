@@ -14,6 +14,7 @@
 # "done" (the session is being measured).
 set -euo pipefail
 cd "$(dirname "$0")/.."
+tools/ps3 check || exit 1	# someone else holds the PS3 lease (tools/ps3 lock)
 conf() { sed -n "s/^$1 *[:?]*= *//p" config.local.mk config.mk 2>/dev/null | grep -v '^$' | head -1; }
 IP=$(conf PS3_IP); USER_=$(conf PS3_USER); KEY=$(conf PS3_SSH_KEY); KEY=${KEY//\$(HOME)/$HOME}
 [ -n "$IP" ] && [ -n "$USER_" ] || { echo "!! PS3_IP / PS3_USER: set them in config.local.mk" >&2; exit 2; }

@@ -1,0 +1,74 @@
+#!/bin/bash
+# tools/ps3: the PC-side lease on the PS3, so one agent or person drives it at a time.
+#   ps3 lock [--for MINUTES] [--note TEXT]   take it (default 120 min); prints the token: export PS3_LEASE=<token>
+#   ps3 renew [--for MINUTES] [TOKEN]        extend it from now (holder only)
+#   ps3 unlock [--force] [TOKEN]             release it (token from the argument or $PS3_LEASE)
+#   ps3 status                               exit 0 free, 1 held, 2 expired
+#   ps3 check                                for scripts: exit 0 if free or ours ($PS3_LEASE), else 1 and who holds it
+# The lease is ${XDG_RUNTIME_DIR:-/run/user/UID}/walnut-ps3.lease (key=value lines); changes are made
+# under flock on walnut-ps3.lk, so two `lock` calls can't both win. An expired lease is taken over.
+set -eu
+dir=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}
+lease=$dir/walnut-ps3.lease
+mkdir -p "$dir"
+exec 9>"$dir/walnut-ps3.lk"
+flock 9
+
+get() { sed -n "s/^$1=//p" "$lease" 2>/dev/null | head -1; }
+when() { date -d "@$1" '+%F %T'; }
+minutes=120 note="" force=0 tok=${PS3_LEASE:-}
+cmd=${1:-status}; [ $# -gt 0 ] && shift
+while [ $# -gt 0 ]; do
+	case $1 in
+	--for) minutes=${2:?--for MINUTES}; shift 2 ;;
+	--note) note=${2?--note TEXT}; shift 2 ;;
+	--force) force=1; shift ;;
+	-*) echo "ps3: unknown option $1" >&2; exit 2 ;;
+	*) tok=$1; shift ;;
+	esac
+done
+case $minutes in ''|*[!0-9]*) echo "ps3: --for wants whole minutes" >&2; exit 2 ;; esac
+
+now=$(date +%s)
+state=free
+if [ -e "$lease" ]; then
+	exp=$(get expiry)
+	if [ "${exp:-0}" -gt "$now" ]; then state=held; else state=expired; fi
+fi
+who() { echo "held by $(get owner) (pid $(get pid) on $(get host), since $(when "$(get start)")${1:+, }${1:+$1}) until $(when "$(get expiry)")"; }
+desc() { n=$(get note); who "${n:+note: $n}"; }
+mine() { [ -n "$tok" ] && [ "$tok" = "$(get token)" ]; }
+write() { # token note start expiry
+	tmp=$lease.$$
+	printf 'token=%s\nowner=%s\nnote=%s\npid=%s\nhost=%s\nstart=%s\nexpiry=%s\n' \
+		"$1" "$(id -un)" "$(printf %s "$2" | tr '\n' ' ')" "$PPID" "$(hostname)" "$3" "$4" > "$tmp"
+	mv "$tmp" "$lease"
+}
+
+case $cmd in
+lock)
+	if [ $state = held ] && ! mine; then echo "ps3: $(desc)" >&2; exit 1; fi
+	[ $state = expired ] && echo "ps3: taking over an expired lease, $(desc)" >&2
+	t=$tok; [ $state = held ] || t=$(od -An -N12 -tx1 /dev/urandom | tr -d ' \n')
+	write "$t" "$note" "$now" $((now + minutes * 60))
+	echo "$t" ;;
+renew)
+	[ $state = held ] && mine || { echo "ps3: no live lease of yours to renew" >&2; exit 1; }
+	write "$tok" "$(get note)" "$(get start)" $((now + minutes * 60))
+	echo "ps3: renewed until $(when $((now + minutes * 60)))" >&2 ;;
+unlock)
+	[ $state = free ] && { echo "ps3: already free"; exit 0; }
+	if [ $force = 1 ]; then echo "ps3: removed the lease, $(desc)"
+	elif mine; then echo "ps3: released"
+	else echo "ps3: not yours, $(desc) (unlock --force removes it)" >&2; exit 1; fi
+	rm -f "$lease" ;;
+status)
+	case $state in
+	free) echo "free"; exit 0 ;;
+	held) echo "$(desc)"; exit 1 ;;
+	expired) echo "expired: $(desc)"; exit 2 ;;
+	esac ;;
+check)
+	if [ $state = held ] && ! mine; then echo "!! the PS3 is in use: $(desc)" >&2; exit 1; fi ;;
+*) echo "usage: ps3 lock|renew|unlock|status|check (see the header)" >&2; exit 2 ;;
+esac

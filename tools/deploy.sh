@@ -23,6 +23,8 @@ set -euo pipefail
 # execute a shifted fragment.
 {
 : "${PS3:?}" "${REPO_BUILDER_TAG:?}"
+# someone else holds the PS3 lease (tools/ps3 lock): stop before any ssh
+"$(dirname "$0")/ps3" check || exit 1
 PORT=${DEPLOY_PORT:-18071}
 DEBS_DIR=${DEBS_DIR:-build/debs}
 # never during a bench session (ps3-bench.sh: measurements from a quiet PS3; desktop ends it)
