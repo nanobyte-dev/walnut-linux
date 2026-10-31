@@ -27,12 +27,14 @@ replay restart; a game without one has the plain numbers; runs before the reload
 where they need it have none): stalls_play, stall_play_s (lower is better), low1_play (higher),
 longest_play_ms (lower). stalls, low1 and longest_ms keep the whole window.
 A batch records the date of its newest run, its run count and its observations (did the games run, what
-was wrong, what it proves). The game's id is the run's (bench.txt recipe=, else game= read as an old name);
+was wrong, what it proves). Its tested (what was tried and why) and conclusion (what it showed, what was
+decided) are written by hand in batches.toml and kept, as are the observations unless --obs replaces them. The game's id is the run's (bench.txt recipe=, else game= read as an old name);
 when the run names the game otherwise (game=sauerbraten in a BananaBread run from before the move), the
 results file says column = "<that name>", so the CSV matrices keep their columns.
   --obs TEXT   the batch's observations (plain sentences: did the games run, picture, sound, the bug found, the fix proven)
   --name NAME  a new batch's name (^[a-z0-9][a-z0-9.-]*$; never renamed later: gamedb:batch/<name> links point at it)
-  --replace    drop the batch's old values, runs, date and observations first (default: the new runs join what it has)
+  --replace    drop the batch's old values, runs and date first (default: the new runs join what it has); tested,
+               conclusion and the observations stay (--obs replaces the observations)
   --include-interfered  put disturbed runs in too (report.py intf=1: ps3-bench.sh's detector or
                gamedb/benchmarks/interfered.txt; docs/STALLS.md "Interference"); by default they are skipped
                and listed, and don't count in `runs`
@@ -173,7 +175,7 @@ def main(argv):
              "title": row, "runs": 0, "source": "bench/analysis/matrix.py"}
         batches.insert(next((i for i, x in enumerate(batches) if x.get("kind") != "run"), len(batches)), b)
     if replace:
-        for k in ("date", "runs", "observations"):
+        for k in ("date", "runs"):     # tested, conclusion and observations are hand-written: kept
             b.pop(k, None)
         for f in sorted((root / "games").glob("*/benchmark/results/%s.toml" % b["name"])):
             f.unlink()

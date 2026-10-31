@@ -17,6 +17,7 @@ import tarfile
 import tempfile
 import tomllib
 import unittest
+from unittest import mock
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -306,6 +307,29 @@ class Records(unittest.TestCase):
         matrix = load_bench("matrix")
         want = {m["name"] for m in self.br.load_metrics() if m["matrix"] != "none"}
         self.assertEqual(set(matrix.METRICS), want)
+
+    def test_matrix_keeps_hand_fields(self):
+        """matrix.py rewrites batches.toml: tested, conclusion and observations (multi-line too) survive, also
+        --replace; --obs replaces only the observations; check_warnings names a batch without tested/conclusion"""
+        b = self.br.load_batches(self.tmp)
+        b[0].update(tested="Whether X helps.", conclusion="Yes: \"quoted\".\nNo decision recorded.",
+                    observations="- one\n- two \\ back")
+        self.br.save_batches(b, self.tmp)
+        self.assertIn('observations = """\n- one\n- two', (self.tmp / "benchmarks" / "batches.toml").read_text())
+        self.assertEqual(self.br.load_batches(self.tmp)[0], b[0])     # multi-line strings round-trip
+        matrix = load_bench("matrix")
+        with mock.patch.dict(os.environ, {"BENCH_GAMEDB": str(self.tmp)}), contextlib.redirect_stdout(io.StringIO()):
+            matrix.main(["b1", "--replace"])
+            matrix.main(["b2", "--obs", "new obs"])
+        b1, b2 = self.br.load_batches(self.tmp)[:2]
+        self.assertEqual((b1["tested"], b1["conclusion"], b1["observations"]),
+                         (b[0]["tested"], b[0]["conclusion"], b[0]["observations"]))
+        self.assertEqual(b2["observations"], "new obs")
+        self.assertEqual(self.br.check_records(self.tmp, {"g"}), [])
+        warns = "\n".join(self.br.check_warnings(self.tmp))
+        self.assertNotIn("batch b1", warns)
+        self.assertIn("batch b2: no tested and no conclusion", warns)
+        self.assertEqual(check.records_warnings(self.tmp), self.br.check_warnings(self.tmp))
 
     def test_import_split(self):
         imp = load_tool("bench-import")

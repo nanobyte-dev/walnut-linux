@@ -24,7 +24,10 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]   # this is bench/analysis/
 FIXED = ["test", "date", "runs", "observations"]
 BATCH_KEYS = {"name": str, "order": int, "kind": str, "title": str, "date": datetime.date, "runs": int,
-              "stack": dict, "purpose": str, "observations": str, "source": str}
+              "stack": dict, "purpose": str, "tested": str, "conclusion": str, "observations": str, "source": str}
+# the keys written by hand, never by matrix.py (save_batches keeps them; check_records warns when a batch lacks
+# the first two)
+HAND_KEYS = ("tested", "conclusion", "observations")
 KINDS = ("run", "summary")
 NAME_RE = re.compile(r"[a-z0-9][a-z0-9.-]{0,79}\Z")
 METRIC_KEYS = {"name": str, "unit": str, "better": str, "matrix": str, "tool": str, "what": str}
@@ -69,13 +72,22 @@ def _val(v):
     raise TypeError("no TOML for %r" % (v,))
 
 
+def _mlstr(v):
+    """a string with line breaks as a TOML multi-line basic string: the lines as they are, backslashes, quotes
+    and other control characters escaped"""
+    esc = "".join("\\\\" if c == "\\" else '\\"' if c == '"' else c if c in "\n\t" or ord(c) >= 0x20 and c != "\x7f"
+                  else "\\u%04x" % ord(c) for c in v)
+    return '"""\n%s"""' % esc
+
+
 def dump_batches(batches, head):
     out = [head]
     for b in batches:
         out.append("\n[[batch]]\n")
         for k in BATCH_KEYS:
             if k in b and b[k] not in (None, "", {}):
-                out.append("%s = %s\n" % (k, _val(b[k])))
+                v = b[k]
+                out.append("%s = %s\n" % (k, _mlstr(v) if isinstance(v, str) and "\n" in v else _val(v)))
     return "".join(out)
 
 
@@ -98,7 +110,8 @@ def dump_result(res, head):
 
 
 BATCHES_HEAD = ("# gamedb/benchmarks/batches.toml: every benchmark batch once, in the order they were run\n"
-                "# (gamedb/benchmarks/README.md). Written by bench/analysis/matrix.py; the observations are edited by hand.\n")
+                "# (gamedb/benchmarks/README.md). Written by bench/analysis/matrix.py; tested, conclusion and observations\n"
+                "# are edited by hand (matrix.py keeps them).\n")
 RESULT_HEAD = "# %s's numbers in batch %s (gamedb/benchmarks/README.md)\n"
 
 
@@ -232,6 +245,18 @@ def _typed(t, keys, what, errs, required=()):
     for k in required:
         if k not in t:
             errs.append("%s: no %s" % (what, k))
+
+
+def check_warnings(r=None):
+    """[warnings] of batches.toml that are no errors: a batch without its hand-written tested or conclusion
+    (gamedb/benchmarks/README.md)"""
+    try:
+        batches = load_batches(r)
+    except (OSError, tomllib.TOMLDecodeError):
+        return []     # check_records reports it
+    return ["benchmarks/batches.toml batch %s: no %s (what was tried and why, what it showed and what was decided)"
+            % (b.get("name", "#%d" % (i + 1)), " and no ".join(k for k in HAND_KEYS[:2] if not b.get(k)))
+            for i, b in enumerate(batches) if not all(b.get(k) for k in HAND_KEYS[:2])]
 
 
 def check_records(r=None, games=None):

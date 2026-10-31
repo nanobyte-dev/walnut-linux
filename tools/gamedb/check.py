@@ -1001,6 +1001,14 @@ def records_errors(root, games=None):
     return bench_module("benchrecords").check_records(root, games)
 
 
+def records_warnings(root):
+    """warnings, not errors, on the benchmark records (benchrecords.py check_warnings): a batch without its
+    hand-written tested or conclusion"""
+    if not (Path(root) / "benchmarks").is_dir():
+        return []
+    return bench_module("benchrecords").check_warnings(root)
+
+
 CAVEAT_KEYS = {"batch": str, "game": str, "variant": str, "kind": str, "why": str}
 CAVEAT_KINDS = ("invalid", "not-comparable")
 
@@ -1096,8 +1104,11 @@ def main():
     for g, errs in problems.items():
         for e in errs:
             print("%s: %s" % (g, e), file=sys.stderr)
+    warns = records_warnings(Path(a.content).parent)
+    for w in warns:
+        print("benchmarks: warning: %s" % w, file=sys.stderr)
     n = len([d for d in Path(a.content).iterdir() if d.is_dir()])
-    print("check.py: %d game(s), %d with problems" % (n, len(problems)))
+    print("check.py: %d game(s), %d with problems%s" % (n, len(problems), ", %d warning(s)" % len(warns) if warns else ""))
     return 1 if problems else 0
 
 

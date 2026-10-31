@@ -16,7 +16,8 @@ test are kept, with the failure in the observations and odd or no numbers. Bench
 | `gamedb/games/<id>/benchmark/results/<batch>.toml` | one game's numbers in one batch |
 
 `bench/analysis/benchrecords.py` reads and writes all of them (stdlib only); `tools/gamedb/check.py` validates them
-(closed key sets, unique names, run batches in order, every result's batch exists, metric names known);
+(closed key sets, unique names, run batches in order, every result's batch exists, metric names known) and
+warns on a batch without `tested` or `conclusion`;
 `gamedb:batch/<name>` links resolve against the batch names (`tools/doclinks.py`).
 
 ## batches.toml
@@ -32,7 +33,9 @@ test are kept, with the failure in the observations and odd or no numbers. Bench
 | `date` | date | the UTC date of the newest run in it |
 | `runs` | integer | the run directories behind it, tests included: driver tests (`gl-*`, `t-*`, `xtest*`, `xfix*`), `speq-*` and `dxt-*` runs count but make no number |
 | `stack` | inline table | the platform versions the title names, when it does: `kernel`, `mesa`, `ps3rsx`, `libspeq`, `ps3-gpu-tools`, `sdl3` (strings) |
-| `observations` | string | the point of the batch: did the games run, was the picture right, was the sound right, what bug was found, which fix (commit, package version) it proves, and caveats (perf recording during the run, nothing on screen, a single run, an outlier). Plain sentences with names and numbers; say when a cause is not known |
+| `tested` | string | by hand, for a reader of the website: one or two plain sentences on what was being tried and why ("Whether running Luanti's background threads at a lower priority stops the main thread's stutters at view range 120.") |
+| `conclusion` | string | by hand: one to three plain sentences on what it showed and what was decided ("Yes: stalls fell from 31 s to 1.8 s per 135 s and the frame rate rose from 21 to 38 fps; shipped as luanti 0010."). An invalid batch (nothing on screen, interfered, superseded) says so; where the record has no decision, the numbers and "No decision recorded." |
+| `observations` | string | by hand: what was observed. Did the games run, was the picture right, was the sound right, what bug was found, which fix (package version, patch) it proves, and caveats (perf recording during the run, nothing on screen, a single run, an outlier, interference). Short plain sentences, or `- ` lines in a multi-line string; every number that carries a finding with what it means; no run-time windows, file names or harness internals unless they are the point; say when a cause is not known |
 | `purpose` | string | why the batch was run (a summary's: what it gathers) |
 | `source` | string | required: where it came from (`bench/results row N`: the CSV matrices it was imported from, 2026-10-26; `bench/analysis/matrix.py`) |
 
@@ -146,12 +149,14 @@ says how to read them.
    batch goes after the others, so add batches oldest first. `--name` picks its name (else the date and
    the title's first words). The runs' `versions` file names the game package, Mesa, libspeq,
    ps3-gpu-tools, the kernel, ps3rsx, fluidsynth, OpenAL and SDL3.
-3. Options: `--replace` drops the batch's old numbers, runs and observations first (otherwise a batch
-   is extended when you name it again, and its run count adds up); `--hud GAME[,GAME]` takes the HUD
+3. Options: `--replace` drops the batch's old numbers, runs and date first (otherwise a batch
+   is extended when you name it again, and its run count adds up; `tested`, `conclusion` and the
+   observations stay, `--obs` replaces the observations); `--hud GAME[,GAME]` takes the HUD
    median as the `fps` value for those games; `--include-interfered` keeps disturbed runs.
 4. Look at the result (`make bench-matrix` writes the CSV matrices into `build/bench-matrix/`;
-   `column -s, -t < build/bench-matrix/fps.csv` is wide, a spreadsheet is easier), fix the
-   observations in `batches.toml`, and commit `gamedb/benchmarks/batches.toml` and the new
+   `column -s, -t < build/bench-matrix/fps.csv` is wide, a spreadsheet is easier), write the batch's
+   `tested` and `conclusion` and fix its observations in `batches.toml` (matrix.py keeps all three when it
+   rewrites the file; `tools/gamedb/check.py` warns while `tested` or `conclusion` is missing), and commit `gamedb/benchmarks/batches.toml` and the new
    `gamedb/games/*/benchmark/results/` files.
 
 ## The CSV matrices

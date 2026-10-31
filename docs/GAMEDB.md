@@ -743,7 +743,10 @@ directories and never touches `index.md`; the record is derived from the evidenc
 `content/games/`, only `index.md`, `thumb.png` and the sessions' `shots/*.jpg`; CI fetches only the
 gallery from Git LFS: `tools/gamedb/gallery.py`). A test is a `session` (a played session) or a `capture` (the
 picture only). Ratings come from played sessions alone: the benchmark runs of the suite (the
-desktop stopped, vsync off) don't describe what a player gets and aren't imported; the code still
+desktop stopped, vsync off) don't describe what a player gets and aren't imported (they are records of
+their own, gamedb/benchmarks/ and its README: every batch has, written by hand for a reader of the site,
+`tested`, what was tried and why, `conclusion`, what it showed and what was decided, and its `observations` in
+plain words; `tools/gamedb/check.py` warns on a batch without `tested` or `conclusion`); the code still
 reads a `demo` test (a harness run with a measured window) if one is ever imported on purpose. Games that need the user's own data (Quake,
 Quake II, [Sauerbraten](../gamedb/games/sauerbraten/)) are listed and shown, with a guide to setting up the data; the data itself is never
 offered (their screenshots, thumbnail included, are published like any game's).
