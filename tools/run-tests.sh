@@ -291,6 +291,7 @@ run batch-publish python3 -I github-ci/test_batch_publish.py
 run gamedb python3 -I tools/gamedb/test_gamedb.py
 run gamedb-evidence bash -c "python3 -I tools/gamedb/test_evidence.py && python3 -I tools/gamedb/reimport.py --check"
 run gamedb-technical python3 -I tools/gamedb/test_technical.py
+run patch-register python3 -I tools/gamedb/patches.py
 run walnut-games python3 -I packages/walnut/apps/walnut-games/tests/test_walnut_games.py
 run walnut-data python3 -I packages/walnut/apps/walnut-games/tests/test_walnut_data.py
 run walnut-rate python3 -I packages/walnut/apps/walnut-rate/tests/test_walnut_rate.py
