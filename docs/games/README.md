@@ -28,7 +28,7 @@ the run and the game's peak VRAM.
 | [Armagetron](https://walnut.nanobyte.dev/gamedb/games/armagetronad/) | Platinum · 95 | 83 | 0.1 s / 24.1 / 127 ms | 58 / 28 | right, right |
 | ClassiCube | not rated yet | 47 | 0 s / 30.7 / 65 ms | 53 / 60 | right, right |
 | [Extreme Tux Racer](https://walnut.nanobyte.dev/gamedb/games/etr/) | Gold · 80 | 59 | 2.9 s / 27.3 / 483 ms | 29 / 58 | right, right |
-| [Luanti](https://walnut.nanobyte.dev/gamedb/games/luanti/) | Scrap · 56 | 46 | 3.5 s / 19.1 / 724 ms | 19 / 63 | right, no underruns |
+| [Luanti](https://walnut.nanobyte.dev/gamedb/games/luanti/) | Rust · 60 | 46 | 3.5 s / 19.1 / 724 ms | 19 / 63 | right, no underruns |
 | [dsda-doom](https://walnut.nanobyte.dev/gamedb/games/dsda-doom/) | Gold · 90 | 55.9 | 0 s / 40.3 / 34 ms | 43 / 65 | right, music chops |
 | [BananaBread](https://walnut.nanobyte.dev/gamedb/games/bananabread/) | Scrap · 51 | 39.1 | 0.05 s / 25.6 / 103 ms | 25 / 117 | right, 60-181 underruns a run |
 | [Neverball](https://walnut.nanobyte.dev/gamedb/games/neverball/) | Gold · 87 | 66.5 | 2 s / 41.3 / 3.9 s | 58 / 34 | right, 118 underruns |
@@ -165,6 +165,7 @@ Every investigation of a game that ended in a driver or library patch, from the 
 | [Garbage textures and a crash in Mesa after GART ran out (2026-10-26)](../../gamedb/games/supertuxkart/investigations/2026-10-26-fence-segfault.md) | SuperTuxKart | mesa 0049 |
 | [Square particles: nv30 ignored GL_POINT_SMOOTH (2026-10-26)](../../gamedb/games/yquake2/investigations/2026-10-26-point-smooth.md) | Yamagi Quake II | mesa 0050 |
 | [Particles of one size at every distance: nv30 never took the vertex program's point size (2026-10-27)](../../gamedb/games/yquake2/investigations/2026-10-27-point-size-attenuation.md) | Yamagi Quake II | mesa 0051 |
+| [Luanti: the Settings menu and string.lower on ppc64 (2026-10-28)](../../gamedb/games/luanti/investigations/2026-10-28-settings-menu-string-lower.md) | Luanti | luajit 0002 |
 <!-- /gamedb:driver-bugs -->
 
 Two display bugs went first, found by the harness itself at stage 0 because the screen stayed black:
