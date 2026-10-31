@@ -403,28 +403,6 @@ the overflow drive (`/mnt/data_linux/Temp/ps3`), with only the base chroots on /
 
 - **Effort:** S. **Needs:** host. **Status:** not started. **Source:** games night 2026-10-28/29.
 
-### `|| true` that hides a failed build step
-
-Three scripts still carry the `|| true` the commit tests' shell check refuses (`make commit-tests ALL=1`
-lists them). They were left on 2026-10-31 because editing them rebuilds a lot: deb-build.sh and
-xcc-build.sh are shared packaging tools (every package's N shifts), and boost-context's test script
-is in that package's directory (a boost rebuild). The shell check flags them again on the next commit
-that touches each file, and that commit fixes them:
-
-- `tools/deb-build.sh` lines 114, 166, 167 and `tools/xcc-build.sh` lines 51, 99, 100:
-  `cp build/src/$PKG/*.dsc *.tar.* ... 2>/dev/null || true` and the copy of the built `*.deb *.ddeb`
-  and `*.buildinfo *.changes` out of the chroot. A build that made no .deb looks like a success
-  until the publish. Proposed: copy each glob only when it matched (`for f in ...; do [ -e "$f" ] &&
-  cp "$f" ...; done`), and stop with an error when there is no `.dsc` before the build or no `.deb`
-  after it. `.ddeb`, `.buildinfo` and `.changes` stay optional.
-- `packages/patched/libs/boost-context/test/run-test.sh` line 24: `apt-get install ... | grep -E
-  '^Setting up ...' || true` hides a failed install, and the test then runs against whatever was
-  there. Proposed: apt-get's output to a log, its status checked (`|| { tail -20 log; exit 1; }`),
-  then the same grep on the log with its own `|| true`.
-
-- **Effort:** S. **Needs:** host (a full rebuild for the first two). **Status:** waiting for the next
-  change to those files. **Source:** the commit tests' backlog, 2026-10-31.
-
 Older versions and the dated history: [archive/PLAN.md](../archive/PLAN.md),
 [archive/DESKTOP-PLAN.md](../archive/DESKTOP-PLAN.md), [archive/GAMEOS-HDD.md](../archive/GAMEOS-HDD.md),
 [archive/RELEASE-CANDIDATES.md](../archive/RELEASE-CANDIDATES.md),

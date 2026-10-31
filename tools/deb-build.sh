@@ -111,7 +111,10 @@ if [ -n "${LOCAL_DEPS:-}" ]; then
 	(cd "$R/build/local" && apt-ftparchive packages . > Packages)
 	echo 'deb [trusted=yes] file:/build/local ./' > "$R/etc/apt/sources.list.d/zz-local.list"
 fi
-cp build/src/"$PKG"/*.dsc build/src/"$PKG"/*.tar.* "$R/build/" 2>/dev/null || true
+cp build/src/"$PKG"/*.dsc "$R/build/"	# the source package must be there; a missing one fails here
+for f in build/src/"$PKG"/*.tar.*; do
+	case $f in *.orig*.tar.*) ;; *) cp "$f" "$R/build/" ;; esac	# the orig tarball is a link: copied below
+done
 for f in build/src/"$PKG"/*.orig*.tar.*; do [ ! -e "$f" ] || cp -L "$f" "$R/build/"; done
 
 in_chroot() { chroot "$R" /usr/bin/env -i PATH=/usr/lib/ccache:/usr/sbin:/usr/bin:/sbin:/bin \
@@ -163,8 +166,12 @@ echo ">> built in $((T2 - T1)) s"
 in_chroot sh -c "CCACHE_DIR=/build/ccache ccache -s" | grep -E "Hits|Misses|Cache size" || true
 unmount_all
 META=$OUT; [ "${BUILD:-native}" = cross-linux ] && META=$OUT/native && mkdir -p "$META"
-cp "$R"/build/reproducible-path/*.deb "$R"/build/reproducible-path/*.ddeb "$OUT/" 2>/dev/null || true
-cp "$R"/build/reproducible-path/*.buildinfo "$R"/build/reproducible-path/*.changes "$META/" 2>/dev/null || true
+# a build that made no .deb is a failure, never an empty success; debug symbols and metadata are optional
+debs=("$R"/build/reproducible-path/*.deb)
+[ -e "${debs[0]}" ] || { echo "!! $PKG: the build made no .deb" >&2; exit 1; }
+cp "${debs[@]}" "$OUT/"
+for f in "$R"/build/reproducible-path/*.ddeb; do [ ! -e "$f" ] || cp "$f" "$OUT/"; done
+for f in "$R"/build/reproducible-path/*.buildinfo "$R"/build/reproducible-path/*.changes; do [ ! -e "$f" ] || cp "$f" "$META/"; done
 mv "build/chroot/$PKG-build.log" "$META/build.log"
 # only our outputs (never the chroot tree: see unmount_all)
 chown -R "$OWNER" "$OUT" build/ccache
