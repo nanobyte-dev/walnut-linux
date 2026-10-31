@@ -39,7 +39,9 @@
 #            session's evidence: tools/gamedb/test_evidence.py, the scrub and scan, import and re-import;
 #            then reimport.py --check: every record of the repository derived again from its evidence
 #            alone, unchanged), gamedb-technical (tools/gamedb/technical.py: the site's technical
-#            pages, drafts left out, links, the benchmark tables, the public-safe scan), walnut-games (the app and its root
+#            pages, drafts left out, links, the benchmark tables, the public-safe scan), gamedb-schema
+#            (tools/gamedb/test_schema.py: each gamedb/schemas kind's good and bad fixtures, every gamedb file against
+#            its schema and of exactly one kind), walnut-games (the app and its root
 #            helper: validation, remove-cascade refusal, Exec parsing, a window smoke test), walnut-data (the data import:
 #            the helper's import-data against tar fixtures and its lock, remove-data, install-repo-data, walnut-data
 #            with a stubbed game-data-packager), walnut-rate (its root helper's refusals and protocol, ps3-bench.sh's
@@ -291,6 +293,7 @@ run batch-publish python3 -I github-ci/test_batch_publish.py
 run gamedb python3 -I tools/gamedb/test_gamedb.py
 run gamedb-evidence bash -c "python3 -I tools/gamedb/test_evidence.py && python3 -I tools/gamedb/reimport.py --check"
 run gamedb-technical python3 -I tools/gamedb/test_technical.py
+run gamedb-schema python3 -I tools/gamedb/test_schema.py
 run patch-register python3 -I tools/gamedb/patches.py
 run walnut-games python3 -I packages/walnut/apps/walnut-games/tests/test_walnut_games.py
 run walnut-data python3 -I packages/walnut/apps/walnut-games/tests/test_walnut_data.py
