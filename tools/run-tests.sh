@@ -368,8 +368,8 @@ run game-data-packager packages/patched/tools/game-data-packager/tests/run-in-bu
 [ $slow = 1 ] && run autogm bash -c "$(declare -f t_autogm); t_autogm"
 [ $slow = 1 ] && run ssdimg-vm tools/ssdimg/vm-e2e.sh
 
-echo; printf '%-18s %-6s %s\n' suite result seconds
-for i in "${!names[@]}"; do printf '%-18s %-6s %s\n' "${names[$i]}" "${res[$i]}" "${secs[$i]}"; done
+echo; printf '%-26s %-6s %s\n' suite result seconds
+for i in "${!names[@]}"; do printf '%-26s %-6s %s\n' "${names[$i]}" "${res[$i]}" "${secs[$i]}"; done
 [ ${#skips[@]} = 0 ] || { echo "skipped (not passes):"; printf '  %s\n' "${skips[@]}"; }
 [ $fail = 0 ] && echo "all passed" || echo "FAILED (logs in $L)"
 exit $fail
