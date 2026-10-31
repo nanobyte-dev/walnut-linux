@@ -42,23 +42,24 @@
   </section>
 
   {{ $shot_tests := where $g.tests "ps3" "!=" nil }}
-  {{ if $shot_tests }}
+  {{ if and $shot_tests (not site.Params.app) }}{{/* the app's copy has them in the head's gallery */}}
   <section>
     <h2>Screenshots</h2>
-    {{/* the app's copy carries them at their display size (each decoded 800x450 JPEG costs Tkhtml about 3.5 MB
-         on the PS3), the full picture behind the click */}}
     <p class="muted">As rendered on the PS3.</p>
     <div class="shots">
-    {{ range $shot_tests }}{{ range .ps3 }}{{ with $page.Resources.Get . }}{{ $img := . }}{{ if site.Params.app }}{{ $img = .Resize "352x" }}{{ end }}<a href="{{ .RelPermalink }}"><img src="{{ $img.RelPermalink }}" width="{{ $img.Width }}" height="{{ $img.Height }}" alt="{{ $g.title }} on the PS3" loading="lazy"></a>
+    {{ range $shot_tests }}{{ range .ps3 }}{{ with $page.Resources.Get . }}<a href="{{ .RelPermalink }}"><img src="{{ .RelPermalink }}" width="{{ .Width }}" height="{{ .Height }}" alt="{{ $g.title }} on the PS3" loading="lazy"></a>
     {{ end }}{{ end }}{{ end }}
     </div>
   </section>
   {{ end }}
 
+  {{/* the app's copy has the actions in the head: here only the game data's way, when there is one */}}
+  {{ if or (not site.Params.app) $g.needs_data $t.data_guide }}
   <section>
     <h2>Installation</h2>
     {{ partial "get-game.html" (dict "g" $g "t" $t) }}
   </section>
+  {{ end }}
 
   {{ with $g.known_issues }}
   <section>
@@ -68,5 +69,8 @@
   {{ end }}
 
   <p class="muted">The game's home page: <a href="{{ $g.homepage }}">{{ $g.homepage }}</a>. License: {{ $g.license }}.</p>
+  {{ if site.Params.app }}{{/* the links the app's pane had: the Technical tab, the website's page (the browser), the home page */}}
+  <p class="links"><a href="technical/#tabs">Technical notes</a> <a href="{{ printf "%sgames/%s/" site.BaseURL $g.id }}">Open on the web</a>{{ with $g.homepage }} <a href="{{ . }}">Home page</a>{{ end }}</p>
+  {{ end }}
 </article>
 {{ end }}

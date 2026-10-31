@@ -1,12 +1,9 @@
 {{/* how to install a game (the Overview's Installation section): (dict "g" <catalog entry> "t" <its technical.json
      entry>). The easy way only: Walnut Games' Install (and Add game files... for a game whose data the player
      brings: data-easy.html, which links the Guides tab's game-data guide for the other ways), then the apt
-     line and the .deb files. In the app's copy (site.Params.app) the actions are walnut:// links the app
-     handles: walnut://install/<id>, walnut://add-data/<id>, walnut://play/<id> (docs/GAMEDB.md "The desktop app") */}}
+     line and the .deb files. The app's copy (site.Params.app) has the actions in the page's head instead
+     (partials/game-head.html, walnut:// links) and here only the game data's way */}}
 {{ $g := .g }}
-{{ if site.Params.app }}
-<p class="actions"><a href="walnut://install/{{ $g.id }}">Install</a>{{ if $g.needs_data }}<a href="walnut://add-data/{{ $g.id }}">Add game files...</a>{{ end }}<a href="walnut://play/{{ $g.id }}">Play</a></p>
-{{ end }}
 {{ if or $g.needs_data .t.data_guide }}
 {{ partial "data-easy.html" (dict "g" $g "t" .t) }}
 {{ else if not site.Params.app }}

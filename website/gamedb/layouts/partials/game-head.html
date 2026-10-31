@@ -4,6 +4,38 @@
 {{ $g := .g }}{{ $r := $g.rating }}
 {{ $game := site.GetPage (printf "/games/%s" $g.id) }}
 <p class="crumbs"><a href="{{ site.Home.RelPermalink }}">All games</a></p>
+{{ if site.Params.app }}
+{{/* the app's copy (Details, docs/GAMEDB.md "The desktop app"): the title and the rating, the screenshots'
+     gallery as wide as the page, the game's actions, the summary and the tags, then the tabs. The gallery is
+     one picture (the full screenshot, the only one decoded at its size) with < > and its position, and a strip
+     of small thumbnails; its walnut://shot/<id>/<n|prev|next> links make the app swap the picture (the page
+     has no script), walnut://view/<id>/<n> opens the app's viewer. The actions are walnut:// links the app
+     sets for the game's state (#actions; these are what it shows before) */}}
+<header class="app-head">
+  <h1>{{ $g.title }}</h1>
+  <p class="meta">{{ partial "medal.html" $r }}
+    {{ if eq $r.medal "Untested" }}<span class="muted">{{ with $r.reason }}played, but not rated: {{ . }}{{ else }}nobody has played it on Walnut yet{{ end }}</span>
+    {{ else }}{{ if and $r.launcher (gt (len $g.launchers) 1) }}<span>with {{ $r.launcher }}</span>{{ end }}
+    <span class="muted">{{ printf "%.1f" $r.hours }} h played, {{ $r.crashes }} crash{{ if ne (int $r.crashes) 1 }}es{{ end }}</span>{{ end }}
+  </p>
+  {{ $shots := slice }}{{ range $g.tests }}{{ range .ps3 }}{{ with $game.Resources.Get . }}{{ $shots = $shots | append . }}{{ end }}{{ end }}{{ end }}
+  {{ with $shots }}
+  <div class="gallery">
+    {{ $first := index . 0 }}
+    <a id="shot-link" href="walnut://view/{{ $g.id }}/0"><img id="shot" class="shot" src="{{ $first.RelPermalink }}" alt="{{ $g.title }} on the PS3"></a>
+    <p class="gallery-nav"><a class="step" href="walnut://shot/{{ $g.id }}/prev">&lt;</a><span id="shot-pos">1 / {{ len . }}</span><a class="step" href="walnut://shot/{{ $g.id }}/next">&gt;</a></p>
+    <p class="strip">{{ range $i, $s := . }}{{ $t := $s.Resize "128x" }}<a href="walnut://shot/{{ $g.id }}/{{ $i }}"><img src="{{ $t.RelPermalink }}" width="{{ $t.Width }}" height="{{ $t.Height }}" alt=""></a>{{ end }}</p>
+  </div>
+  {{ end }}
+  <p class="actions" id="actions"><a href="walnut://install/{{ $g.id }}">Install</a>{{ if $g.needs_data }}<a href="walnut://add-data/{{ $g.id }}">Add game files...</a>{{ end }}<a href="walnut://play/{{ $g.id }}">Play</a></p>
+  <p>{{ $g.summary }}</p>
+  {{ $covered := slice "needs-data" "keyboard-mouse" "controller-full" "controller-partial" "low-memory" }}
+  {{ if in $g.tags "keyboard-mouse" }}{{ $covered = $covered | append "controller-keyboard" }}{{ end }}
+  {{ $badges := slice }}{{ range $g.badges }}{{ if not (in $covered .) }}{{ $badges = $badges | append . }}{{ end }}{{ end }}
+  {{ with $badges }}<p class="badges">{{ range . }}<span class="badge badge-{{ . }}">{{ partial "badge-name.html" . }}</span> {{ end }}</p>{{ end }}
+  {{ partial "tag-groups.html" $g }}
+</header>
+{{ else }}
 <header class="game-head">
   {{ with $game.Resources.Get "thumb.png" }}<img class="thumb" src="{{ .RelPermalink }}" width="256" height="144" alt="">{{ end }}
   <div class="game-title">
@@ -27,8 +59,9 @@
     {{ partial "tag-groups.html" $g }}
   </div>
 </header>
-<ul class="tabs">
+{{ end }}
+<ul class="tabs" id="tabs">
 {{- range slice (slice "overview" "Overview" "") (slice "test-runs" "Test runs" "test-runs/") (slice "technical" "Technical" "technical/") (slice "guides" "Guides" "guides/") }}
-  <li><a href="{{ $game.RelPermalink }}{{ index . 2 }}"{{ if eq (index . 0) $.tab }} class="current" aria-current="page"{{ end }}>{{ index . 1 }}</a></li>
+  <li><a href="{{ $game.RelPermalink }}{{ index . 2 }}{{ if site.Params.app }}#tabs{{ end }}"{{ if eq (index . 0) $.tab }} class="current" aria-current="page"{{ end }}>{{ index . 1 }}</a></li>
 {{- end }}
 </ul>

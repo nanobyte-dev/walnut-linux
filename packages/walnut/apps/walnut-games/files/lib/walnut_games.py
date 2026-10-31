@@ -104,7 +104,7 @@ APPS = "/usr/share/applications"
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from walnut_palette import (BG, PANEL, BORDER, ENTRY, CARD_HOVER, BUTTON_HOVER, TEXT, TEXT_FOCUS,  # noqa: E402
                             MUTED, DISABLED, ON_ACCENT, ON_DARK, ACCENT, ACCENT_DEEP, ACCENT_LIGHT, LINK,
-                            LINK_HOVER, MEDAL_COLORS)
+                            LINK_HOVER, MEDAL_COLORS, INSTALLED_BADGE)
 
 MEDAL_ORDER = ["Platinum", "Gold", "Silver", "Bronze", "Tin", "Rust", "Scrap", "Untested"]
 OLD_MEDALS = {"Tin"}    # rules 1's scale only (rules 2.1 has none): in the filter only when a game has it
@@ -1442,6 +1442,43 @@ def screenshots(game):
     return out
 
 
+ASPECT_ORDER = ("frame", "smooth", "sound", "picture", "stability", "display", "load")
+
+
+def aspect_rows(rating):
+    """the rating's aspects for the pane, [(name, score or None)] in the catalog's order (its "order", the
+    site's partials/rating.html); an aspect without a score is not tested"""
+    asp = rating.get("aspects") or {}
+    out = []
+    for k in rating.get("order") or ASPECT_ORDER:
+        a = asp.get(k)
+        if a:
+            out.append((a.get("name") or k.capitalize(), None if a.get("score") is None else round(a["score"])))
+    return out
+
+
+def shot_step(i, d, n):
+    """the screenshot d steps (-1, 1) from i among n, round past either end; 0 without any"""
+    return (i + d) % n if n else 0
+
+
+def pane_notes(game, rating, size_kb=None, edition=None, data_line=None):
+    """the pane's facts under the tags, one line: the median frame rate, the controller, the installed size,
+    the game data's edition (data_line: "Your game data: Full game"), the license"""
+    out = []
+    m = FPS_RE.search(((rating.get("aspects") or {}).get("frame") or {}).get("detail") or "")
+    if m:
+        out.append("Median %s fps" % m.group(1))
+    out.append("Controller: " + (rating.get("controller") or game.get("controller") or "unknown"))
+    if size_kb:
+        out.append("Installed size: " + human_size(size_kb))
+    if data_line:
+        out.append(data_line)
+    if game.get("license"):
+        out.append("License: " + game["license"])
+    return out
+
+
 # ---- the pane's actions and glance, the Details view, the pad (PLAN 5.11) -----------------------
 
 def main_action(game, installed, can_install, acts, n_launchers, idle, data_ok, pending=None):
@@ -1489,25 +1526,6 @@ def side_actions(installed, acts, main, data_names, retry=False):
 FPS_RE = re.compile(r"median (\d+(?:\.\d+)?) fps")
 
 
-def glance_numbers(rating, size_kb=None):
-    """the pane's key numbers [(value, label)]: the median frame rate (from what the frame rate aspect
-    measured, else its score), the smoothness score and the game's installed size, each when known"""
-    out = []
-    asp = rating.get("aspects") or {}
-    fr = asp.get("frame") or {}
-    m = FPS_RE.search(fr.get("detail") or "")
-    if m:
-        out.append((m.group(1) + " fps", "median frame rate"))
-    elif fr.get("score") is not None:
-        out.append(("%d/100" % round(fr["score"]), "frame rate"))
-    sm = asp.get("smooth") or {}
-    if sm.get("score") is not None:
-        out.append(("%d/100" % round(sm["score"]), "smoothness"))
-    if size_kb:
-        out.append((human_size(size_kb), "installed size"))
-    return out
-
-
 def parse_apt_sizes(out):
     """{package: installed KB} from `apt-cache show --no-all-versions NAME...`"""
     sizes, name = {}, None
@@ -1536,23 +1554,63 @@ def package_sizes(names, runner=None):
     return parse_apt_sizes(out)
 
 
-WALNUT_ACTIONS = ("install", "add-data", "play")
+# the actions the pages' walnut:// links run (the pane's buttons): the main button's and the smaller ones'
+WALNUT_ACTIONS = ("install", "add-data", "play", "remove", "remove-data", "repo")
+# and Details' gallery: walnut://shot/<id>/<n|prev|next> shows that screenshot, walnut://view/<id>/<n> opens
+# it in the viewer
+WALNUT_GALLERY = ("shot", "view")
 
 
 def parse_walnut_link(url):
-    """(action, game id, launcher name or None) of a link the app's pages carry (tools/gamedb/build.sh --app):
-    walnut://install/<id>, walnut://add-data/<id>, walnut://play/<id>, walnut://play/<id>?launcher=<name>;
-    None for anything else (another scheme, an unknown action, a bad id)"""
+    """(action, game id, argument) of a link the app's pages carry (tools/gamedb/build.sh --app):
+    walnut://install/<id> (likewise add-data, remove, remove-data, repo), walnut://play/<id>, with
+    ?launcher=<name> (the argument); walnut://shot/<id>/<n|prev|next> and walnut://view/<id>/<n> (the
+    argument: n as an int, or "prev" / "next"); None for anything else (another scheme, an unknown action,
+    a bad id or position)"""
     import urllib.parse
     try:
         u = urllib.parse.urlsplit(url)
     except ValueError:
         return None
     parts = [p for p in u.path.split("/") if p]
-    if u.scheme != "walnut" or u.netloc not in WALNUT_ACTIONS or len(parts) != 1 or not ID_RE.match(parts[0]):
+    if u.scheme != "walnut" or not parts or not ID_RE.match(parts[0]):
+        return None
+    if u.netloc in WALNUT_GALLERY:
+        if len(parts) != 2:
+            return None
+        n = parts[1]
+        if n.isdigit() and len(n) < 5:
+            return u.netloc, parts[0], int(n)
+        return (u.netloc, parts[0], n) if u.netloc == "shot" and n in ("prev", "next") else None
+    if u.netloc not in WALNUT_ACTIONS or len(parts) != 1:
         return None
     launcher = urllib.parse.parse_qs(u.query).get("launcher", [None])[0] if u.netloc == "play" else None
     return u.netloc, parts[0], launcher or None
+
+
+def actions_html(gid, main, side, launchers=()):
+    """the actions of Details' page (its <p id="actions">), as the pane has them: main is main_action's
+    (kind, label, enabled), side side_actions' kinds, launchers Play's labels (several: one link each,
+    walnut://play/<id>?launcher=NAME). A main action that is off (Queued, Installing...) is plain text"""
+    import html as _html
+    import urllib.parse
+    labels = {"add-data": DATA_LABEL, "repo": REPO_LABEL, "remove": "Remove", "remove-data": "Remove data"}
+    out = []
+    if main:
+        kind, label, on = main
+        if kind == "play" and on and len(launchers) > 1:
+            for label in launchers:
+                name = label.split(" \u00b7 ")[0]        # its name, without its medal
+                out.append('<a href="walnut://play/%s?launcher=%s">Play %s</a>' % (
+                    gid, urllib.parse.quote(name), _html.escape(name)))
+        elif on and kind in WALNUT_ACTIONS:
+            out.append('<a href="walnut://%s/%s">%s</a>' % (kind, gid, _html.escape(label.rstrip(" \u25be"))))
+        else:
+            out.append('<span class="off">%s</span>' % _html.escape(label.rstrip(" \u25be")))
+    for k in side:
+        if k in labels:
+            out.append('<a class="side" href="walnut://%s/%s">%s</a>' % (k, gid, _html.escape(labels[k])))
+    return "".join(out)
 
 
 TABS = ("index.html", "test-runs/index.html", "technical/index.html", "guides/index.html")
@@ -1813,7 +1871,9 @@ def rounded_points(x1, y1, x2, y2, r):
 
 CARD_W, THUMB_W, THUMB_H, GAP = 264, 256, 144, 14
 PANE_W = 420        # the pane's width at scale 1 (ui_scale)
-GLANCE_SHOTS = 4    # screenshot thumbnails in the pane
+BADGE = 44          # the installed badge's side on a card (a triangle over the picture's corner)
+PANE_WHEEL = "WalnutPaneWheel"   # the bind tag of the pane's scrolled rows (the mouse wheel scrolls them)
+VIEWER_THUMB = (128, 72)         # the viewer's thumbnails
 # the widgets the d-pad and the arrow keys move between (Tk's class names)
 FOCUS_CLASSES = {"TButton", "TCheckbutton", "TCombobox", "TEntry", "Button", "Checkbutton", "Radiobutton"}
 
@@ -1859,7 +1919,6 @@ class App:
         self.play_cmds = []
         self._manifests = {}                   # (game id, installed packages) -> dpkg -L
         self.events = queue.Queue()
-        self.glance_imgs = []
         self._style()
         self._build()
         self.refresh_installed()
@@ -1985,7 +2044,12 @@ class App:
                background=[("active", PANEL), ("focus", BORDER)], bordercolor=[("focus", ACCENT_LIGHT)])
         st.map("Link.TButton", foreground=[("active", LINK_HOVER), ("focus", LINK_HOVER)],
                background=[("active", PANEL), ("focus", BORDER)], bordercolor=[("focus", ACCENT_LIGHT)])
-        # a screenshot thumbnail in the pane (opens it in Details)
+        # a tag in the pane: a link, smaller (a click filters the list by it)
+        st.configure("Tag.TButton", background=PANEL, foreground=LINK, font=self.f["small"], width=0,
+                     padding=(round(4 * s), round(2 * s)))
+        st.map("Tag.TButton", foreground=[("active", LINK_HOVER), ("focus", LINK_HOVER)],
+               background=[("active", PANEL), ("focus", BORDER)], bordercolor=[("focus", ACCENT_LIGHT)])
+        # the screenshot in the pane (opens the viewer) and the viewer's thumbnails
         st.configure("Shot.TButton", background=ENTRY, padding=2, bordercolor=PANEL, focusthickness=0)
         st.map("Shot.TButton", background=[("focus", ACCENT_LIGHT), ("active", ACCENT)],
                bordercolor=[("focus", ACCENT_LIGHT)])
@@ -2048,6 +2112,7 @@ class App:
                               borderwidth=0, showhandle=False, opaqueresize=True)
         body.pack(fill="both", expand=True)
         self.body = body
+        body.bind("<Configure>", lambda e: self.root.after_idle(self._fit_list) if e.widget is body else None)
         self._build_queue()
         r.protocol("WM_DELETE_WINDOW", self.on_close)
         left = ttk.Frame(body)
@@ -2084,46 +2149,103 @@ class App:
         self._build_details()
 
     def _build_details(self):
-        """the pane: the game's name and medal, the actions (one main button that follows the state, smaller
-        ones under it, the import's and the helper's progress), then a quick glance (key numbers, the data's
-        edition, screenshot thumbnails, links and Details). One column of rows (grid): a row that doesn't
-        apply is taken out and comes back in its place."""
+        """the pane, top to bottom (the user, 2026-10-31): the game's name and medal; then, scrolled when it
+        doesn't fit, one screenshot with < > and "n / N" (a click opens the viewer), the description, the
+        rating's aspects, the known issues, the tags (each filters the list), the facts; and pinned to the
+        bottom the actions (one main button that follows the state with Details next to it, smaller ones
+        under it, the data note, the add-ons, the status line). Rows (grid) that don't apply are taken out
+        and come back in their place."""
         d = self.details
         self.g = None
         wrap = self.pane_w - round(32 * self.scale)
         self.wrap = wrap
         d.columnconfigure(0, weight=1)
         rows = {}
+        count = {}
 
         def row(name, widget, **kw):
+            parent = str(widget.master)
+            count[parent] = count.get(parent, 0) + 1
             rows[name] = widget
-            widget.grid(row=len(rows), column=0, sticky=kw.pop("sticky", "w"), **kw)
+            if widget is not None:
+                widget.grid(row=count[parent], column=0, sticky=kw.pop("sticky", "w"), **kw)
             return widget
+
+        def reserve(name, parent):        # a row kept free for a widget shown in more than one place
+            count[str(parent)] = count.get(str(parent), 0) + 1
+            rows[name] = None
+            self.row_at[name] = count[str(parent)]
+        self.row_at = {}
+        # the head: the name, the medal and score, the medal's note
         self.d_title = row("title", ttk.Label(d, text="", style="Title.TLabel", background=PANEL, wraplength=wrap))
         self.d_medal = row("medal", tk.Canvas(d, height=self.f["big"].metrics("linespace") + 14, bg=PANEL,
                                               highlightthickness=0, width=wrap), pady=(4, 0))
         self.d_note = row("medal_note", ttk.Label(d, text="", foreground=TEXT, background=PANEL,
                                                   wraplength=wrap, justify="left", font=self.f["small"]))
-        self.d_sum = row("summary", ttk.Label(d, text="", style="Muted.TLabel", background=PANEL, wraplength=wrap,
-                                              justify="left"), pady=(4, 10))
+        # the middle: a canvas that scrolls the rows inside it
+        mid = row("mid", ttk.Frame(d, style="Panel.TFrame"), sticky="nsew", pady=(6, 6))
+        d.rowconfigure(int(mid.grid_info()["row"]), weight=1)     # the middle takes what is left
+        mid.columnconfigure(0, weight=1)
+        mid.rowconfigure(0, weight=1)
+        self.mid_canvas = tk.Canvas(mid, bg=PANEL, highlightthickness=0, borderwidth=0, width=wrap)
+        self.mid_scroll = ttk.Scrollbar(mid, orient="vertical", command=self.mid_canvas.yview)
+        self.mid_canvas.configure(yscrollcommand=self._mid_scrolled)
+        self.mid_canvas.grid(row=0, column=0, sticky="nsew")
+        m = self.mid = ttk.Frame(self.mid_canvas, style="Panel.TFrame")
+        m.columnconfigure(0, weight=1)
+        self._mid_win = self.mid_canvas.create_window(0, 0, window=m, anchor="nw")
+        self.mid_canvas.bind("<Configure>", lambda e: self.mid_canvas.itemconfigure(self._mid_win, width=e.width))
+        m.bind("<Configure>", lambda e: self.mid_canvas.configure(scrollregion=(0, 0, e.width, e.height)))
+        self.mid_canvas.bindtags((PANE_WHEEL,) + self.mid_canvas.bindtags())
+        for ev, dd in (("<Button-4>", -1), ("<Button-5>", 1)):
+            self.root.bind_class(PANE_WHEEL, ev, lambda e, dd=dd: self.mid_canvas.yview_scroll(dd * 2, "units"))
+        self.root.bind_class(PANE_WHEEL, "<MouseWheel>",
+                             lambda e: self.mid_canvas.yview_scroll(-2 if e.delta > 0 else 2, "units"))
+        # the screenshot: one, as wide as the pane, with < > and its position under it
+        self.shot_w = wrap - 8 - round(14 * self.scale)     # room for the middle's scrollbar
+        self.shot_h = self.shot_w * 9 // 16
+        self.shot_i, self.shot_img = 0, None
+        self.d_shot = row("shot", ttk.Frame(m, style="Panel.TFrame"), sticky="ew")
+        self.b_shot = ttk.Button(self.d_shot, style="Shot.TButton", command=lambda: self.open_viewer())
+        self.b_shot.pack(side="top", anchor="w")
+        nav = ttk.Frame(self.d_shot, style="Panel.TFrame")
+        nav.pack(side="top", fill="x", pady=(4, 0))
+        self.b_shot_prev = ttk.Button(nav, text="<", width=3, command=lambda: self.step_shot(-1))
+        self.b_shot_prev.pack(side="left")
+        self.shot_pos = ttk.Label(nav, text="", style="Muted.TLabel", background=PANEL, anchor="center")
+        self.shot_pos.pack(side="left", fill="x", expand=True)
+        self.b_shot_next = ttk.Button(nav, text=">", width=3, command=lambda: self.step_shot(1))
+        self.b_shot_next.pack(side="right")
+        self.d_sum = row("summary", ttk.Label(m, text="", style="Muted.TLabel", background=PANEL, wraplength=wrap,
+                                              justify="left"), pady=(10, 4))
+        # the rating's aspects: the name, a bar and the score of each
+        self.d_aspects = row("aspects", ttk.Frame(m, style="Panel.TFrame"), sticky="ew", pady=(8, 4))
+        self.d_issues = row("issues", ttk.Frame(m, style="Panel.TFrame"), sticky="ew", pady=(8, 0))
+        self.d_tags = row("tags", ttk.Frame(m, style="Panel.TFrame"), sticky="ew", pady=(8, 0))
+        self.d_info = row("info", ttk.Label(m, text="", style="Muted.TLabel", background=PANEL, wraplength=wrap,
+                                            justify="left", font=self.f["small"]), pady=(8, 4))
+        # the bottom: the actions, always in view
+        bottom = self.d_bottom = row("bottom", ttk.Frame(d, style="Panel.TFrame"), sticky="ew")
+        bottom.columnconfigure(0, weight=1)
+        tk.Frame(bottom, height=1, bg=BORDER).grid(row=0, column=0, sticky="ew", pady=(0, 8))
         # the main button with Details next to it, then what the data button adds (one line), the smaller
         # buttons, the add-ons
-        self.main_row = row("main", ttk.Frame(d, style="Panel.TFrame"), sticky="ew", pady=(0, 6))
+        self.main_row = row("main", ttk.Frame(bottom, style="Panel.TFrame"), sticky="ew", pady=(0, 6))
         self.main_row.columnconfigure(0, weight=1)
         self.b_main = ttk.Button(self.main_row, text="Install", style="Main.TButton", command=self.main_pressed)
         self.b_main.grid(row=0, column=0, sticky="ew")
         self.b_details = ttk.Button(self.main_row, text="Details", command=self.open_details)
         self.b_details.grid(row=0, column=1, sticky="ns", padx=(round(8 * self.scale), 0))
         self.b_install = self.b_play = self.b_main      # one button now (the tests' and older names)
-        self.b_note = ttk.Frame(d, style="Panel.TFrame")
+        self.b_note = ttk.Frame(bottom, style="Panel.TFrame")
         self.note_tag = ttk.Label(self.b_note, text="", font=self.f["bold"], foreground=TEXT, background=PANEL)
         self.note_text = ttk.Label(self.b_note, text="", style="Muted.TLabel", background=PANEL, wraplength=wrap - 120,
                                    justify="left", font=self.f["small"])
         self.note_tag.pack(side="left", anchor="n", padx=(0, 6))
         self.note_text.pack(side="left", fill="x")
-        rows["note_main"] = None       # its place under the main button; "note_side": under the smaller ones
-        self.side_row = row("side", ttk.Frame(d, style="Panel.TFrame"), sticky="ew")
-        rows["note_side"] = None
+        reserve("note_main", bottom)   # its place under the main button; "note_side": under the smaller ones
+        self.side_row = row("side", ttk.Frame(bottom, style="Panel.TFrame"), sticky="ew")
+        reserve("note_side", bottom)
         self.side_rows = [ttk.Frame(self.side_row, style="Panel.TFrame") for _ in range(3)]
         for f in self.side_rows:
             f.pack(side="top", anchor="w")
@@ -2135,34 +2257,54 @@ class App:
         self.b_remove_data = ttk.Button(self.side_row, text="Remove data", command=lambda: self.run_helper("remove-data"))
         self.side_buttons = {"add-data": self.b_data, "repo": self.b_repo, "retry": self.b_retry,
                              "remove": self.b_remove, "remove-data": self.b_remove_data}
-        self.addon_row = row("addons", ttk.Frame(d, style="Panel.TFrame"), sticky="ew")
+        self.side_kinds = []
+        self.addon_row = row("addons", ttk.Frame(bottom, style="Panel.TFrame"), sticky="ew")
         self.addon_buttons = []
-        self.partial_label = row("partial", ttk.Label(d, text="", style="Muted.TLabel", background=PANEL,
+        self.partial_label = row("partial", ttk.Label(bottom, text="", style="Muted.TLabel", background=PANEL,
                                                       wraplength=wrap, justify="left", font=self.f["small"]),
                                  pady=(0, 6))
-        self.d_reason = row("reason", ttk.Label(d, text="", style="Muted.TLabel", background=PANEL, wraplength=wrap,
-                                                justify="left"))
+        self.d_reason = row("reason", ttk.Label(bottom, text="", style="Muted.TLabel", background=PANEL,
+                                                wraplength=wrap, justify="left"))
         # the status line (a message: a game starting, Refresh's answer); progress is the queue's
-        self.activity = row("activity", ttk.Frame(d, style="Panel.TFrame"), sticky="ew")
+        self.activity = row("activity", ttk.Frame(bottom, style="Panel.TFrame"), sticky="ew")
         self.d_status = ttk.Label(self.activity, text="", style="Muted.TLabel", background=PANEL, wraplength=wrap,
                                   justify="left")
         self.d_status.pack(side="top", anchor="w", pady=(4, 2))
         self._activity_after = None
-        # the glance
-        self.d_numbers = row("numbers", ttk.Frame(d, style="Panel.TFrame"), sticky="ew", pady=(12, 4))
-        self.d_info = row("info", ttk.Label(d, text="", style="Muted.TLabel", background=PANEL, wraplength=wrap,
-                                            justify="left"), pady=(2, 8))
-        self.d_thumbs = row("thumbs", ttk.Frame(d, style="Panel.TFrame"), sticky="w")
-        self.shot_w = (wrap - 8) // 2
-        self.shot_h = self.shot_w * 9 // 16
-        self.links = row("links", ttk.Frame(d, style="Panel.TFrame"), sticky="ew", pady=(10, 0))
-        weblinks = ttk.Frame(self.links, style="Panel.TFrame")
-        weblinks.pack(side="top", anchor="w")
-        ttk.Button(weblinks, text="Technical notes", style="Link.TButton", command=self.open_technical).pack(side="left")
-        ttk.Button(weblinks, text="Open on the web", style="Link.TButton", command=self.open_web).pack(side="left")
-        self.b_home = ttk.Button(weblinks, text="Home page", style="Link.TButton", command=self.open_home)
         self.rows = rows
+        self.viewer = None
         self.show(None)
+
+    def _mid_scrolled(self, first, last):
+        """the middle's scrollbar shows only while there is more than fits"""
+        self.mid_scroll.set(first, last)
+        if float(first) <= 0 and float(last) >= 1:
+            self.mid_scroll.grid_remove()
+        else:
+            self.mid_scroll.grid(row=0, column=1, sticky="ns")
+
+    def _wheel_tags(self, w):
+        """the mouse wheel over the middle's rows scrolls it (their bind tags lead to PANE_WHEEL)"""
+        tags = w.bindtags()
+        if PANE_WHEEL not in tags:
+            w.bindtags((PANE_WHEEL,) + tags)
+        for c in w.winfo_children():
+            self._wheel_tags(c)
+
+    def _see_in_pane(self, w):
+        """the middle scrolled so that the widget w (inside it) is in view"""
+        try:
+            if not str(w).startswith(str(self.mid) + "."):
+                return
+            total = max(1, self.mid.winfo_height())
+            y = w.winfo_rooty() - self.mid.winfo_rooty()
+            top, bot = self.mid_canvas.canvasy(0), self.mid_canvas.canvasy(self.mid_canvas.winfo_height())
+            if y < top:
+                self.mid_canvas.yview_moveto(max(0.0, (y - 8) / total))
+            elif y + w.winfo_height() > bot:
+                self.mid_canvas.yview_moveto(max(0.0, (y + w.winfo_height() + 8 - self.mid_canvas.winfo_height()) / total))
+        except tk.TclError:
+            pass
 
     def _row(self, name, on, widget=None, **kw):
         """show or hide one row of the pane, in its place"""
@@ -2170,7 +2312,7 @@ class App:
         if on:
             if name in ("note_main", "note_side"):
                 # its own grid row, kept free for it (row(): the rows are numbered in their order)
-                w.grid(row=list(self.rows).index(name) + 1, column=0, sticky="w", pady=(0, 6), **kw)
+                w.grid(row=self.row_at[name], column=0, sticky="w", pady=(0, 6), **kw)
             elif not w.winfo_manager():
                 w.grid()
         else:
@@ -2250,8 +2392,13 @@ class App:
         c.create_text(px + tw / 2, py + self.pill_h / 2, text=label, fill=pill_text_color(fill), font=self.f["pill"],
                       tags=(tag,))
         if is_installed(g, self.have):
-            c.create_text(x + CARD_W - 10, py + self.pill_h / 2, text="Installed", fill=TEXT, anchor="e",
-                          font=self.f["small"], tags=(tag,))
+            # installed: a triangle over the picture's top right corner with a check mark
+            bx, by, b = x + 4 + THUMB_W, y + 4, BADGE
+            c.create_polygon(bx - b, by, bx, by, bx, by + b, fill=INSTALLED_BADGE, outline="",
+                             tags=(tag, tag + "_badge"))
+            k = b / 44
+            c.create_line(bx - 21 * k, by + 14 * k, bx - 15 * k, by + 20 * k, bx - 5 * k, by + 8 * k, fill=ON_ACCENT,
+                          width=max(2, round(3 * k)), capstyle="round", joinstyle="round", tags=(tag, tag + "_badge"))
         c.create_text(x + 10, y + self.card_title_y, text=self.elide(g["title"], self.f["card"], CARD_W - 20),
                       fill=TEXT, anchor="w", font=self.f["card"], tags=(tag,))
         c.create_text(x + 10, y + self.card_cat_y, text=self.elide(genre_text(g, self.cat.get("tags")),
@@ -2330,19 +2477,23 @@ class App:
 
     # -- the pane
     def show(self, g):
+        if g is not getattr(self, "g", None) and (g is None or getattr(self, "g", None) is None or
+                                                   g["id"] != self.g["id"]):
+            self.shot_i = 0                 # another game: its first screenshot
         self.g = g
         d = self.d_medal
         d.delete("all")
         if g is None:
             self.d_title.configure(text="Walnut Games")
             self.d_sum.configure(text="Pick a game to see how it runs on the PS3.")
-            for name in ("medal", "medal_note", "main", "side", "numbers", "info", "thumbs", "links"):
+            for name in ("medal", "medal_note", "main", "side", "shot", "aspects", "issues", "tags", "info"):
                 self._row(name, False)
+            self.show_shot()
             self.update_buttons()
             return
         self.d_title.configure(text=g["title"])
         self.d_sum.configure(text=g.get("summary", ""))
-        for name in ("medal", "main", "side", "links"):
+        for name in ("medal", "main", "side"):
             self._row(name, True)
         r = g["rating"]
         m = r["medal"]
@@ -2364,58 +2515,240 @@ class App:
         note = g.get("medal_note") or ("Capped: " + r["reason"] if r.get("capped") and r.get("reason") else "")
         self.d_note.configure(text=note)
         self._row("medal_note", bool(note))
-        self.b_home.pack(side="left") if g.get("homepage") else self.b_home.pack_forget()
-        self.show_glance()
+        self.show_shot()
+        self.show_aspects()
+        self.show_extra()
+        self.mid_canvas.yview_moveto(0)
         self.update_buttons()
 
-    def show_glance(self):
-        """the key numbers, the controller and the game data's edition, and up to 4 screenshot thumbnails"""
-        g = self.g
-        for w in self.d_numbers.winfo_children():
+    def show_aspects(self):
+        """the detailed rating: each aspect's name, a bar and its score of 100 ("not tested" without one)"""
+        for w in self.d_aspects.winfo_children():
             w.destroy()
+        rows = aspect_rows(self.g["rating"]) if self.g else []
+        if rows:
+            ttk.Label(self.d_aspects, text="Rating", font=self.f["bold"], foreground=TEXT, background=PANEL).grid(
+                row=0, column=0, columnspan=3, sticky="w", pady=(0, 4))
+            bar_w, bar_h = round(150 * self.scale), round(8 * self.scale)
+            for i, (name, score) in enumerate(rows, 1):
+                ttk.Label(self.d_aspects, text=name, foreground=TEXT, background=PANEL, font=self.f["small"]).grid(
+                    row=i, column=0, sticky="w", padx=(0, 10))
+                bar = tk.Canvas(self.d_aspects, width=bar_w, height=bar_h, bg=ENTRY, highlightthickness=0, borderwidth=0)
+                bar.grid(row=i, column=1, sticky="w")
+                if score is not None:
+                    bar.create_rectangle(0, 0, round(bar_w * max(0, min(100, score)) / 100), bar_h, fill=ACCENT,
+                                         outline="")
+                ttk.Label(self.d_aspects, text="not tested" if score is None else str(score), background=PANEL,
+                          style="Muted.TLabel" if score is None else "TLabel", font=self.f["small"]).grid(
+                    row=i, column=2, sticky="e", padx=(10, 0))
+            self.d_aspects.columnconfigure(2, weight=1)
+        self.aspect_rows = rows
+        self._row("aspects", bool(rows))
+        self._wheel_tags(self.d_aspects)
+
+    def show_extra(self):
+        """the other details: the known issues, the tags (links: each filters the list by itself), and the
+        facts (frame rate, controller, installed size, the game data's edition, the license)"""
+        g = self.g
+        for f in (self.d_issues, self.d_tags):
+            for w in f.winfo_children():
+                w.destroy()
+        issues = g.get("known_issues") or []
+        if issues:
+            ttk.Label(self.d_issues, text="Known issues", font=self.f["bold"], foreground=TEXT,
+                      background=PANEL).pack(anchor="w")
+            for t in issues:
+                ttk.Label(self.d_issues, text="\u2022 " + t, foreground=TEXT, background=PANEL, wraplength=self.wrap,
+                          justify="left", font=self.f["small"]).pack(anchor="w", pady=(2, 0))
+        self._row("issues", bool(issues))
+        taxonomy = self.cat.get("tags") or {}
+        tags = [t for t in g.get("tags") or [] if t in taxonomy]
+        self.tag_buttons = []
+        if tags:
+            ttk.Label(self.d_tags, text="Tags", font=self.f["bold"], foreground=TEXT, background=PANEL).pack(anchor="w")
+            line, x = None, self.wrap
+            for t in tags:
+                b = ttk.Button(self.d_tags, text=tag_label(taxonomy, t), style="Tag.TButton",
+                               command=lambda t=t: self.filter_by_tag(t))
+                bw = b.winfo_reqwidth()
+                if line is None or x + bw > self.wrap:
+                    line, x = ttk.Frame(self.d_tags, style="Panel.TFrame"), 0
+                    line.pack(anchor="w")
+                b.pack(in_=line, side="left", padx=(0, 2))
+                b.lift(line)
+                x += bw + 2
+                self.tag_buttons.append(b)
+        self._row("tags", bool(tags))
         size = sum(self.sizes.get(p, 0) for p in g["packages"]) if all(p in self.sizes for p in g["packages"]) else 0
-        nums = glance_numbers(g["rating"], size)
-        for i, (value, label) in enumerate(nums):
-            tile = ttk.Frame(self.d_numbers, style="Panel.TFrame")
-            tile.grid(row=0, column=i, sticky="w", padx=(0, round(24 * self.scale)))
-            ttk.Label(tile, text=value, font=self.f["num"], background=PANEL).pack(anchor="w")
-            ttk.Label(tile, text=label, style="Muted.TLabel", background=PANEL, font=self.f["small"]).pack(anchor="w")
-        self._row("numbers", bool(nums))
-        info = ["Controller: " + (g["rating"].get("controller") or g.get("controller") or "unknown")]
         ed = edition_text(g, self.info)
+        data = None
         if g.get("needs_data") and data_present(g, self.have):
-            info.append("Your game data: " + (ed or "installed"))
+            data = "Your game data: " + (ed or "installed")
         elif data_setup(g) and optional_data_present(g, self.have):
-            info.append("Original data: " + (ed or "installed"))
-        self.d_info.configure(text="   ·   ".join(info))
+            data = "Original data: " + (ed or "installed")
+        self.d_info.configure(text="   \u00b7   ".join(pane_notes(g, g["rating"], size, data_line=data)))
         self._row("info", True)
-        self.show_thumbs()
+        self._wheel_tags(self.mid)
 
-    def show_thumbs(self):
-        for w in self.d_thumbs.winfo_children():
-            w.destroy()
-        self.glance_imgs = []
+    # -- the screenshot in the pane, and the viewer
+    def shot_path(self, g, rel):
+        """the local file of a screenshot (the packaged one, else the cached web copy; fetched once when
+        neither is there: None until it comes)"""
+        path = os.path.join(self.data, "games", g["id"], rel)
+        if os.path.exists(path):
+            return path
+        path = self.cache_path(g["id"], rel)
+        if os.path.exists(path):
+            return path
+        self.fetch(g["id"], rel, path)
+        return None
+
+    def show_shot(self):
+        """the pane's one screenshot (only that one decoded, at the pane's width) and its position"""
         g = self.g
-        shots = screenshots(g)[:GLANCE_SHOTS] if g else []
-        for label, rel in shots:
-            path = os.path.join(self.data, "games", g["id"], rel)
-            if not os.path.exists(path):
-                path = self.cache_path(g["id"], rel)
-                if not os.path.exists(path):
-                    self.fetch(g["id"], rel, path)
-                    continue
-            img = self.small_picture(path, self.shot_w, self.shot_h)
-            if img is None:
-                continue
-            self.glance_imgs.append(img)
-            b = ttk.Button(self.d_thumbs, image=img, style="Shot.TButton",
-                           command=lambda rel=rel: self.open_details(shot=rel))
-            n = len(self.glance_imgs) - 1
-            b.grid(row=n // 2, column=n % 2, padx=(0, 6), pady=(0, 6))
-        self._row("thumbs", bool(self.glance_imgs))
+        shots = screenshots(g) if g else []
+        self.shot_img = None             # the one shown before is freed
+        if not shots:
+            self.b_shot.configure(image="")
+            self._row("shot", False)
+            return
+        self.shot_i = min(self.shot_i, len(shots) - 1)
+        path = self.shot_path(g, shots[self.shot_i][1])
+        img = self.small_picture(path, self.shot_w, self.shot_h) if path else None
+        self.shot_img = img
+        self.b_shot.configure(image=img or "", text="" if img else "Loading\u2026", compound="center")
+        self.shot_pos.configure(text="%d / %d" % (self.shot_i + 1, len(shots)))
+        for b in (self.b_shot_prev, self.b_shot_next):
+            b.configure(state="normal" if len(shots) > 1 else "disabled")
+        self._row("shot", True)
 
-    def small_picture(self, path, w, h):
-        """a screenshot as a PhotoImage of at most w x h (JPEG decoded at a smaller size), or None"""
+    def step_shot(self, d):
+        """< or >: the screenshot before or after (round past the ends); Details' gallery follows"""
+        n = len(screenshots(self.g)) if self.g else 0
+        if n < 2:
+            return
+        self.shot_i = shot_step(self.shot_i, d, n)
+        self.show_shot()
+        self.details_gallery()
+
+    def open_viewer(self, i=None, gid=None):
+        """the screenshot large in a window of its own: < > step (left / right, L1 / R1), a strip of thumbnails
+        jumps, Circle or Escape closes it. Only the shot shown is decoded at its size; the strip's are small;
+        closing frees them all"""
+        g = self.by_id.get(gid) if gid else self.g
+        shots = screenshots(g) if g else []
+        if not shots:
+            return False
+        if self.viewer is not None:
+            self.close_viewer()
+        s = self.scale
+        top = tk.Toplevel(self.root, bg=PANEL)
+        top.title("%s: screenshots" % g["title"])
+        top.transient(self.root)
+        sw, sh = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
+        w, h = min(round(1280 * s), sw - 40), min(round(900 * s), sh - 60)
+        try:
+            x = self.root.winfo_rootx() + max(0, (self.root.winfo_width() - w) // 2)
+            y = self.root.winfo_rooty() + max(0, (self.root.winfo_height() - h) // 2)
+            top.geometry("%dx%d+%d+%d" % (w, h, x, y))
+        except tk.TclError:
+            top.geometry("%dx%d" % (w, h))
+        v = self.viewer = {"top": top, "g": g, "shots": shots, "i": 0, "img": None, "thumbs": [], "buttons": []}
+        box = ttk.Frame(top, style="Panel.TFrame", padding=round(12 * s))
+        box.pack(fill="both", expand=True)
+        head = ttk.Frame(box, style="Panel.TFrame")
+        head.pack(side="top", fill="x")
+        ttk.Label(head, text=g["title"], font=self.f["big"], background=PANEL).pack(side="left")
+        v["pos"] = ttk.Label(head, text="", style="Muted.TLabel", background=PANEL)
+        v["pos"].pack(side="left", padx=16)
+        ttk.Label(head, text="L1 / R1: step      Circle: close", style="Muted.TLabel", background=PANEL).pack(side="right")
+        # the thumbnails: a strip that scrolls sideways, the shown one kept in view
+        strip_h = VIEWER_THUMB[1] + 12
+        sc = tk.Canvas(box, height=strip_h, bg=PANEL, highlightthickness=0, borderwidth=0)
+        sc.pack(side="bottom", fill="x", pady=(round(8 * s), 0))
+        inner = ttk.Frame(sc, style="Panel.TFrame")
+        sc.create_window(0, 0, window=inner, anchor="nw")
+        inner.bind("<Configure>", lambda e: sc.configure(scrollregion=(0, 0, e.width, e.height)))
+        v["strip"], v["inner"] = sc, inner
+        mid = ttk.Frame(box, style="Panel.TFrame")
+        mid.pack(side="top", fill="both", expand=True, pady=(round(8 * s), 0))
+        v["prev"] = ttk.Button(mid, text="<", width=3, command=lambda: self.viewer_step(-1))
+        v["prev"].pack(side="left", fill="y")
+        v["next"] = ttk.Button(mid, text=">", width=3, command=lambda: self.viewer_step(1))
+        v["next"].pack(side="right", fill="y")
+        v["shot"] = ttk.Label(mid, background=PANEL, anchor="center")
+        v["shot"].pack(side="left", fill="both", expand=True)
+        # the picture's room: the window less the strip, the head and the arrows
+        v["size"] = (max(160, w - 2 * round(12 * s) - 2 * (v["prev"].winfo_reqwidth() + 8)),
+                     max(90, h - 2 * round(12 * s) - strip_h - round(16 * s) - head.winfo_reqheight() - 8))
+        for n, (label, rel) in enumerate(shots):
+            path = self.shot_path(g, rel)
+            img = self.small_picture(path, *VIEWER_THUMB) if path else None
+            v["thumbs"].append(img)
+            b = ttk.Button(inner, image=img or "", text="" if img else str(n + 1), style="Shot.TButton",
+                           command=lambda n=n: self.viewer_go(n))
+            b.pack(side="left", padx=(0, 6))
+            v["buttons"].append(b)
+        top.protocol("WM_DELETE_WINDOW", self.close_viewer)
+        top.bind("<Escape>", lambda e: (self.close_viewer(), "break")[1])
+        self.viewer_go(self.shot_i if i is None else i)
+        top.after(50, lambda: (v["next"].focus_set(), self.pad_warp() if self.pad_recent() else None)
+                  if self.viewer is v else None)
+        return True
+
+    def viewer_go(self, i):
+        """the viewer on screenshot i: decoded at the window's size (the one before is freed)"""
+        v = self.viewer
+        if v is None:
+            return
+        n = len(v["shots"])
+        v["i"] = i % n
+        v["img"] = None
+        path = self.shot_path(v["g"], v["shots"][v["i"]][1])
+        img = self.small_picture(path, *v["size"], upscale=True) if path else None
+        v["img"] = img
+        v["shot"].configure(image=img or "", text="" if img else "Loading…")
+        v["pos"].configure(text="%d / %d" % (v["i"] + 1, n))
+        for k, b in enumerate(v["buttons"]):
+            b.state(["pressed"] if k == v["i"] else ["!pressed"])
+        try:                            # the strip keeps the shown thumbnail in view
+            v["top"].update_idletasks()
+            b = v["buttons"][v["i"]]
+            total = max(1, v["inner"].winfo_width())
+            x0, x1 = b.winfo_x(), b.winfo_x() + b.winfo_width()
+            left, right = v["strip"].canvasx(0), v["strip"].canvasx(v["strip"].winfo_width())
+            if x0 < left or x1 > right:
+                v["strip"].xview_moveto(max(0.0, (x0 - (right - left) / 2 + (x1 - x0) / 2) / total))
+        except (tk.TclError, IndexError):
+            pass
+        if v["g"] is self.g:            # the pane and Details' gallery follow
+            self.shot_i = v["i"]
+            self.show_shot()
+            self.details_gallery()
+
+    def viewer_step(self, d):
+        if self.viewer is not None:
+            self.viewer_go(self.viewer["i"] + d)
+
+    def close_viewer(self):
+        """the viewer closed: its window and every picture it decoded freed"""
+        v, self.viewer = self.viewer, None
+        if not v:
+            return
+        try:
+            v["top"].destroy()
+        except tk.TclError:
+            pass
+        v.clear()
+        target = self.b_shot if self.dv is None and self.b_shot.winfo_ismapped() else None
+        if target is not None:
+            target.focus_set()
+            if self.pad_recent():
+                self.root.after(50, self.pad_warp)
+
+    def small_picture(self, path, w, h, upscale=False):
+        """a screenshot as a PhotoImage of at most w x h (JPEG decoded at a smaller size), or None; upscale:
+        a smaller picture is made as big as fits too (the viewer)"""
         try:
             from PIL import Image
         except ImportError:
@@ -2424,6 +2757,9 @@ class App:
             im = Image.open(path)
             im.draft("RGB", (w, h))
             im = im.convert("RGB")
+            if upscale and im.width < w and im.height < h:
+                k = min(w / im.width, h / im.height)
+                im = im.resize((max(1, int(im.width * k)), max(1, int(im.height * k))), Image.BILINEAR)
             im.thumbnail((w, h))
             try:
                 from PIL import ImageTk
@@ -2607,6 +2943,7 @@ class App:
             bool(g["id"] in self.pkg_data and (self.partial.get(g["id"]) or [None])[0] and self.imp_source.get(g["id"])))
         names = remove_question(g, self.info)[1] if g else []
         side = side_actions(inst, acts, self.main_kind, names, retry) if g else []
+        self.main_state, self.side_kinds = main, side
         for b in self.side_buttons.values():
             b.pack_forget()
         x, r = 0, 0
@@ -2632,6 +2969,7 @@ class App:
             self.note_text.configure(text=text)
             self._row("note_main" if self.main_kind == "add-data" else "note_side", True, self.b_note)
         self.update_data_extras(g, free, running)
+        self.details_actions()
 
     def update_data_extras(self, g, idle, running):
         """the add-on buttons (Also add: NAME) and a partial import's notice"""
@@ -3266,11 +3604,11 @@ class App:
                 elif ev[0] == "shot":
                     self._fetching.discard(tuple(ev[:3]))
                     if self.g and self.g["id"] == ev[1] and ev[3]:
-                        self.show_thumbs()
+                        self.show_shot()
                 elif ev[0] == "sizes":
                     self.sizes.update(ev[1])
                     if self.g:
-                        self.show_glance()
+                        self.show_extra()
                 elif ev[0] == "pad":
                     self.on_pad(ev[1])
         except queue.Empty:
@@ -3335,20 +3673,6 @@ class App:
             self.events.put(("played", g["id"], rc, int(time.monotonic() - t0), log))
         threading.Thread(target=wait, daemon=True).start()
 
-    def open_web(self):
-        webbrowser.open(web_url(self.g["id"] if getattr(self, "g", None) else None))
-
-    def open_technical(self):
-        """the game's Technical tab in Details; the website's page when the app's copy can't show it"""
-        g = getattr(self, "g", None)
-        tech = [t for t in (details_tabs(self.pages, g["id"]) if g else []) if t.endswith("technical/index.html")]
-        if not (tech and self.open_details(page=tech[0], quiet=True)):
-            webbrowser.open(web_url(g["id"] if g else None, technical=True))
-
-    def open_home(self):
-        if getattr(self, "g", None) and self.g.get("homepage"):
-            webbrowser.open(self.g["homepage"])
-
     # -- the main button and the pages' walnut:// links: one code path
     def main_pressed(self):
         if self.main_kind and self.g:
@@ -3367,6 +3691,11 @@ class App:
             self._see_card(gid)
         inst = is_installed(g, self.have)
         enabled = str(self.b_main["state"]) != "disabled"
+        if action in ("remove", "remove-data", "repo"):      # the smaller buttons' (Details' page has them too)
+            if action not in self.side_kinds or str(self.side_buttons[action]["state"]) == "disabled":
+                return False
+            self.run_helper("install-repo-data" if action == "repo" else action)
+            return True
         if action == "install":
             if inst:
                 self.show_activity("%s is installed." % g["title"], hide_after=4)
@@ -3397,15 +3726,18 @@ class App:
         return True
 
     # -- Details: the app's copy of the game's pages (tools/gamedb/build.sh --app) in Tkhtml (tkinterweb)
-    def open_details(self, gid=None, shot=None, page=None, quiet=False):
-        """the game's pages, full window, in place of the list (Back, Escape or Circle comes back): the
-        Overview, or page, or a screenshot (shot: its path in the game's folder) with the Overview under it.
+    def open_details(self, gid=None, page=None, quiet=False):
+        """the game's pages, full window, in place of the list (Back, Escape or Circle comes back to the list):
+        the Overview, or page. The page's head has the gallery (the screenshot the pane shows) and the game's
+        actions as the pane has them (details_gallery, details_actions: set in the page once it is loaded).
         tkinterweb is imported here, at the first open, so the app starts as small as before; without it,
         or without the game in the app's copy (a game only on the website), the website's page opens in the
         browser (quiet: say nothing and return False, the caller has its own fallback)"""
         g = self.by_id.get(gid) if gid else getattr(self, "g", None)
         if g is None or self.dv is not None:
             return False
+        if self.g is not g:
+            self.select(g["id"])
         tabs = details_tabs(self.pages, g["id"])
         html, why = None, ""
         if tabs:
@@ -3415,6 +3747,7 @@ class App:
                 tkinterweb, why = None, str(e)
         f = None
         if tabs and tkinterweb is not None:
+            self.keep_pane = self.details.winfo_width()     # the pane's width now, kept for the way back
             self.bar.pack_forget()
             self.body.pack_forget()
             s = self.scale
@@ -3422,7 +3755,7 @@ class App:
             f.pack(fill="both", expand=True)
             head = ttk.Frame(f, style="Panel.TFrame", padding=(round(12 * s), round(8 * s)))
             head.pack(fill="x")
-            back = ttk.Button(head, text="◀  Back", command=self.back)
+            back = ttk.Button(head, text="◀  Back", command=self.close_details)
             back.pack(side="left")
             ttk.Label(head, text=g["title"], font=self.f["big"], background=PANEL).pack(side="left", padx=16)
             ttk.Label(head, text="L1 / R1: tabs      Circle: back", style="Muted.TLabel",
@@ -3432,14 +3765,14 @@ class App:
                                             forms_enabled=False, objects_enabled=False, javascript_enabled=False,
                                             caret_browsing_enabled=False, horizontal_scrollbar=False)
                 html.pack(fill="both", expand=True)
+                html.bind("<<DOMContentLoaded>>", lambda e: self.details_loaded())
             except Exception as e:
                 why = str(e)
                 html = None
         if html is None:
             if f is not None:
                 f.destroy()
-                self.bar.pack(fill="x")
-                self.body.pack(fill="both", expand=True)
+                self._repack_list()
             if why:
                 print("walnut-games: Details in the browser: %s" % why, file=sys.stderr)
             if quiet:
@@ -3448,40 +3781,107 @@ class App:
             self.show_activity("The details opened on the website%s." % (
                 "" if not tabs else " (python3-tkinterweb shows them here)"), hide_after=8)
             return False
-        self.dv = {"g": g, "frame": f, "html": html, "back": back, "url": None, "history": []}
+        self.dv = {"g": g, "frame": f, "html": html, "back": back, "url": None, "actions": None}
         self.details_load(page or tabs[0])
-        if shot:
-            p = os.path.join(self.pages, "games", g["id"], shot)
-            for alt in (p, os.path.join(self.data, "games", g["id"], shot), self.cache_path(g["id"], shot)):
-                if os.path.exists(alt):
-                    self.details_load(alt, push=True)
-                    break
         back.focus_set()
         return True
 
-    def details_load(self, path_or_url, push=False):
+    def details_load(self, path_or_url):
         dv = self.dv
         url = path_or_url if "://" in path_or_url else "file://" + path_or_url
-        if push and dv["url"]:
-            dv["history"].append(dv["url"])
-        dv["url"] = url
+        dv["url"], dv["actions"] = url, None
         dv["html"].load_url(url)
+
+    def details_loaded(self):
+        """a page is in (tkinterweb's <<DOMContentLoaded>>): its gallery on the pane's screenshot, its actions
+        for the game's state"""
+        if self.dv is None:
+            return
+        self.dv["actions"] = None
+        self.details_gallery()
+        self.details_actions()
+
+    def _details_element(self, eid):
+        """the element of Details' page with the id eid, or None (no page, no such element, a fake frame)"""
+        try:
+            return self.dv["html"].document.getElementById(eid)
+        except Exception:
+            return None
+
+    def details_gallery(self):
+        """Details' gallery (the page's #shot, #shot-pos) on the screenshot the pane shows: the big picture's
+        src swapped for that one's file, so only it is decoded at its size"""
+        dv = self.dv
+        if dv is None or dv["g"] is not self.g:
+            return
+        shots = screenshots(self.g)
+        img = self._details_element("shot")
+        if not shots or img is None:
+            return
+        i = min(self.shot_i, len(shots) - 1)
+        path = self.shot_path(self.g, shots[i][1])
+        try:
+            if path:
+                img.setAttribute("src", "file://" + path)
+            link = self._details_element("shot-link")
+            if link is not None:
+                link.setAttribute("href", "walnut://view/%s/%d" % (self.g["id"], i))
+            pos = self._details_element("shot-pos")
+            if pos is not None:
+                pos.textContent = "%d / %d" % (i + 1, len(shots))
+        except Exception as e:
+            print("walnut-games: Details' gallery: %s" % e, file=sys.stderr)
+
+    def details_actions(self):
+        """Details' actions (the page's #actions) as the pane's buttons are now: the main one's label (Install,
+        Add game files..., Play or each launcher, Queued, Installing...) and the smaller ones; set again only
+        when they change"""
+        dv = self.dv
+        if dv is None or dv["g"] is not self.g:
+            return
+        main = getattr(self, "main_state", None)
+        want = actions_html(self.g["id"], main, getattr(self, "side_kinds", []),
+                            [label for label, _, _ in self.play_cmds] if main and main[0] == "play" else [])
+        if want == dv.get("actions"):
+            return
+        el = self._details_element("actions")
+        if el is None:
+            return
+        try:
+            el.innerHTML = want
+            dv["actions"] = want
+        except Exception as e:
+            print("walnut-games: Details' actions: %s" % e, file=sys.stderr)
 
     def details_link(self, url):
         """a link clicked in Details (tkinterweb's on_link_click: nothing is navigated by itself): walnut://
-        runs the action (Details closes, the pane shows its progress), the app's copy loads in place, the
-        website and other sites open in the browser, an unknown walnut:// link is ignored"""
+        runs the action (Details stays, its actions follow the state), the gallery's links step or open the
+        viewer, the app's copy loads in place, the website and other sites open in the browser, an unknown
+        walnut:// link is ignored"""
         kind, val = link_target(url, self.pages)
         if kind == "walnut":
-            self.close_details()
-            self.dispatch(*val)
+            action, gid, arg = val
+            if action == "shot":
+                if self.g and self.g["id"] == gid:
+                    n = len(screenshots(self.g))
+                    if arg in ("prev", "next"):
+                        self.step_shot(-1 if arg == "prev" else 1)
+                    elif n and arg < n:
+                        self.shot_i = arg
+                        self.show_shot()
+                        self.details_gallery()
+            elif action == "view":
+                self.open_viewer(arg, gid)
+            else:
+                self.dispatch(action, gid, arg)
         elif kind == "page":
             dv = self.dv
-            if dv and val.split("#")[0] == (dv["url"] or "").split("#")[0]:
-                dv["url"] = val
-                dv["html"].load_url(val)          # an anchor on the same page
-            elif dv:
-                self.details_load(val, push=True)
+            if dv:
+                if val.split("#")[0] == (dv["url"] or "").split("#")[0]:
+                    dv["url"] = val
+                    dv["html"].load_url(val)          # an anchor on the same page
+                else:
+                    self.details_load(val)
         elif kind == "web":
             webbrowser.open(val)
         elif kind == "close":
@@ -3493,15 +3893,15 @@ class App:
             print("walnut-games: link ignored: %s" % url, file=sys.stderr)
 
     def details_tab(self, d):
-        """L1 / R1 (and left / right): the tab before or after; a tab replaces the page (Back leaves Details)"""
+        """L1 / R1 (and left / right): the tab before or after, scrolled to the tab bar (#tabs: the head with
+        the gallery is above it)"""
         dv = self.dv
         if not dv or not dv["url"]:
             return
         import urllib.parse
         nxt = tab_step(self.pages, urllib.parse.unquote(urllib.parse.urlsplit(dv["url"]).path), d)
         if nxt:
-            dv["history"].clear()
-            self.details_load(nxt)
+            self.details_load(nxt + "#tabs")
 
     def _details_scroll(self, n, what):
         if self.dv:
@@ -3524,9 +3924,35 @@ class App:
         dv.clear()
         import gc
         gc.collect()
+        self._repack_list()
+        self.root.after_idle(self._focus_after_details)
+
+    def _repack_list(self):
+        """the top bar and the list with the pane back in the window, laid out for the window's size now: the
+        list takes all the width the pane (as wide as before) leaves, and the cards fill it again"""
         self.bar.pack(fill="x")
         self.body.pack(fill="both", expand=True)
-        self.root.after_idle(self._focus_after_details)
+        self.root.update_idletasks()
+        self._fit_list(getattr(self, "keep_pane", None))
+
+    def _fit_list(self, pane=None):
+        """the divider where the pane keeps its width and the list has the rest, and the cards laid out for
+        the list's width (a list left at an old, smaller width filled half a maximized window)"""
+        try:
+            total = self.body.winfo_width()
+            pane = pane or self.details.winfo_width()
+            if not round(360 * self.scale) <= pane <= max(self.pane_w, total * 0.6):
+                pane = self.pane_w
+            if total > pane + 320:
+                x = total - pane - int(self.body.cget("sashwidth"))
+                if abs(self.body.sash_coord(0)[0] - x) > 1:
+                    self.body.sash_place(0, x, 0)
+                    self.root.update_idletasks()
+        except (tk.TclError, IndexError):
+            pass
+        if self.canvas.winfo_width() > 1 and \
+                max(1, (max(self.canvas.winfo_width(), CARD_W + 2 * GAP) - GAP) // (CARD_W + GAP)) != getattr(self, "cols", 0):
+            self.layout()
 
     def _focus_after_details(self):
         target = self.b_details if self.b_details.winfo_ismapped() else self.canvas
@@ -3535,8 +3961,12 @@ class App:
             self.root.after(50, self.pad_warp)
 
     def back(self):
-        """Escape, Circle (the pointer's right click) and Back: Play's menu or the chooser closes; in Details,
-        the page before (a link followed), else Details itself"""
+        """Escape, Circle (the pointer's right click) and Back: the viewer, Play's menu, Filters or the chooser
+        closes; Details goes back to the list at once, from any tab or page (the user, 2026-10-31: Back is not
+        a walk back through the tabs)"""
+        if self.viewer is not None:
+            self.close_viewer()
+            return "break"
         if self.menu is not None:
             try:
                 self.menu.unpost()
@@ -3556,11 +3986,7 @@ class App:
             self.chooser = None
             return "break"
         if self.dv is not None:
-            if self.dv["history"]:
-                self.dv["url"] = self.dv["history"].pop()
-                self.dv["html"].load_url(self.dv["url"])
-            else:
-                self.close_details()
+            self.close_details()
             return "break"
         return None
 
@@ -3689,9 +4115,16 @@ class App:
         return (int(t("winfo", "rootx", path)), int(t("winfo", "rooty", path)),
                 int(t("winfo", "width", path)), int(t("winfo", "height", path)))
 
-    def _focusables(self, top):
-        """[(path, rectangle)] of the controls in the window top the focus can go to: shown and not off"""
+    def _focusables(self, top, whole_pane=False):
+        """[(path, rectangle)] of the controls in the window top the focus can go to: shown and not off. The
+        pane's middle counts only what is in view, unless whole_pane (moving inside it: the rows scrolled out
+        of view come next)"""
         t, out = self.root.tk.call, []
+        mid = str(self.mid) + "."
+        try:
+            view = (self.mid_canvas.winfo_rooty(), self.mid_canvas.winfo_rooty() + self.mid_canvas.winfo_height())
+        except tk.TclError:
+            view = (0, 0)
 
         def walk(p):
             for c in self.root.tk.splitlist(t("winfo", "children", p)):
@@ -3705,8 +4138,11 @@ class App:
                             (str(t(c, "cget", "-state")) == "disabled" if cls != "Canvas" else False)
                     except tk.TclError:
                         off = False
+                    r = self._rect(c, card=False)
+                    if c.startswith(mid) and not whole_pane and (r[1] + r[3] <= view[0] + 2 or r[1] >= view[1] - 2):
+                        off = True          # scrolled out of the pane's view
                     if not off:
-                        out.append((c, self._rect(c, card=False)))
+                        out.append((c, r))
                 walk(c)
         walk(top)
         return out
@@ -3715,6 +4151,10 @@ class App:
         """an arrow key (or the d-pad): in Details, up and down scroll and left and right change the tab;
         elsewhere the focus goes to the nearest control that way (nav_pick); from the cards' right edge to
         the main button. Lists, menus and a text field's left and right keep their own keys."""
+        if self.viewer is not None:         # the viewer: left and right step, up and down do nothing
+            if key in ("Left", "Right"):
+                self.viewer_step(-1 if key == "Left" else 1)
+            return "break"
         if self.dv is not None:
             if key in ("Up", "Down"):
                 return self._details_scroll(-4 if key == "Up" else 4, "units")
@@ -3732,11 +4172,29 @@ class App:
             self.b_main.focus_set()
             return "break"
         top = str(t("winfo", "toplevel", path))
-        others = [(p, r) for p, r in self._focusables(top) if p != path]
-        i = nav_pick(self._rect(path), [r for _, r in others], key.lower())
+        mid = str(self.mid) + "."
+        i = None
+        if path.startswith(mid) and key in ("Up", "Down"):
+            # inside the pane's middle, up and down go through all of it first (scrolling), then out of it
+            inside = [(p, r) for p, r in self._focusables(top, whole_pane=True) if p != path and p.startswith(mid)]
+            others = inside
+            i = nav_pick(self._rect(path), [r for _, r in inside], key.lower())
+        elif path.startswith(str(self.d_bottom) + ".") and key == "Up":
+            # from the actions up into the middle: its last row first, wherever it is scrolled
+            inside = [(p, r) for p, r in self._focusables(top, whole_pane=True) if p.startswith(mid)]
+            if inside:
+                cx = self._rect(path)[0] + self._rect(path)[2] / 2
+                others = inside
+                i = max(range(len(inside)), key=lambda k: (inside[k][1][1] + inside[k][1][3],
+                                                           -abs(inside[k][1][0] + inside[k][1][2] / 2 - cx)))
+        if i is None:
+            others = [(p, r) for p, r in self._focusables(top) if p != path]
+            i = nav_pick(self._rect(path), [r for _, r in others], key.lower())
         if i is not None:
             target = others[i][0]
             t("focus", target)
+            if target.startswith(mid):
+                self._see_in_pane(self.root.nametowidget(target))
             if target == str(self.canvas) and self.selected not in self.cards and self.shown:
                 self.select(self.shown[0]["id"])
             self._mark_selected()
@@ -3784,8 +4242,15 @@ class App:
                 return
             self.root.after_idle(self.pad_warp)
         elif name in ("l1", "r1"):
-            self.details_tab(-1 if name == "l1" else 1)
-        elif name == "square" and self.dv is None and self.chooser is None and self.menu is None and self.g:
+            d = -1 if name == "l1" else 1
+            if self.viewer is not None:
+                self.viewer_step(d)
+            elif self.dv is not None:
+                self.details_tab(d)
+            elif self.g is not None and self.menu is None and self.chooser is None and self.filters_win is None:
+                self.step_shot(d)       # the pane's screenshot
+        elif name == "square" and self.dv is None and self.chooser is None and self.menu is None and \
+                self.viewer is None and self.g:
             self.open_details()
 
     def pad_warp(self):

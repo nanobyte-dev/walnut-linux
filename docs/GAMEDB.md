@@ -476,6 +476,14 @@ browser, NetSurf and the app's HTML view (the user, 2026-10-28):
   about page's "How a game is tested"), the one place to point at the tool's public page once it has one: the
   "How to help" page (content/help.md: how to play a session and send it in as a pull request) is written, a
   Hugo draft (left out of the build) and in no menu until the user decides to show it.
+- **Test runs tab**: the played sessions, the rating history, then the scripted benchmarks in ONE table
+  (`layouts/partials/bench-runs.html`, in a `.table-wrap` that scrolls sideways when the page is narrow). Each
+  batch is a header row spanning the table: its title, date and id, then "Tested:" and "Result:" (the batch's
+  `tested` and `conclusion` in gamedb/benchmarks/batches.toml, passed through by `technical.py`; the title alone
+  when it has neither) and a collapsed "What we saw" with its `observations` ("- " lines as a list), followed by
+  its rows. Columns: variant, conditions, the main numbers (steady fps, 1% low, stalls, whole-run fps), build,
+  resolution, run length, then the other metrics. The template decides per game, at build time, which columns
+  exist: one with no value in any of that game's rows is left out. There is no separate "All numbers" table.
 - **Tags** (gamedb/tags.toml, [gamedb/README.md](../gamedb/README.md#tags)): every tag shown is a link to
   its page, `tags/<id>/` (content/tags/_content.gotmpl, from catalog.json's tags), which lists the games that
   have it as cards; `tags/` is the index, by group. A game's head shows its tags under small group labels; a
@@ -505,12 +513,16 @@ browser, NetSurf and the app's HTML view (the user, 2026-10-28):
   grid's even rows; NetSurf runs no script here, so it shows the plain list without filters.
 - **Links are relative** (build.sh rewrites every site link against the page after Hugo; Hugo's own
   relativeURLs breaks under the /gamedb/ base path), so a copy of the output works offline.
-- **The app's copy**, `build.sh --app OUT` (designed, not used yet): the same pages without the site's
-  header, footer and script, every folder link naming its `index.html` (a file:// view adds none), the
-  screenshots at their display size, 352x198 (a decoded 800x450 JPEG costs Tkhtml about 3.5 MB on the PS3;
-  the full one is behind the click), the tab links kept on one line, selectors CSS 2.1 only, and
-  the game's actions as `walnut://install/<id>`, `walnut://add-data/<id>` and `walnut://play/<id>` links
-  in place of the apt line (`layouts/partials/get-game.html`), for the Details view to catch.
+- **The app's copy**, `build.sh --app OUT` (the desktop app's Details): the same pages without the site's
+  header, footer and script, every folder link naming its `index.html` (a file:// view adds none), the tab
+  links kept on one line, selectors CSS 2.1 only. Its game head (`layouts/partials/game-head.html`) is its
+  own: the title and the rating; the screenshots' gallery as wide as the page (one full screenshot, `#shot`,
+  with < > and its position `#shot-pos` as `walnut://shot/<id>/prev|next` links, then a strip of 128 px
+  thumbnails as `walnut://shot/<id>/<n>`; the picture is a `walnut://view/<id>/<n>` link); the game's actions
+  (`#actions`: Install, Add game files..., Play as `walnut://` links, which the app replaces with the ones for
+  the game's state); the summary, the badges and the tags; then the tabs, whose links go to the tab bar
+  (`#tabs`). The Overview has no Screenshots section, no apt line (Installation only for a game whose data the
+  player brings) and ends with Technical notes, Open on the web (the website's page) and the home page.
 
 ## The desktop app
 
@@ -520,8 +532,15 @@ has search (the title, the summary and the tags' labels), Filters, medal and sor
 Filters opens a panel of the catalog's tag groups (`tag_groups`, gamedb/tags.toml), a box for every tag
 some game has: a game shows when it has one of the ticked tags in each group (OR within a group, AND
 across groups, as on the site); the list follows each tick, Done, Escape or Circle closes it. A card opens the game in the right-hand
-pane (PLAN 5.11): its name, medal and score with the hours played, then the actions, then a quick glance.
-The window follows the Walnut palette (`walnut_palette.py` has the colours, by name).
+pane (PLAN 5.11), top to bottom (the user, 2026-10-31): its name, medal and score with the hours played;
+then, scrolled when it doesn't fit (a scrollbar shows only then), one screenshot as wide as the pane with
+< > and "n / N", the description, the rating's aspects (each one's name, a bar and its score of 100, "not
+tested" without one, in the catalog's `order`, as the site labels them), the known issues, the tags (links:
+each filters the list by that tag) and one line of facts (the median frame rate, the controller, the
+installed size, the game data's edition, the license); and pinned to the bottom, always in view, the actions.
+An installed game's card has a triangle over its picture's top right corner with a check mark
+(`INSTALLED_BADGE`, the accent) in place of an "Installed" text. The window follows the Walnut palette
+(`walnut_palette.py` has the colours, by name).
 
 - **One main button follows the state** (`main_action`), with **Details** next to it: Install; installed
   with its required data missing, Add game files...; then Play (with several launchers a menu of them,
@@ -554,31 +573,49 @@ The window follows the Walnut palette (`walnut_palette.py` has the colours, by n
   dpkg-deb): never a bar that only bounces. The time left is the time so far times the share left over
   the share done (the weights are expected seconds), shown from 3 % and 5 s on. An import started in a
   terminal is one step filled by time.
-- **The glance**: up to 3 key numbers (the median frame rate, the smoothness score, the installed size
-  from `apt-cache show`), the controller and the installed data's edition, up to 4 screenshot thumbnails
-  (a click opens it in Details), Technical notes, Open on the web and the game's home page.
-  The aspects, the launchers' ratings, known issues, the data steps and the patches are in Details.
+- **The screenshot** (`show_shot`): only the one shown is decoded, at the pane's width (a JPEG drawn at a
+  smaller size), and freed when another replaces it. < > (and L1 / R1 while the list is shown) step through
+  the game's PS3 shots, round past either end; the pane, the viewer and Details' gallery show the same one.
+  A click opens **the viewer** (`open_viewer`), a window of its own: the shot as large as fits, < > on its
+  sides, "n / N", and a strip of 128x72 thumbnails that scrolls sideways to keep the shown one in view (a
+  click jumps to it); left / right and L1 / R1 step, Circle, Escape or closing the window closes it, and
+  every picture it decoded is freed with it. The installed size comes from `apt-cache show`. The launchers'
+  ratings, the data steps and the patches are in Details; Technical notes, Open on the web and the home page
+  are at the end of Details' Overview.
 - **Details** is the site's pages for the app (`tools/gamedb/build.sh --app`, packaged in
   `/usr/share/walnut-games/pages/`, docs/PACKAGING.md "Walnut Games' catalog and pages") in
   `tkinterweb.HtmlFrame`, full window in place of the list, zoomed like the app's text. tkinterweb is
   imported at the first open, so the app starts as small as before, and the frame is destroyed on Back.
-  The tabs (Overview, Test runs, Technical, Guides) are links between the pages; L1 / R1 (and left /
-  right) step through them. Every clicked link comes to the app (`link_target`): `walnut://install|add-data|play/<id>`
-  (play may name a launcher, `?launcher=NAME`) closes Details and runs the same code as the main button;
-  a page or picture of the app's copy loads in place (Back returns to it); the website's pages the copy
-  doesn't carry and other sites open in the system browser (`webbrowser`, xdg-open); anything else is
-  ignored. A tag's link (`tags/<id>/`) closes Details and filters the list by that tag (the app's own
-  filter, not the tag's page). Without python3-tkinterweb (a Recommends), or for a game the copy doesn't have, Details opens
-  the website in the browser.
+  The page starts with the title and the rating, the gallery as wide as the page, the actions, the summary
+  and the tags, then the tabs (Overview, Test runs, Technical, Guides), links between the pages; L1 / R1 (and
+  left / right) step through them, each scrolled to the tab bar. Once a page is in (tkinterweb's
+  `<<DOMContentLoaded>>`) the app sets its gallery on the pane's screenshot (the `#shot` picture's src
+  swapped for that file: only it is decoded at its size) and its actions for the game's state (`#actions`,
+  `actions_html`: the main button's, one Play per launcher when there are several, Remove, Remove data,
+  Install from Walnut licensed; Queued or Installing... as plain text), and again whenever the state changes.
+  Every clicked link comes to the app (`link_target`): `walnut://install|add-data|play|remove|remove-data|repo/<id>`
+  (play may name a launcher, `?launcher=NAME`) runs the same code as the pane's button and Details stays;
+  `walnut://shot/<id>/<n|prev|next>` shows that shot, `walnut://view/<id>/<n>` opens the viewer; a page or
+  picture of the app's copy loads in place; the website's pages the copy doesn't carry and other sites open
+  in the system browser (`webbrowser`, xdg-open); anything else is ignored. A tag's link (`tags/<id>/`)
+  closes Details and filters the list by that tag (the app's own filter, not the tag's page). **Back**
+  (the button, Escape, Circle) always returns to the list, from any tab or page (the user, 2026-10-31: not a
+  walk back through the tabs). The list comes back laid out for the window as it is now (`_fit_list`): the
+  pane keeps the width it had and the cards fill the rest, even when the window was maximized meanwhile
+  or the divider was left at a stale place (the user saw a maximized window's list fill half of it).
+  Without python3-tkinterweb (a Recommends), or for a game the copy doesn't have, Details opens the website
+  in the browser.
 - **The pad and the TV.** The text and the pane keep the app's own sizes at every resolution (the
   user, 2026-10-31); `WALNUT_GAMES_SCALE` (0.75-3) makes them bigger, and above 1 the window fills the screen. The DualShock is the X pointer outside games
   (ps3-desktop's `40-joystick-pointer.conf`: the sticks move it, Cross is a left click, Circle a right
   click); the app reads the buttons the pointer leaves free from the pad's event device (no grab;
   presses queued while game mode froze the app are dropped): the d-pad moves the focus between the
   controls (the nearest one that way, `nav_pick`; the cards' arrows move between cards and leave at the
-  grid's edge) and puts the pointer on it, so Cross presses the focused control; Square opens Details,
-  L1 / R1 change its tab, Circle (a right click) and Escape go back (Play's menu, the chooser, Details'
-  page before, Details). The keyboard does the same with the arrows, Enter and Escape. The focused
+  grid's edge) and puts the pointer on it, so Cross presses the focused control. In the pane's middle, up
+  and down go through all of it (the shot, its < >, the tags), scrolling it, before leaving it; up from the
+  actions goes to its last row. Square opens Details, L1 / R1 change its tab (in the list: step the pane's
+  shot; in the viewer: step it), Circle (a right click) and Escape go back (the viewer, Play's menu, the
+  chooser, Details). The keyboard does the same with the arrows, Enter and Escape. The focused
   control has a light border. `WALNUT_GAMES_PAD=off` stops the pad reading.
 - **walnut://game/<id>** (the website's "Open in Walnut Games"): the .desktop file is the handler of
   `x-scheme-handler/walnut` (Exec `walnut-games %u`). Only that form is taken from outside; install,
@@ -701,8 +738,12 @@ The window follows the Walnut palette (`walnut_palette.py` has the colours, by n
   walnut:// links and the hand-off, the pad's buttons, Play's launchers (OpenRCT2's four entries, data
   launchers, the labels told apart, every GameDB launcher and build/debs' entries), the bar (plan, step,
   count, time-filled steps, the estimate), the queue (order, removal, a failure then the next), the
-  source list, and window smoke tests on a private Xvfb/Xvnc (skipped when neither exists): the pane's
-  states, Details with and without (a fake) tkinterweb, the queue with a fake helper (collapsed,
+  source list, the pane's aspect rows (every game of the catalog), the shot stepping and the facts line, Details'
+  actions per state, and window smoke tests on a private Xvfb/Xvnc (skipped when neither exists): the pane's
+  states and order, the installed badge, the shot stepping, the viewer (open, step, jump, close, freed), the
+  d-pad through the pane (scrolled too), Details with and without (a fake) tkinterweb (its gallery and
+  actions, Back from any tab to the list), the list's width after Details (the window grown meanwhile, the
+  divider stale), the queue with a fake helper (collapsed,
   expanded, the d-pad down to it, a removal, the close question, a failure then the next).
 
 **The HTML view** (Details, PLAN 5.11) is Tkhtml 3.0 through TkinterWeb: packages `tk-html3` and
@@ -714,7 +755,8 @@ libtk-img. Measured on the PS3 (2026-10-28: the `--app` build's SuperTuxKart pag
 the desktop running): importing tkinterweb and making the frame adds 16 MB to a Tk process; a text page
 (Technical, Test runs) 8-9 MB more and 1.2-1.3 s until drawn; the Overview with its 11 screenshots
 (800x450 JPEGs, shown at about 290x160) 40 MB and 2.1-2.5 s. A decoded picture costs about 3.5 MB, so
-the app's copy should carry the screenshots at the size shown. Scrolling takes 6-9 ms a step (44 ms at
+the app's copy decodes one full screenshot (the gallery's, scaled to the page's width) and small thumbnails
+(not measured on the PS3 yet). Scrolling takes 6-9 ms a step (44 ms at
 worst). The PS3's pages look the same as the PC's (an amd64 build under Xvfb): no byte-order problem
 (Tkhtml has no byte-order code; colours and images are right). Tkhtml knows CSS 2.1 selectors only
 (`a[href^="walnut:"]` is an error: match `a[href]` and test the value). In the app (2026-10-28, the

@@ -260,6 +260,11 @@ table.facts th { width: rem(11); font-size: rem(0.9); }
 table.bench { font-size: rem(0.85); }
 table.tech-index td.num { width: auto; }
 table.more-nums { font-size: rem(0.8); }
+// the Test runs table: a header row per batch; the wrapper scrolls it sideways on a narrow screen
+table.runs { font-size: rem(0.8); }
+table.runs th, table.runs td { padding-left: rem(0.35); padding-right: rem(0.35); }
+tr.batch-head td { white-space: normal; padding-top: rem(0.9); background: $panel; border-bottom: 1px solid $border; }
+tr.batch-head strong { color: $accent-light; }
 span.kv { display: inline-block; margin: 0 rem(0.9) rem(0.2) 0; white-space: nowrap; }
 
 // what you need: the install line, the data steps
@@ -273,8 +278,24 @@ button.copy:hover { background: $accent; }
 .steps .cmd { margin: rem(0.3) 0; @include row(rem(0.5), stretch); }
 .steps .cmd code { flex: 1 1 auto; padding: rem(0.4) rem(0.7); overflow: auto; white-space: nowrap; border: 1px solid $border; }
 .steps .cmd button.copy { padding: 0 rem(0.8); }
-// the app's buttons (walnut:// links, build.sh --app)
-.actions a { display: inline-block; margin: 0 rem(0.6) rem(0.6) 0; padding: rem(0.5) rem(1.2); background: $accent-deep; color: #fff; text-decoration: none; border-radius: 6px; font-weight: 700; }
+// the app's buttons (walnut:// links, build.sh --app): the main one in the accent, the smaller ones plain,
+// one that is off (Queued, Installing...) muted
+.actions a, .actions span.off { display: inline-block; margin: 0 rem(0.6) rem(0.6) 0; padding: rem(0.5) rem(1.2); background: $accent-deep; color: #fff; text-decoration: none; border-radius: 6px; font-weight: 700; white-space: nowrap; }
+.actions a.side { background: $border; color: $text; font-weight: 400; }
+.actions span.off { background: $panel; color: $muted; }
+// the app's head (partials/game-head.html with site.Params.app): the gallery as wide as the page, one picture
+// with < > and its position, a strip of thumbnails; the picture is swapped by the app
+.app-head { margin-top: rem(0.4); }
+.app-head h1 { margin-bottom: rem(0.2); }
+.gallery { margin: rem(0.8) 0; }
+.gallery img.shot { display: block; width: 100%; height: auto; border: 1px solid $border; background: $code; }
+.gallery-nav { margin: rem(0.4) 0; text-align: center; }
+.gallery-nav a.step { display: inline-block; padding: rem(0.2) rem(1); margin: 0 rem(0.8); background: $border; color: $text; text-decoration: none; border-radius: 6px; font-weight: 700; }
+.gallery-nav span { color: $muted; }
+.strip { margin: rem(0.3) 0 0; }
+.strip a { display: inline-block; margin: 0 rem(0.3) rem(0.3) 0; }
+.strip img { display: block; border: 1px solid $border; }
+.links a { margin-right: rem(1); }
 
 // screenshots
 .shots { @include card-grid(rem(18), rem(1)); }

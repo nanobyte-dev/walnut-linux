@@ -24,3 +24,4 @@ LINK, LINK_HOVER = ACCENT, ACCENT_LIGHT
 
 MEDAL_COLORS = {"Platinum": "#e5e4e2", "Gold": "#d4af37", "Silver": "#c0c0c0", "Bronze": "#cd7f32",
                 "Tin": "#9a9ea3", "Rust": "#8a4b32", "Scrap": "#5f5a55", "Untested": "#6f7a86"}
+INSTALLED_BADGE = ACCENT    # the installed game's corner triangle on its card (a shape; its check mark is ON_ACCENT)

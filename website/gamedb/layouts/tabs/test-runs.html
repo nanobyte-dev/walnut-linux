@@ -1,7 +1,7 @@
 {{ define "main" }}
 {{/* a game's Test runs tab: the played sessions, which make the rating (a page each, test-runs/<session>/, and
      all of them as CSV), and the rating on each version; then the scripted benchmarks in a section of their own,
-     which never rate a game: a table per batch, saying what was tested, with its observations */}}
+     which never rate a game: one table of all the runs, a header row per batch saying what was tested and the result */}}
 {{ $g := index (where hugo.Data.catalog.games "id" .Params.gid) 0 }}
 {{ $t := index (where hugo.Data.technical.games "id" .Params.gid) 0 }}
 {{ partial "game-head.html" (dict "g" $g "tab" "test-runs") }}
@@ -53,10 +53,9 @@
     </details>
     {{ end }}
     {{ with $bm.tables }}
-    <p class="small muted">Conditions: what a variant adds to the recipe (its environment switches) and what ran alongside (the stall recorder, a profiler). Rows marked invalid or not comparable say why.
-    The other numbers, the build and the run length are under "All numbers" in each batch.</p>
+    <p class="small muted">One table, a header row per batch (what it tested and what came out). Conditions: what a variant adds to the recipe (its environment switches) and what ran alongside (the stall recorder, a profiler); a column appears only when this game has a value in it. Rows marked invalid or not comparable say why.</p>
     <details class="more"><summary>What the run length means</summary><p class="small muted">"warm-up + 120 s" is a steady-state run, which leaves out a 60 s warm-up and measures 120 s or more; "whole run" counted everything from the start, the way runs before 2026-10-17 did.</p></details>
-      {{ range . }}{{ partial "bench-table.html" . }}{{ end }}
+    {{ partial "bench-runs.html" . }}
     {{ else }}
     <p class="muted">No benchmark results recorded for it yet.</p>
     {{ end }}

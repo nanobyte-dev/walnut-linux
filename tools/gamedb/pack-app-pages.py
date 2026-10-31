@@ -7,8 +7,9 @@ Design
   COPY_IN takes the tarball into the package, whose rules unpack it to /usr/share/walnut-games/pages/
   (docs/GAMEDB.md "The desktop app", docs/PACKAGING.md "Walnut Games' catalog and pages").
 - The pages are tools/gamedb/build.sh --app's (Hugo, on the host or the CI runner: the PS3 build chroot has
-  no Hugo), built into build/gamedb/app-pages/: no site header, footer or script, the game's actions as
-  walnut:// links, every link relative and naming its index.html, screenshots at the size shown (352x198).
+  no Hugo), built into build/gamedb/app-pages/: no site header, footer or script, the game's head with its
+  gallery (one full screenshot and 128 px thumbnails) and actions as walnut:// links, every link relative and
+  naming its index.html.
 - What goes in: the HTML pages, the stylesheet and the small pictures. A file the packed catalog
   (build/gamedb/catalog.tar, unpacked to /usr/share/walnut-games/) has with the same path and the same
   bytes, a full-size screenshot or a thumbnail, goes in as a relative symlink to the catalog's copy, so

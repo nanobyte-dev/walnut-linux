@@ -1020,14 +1020,54 @@ class PaneActions(unittest.TestCase):
         self.assertIn("QuakeSpasm (quake-registered, quake-music: 21 MB)", q)
         self.assertIn("The game stays installed", q)
 
-    def test_glance_numbers(self):
-        r = {"aspects": {"frame": {"score": 5, "detail": "median 24 fps, 1% low 5"},
-                         "smooth": {"score": 58.4, "detail": "1.2 s of stutter"}}}
-        self.assertEqual(app.glance_numbers(r, 650 * 1024), [("24 fps", "median frame rate"), ("58/100", "smoothness"),
-                                                            ("650 MB", "installed size")])
-        self.assertEqual(app.glance_numbers({"aspects": {"frame": {"score": 40, "detail": "?"}}}),
-                         [("40/100", "frame rate")])
-        self.assertEqual(app.glance_numbers({"medal": "Untested", "aspects": {}}), [])
+    def test_aspect_rows(self):
+        r = {"order": ["frame", "smooth", "sound", "controls"],
+             "aspects": {"frame": {"name": "Frame rate", "score": 5, "detail": "median 24 fps, 1% low 5"},
+                         "smooth": {"name": "Smoothness", "score": 58.4, "detail": "1.2 s of stutter"},
+                         "sound": {"name": "Sound", "score": None, "detail": None},
+                         "load": {"name": "Load", "score": 70}}}
+        self.assertEqual(app.aspect_rows(r), [("Frame rate", 5), ("Smoothness", 58), ("Sound", None)])
+        del r["order"]          # an older catalog: the site's order
+        self.assertEqual([n for n, _ in app.aspect_rows(r)], ["Frame rate", "Smoothness", "Sound", "Load"])
+        self.assertEqual(app.aspect_rows({"medal": "Untested", "aspects": {}}), [])
+        # every game of the repository's catalog: as many rows as the site's table, labelled as it is
+        cat = REPO / "website/gamedb/data/catalog.json"
+        if cat.exists():
+            for g in json.loads(cat.read_text())["games"]:
+                r = g["rating"]
+                rows = app.aspect_rows(r)
+                self.assertEqual([n for n, _ in rows], [r["aspects"][k]["name"] for k in r["order"]], g["id"])
+                self.assertTrue(all(s is None or 0 <= s <= 100 for _, s in rows), g["id"])
+
+    def test_shot_step_and_notes(self):
+        self.assertEqual([app.shot_step(0, -1, 3), app.shot_step(2, 1, 3), app.shot_step(1, 1, 3)], [2, 0, 2])
+        self.assertEqual(app.shot_step(0, 1, 0), 0)
+        g = {"controller": "partial", "license": "GPL-2.0"}
+        r = {"aspects": {"frame": {"score": 5, "detail": "median 24 fps, 1% low 5"}}}
+        self.assertEqual(app.pane_notes(g, r, 650 * 1024, data_line="Your game data: Full game"),
+                         ["Median 24 fps", "Controller: partial", "Installed size: 650 MB", "Your game data: Full game",
+                          "License: GPL-2.0"])
+        self.assertEqual(app.pane_notes({}, {"controller": "full"}), ["Controller: full"])
+
+    def test_details_actions(self):
+        A = app.actions_html
+        self.assertEqual(A("doom", ("install", "Install", True), []), '<a href="walnut://install/doom">Install</a>')
+        self.assertEqual(A("doom", ("running", "Installing\u2026", False), []), '<span class="off">Installing\u2026</span>')
+        self.assertEqual(A("doom", ("play", "Play", True), ["remove", "remove-data", "retry"]),
+                         '<a href="walnut://play/doom">Play</a><a class="side" href="walnut://remove/doom">Remove</a>'
+                         '<a class="side" href="walnut://remove-data/doom">Remove data</a>')
+        # one link each, by its name (a rated launcher's label has its medal after a dot)
+        two = A("openarena", ("play", "Play \u25be", True), [], ["OpenArena (GL 1.2) \u00b7 Gold 82", "OpenArena"])
+        self.assertEqual(two, '<a href="walnut://play/openarena?launcher=OpenArena%20%28GL%201.2%29">Play OpenArena '
+                              '(GL 1.2)</a><a href="walnut://play/openarena?launcher=OpenArena">Play OpenArena</a>')
+        self.assertEqual(app.parse_walnut_link("walnut://play/openarena?launcher=OpenArena%20%28GL%201.2%29"),
+                         ("play", "openarena", "OpenArena (GL 1.2)"))
+        self.assertEqual(A("q", ("add-data", app.DATA_LABEL, True), ["repo"]),
+                         '<a href="walnut://add-data/q">Add game files\u2026</a>'
+                         '<a class="side" href="walnut://repo/q">Install from Walnut licensed</a>')
+        self.assertEqual(A("x", ("play", "Play", False), []), '<span class="off">Play</span>')
+        self.assertEqual(A("x", None, []), "")
+        self.assertIn("&lt;b&gt;", A("x", ("queued", "<b>", False), []))
 
     def test_apt_sizes(self):
         out = ("Package: openarena\nVersion: 1\nInstalled-Size: 2048\n\nPackage: openarena-data\n"
@@ -1050,7 +1090,18 @@ class Links(unittest.TestCase):
         self.assertEqual(P("walnut://play/openarena?launcher=OpenArena%20(GL%201.2)"),
                          ("play", "openarena", "OpenArena (GL 1.2)"))
         self.assertEqual(P("walnut://install/openarena?launcher=x"), ("install", "openarena", None))
-        for bad in ("walnut://remove/openarena", "walnut://install/", "walnut://install/../x", "walnut://install/A",
+        self.assertEqual(P("walnut://remove/openarena"), ("remove", "openarena", None))
+        self.assertEqual(P("walnut://remove-data/doom"), ("remove-data", "doom", None))
+        self.assertEqual(P("walnut://repo/doom"), ("repo", "doom", None))
+        # Details' gallery: a screenshot by its position, the one before or after, the viewer
+        self.assertEqual(P("walnut://shot/openarena/3"), ("shot", "openarena", 3))
+        self.assertEqual(P("walnut://shot/openarena/next"), ("shot", "openarena", "next"))
+        self.assertEqual(P("walnut://view/openarena/0"), ("view", "openarena", 0))
+        for bad in ("walnut://shot/openarena", "walnut://shot/openarena/-1", "walnut://shot/openarena/x",
+                    "walnut://view/openarena/next", "walnut://shot/openarena/1/2", "walnut://shot/../1",
+                    "walnut://shot/openarena/99999"):
+            self.assertIsNone(P(bad), bad)
+        for bad in ("walnut://format/openarena", "walnut://install/", "walnut://install/../x", "walnut://install/A",
                     "walnut://install/a/b", "walnut://game/openarena", "http://install/openarena", "walnut:install/x",
                     "", "walnut://[bad"):
             self.assertIsNone(P(bad), bad)
@@ -1133,6 +1184,7 @@ class Links(unittest.TestCase):
             T = lambda u: app.link_target(u, str(pages))
             f = "file://" + str(g)
             self.assertEqual(T("walnut://install/openarena"), ("walnut", ("install", "openarena", None)))
+            self.assertEqual(T("walnut://shot/openarena/prev"), ("walnut", ("shot", "openarena", "prev")))
             self.assertEqual(T("walnut://format/disk"), ("ignore", "walnut://format/disk"))
             self.assertEqual(T(f + "/technical/index.html"), ("page", f + "/technical/index.html"))
             self.assertEqual(T(f + "/rating/sessions/s/shots/ps3-60s.jpg")[0], "page")
@@ -1395,19 +1447,68 @@ assert not mapped(app.b_main) and app.d_title["text"] == "Walnut Games"         
 app.select("alpha"); root.update()
 assert app.main_kind == "install" and app.b_main["text"] == "Install" and str(app.b_main["state"]) == "normal"
 assert not mapped(app.b_remove) and not mapped(app.b_remove_data) and not mapped(app.side_row)
-assert mapped(app.b_details) and "Technical notes" in texts(app.links, w.ttk.Button) and mapped(app.b_home)
-assert "Open on the web" in texts(app.links, w.ttk.Button) and "Home page" in texts(app.links, w.ttk.Button)
-assert texts(app.d_numbers)[:2] == ["60 fps", "median frame rate"], texts(app.d_numbers)
-assert "Controller: full" in app.d_info["text"], app.d_info["text"]
+assert mapped(app.b_details)
+buttons = texts(app.details, w.ttk.Button)
+assert not {"Technical notes", "Open on the web", "Home page"} & set(buttons), buttons     # Details' Overview has them
+assert "Median 60 fps" in app.d_info["text"] and "Controller: full" in app.d_info["text"], app.d_info["text"]
 assert "1.5 h played, 0 crashes" in [app.d_medal.itemcget(i, "text") for i in app.d_medal.find_all() if app.d_medal.type(i) == "text"]
-assert len(app.glance_imgs) == int(sys.argv[4]), app.glance_imgs     # the screenshot, when Pillow is here
-app.sizes = {"alpha": 2048, "alpha-data": 10240}; app.show_glance(); root.update()
-assert "12 MB" in texts(app.d_numbers), texts(app.d_numbers)
+# the pane, top to bottom: the name and the medal; the middle (the screenshot, the description, the rating's
+# aspects, the known issues, the tags, the facts), scrolled; the actions pinned to the bottom
+def row(wd):
+    return int(wd.grid_info()["row"])
+assert row(app.d_title) < row(app.d_medal) < row(app.mid_canvas.master) < row(app.d_bottom)
+order = [app.d_shot, app.d_sum, app.d_aspects, app.d_issues, app.d_tags, app.d_info]
+assert all(x.master is app.mid for x in order) and all(mapped(x) for x in order[1:]), [mapped(x) for x in order]
+assert [row(x) for x in order] == sorted(row(x) for x in order)
+assert app.main_row.master is app.d_bottom and app.side_row.master is app.d_bottom
+assert app.d_bottom.winfo_rooty() + app.d_bottom.winfo_height() > app.details.winfo_rooty() + app.details.winfo_height() - 40
+assert app.aspect_rows == [("Frame rate", 90), ("Sound", None), ("Controls", 75)], app.aspect_rows
+assert "Frame rate" in texts(app.d_aspects) and "not tested" in texts(app.d_aspects), texts(app.d_aspects)
+assert "\u2022 slow" in texts(app.d_issues), texts(app.d_issues)
+assert [b["text"] for b in app.tag_buttons] == ["racing"]
+nshots = int(sys.argv[4])                  # the screenshots, when Pillow is here
+if nshots:
+    assert mapped(app.b_shot) and app.shot_img is not None and app.shot_pos["text"] == "1 / %d" % nshots
+    app.step_shot(1); root.update()
+    assert app.shot_pos["text"] == "2 / %d" % nshots
+    app.step_shot(-1); app.step_shot(-1)
+    assert app.shot_pos["text"] == "%d / %d" % (nshots, nshots), app.shot_pos["text"]     # round past the first
+    app.b_shot_next.invoke(); assert app.shot_i == 0
+    app.on_pad("r1"); assert app.shot_i == 1                                             # R1 steps it too
+    # the viewer: the shot large, < >, thumbnails; Circle closes it and frees its pictures
+    app.b_shot.invoke(); root.update()
+    v = app.viewer
+    top = v["top"]
+    assert len(v["buttons"]) == nshots and len(v["thumbs"]) == nshots and v["img"] is not None and v["i"] == 1
+    assert v["pos"]["text"] == "2 / %d" % nshots and top.winfo_viewable()
+    app.on_pad("r1"); assert v["i"] == 2 and app.shot_i == 2
+    app._key_nav(None, "Left"); assert v["i"] == 1
+    app._key_nav(None, "Right"); app._key_nav(None, "Right"); assert v["i"] == 0                # round
+    v["buttons"][2].invoke(); assert v["i"] == 2 and app.shot_pos["text"] == "3 / %d" % nshots
+    app.viewer_step(-1); assert v["i"] == 1
+    app.on_pad("square"); assert app.dv is None                                        # not Details meanwhile
+    app.back(); root.update()
+    assert app.viewer is None and not top.winfo_exists() and not v, v
+    app.open_viewer(); root.update()
+    app.viewer["top"].event_generate("<Escape>"); root.update()
+    assert app.viewer is None
+    app.shot_i = 0; app.show_shot()
+else:
+    assert not mapped(app.d_shot)
+app.tag_buttons[0].invoke(); root.update()                                             # a tag filters the list
+assert app.tag_filter == {"racing"} and [g["id"] for g in app.shown] == ["alpha"], app.tag_filter
+app.tag_filter.clear(); app.apply_filters(); app.select("alpha"); root.update()
+app.sizes = {"alpha": 2048, "alpha-data": 10240}; app.show_extra(); root.update()
+assert "Installed size: 12 MB" in app.d_info["text"], app.d_info["text"]
 # installed, two launchers: Play with its menu; Remove under it
 w.play_commands = lambda g, rt, files=None: [("Alpha", ["alpha"], None), ("Alpha GL1", ["alpha", "-gl1"], None)]
 app.have = {"alpha", "alpha-data"}; app.update_buttons(); root.update()
 assert app.main_kind == "play" and app.b_main["text"] == "Play \\u25be" and str(app.b_main["state"]) == "normal"
 assert mapped(app.b_remove) and not mapped(app.b_remove_data)
+# an installed game's card has the corner badge (no "Installed" text); the others don't
+app.layout(); root.update()
+assert app.canvas.find_withtag("g_alpha_badge") and not app.canvas.find_withtag("g_beta_badge")
+assert "Installed" not in [app.canvas.itemcget(i, "text") for i in app.canvas.find_all() if app.canvas.type(i) == "text"]
 assert app.dispatch("play", "alpha", "Alpha GL1") and launched[-1] == ["alpha", "-gl1"], launched
 assert app.dispatch("play", "alpha") and app.menu is not None          # several: the menu
 app.back(); root.update()
@@ -1428,7 +1529,7 @@ import tkinterweb as fake
 # a game the app's copy doesn't have: the website too
 app.select("beta"); root.update()
 assert app.open_details() is False and opened[-1] == w.WEB + "games/beta/"
-assert app.b_main["text"] == "Install" and not mapped(app.b_home)
+assert app.b_main["text"] == "Install"
 # Details: the pages in the HTML frame, tabs, links, back
 app.select("alpha"); root.update()
 kids = len(root.winfo_children())
@@ -1439,17 +1540,18 @@ assert not mapped(app.body) and not mapped(app.bar) and fake.LOADS[-1] == "file:
 assert fake.FRAMES[-1].kw["zoom"] == app.scale and not fake.FRAMES[-1].kw["javascript_enabled"]
 html = fake.FRAMES[-1]
 app.on_pad("r1"); root.update()
-assert fake.LOADS[-1].endswith("/test-runs/index.html"), fake.LOADS[-1]
+assert fake.LOADS[-1].endswith("/test-runs/index.html#tabs"), fake.LOADS[-1]
 app.details_tab(1); app.details_tab(1)
-assert fake.LOADS[-1].endswith("/technical/index.html") and len([u for u in fake.LOADS if "technical" in u]) == 1
+assert fake.LOADS[-1].endswith("/technical/index.html#tabs") and len([u for u in fake.LOADS if "technical" in u]) == 1
 app.on_pad("l1"); root.update()
-assert fake.LOADS[-1].endswith("/test-runs/index.html")
+assert fake.LOADS[-1].endswith("/test-runs/index.html#tabs")
 app._key_nav(None, "Right")
-assert fake.LOADS[-1].endswith("/technical/index.html")
+assert fake.LOADS[-1].endswith("/technical/index.html#tabs")
 app._key_nav(None, "Down")
 assert html.scrolled[-1] == (4, "units")
+assert app.dv["url"].endswith("/technical/index.html#tabs")             # a tab: scrolled to the tab bar
 html.click("file://" + pages + "/rating/sessions/a/ps3-1.jpg")          # the copy has it: in place
-assert fake.LOADS[-1].endswith("ps3-1.jpg") and app.dv["history"]
+assert fake.LOADS[-1].endswith("ps3-1.jpg")
 html.click("file://" + pages + "/../../about/index.html#rules-2")        # the copy doesn't: the website
 assert opened[-1] == w.WEB + "about/#rules-2", opened[-1]
 html.click("https://example.org/")
@@ -1457,27 +1559,50 @@ assert opened[-1] == "https://example.org/"
 html.click("walnut://format/alpha")                                      # unknown: ignored
 assert app.dv is not None
 app.on_pad("square")                                                     # Details is open already
-app.back(); root.update()                                                # the page before
-assert app.dv is not None and fake.LOADS[-1].endswith("/technical/index.html")
-html.click("walnut://install/alpha"); root.update()                     # Details closes, the action runs
+html.click("walnut://install/alpha"); root.update()                     # installed already: nothing runs
+assert app.dv is not None and "Alpha is installed." in app.d_status["text"]
+# the page's actions as the pane has them: installed with two launchers, one Play each, then Remove
+html.click("file://" + pages + "/test-runs/index.html"); root.update()
+acts = fake.DOC["actions"].innerHTML
+assert acts.startswith('<a href="walnut://play/alpha?launcher=Alpha">Play Alpha</a>') and \
+    'launcher=Alpha%20GL1' in acts and acts.endswith('<a class="side" href="walnut://remove/alpha">Remove</a>'), acts
+html.click("walnut://play/alpha?launcher=Alpha%20GL1")
+assert launched[-1] == ["alpha", "-gl1"] and app.dv is not None, launched
+app.back(); root.update()                                                # from a page a link led to: the list
 assert app.dv is None and mapped(app.bar) and fake.LOADS[-1] == "destroyed"
-assert "Alpha is installed." in app.d_status["text"]
 for n in range(5):                                                       # nothing left behind
     app.on_pad("square"); root.update()
     assert app.dv is not None, n
     app.back(); root.update()
     assert app.dv is None
 assert len(root.winfo_children()) == kids, (kids, root.winfo_children())
-if int(sys.argv[4]):                                                     # a thumbnail opens its picture
-    app.open_details(shot="rating/sessions/a/ps3-1.jpg"); root.update()
-    assert fake.LOADS[-2].endswith("/index.html") and fake.LOADS[-1].endswith("ps3-1.jpg")
-    app.back(); app.back(); root.update()
-    assert app.dv is None
+if nshots:                                                               # the gallery of Details' page
+    app.shot_i = 1; app.show_shot()
+    app.open_details(); root.update()
+    doc = fake.DOC
+    assert doc["shot"].attrs["src"].endswith("ps3-2.jpg") and doc["shot-pos"].textContent == "2 / %d" % nshots
+    assert doc["shot-link"].attrs["href"] == "walnut://view/alpha/1"
+    fake.FRAMES[-1].click("walnut://shot/alpha/next")
+    assert app.shot_i == 2 and doc["shot"].attrs["src"].endswith("ps3-3.jpg") and app.shot_pos["text"] == "3 / 3"
+    fake.FRAMES[-1].click("walnut://shot/alpha/0")
+    assert app.shot_i == 0 and doc["shot"].attrs["src"].startswith("file://") and doc["shot-pos"].textContent == "1 / 3"
+    fake.FRAMES[-1].click("walnut://shot/alpha/7")                       # no such: nothing
+    assert app.shot_i == 0
+    fake.FRAMES[-1].click("walnut://view/alpha/2"); root.update()        # the viewer, over Details
+    assert app.viewer is not None and app.viewer["i"] == 2
+    app.back(); root.update()
+    assert app.viewer is None and app.dv is not None                    # Circle closes the viewer first
+    app.details_tab(1); app.details_tab(1); root.update()
+    assert fake.LOADS[-1].endswith("/technical/index.html#tabs")
+    app.back(); root.update()                                            # Back from any tab: the list
+    assert app.dv is None and mapped(app.body)
 # Install from a page: the helper (a fake) runs
 app.have = set(); app.update_buttons()
 app.open_details(); root.update()
 fake.FRAMES[-1].click("walnut://install/alpha")       # (no update first: the fake helper is quick)
-assert app.dv is None and app.busy == ("alpha", "install"), (app.busy, app.main_kind, str(app.b_main["state"]), app.d_status["text"], app.selected)
+assert app.dv is not None and app.busy == ("alpha", "install"), (app.busy, app.main_kind, str(app.b_main["state"]), app.d_status["text"], app.selected)
+assert fake.DOC["actions"].innerHTML == '<span class="off">Installing\u2026</span>', fake.DOC["actions"].innerHTML
+app.back(); root.update()
 t = time.time()
 while app.busy and time.time() - t < 20:
     root.update(); time.sleep(0.05)
@@ -1489,10 +1614,50 @@ assert root.focus_get() is app.b_main, root.focus_get()
 app._key_nav(None, "Down"); root.update()
 f = root.focus_get()
 assert f is not app.b_main and f.winfo_class() == "TButton", f
+app.b_main.focus_set(); root.update()
 app._key_nav(None, "Left"); root.update()
 assert root.focus_get() is app.canvas, root.focus_get()
 app._key_nav(None, "Up"); root.update()
 assert root.focus_get().winfo_class() in ("TEntry", "TCombobox", "TCheckbutton", "TButton"), root.focus_get()
+# the d-pad through the pane: from the main button up through the middle's controls, and down again
+app.select("alpha"); root.update()
+app.b_main.focus_set(); root.update()
+seen = []
+for n in range(8):
+    app._key_nav(None, "Up"); root.update()
+    seen.append(root.focus_get())
+assert app.tag_buttons[0] in seen, seen
+if nshots:
+    assert app.b_shot in seen and (app.b_shot_next in seen or app.b_shot_prev in seen), seen
+    assert seen.index(app.tag_buttons[0]) < seen.index(app.b_shot), seen
+    app.b_shot.focus_set()
+    down = []
+    for n in range(6):
+        app._key_nav(None, "Down"); root.update()
+        down.append(root.focus_get())
+    assert app.tag_buttons[0] in down, down
+    assert any(str(x).startswith(str(app.d_bottom) + ".") for x in down[down.index(app.tag_buttons[0]):]), down
+# the middle scrolled out of view: the d-pad still goes through it, scrolling
+root.geometry("1000x600"); root.update(); time.sleep(0.2); root.update()
+if app.mid_canvas.yview() != (0.0, 1.0):
+    app.b_main.focus_set(); root.update()
+    for n in range(10):
+        app._key_nav(None, "Up"); root.update()
+        if root.focus_get() is app.b_shot:
+            break
+    assert root.focus_get() in (app.b_shot, app.b_shot_prev, app.b_shot_next) or not nshots, root.focus_get()
+    assert app.mid_canvas.yview()[0] == 0.0, app.mid_canvas.yview()
+# the layout after Details (the user, 2026-10-31: a maximized window's list filled half of it): the window grows
+# while Details is open, the divider was left anywhere; Back lays the list out across all the width
+app.open_details(); root.update()
+root.geometry("1360x820"); root.update()
+app.body.sash_place(0, 250, 0); root.update()
+app.back(); root.update(); time.sleep(0.2); root.update()
+pane = app.details.winfo_width()
+assert app.body.winfo_width() == root.winfo_width(), (app.body.winfo_width(), root.winfo_width())
+assert abs(app.canvas.master.winfo_width() + pane + int(app.body.cget("sashwidth")) - app.body.winfo_width()) <= 2, \
+    (app.canvas.master.winfo_width(), pane, app.body.winfo_width())
+assert pane <= app.pane_w + 2 and app.cols == max(1, (app.canvas.winfo_width() - w.GAP) // (w.CARD_W + w.GAP)), (pane, app.cols)
 # another start's walnut://game/<id>: the window comes to that game
 w.hand_off(hand, "beta")
 t = time.time()
@@ -1548,13 +1713,32 @@ print("smoke ok")
 FAKE_TKINTERWEB = """
 from tkinter import ttk
 LOADS, FRAMES = [], []
+class El:
+    def __init__(self):
+        self.attrs, self.innerHTML, self.textContent = {}, "", ""
+    def setAttribute(self, k, v):
+        self.attrs[k] = v
+DOC = {k: El() for k in ("shot", "shot-link", "shot-pos", "actions")}
+class Doc:
+    def getElementById(self, i):
+        return DOC.get(i)
 class HtmlFrame(ttk.Frame):
     def __init__(self, master, **kw):
         super().__init__(master)
-        self.kw, self.scrolled = kw, []
+        self.kw, self.scrolled, self.loaded = kw, [], None
+        self.document = Doc()
         FRAMES.append(self)
+    def bind(self, seq, f=None, add=None):
+        if seq == "<<DOMContentLoaded>>":
+            self.loaded = f
+            return
+        return super().bind(seq, f, add)
     def load_url(self, url):
         LOADS.append(url)
+        for e in DOC.values():
+            e.__init__()
+        if self.loaded:
+            self.loaded(None)
     def yview_scroll(self, n, what):
         self.scrolled.append((n, what))
     def click(self, url):
@@ -1617,10 +1801,11 @@ class Window(unittest.TestCase):
                 shots = []
                 try:
                     from PIL import Image
-                    p = Path(d, "games/alpha/rating/sessions/a/ps3-1.jpg")
-                    p.parent.mkdir(parents=True)
-                    Image.new("RGB", (800, 450), (200, 120, 40)).save(p)
-                    shots = ["rating/sessions/a/ps3-1.jpg"]
+                    shots = ["rating/sessions/a/ps3-%d.jpg" % n for n in (1, 2, 3)]
+                    for n, rel in enumerate(shots):
+                        p = Path(d, "games/alpha", rel)
+                        p.parent.mkdir(parents=True, exist_ok=True)
+                        Image.new("RGB", (800, 450), (200, 120, 40 * n)).save(p)
                 except ImportError:
                     pass
                 games = [dict(GAMES["alpha"], summary="s", categories=["racing"], tags=[], patched=True, patches=[],
@@ -1634,7 +1819,8 @@ class Window(unittest.TestCase):
                                       "basis": {"tests": 1, "kind": "session", "minutes": 9}, "controller": "full",
                                       "aspects": {"frame": {"name": "Frame rate", "score": 90, "detail": "median 60 fps"},
                                                   "smooth": {"name": "Smoothness", "score": 70, "detail": "x"},
-                                                  "sound": {"name": "Sound", "score": None, "detail": None}}}),
+                                                  "sound": {"name": "Sound", "score": None, "detail": None},
+                                                  "controls": {"name": "Controls", "score": 75, "detail": "y"}}}),
                          dict(GAMES["beta"], summary="s", categories=["puzzle"], tags=[], patched=False, patches=[],
                               needs_data=False, controller="unknown", tests=[],
                               rating={"medal": "Untested", "score": None, "aspects": {}})]
@@ -1650,7 +1836,8 @@ class Window(unittest.TestCase):
                     (pages / t).write_text("<p>x</p>")
                 if shots:
                     (pages / "rating/sessions/a").mkdir(parents=True)
-                    os.symlink(Path(d, "games/alpha", shots[0]), pages / shots[0])
+                    for rel in shots:
+                        os.symlink(Path(d, "games/alpha", rel), pages / rel)
                 aux = Path(d, "aux")
                 aux.mkdir()
                 (aux / "tkinterweb.py").write_text(FAKE_TKINTERWEB)
