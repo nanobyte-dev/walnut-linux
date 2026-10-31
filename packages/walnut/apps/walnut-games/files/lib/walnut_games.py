@@ -91,7 +91,8 @@ APPS = "/usr/share/applications"
 # the Walnut palette (the website's)
 BG, PANEL, BORDER = "#14304d", "#0e2238", "#1d3e61"
 ACCENT, ACCENT_DEEP, ACCENT_LIGHT = "#d49a5c", "#b5763a", "#e3ae73"
-TEXT, MUTED, ENTRY = "#ececec", "#c9a87c", "#091726"
+TEXT, MUTED, ENTRY = "#ececec", "#b4bec9", "#091726"     # text white, secondary text light gray
+LINK, LINK_HOVER = ACCENT, ACCENT_LIGHT                   # yellow is for links only (the user, 2026-10-31)
 CARD_HOVER = "#12304f"
 
 MEDAL_ORDER = ["Platinum", "Gold", "Silver", "Bronze", "Tin", "Rust", "Scrap", "Untested"]
@@ -1524,10 +1525,10 @@ class App:
                      indicatorforeground=ACCENT_LIGHT, padding=pad - 2, indicatorsize=round(12 * s),
                      focusthickness=2)
         st.map("TCheckbutton", background=[("focus", BORDER), ("active", BG)], indicatorbackground=[("selected", ENTRY)],
-               foreground=[("active", ACCENT_LIGHT), ("focus", ACCENT_LIGHT)])
+               foreground=[("active", "#ffffff"), ("focus", "#ffffff")])
         st.configure("Filter.TCheckbutton", background=PANEL, padding=round(4 * s))
         st.map("Filter.TCheckbutton", background=[("focus", BORDER), ("active", PANEL)],
-               foreground=[("active", ACCENT_LIGHT), ("focus", ACCENT_LIGHT)])
+               foreground=[("active", "#ffffff"), ("focus", "#ffffff")])
         st.configure("TButton", background=BORDER, foreground=TEXT, bordercolor=BORDER, padding=(round(12 * s), pad),
                      relief="flat", focusthickness=2)
         st.map("TButton", background=[("disabled", PANEL), ("active", "#26507c"), ("focus", "#26507c")],
@@ -1546,8 +1547,8 @@ class App:
         st.map("Main.TButton", **accent)
         st.configure("Source.TButton", background=ENTRY, foreground=TEXT, anchor="w", padding=(12, 8), justify="left")
         st.map("Source.TButton", background=[("active", BORDER), ("focus", BORDER)])
-        st.configure("Link.TButton", background=PANEL, foreground=MUTED, padding=(round(8 * s), round(4 * s)))
-        st.map("Link.TButton", foreground=[("active", ACCENT_LIGHT), ("focus", ACCENT_LIGHT)],
+        st.configure("Link.TButton", background=PANEL, foreground=LINK, padding=(round(8 * s), round(4 * s)))
+        st.map("Link.TButton", foreground=[("active", LINK_HOVER), ("focus", LINK_HOVER)],
                background=[("active", PANEL), ("focus", BORDER)], bordercolor=[("focus", ACCENT_LIGHT)])
         # a screenshot thumbnail in the pane (opens it in Details)
         st.configure("Shot.TButton", background=ENTRY, padding=2, bordercolor=PANEL, focusthickness=0)
@@ -1664,7 +1665,7 @@ class App:
         self.d_title = row("title", ttk.Label(d, text="", style="Title.TLabel", background=PANEL, wraplength=wrap))
         self.d_medal = row("medal", tk.Canvas(d, height=self.f["big"].metrics("linespace") + 14, bg=PANEL,
                                               highlightthickness=0, width=wrap), pady=(4, 0))
-        self.d_note = row("medal_note", ttk.Label(d, text="", foreground=ACCENT_LIGHT, background=PANEL,
+        self.d_note = row("medal_note", ttk.Label(d, text="", foreground=TEXT, background=PANEL,
                                                   wraplength=wrap, justify="left", font=self.f["small"]))
         self.d_sum = row("summary", ttk.Label(d, text="", style="Muted.TLabel", background=PANEL, wraplength=wrap,
                                               justify="left"), pady=(4, 10))
@@ -1673,7 +1674,7 @@ class App:
                           sticky="ew", pady=(0, 6))
         self.b_install = self.b_play = self.b_main      # one button now (the tests' and older names)
         self.b_note = ttk.Frame(d, style="Panel.TFrame")
-        self.note_tag = ttk.Label(self.b_note, text="", font=self.f["bold"], foreground=ACCENT, background=PANEL)
+        self.note_tag = ttk.Label(self.b_note, text="", font=self.f["bold"], foreground=TEXT, background=PANEL)
         self.note_text = ttk.Label(self.b_note, text="", style="Muted.TLabel", background=PANEL, wraplength=wrap - 120,
                                    justify="left", font=self.f["small"])
         self.note_tag.pack(side="left", anchor="n", padx=(0, 6))
@@ -1812,7 +1813,7 @@ class App:
         c.create_text(px + tw / 2, py + self.pill_h / 2, text=label, fill=pill_text_color(fill), font=self.f["pill"],
                       tags=(tag,))
         if is_installed(g, self.have):
-            c.create_text(x + CARD_W - 10, py + self.pill_h / 2, text="Installed", fill=ACCENT_LIGHT, anchor="e",
+            c.create_text(x + CARD_W - 10, py + self.pill_h / 2, text="Installed", fill=TEXT, anchor="e",
                           font=self.f["small"], tags=(tag,))
         c.create_text(x + 10, y + self.card_title_y, text=self.elide(g["title"], self.f["card"], CARD_W - 20),
                       fill=TEXT, anchor="w", font=self.f["card"], tags=(tag,))
@@ -3018,7 +3019,7 @@ class App:
         cols = 3
         first = None
         for gid, label, tags in groups:
-            ttk.Label(inner, text=label, font=self.f["bold"], foreground=ACCENT, background=PANEL).pack(
+            ttk.Label(inner, text=label, font=self.f["bold"], foreground=TEXT, background=PANEL).pack(
                 anchor="w", pady=(8, 2))
             grid = ttk.Frame(inner, style="Panel.TFrame")
             grid.pack(anchor="w", fill="x")
