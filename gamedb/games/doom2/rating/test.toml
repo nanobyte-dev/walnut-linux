@@ -1,0 +1,7 @@
+# doom2: the played test (gamedb/README.md "games/<id>/rating/"). Data, never run: the session
+# harness reads it through bench/harness/playdef.py.
+# The launcher starts dsda-doom with doom2.wad.
+process = 'dsda-doom'
+# its settings and data, set aside for a session on fresh defaults; DSDA-Doom's, the same as dsda-doom's own test
+home = ['.local/share/dsda-doom', '.dsda-doom']
+load_mark = '^(R_Init|S_Init|HU_Init|ST_Init|Playing demo:)'
