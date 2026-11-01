@@ -15,6 +15,7 @@
 #include <drm/nouveau_drm.h>
 
 #include "ps3rsx.h"
+#include "wait.h"
 
 static bool ctxsw = true;
 module_param(ctxsw, bool, 0644);
@@ -589,8 +590,12 @@ int ps3rsx_ioctl_gem_pushbuf(struct drm_device *dev, void *data, struct drm_file
 	}
 	if (copy_to_user(u64_to_user_ptr(req->buffers), bos, req->nr_buffers * sizeof(*bos)))
 		ret = -EFAULT;
-	if (!ret && sync && dma_fence_wait_timeout(fence, true, 30 * HZ) <= 0)
-		ret = -EBUSY;
+	if (!ret && sync) {
+		/* ended by a wedge (-EIO), not by the GPU passing it: not done (wait.h) */
+		long t = dma_fence_wait_timeout(fence, true, 30 * HZ);
+
+		ret = ps3rsx_wait_result(t, t > 0 ? dma_fence_get_status(fence) : 0, false);
+	}
 out:
 	if (held)
 		ps3rsx_console_unhold(rsx);
@@ -607,11 +612,32 @@ out:
 	return ret;
 }
 
+/* An error one of the BO's write fences ended with (a wedge: -EIO), or 0 */
+static int resv_write_error(struct dma_resv *resv)
+{
+	struct dma_resv_iter cursor;
+	struct dma_fence *f;
+	int err = 0;
+
+	dma_resv_iter_begin(&cursor, resv, DMA_RESV_USAGE_WRITE);
+	dma_resv_for_each_fence_unlocked(&cursor, f) {
+		int s = dma_fence_get_status(f);
+
+		if (dma_resv_iter_is_restarted(&cursor))
+			err = 0;
+		if (s < 0)
+			err = s;
+	}
+	dma_resv_iter_end(&cursor);
+	return err;
+}
+
 int ps3rsx_ioctl_gem_cpu_prep(struct drm_device *dev, void *data, struct drm_file *file)
 {
 	struct drm_nouveau_gem_cpu_prep *req = data;
 	struct drm_gem_object *obj = drm_gem_object_lookup(file, req->handle);
 	long t;
+	int ret;
 
 	if (!obj)
 		return -ENOENT;
@@ -619,10 +645,10 @@ int ps3rsx_ioctl_gem_cpu_prep(struct drm_device *dev, void *data, struct drm_fil
 		t = dma_resv_test_signaled(obj->resv, DMA_RESV_USAGE_WRITE) ? 1 : 0;
 	else
 		t = dma_resv_wait_timeout(obj->resv, DMA_RESV_USAGE_WRITE, true, 30 * HZ);
+	/* the GPU wedged under the BO's last write: not done (wait.h) */
+	ret = ps3rsx_wait_result(t, t > 0 ? resv_write_error(obj->resv) : 0, true);
 	drm_gem_object_put(obj);
-	if (t < 0)
-		return t;
-	return t ? 0 : -EBUSY;
+	return ret;
 }
 
 int ps3rsx_ioctl_gem_cpu_fini(struct drm_device *dev, void *data, struct drm_file *file)

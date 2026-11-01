@@ -9,8 +9,9 @@
  * methods Mesa's nv30 driver can emit (docs/MESA-METHODS.md section 4, indexed arrays
  * expanded to all units) plus what our raw tests use, all of which ran on the RSX.
  * Data checks: vertex format type 0 and UB256 with other than 4 components, 1-pixel-wide
- * swizzled render targets, fragment texture offsets not 128-byte aligned, the X16 texture
- * format, every word of the vertex texture units (vtxtex_ok()), SIFM surfaces.
+ * swizzled render targets, RT_ENABLE other than Mesa's values (rt_enable_ok()), fragment
+ * texture offsets not 128-byte aligned, the X16 texture format, every word of the vertex
+ * texture units (vtxtex_ok()), SIFM surfaces.
  * Order checks: BEGIN only with no primitive open, END and vertex data only inside one (the
  * channel's primitive state carries over from its accepted submits: Mesa splits draws).
  * Not yet: bounds checks of offsets against BOs at trigger methods.
@@ -122,6 +123,22 @@ static __always_inline bool vtxfmt_ok(u32 data)
 	u32 type = data & 0xf, size = (data >> 4) & 0xf;
 
 	return type != 0 && (type != 7 || size == 0 || size == 4);
+}
+
+/*
+ * RT_ENABLE (0x220) as Mesa writes it (nv30_state_validate.c): colour targets 0 to n-1, plus MRT
+ * when there is more than one, less MRT for a fragment program writing gl_FragColor to every
+ * target: 0, 1, 3, 7, 0xf, 0x13, 0x17 or 0x1f. Every other value is refused.
+ * rsxdrm-smoke quirks' 0x12 (target 1 and MRT without target 0, its offset and pitch never set)
+ * raised graph exception 0x106 on ps3rsx 0.924 after egl-thin's 1x64 target (session M,
+ * 2026-11-01, docs/RSX.md): that push passed the validator, and its SYNC returned 0. libgcm's
+ * TARGET_1 (2) is nothing Mesa or our tests send.
+ */
+static __always_inline bool rt_enable_ok(u32 data)
+{
+	u32 targets = data & 0xf;
+
+	return !(data & ~0x1fu) && !(targets & (targets + 1)) && (!(data & 0x10) || targets >= 3);
 }
 
 /*
@@ -332,8 +349,8 @@ static u8 fast_kind(int c, u32 m)
 		return F_SLOW;			/* context DMAs; SIFM 0x198 surface */
 	if (c != VC_3D)
 		return F_OK;
-	if (m == 0x1808 || m == 0x208)
-		return F_SLOW;			/* BEGIN_END state, RT_FORMAT */
+	if (m == 0x1808 || m == 0x208 || m == 0x220)
+		return F_SLOW;			/* BEGIN_END state, RT_FORMAT, RT_ENABLE */
 	if (prim_method(m))
 		return F_PRIM;			/* vertex data: inside a primitive only */
 	if (m >= VTXTEX_LO && m <= VTXTEX_HI)
@@ -401,6 +418,11 @@ static int check_method(struct ps3rsx_vstate *vs, u32 subch, u32 mthd, u32 data,
 		/* RT_FORMAT swizzled with log2 width 0: rendering to a 1-pixel-wide swizzled
 		 * surface raises graph exception 0x106 (docs/RSX.md) */
 		*why = "swizzled render target 1 pixel wide";
+		return -EINVAL;
+	}
+	if (vs->bound[subch] == 0x31337000 && mthd == 0x220 && !rt_enable_ok(data)) {
+		/* RT_ENABLE 0x12 raised graph exception 0x106 (rt_enable_ok()) */
+		*why = "RT_ENABLE other than Mesa's (targets 0 to n-1, MRT only with more than one)";
 		return -EINVAL;
 	}
 	if (vs->bound[subch] == 0x31337000 && tex_offset(mthd) && (data & 127)) {

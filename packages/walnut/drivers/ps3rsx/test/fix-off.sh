@@ -43,6 +43,8 @@ off tex-offset "FAIL: unit 0: texture offset +0xaa0 accepted" \
 	'tex_offset(mthd) && (data & 127)' 'tex_offset(mthd) && 0'
 off thin-swizzled-rt "FAIL: swizzled render target 1 pixel wide accepted" \
 	'(data & 0xf00) == 0x200 && !(data & 0x00ff0000)' '0'
+off rt-enable "FAIL: RT_ENABLE 00000012: 0, expected refuse" \
+	'return !(data & ~0x1fu) && !(targets & (targets + 1))' 'return 1 || !(targets & (targets + 1))'
 off vertex-type0 "FAIL: slot 0 data 00000000: 0, expected refuse" \
 	'return type != 0 && (type != 7' 'return (type != 7'
 off ub256 "FAIL: slot 0 data 00000037: 0, expected refuse" \

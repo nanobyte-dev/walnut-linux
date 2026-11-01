@@ -14,15 +14,19 @@
  *   rsxdrm-smoke peek OFF [N]  copy N (default 64) words of VRAM at OFF to GART with M2MF, print
  *   rsxdrm-smoke cpuvram  CPU writes a VRAM BO through mmap; the GPU must see the same data
  *   rsxdrm-smoke fill OFF COLOUR  3D-clear a 1920x1080 surface at VRAM OFF (display tests)
- *   rsxdrm-smoke quirks  what Mesa does that libgcm doesn't: M2MF NOP on the M2MF subchannel,
- *                        RT_ENABLE 0x12 (both fine), vertex format type 0 (WEDGES the RSX: the
- *                        validator now rejects it, so this expects -EINVAL)
+ *   rsxdrm-smoke quirks [rt12]  M2MF NOP on the M2MF subchannel (fine), vertex format type 0
+ *                        (wedges the RSX: the validator rejects it, so this expects -EINVAL); each
+ *                        push prints the ioctl's result and errno. rt12: also RT_ENABLE 0x12 on a
+ *                        second channel, expecting -EINVAL: only on a ps3rsx whose validator
+ *                        refuses it (RT_ENABLE other than Mesa's values), as on 0.924 that push
+ *                        wedged the RSX (session M, 2026-11-01)
  *   rsxdrm-smoke vram [MiB]  4 MiB CPU-mappable VRAM buffers until allocation fails (the VRAM swap
  *                        device gives its VRAM back)
  *   rsxdrm-smoke gart [MiB]  4 MiB GART buffers until allocation fails, a GPU copy in each
  *                        (with ps3rsx_cma: backing on demand, CMA migration under pressure)
  */
 #include <fcntl.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -523,24 +527,36 @@ static int t_vram(unsigned max_mib)
 	return !n;
 }
 
-static int t_quirks(void)
+/* submit what's in the push BO, print the ioctl's result and errno; nonzero unless it got want */
+static int quirk(const char *what, int want)
 {
+	int rc = submit(NULL, 0);
+
+	printf("  %s: ioctl %d, errno %d (%s): %s\n", what, rc ? -1 : 0, -rc,
+	       rc ? strerror(-rc) : "none", rc == want ? (rc ? "rejected, as expected" : "ok") :
+	       want ? "NOT rejected" : "FAILED");
+	return rc != want;
+}
+
+static int t_quirks(bool rt12)
+{
+	int fail = 0;
+
 	setup();
-	int rc, fail = 0;
 	bind_m2mf();
 	OUT(1, 0x100, 0);			/* NOP on the M2MF subchannel (nv30_transfer.c) */
-	rc = submit(NULL, 0);
-	printf("  M2MF NOP: %s\n", rc ? strerror(-rc) : "ok"); fail |= rc != 0;
+	fail |= quirk("M2MF NOP", 0);
 	OUT(0, 0, 0x31337000);
-	OUT(0, 0x220, 0x12);			/* RT_ENABLE outside libgcm's set */
-	OUT(0, 0x220, 1);
-	rc = submit(NULL, 0);
-	printf("  RT_ENABLE 0x12: %s\n", rc ? strerror(-rc) : "ok"); fail |= rc != 0;
 	OUT(0, 0x1740, 0x00000000);		/* vertex format type 0, size 0 (array off) */
 	OUT(0, 0x1740, 0x00000002);
-	rc = submit(NULL, 0);
-	printf("  vertex format type 0: %s\n", rc == -EINVAL ? "rejected (it wedges the RSX)" : "NOT rejected");
-	fail |= rc != -EINVAL;
+	fail |= quirk("vertex format type 0 (it wedges the RSX)", -EINVAL);
+	if (rt12) {
+		setup();			/* a rejected push refuses its channel: a new one */
+		OUT(0, 0, 0x31337000);
+		OUT(0, 0x220, 0x12);		/* target 1 and MRT without target 0: not Mesa's */
+		OUT(0, 0x220, 1);
+		fail |= quirk("RT_ENABLE 0x12 (it wedged the RSX on ps3rsx 0.924)", -EINVAL);
+	}
 	return fail;
 }
 
@@ -548,7 +564,7 @@ int main(int argc, char **argv)
 {
 	setvbuf(stdout, NULL, _IOLBF, 0);
 	if (argc < 2) {
-		fprintf(stderr, "usage: %s bo|nop|m2mf|clear|fence|reject|tri|twochan|quirks|gart [MiB]|vram [MiB]\n", argv[0]);
+		fprintf(stderr, "usage: %s bo|nop|m2mf|clear|fence|reject|tri|twochan|quirks [rt12]|gart [MiB]|vram [MiB]\n", argv[0]);
 		return 2;
 	}
 	fd = open("/dev/dri/renderD128", O_RDWR);
@@ -581,7 +597,7 @@ int main(int argc, char **argv)
 	else if (!strcmp(argv[1], "gart"))
 		fail = t_gart(argc > 2 ? strtoul(argv[2], NULL, 0) : 1024);
 	else if (!strcmp(argv[1], "quirks"))
-		fail = t_quirks();
+		fail = t_quirks(argc > 2 && !strcmp(argv[2], "rt12"));
 	else {
 		fprintf(stderr, "unknown subtest %s\n", argv[1]);
 		return 2;

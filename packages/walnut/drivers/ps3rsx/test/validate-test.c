@@ -12,7 +12,8 @@
  *   its dither texture as L8 and as Mesa 0052 sends it; WebKit's composited frame (fixtures/,
  *   GPU compositing in Badwolf) passes;
  * - texture offsets not 128-byte aligned (Neverball's +0xaa0 blit source: 0x105), swizzled render
- *   targets 1 pixel wide (0x106), M2MF methods on the surface-2D object (0x109);
+ *   targets 1 pixel wide (0x106), RT_ENABLE other than Mesa's values (rsxdrm-smoke quirks' 0x12:
+ *   0x106), M2MF methods on the surface-2D object (0x109);
  * - the vertex texture units (0x900-0x97c, task #16): every format byte and every low byte
  *   (location, cubic, border, dimension) of FORMAT, and good and bad words of each of the eight
  *   methods in each unit, as one write, in a burst and non-incrementing; Mesa's CONTROL0 = 0 and
@@ -29,6 +30,7 @@
  *   while a primitive is open (a submit of the other channel waits for the END; after a second
  *   the kernel ends it, refusing a channel that doesn't recover; a freed channel's is ended),
  *   nothing but vertex data and the END inside a primitive on the "GPU";
+ * - waits (wait_cases(), src/wait.h): a fence a wedge ended is an error for SYNC and CPU_PREP;
  * - the rest of the first validator and the allowlist commit (allowlist_cases()): JMP, CALL,
  *   RETURN and malformed headers, bursts past the push, binds of unknown handles, host methods,
  *   context DMA handles, the image-from-CPU object, SIFM's surface.
@@ -63,6 +65,8 @@ void ps3rsx_validate_init(void);
 #define SHADOW_C "../src/shadow.c"
 #endif
 #include SHADOW_C
+
+#include "../src/wait.h"
 
 #include "fixtures/mpv-vo-gpu-0x105.h"
 #include "fixtures/webkit-compositing.h"
@@ -862,6 +866,31 @@ static void recover_cases(void)
 	ps3rsx_shadow_free(chsh[1]);
 }
 
+/*
+ * A wait for fences as GEM_PUSHBUF's SYNC and GEM_CPU_PREP return it (src/wait.h): a fence a
+ * wedge ended (-EIO, exec.c's fences_update(), the wait returning with jiffies left) is an error,
+ * not "done". Session M: the RT_ENABLE 0x12 push wedged the RSX and its SYNC returned 0.
+ */
+#define ERESTARTSYS_ 512
+static void wait_cases(void)
+{
+	for (int restartable = 0; restartable < 2; restartable++) {
+		const char *path = restartable ? "CPU_PREP" : "SYNC";
+
+		CHECK(ps3rsx_wait_result(100, 1, restartable) == 0, "%s: a fence the GPU passed: not 0",
+		      path);
+		CHECK(ps3rsx_wait_result(100, 0, restartable) == 0, "%s: no fence error: not 0", path);
+		CHECK(ps3rsx_wait_result(3000, -EIO, restartable) == -EIO,
+		      "%s: a fence ended by a wedge: %d, expected -EIO", path,
+		      ps3rsx_wait_result(3000, -EIO, restartable));
+		CHECK(ps3rsx_wait_result(0, 0, restartable) == -EBUSY, "%s: a timeout: not -EBUSY", path);
+	}
+	CHECK(ps3rsx_wait_result(-ERESTARTSYS_, 0, false) == -EBUSY,
+	      "SYNC: an interrupted wait not -EBUSY (a restart would submit again)");
+	CHECK(ps3rsx_wait_result(-ERESTARTSYS_, 0, true) == -ERESTARTSYS_,
+	      "CPU_PREP: an interrupted wait not passed on to be restarted");
+}
+
 int main(int argc, char **argv)
 {
 	verbose = argc > 1;
@@ -995,6 +1024,48 @@ int main(int argc, char **argv)
 		CHECK(push(rt3, 2) == 0, "swizzled render target 2 pixels wide refused");
 	}
 
+	/* 0x106, rsxdrm-smoke quirks (session M, ps3rsx 0.924): RT_ENABLE 0x12. Mesa's values
+	 * (targets 0 to n-1, MRT with more than one or not: nv30_validate_fragment() masks it off
+	 * for gl_FragColor to every target) pass, every other one is refused: as one
+	 * write, in Mesa's surface burst (0x21c-0x228) and non-incrementing */
+	for (u32 v = 0; v < 0x40; v++) {
+		const bool ok = v == 0 || v == 1 || v == 3 || v == 7 || v == 0xf || v == 0x13 ||
+				v == 0x17 || v == 0x1f;
+		u32 one[2] = { HDR(1, 0x220), v };
+		u32 burst[5] = { HDR(4, 0x21c), 0x40, v, 0, 0 };
+		u32 ni[4] = { NONINC | HDR(3, 0x220), 1, v, 1 };
+		int r;
+
+		r = push(one, 2);
+		CHECK((r == 0) == ok, "RT_ENABLE %08x: %d, expected %s", v, r, ok ? "accept" : "refuse");
+		r = push(burst, 5);
+		CHECK((r == 0) == ok, "RT_ENABLE %08x in a burst: %d", v, r);
+		r = push(ni, 4);
+		CHECK((r == 0) == ok, "RT_ENABLE %08x non-incrementing: %d", v, r);
+	}
+	CHECK(push((const u32[]){ HDR(1, 0x220), 0x80000001 }, 2) != 0, "RT_ENABLE 80000001 accepted");
+	/* the quirks subtest's three submits on one channel, the state carried as submit.c does:
+	 * the M2MF NOP passes, the RT_ENABLE 0x12 push is refused, the vertex format type 0 one too */
+	{
+		const u32 nop[] = { HDRS(1, 1, 0), 0x31337303, HDRS(1, 1, 0x180), 0x66604200,
+				    HDRS(1, 1, 0x100), 0 };
+		const u32 rt[] = { HDRS(1, 0, 0), 0x31337000, HDRS(1, 0, 0x220), 0x12,
+				   HDRS(1, 0, 0x220), 1 };
+		const u32 vtx[] = { HDRS(1, 0, 0x1740), 0, HDRS(1, 0, 0x1740), 2 };
+		struct ps3rsx_vstate vs, t;
+
+		memset(&vs, 0, sizeof(vs));
+		t = vs;
+		CHECK(ps3rsx_validate(&t, nop, ARRAY_SIZE(nop)) == 0, "quirks: the M2MF NOP refused");
+		vs = t;
+		last_warn[0] = 0;
+		CHECK(ps3rsx_validate(&t, rt, ARRAY_SIZE(rt)) != 0 && strstr(last_warn, "RT_ENABLE"),
+		      "quirks: the RT_ENABLE 0x12 push accepted (%s)", last_warn);
+		t = vs;
+		CHECK(ps3rsx_validate(&t, vtx, ARRAY_SIZE(vtx)) != 0,
+		      "quirks: vertex format type 0 accepted");
+	}
+
 	/* 0x109: the M2MF launch burst sent to the surface-2D object */
 	{
 		const u32 m2mf[] = { HDRS(1, 2, 0), 0x31337303, HDRS(8, 2, 0x30c), 0x2fc000, 0x1945000,
@@ -1010,6 +1081,7 @@ int main(int argc, char **argv)
 	allowlist_cases();
 	vtxtex_cases();
 	recover_cases();
+	wait_cases();
 
 	printf("validate-test: %d checks, %d failed\n", checks, fails);
 	return fails != 0;
