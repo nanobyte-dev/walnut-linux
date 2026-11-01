@@ -52,12 +52,14 @@ takes Mesa's series, the register and Mesa's host tests from the last commit ins
 **2026-10-31.** On the series before the Mesa merges (`--rev HEAD`, 2 min 25 s): 9 Mesa rungs, 0 the
 base, then 0002, 0014, 0046, 0047, 0048, 0049, 0052, 0053; fused mesa-context-pushbuf (0003),
 mesa-vbo-gpu-fetch (0005), mesa-texture-uploads-gart (0007), mesa-thin-mip-levels (0013) and
-mesa-ctx-state-reset (0029). On the merged series (41 patches, not committed yet; 2 min 39 s): 9 rungs,
-0 the base, then 0003 (removable now), 0014, 0046, 0047, 0048 (0002 folded in), 0049, 0052, 0053;
-fused 0005, 0007, 0013, 0029. On both, with the register's tests split into parts, every test fails
-below its fix and passes from it on (merged: pushbuf-flush and -destroy from rung 1, query-steal from
-3, upload from 4, mm-fallback and mm-nomem from 5, fence and transfer-cpu from 6, fence-cancel at 8),
-and the tests that guard no stability fix pass at every rung. Two surprises came up while building it,
+mesa-ctx-state-reset (0029). On the merged series (42 patches with 0056, not committed yet; 3 min 21 s
+for all four components): 10 rungs, 0 the base, then 0003 (removable now), 0014, 0046, 0047, 0048
+(0002 folded in), 0049, 0052, 0053, 0056 (mesa-query-wait-deadline); fused 0005, 0007, 0013, 0029. On
+both, with the register's tests split into parts, every test fails below its fix and passes from it on
+(merged: pushbuf-flush and -destroy from rung 1, query-steal from 3, upload from 4, mm-fallback and
+mm-nomem from 5, fence and transfer-cpu from 6, fence-cancel from 8, query-lost's end, steal, destroy,
+elapsed and deadline at 9: at rung 8 each hangs and its alarm fails it after 5 s), and the tests that
+guard no stability fix pass at every rung (query-lost's late and x86 among them). Two surprises came up while building it,
 both in the tests, not the fixes: alloc-fail-test.c didn't build without 0053's
 `nouveau_device::cancelled` (it now sets it only when the tree has it), and the ppc64 part of
 minmax-vmx lost its source when the tests came from elsewhere (mounted now). ps3rsx: 16 rules, each
@@ -66,8 +68,8 @@ caught off and passing on; sdl2-compat and luajit: stock fails, ours passes. 0 s
 ## Rules for every PS3 session
 
 - The user is present and nobody is playing. One PS3 agent at a time: take the PC-side lease first,
-  `export PS3_LEASE=$(tools/ps3 lock --note "validation M")`; `make deploy` and `tools/play-test.sh`
-  refuse while someone else holds it. The PS3-side bench lock stays as it is.
+  `export PS3_LEASE=$(tools/ps3 lock --owner "agent M" --note "validation M")`; `make deploy` and `tools/play-test.sh`
+  refuse while someone else holds it. A lease goes stale by its expiry (`--for MINUTES`, default 120; `tools/ps3 renew` extends it), never by a pid, so a long session renews it. The PS3-side bench lock stays as it is.
 - The debs of the session (the shipped ones and any test build) are copied to `build/testsets/<session>/`
   with a `VERSIONS` file; `make clean-ephemeral` leaves that folder alone. The ladder's libraries are in
   `build/testsets/ladder/`, each rung with its `BUILD` file (branch and commit).
@@ -151,7 +153,8 @@ kernel-sm-shutdown-wait's `sudo poweroff` at its end.
   fragment program, which the validator can't see; a mesa-shim run first (a later round).
 - mesa-cancel-recover (0053) on the PS3: its recovery needs a rejected push from a Mesa that has 0053,
   and every rung with 0053 also has 0052 (no X16 left to reject); its host part
-  (`mesa-alloc-fail:fence-cancel`) is on the ladder.
+  (`mesa-alloc-fail:fence-cancel`) is on the ladder. So is mesa-query-wait-deadline (0056), as
+  `mesa-query-lost`; on the PS3 it is only carried in rung 9, where nothing gets cancelled.
 - ps3rsx-no-switch-in-primitive: a latent race, shown by the host model in `validate-test.c`.
 - ps3rsx-vswap-* and the out-of-GART Mesa fixes under real load: the game sessions and benchmarks run
   them on; their off state is a hung task or a crash, not a check.
@@ -173,4 +176,16 @@ installed; the shipped kernel stays in the menu as the way back.
 
 The thermal checks of [THERMAL.md](THERMAL.md#ps3-checks-still-to-run) that 0040 and 0041 need are the
 two rows above; the fold changes no code path that runs on the shipped kernel.
+
+**Result, 2026-11-01 00:38-00:54** (one boot of the testset's kernel 6.12.111+ps3.1210~dev20261031171117
+with ps3rsx 0.1209, the user at the console, not playing; raw logs in
+`~/Documents/walnut/process-2026-10-31/ps3-session-KM/`): **passed, except two checks still to do.**
+The command line and dmesg as stated (`64 MiB CMA area for the GART`, `GART 63 MiB (on demand)`, no
+fixed-reservation line); `MemTotal` 222560 kB, equal to kernel .874's in the 2026-10-29 bench snapshots
+(across boots: the shipped kernel wasn't booted in this session), `CmaTotal` 65536 kB. `rsxdrm-smoke
+gart`: 12 x 4 MiB copied with 0 words wrong, the 13th refused as expected; `GART backed by memory`
+12 MiB, 60 MiB during, 12 MiB again within 20 s; no `no GART` and no `no memory to back the GART`.
+`ps3_sm` read both zones (Cell 63.8 C, RSX 57.5 C); at boot `fan: SYSCON automatic`. Still to do: the
+game run under use (it waits for the user's OK) and `sudo poweroff` (the user's call). The same boot ran
+session K's switch repros and session M (TESTS.md History, 11-01 00:38).
 <!-- END kernel-merges-2026-10-31 -->

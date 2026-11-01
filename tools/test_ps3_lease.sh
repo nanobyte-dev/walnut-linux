@@ -12,8 +12,14 @@ no() { if "$@" >/dev/null 2>&1; then echo "FAIL (should fail) $*"; fail=1; else 
 
 ok $ps3 status
 ok $ps3 check
-A=$($ps3 lock --note "agent A" --for 30); ok test -n "$A"
+A=$($ps3 lock --owner agentA --note "agent A" --for 30); ok test -n "$A"
 no $ps3 lock --note B
+msg=$($ps3 status); ok test "${msg#*held by agentA}" != "$msg"
+# a dead pid does not make a live lease stale
+ok grep -q "^expiry=" "$XDG_RUNTIME_DIR/walnut-ps3.lease"
+sed -i "s/^pid=.*/pid=999999/" "$XDG_RUNTIME_DIR/walnut-ps3.lease"
+no $ps3 lock --note thief
+no $ps3 unlock
 msg=$($ps3 lock 2>&1 >/dev/null); ok test "${msg#*agent A}" != "$msg"
 $ps3 status >/dev/null; ok test $? = 1
 no $ps3 check
@@ -22,6 +28,7 @@ no env PS3_LEASE=wrong $ps3 unlock
 no $ps3 renew bogus
 ok env PS3_LEASE=$A $ps3 renew --for 60
 ok test "$(sed -n s/^expiry=//p $XDG_RUNTIME_DIR/walnut-ps3.lease)" -gt $(( $(date +%s) + 3000 ))
+ok grep -q "^owner=agentA" "$XDG_RUNTIME_DIR/walnut-ps3.lease"
 # two concurrent locks: exactly one wins
 $ps3 unlock "$A" >/dev/null
 for i in 1 2 3 4 5 6; do ( $ps3 lock --note "r$i" >/dev/null 2>&1 && echo won >> "$T/wins" ) & done; wait
