@@ -16,8 +16,8 @@
 # importing a game's data (and a game installed during the session shows after it). Plain
 # `ps3-game-menu DIR` only rewrites the entries; --reload (DIR defaults to
 # $XDG_RUNTIME_DIR/ps3-game-menu) also closes the hidden jgmenu, which reads the applications
-# directories once at start (its restart hooks only fire for /usr/share/applications), so the
-# panel button's jgmenu_run starts a fresh one with the new entries on its next click.
+# directories once at start (its restart hooks only fire for /usr/share/applications), so a
+# new hidden one is started right away (the panel button then shows it at once).
 reload=
 if [ "${1:-}" = --reload ]; then reload=1; shift; fi
 dir=${1:-}
@@ -62,8 +62,17 @@ while IFS="	" read -r f p; do
 	[ -e "$p" ] || rm -f "$out.new/$f"
 done < "$out.req"
 rm -rf "$out.req" "$out" && mv "$out.new" "$out"
-if [ -n "$reload" ]; then	# the hidden jgmenu reads the entries at its start: close it, the next click starts it fresh
-	pkill -u "$(id -u)" -x jgmenu 2>/dev/null
-	rm -f "$HOME/.jgmenu-lockfile"
+if [ -n "$reload" ]; then	# the hidden jgmenu reads the entries at its start: close it and start a hidden one again
+	if pkill -u "$(id -u)" -x jgmenu 2>/dev/null; then
+		i=0	# its lock goes with it (a crash on SIGTERM leaves the lockfile: removed)
+		while pgrep -u "$(id -u)" -x jgmenu > /dev/null && [ $i -lt 30 ]; do sleep 0.1; i=$((i + 1)); done
+		pkill -KILL -u "$(id -u)" -x jgmenu 2>/dev/null
+		rm -f "$HOME/.jgmenu-lockfile"
+		# only if one ran: during game mode the guard closed it and starts it again after the game
+		setsid systemd-run --user --scope --slice=ps3-desktop.slice -q nice -n 10 jgmenu --hide-on-startup \
+			< /dev/null > /dev/null 2>&1 &
+	else
+		rm -f "$HOME/.jgmenu-lockfile"
+	fi
 fi
 exit 0

@@ -37,8 +37,8 @@ There is no display manager. A systemd generator (`ps3-desktop-autologin`) adds 
 1. It puts `/etc/xdg/ps3` first among the XDG config directories, so the PS3 defaults (Openbox, tint2, GTK, PCManFM) apply and the user's own `~/.config` files still win.
 2. It paints the root window with the splash's last frame and, once PCManFM's desktop window covers it, goes back to plain blue (`#14304d`) so the 8 MB picture does not stay in video memory.
 3. It sets `GDK_GL=disable`, so GTK programs do not load the GL driver just to probe it (that cost RAM and GART for nothing; games use GL directly).
-4. It writes the menu entries for the installed games through `ps3-game` (`ps3-game-menu`, into the runtime directory, first in `XDG_DATA_DIRS`), so every game in the menu starts in game mode.
-5. It starts the helpers in `ps3-desktop.slice` (the cgroup game mode freezes): `pcmanfm --desktop`, tint2 (with jgmenu, the tray and the clock), nm-applet, pnmixer, lxpolkit and dunst. Bluetooth is `blueman` from the menu, with no resident tray (it cost about 60 MB of Python). NetworkManager never manages eth0.
+4. It writes the menu entries for the installed games through `ps3-game` (`ps3-game-menu`, into the runtime directory, first in `XDG_DATA_DIRS`), so every game in the menu starts in game mode. `ps3-game-menu --reload` (Walnut Games, after an install or data import) closes the resident jgmenu and starts a hidden one at once (nice 10, in `ps3-desktop.slice`), but only if one was running: in game mode the guard has closed it and brings it back after the game. jgmenu segfaults on SIGTERM now and then (two cores seen); the guard and `--reload` accept that, remove the stale lockfile and start a hidden one again.
+5. It starts the helpers in `ps3-desktop.slice` (the cgroup game mode freezes): `pcmanfm --desktop`, tint2 (with the tray and the clock), `jgmenu --hide-on-startup` (resident and hidden from the login, so the panel button only shows it: about 0.2 s instead of a 1.3 s full start at the first click; a crash's stale lockfile is removed first, one instance only), nm-applet, pnmixer, lxpolkit and dunst. Bluetooth is `blueman` from the menu, with no resident tray (it cost about 60 MB of Python). NetworkManager never manages eth0.
 6. It starts `ps3-game-detect` and then `exec`s Openbox, which stays with X in `ps3-display.slice` and is never frozen.
 
 The menu has Shut down and Reboot entries. The user D-Bus runs under systemd (`dbus-user-session`).
@@ -120,7 +120,7 @@ Leaving starts when the last registered game is gone: the guard's `ExecStopPost`
 
 1. The desktop's files come back in one pass (`ps3-game-prefetch fetch`). At entering, `record` noted the files the desktop and display slices and the user manager have mapped, plus the wallpaper and the programs leave runs, only the pages that were in memory then. The fetch sorts them by disk position (FIEMAP), asks for them all with `POSIX_FADV_WILLNEED`, then reads.
 2. Beside it, the desktop thaws at once. The cgroup's path is saved at entering, so no `systemctl` has to load first (that was part of the 5 s).
-3. Then the gamepads and the PCManFM desktop come back, jgmenu is started again hidden with the environment it had (so the panel button opens it as quickly as before), and the system side last.
+3. Then the gamepads and the PCManFM desktop come back, jgmenu is started again hidden with the environment it had (so the panel button opens it as quickly as before; it stays closed during the game), and the system side last.
 
 Each step goes to the user journal: `leave: desktop thawed`, `leave: PCManFM desktop started`, `leave: system side done`, `ps3-game-prefetch: fetched N files, X MB (Y MB were still in memory) ... all in after T s`, `left game mode`. Entering logs `recorded N files, X MB in memory`, which is what keeping them would cost. The return time after this change has not been measured on the PS3.
 
@@ -179,7 +179,7 @@ All in `packages/walnut/system/ps3-desktop/tests/` and `bench/`, none needing th
 
 | Test | Covers |
 |---|---|
-| `menu-check.sh` | `ps3-game-menu`'s entries |
+| `menu-check.sh` | `ps3-game-menu`'s entries; `game-menu-check.sh` also `--reload` with stand-in jgmenu and systemd-run |
 | `autogm-check.sh` | `ps3-game-detect` on Xvfb and Openbox with a stand-in GL game: 47 checks for the detector, plus checks 11 and 12 (a stand-in jgmenu holding both grabs that starts a game through `ps3-game`; a tray popup holding them when a game is detected) and 13 to 15 (a game ignoring SIGTERM closed by the escape, `BTN_MODE` events into the listener, Alt+Tab and Win+D through XTEST with Openbox). Needs Xvfb and openbox, or docker/podman; run by `make test-slow` |
 | `gprefetch-check.py` | the prefetch program's learning and fetching (suite `gprefetch`) |
 | `kick-check.sh` | the kicker's switches |

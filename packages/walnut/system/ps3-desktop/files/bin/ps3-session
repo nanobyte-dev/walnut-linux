@@ -72,7 +72,10 @@ if [ -f "$t" ] && grep -q '^launcher_item_app = jgmenu.desktop$' "$t" && ! grep 
 	sed -i 's/^launcher_item_app = jgmenu.desktop$/&\nlauncher_item_app = walnut-games.desktop/' "$t"
 fi
 unset t
-d pcmanfm --desktop; d tint2; d nm-applet; d pnmixer; d lxpolkit; d dunst
+# jgmenu resident and hidden from the login on (the panel button then only shows it: 0.2 s instead of
+# a 1.3 s full start at the first click). A lockfile left by a crash is removed first; one instance only.
+pgrep -u "$(id -u)" -x jgmenu > /dev/null || rm -f "$HOME/.jgmenu-lockfile"
+d pcmanfm --desktop; d tint2; pgrep -u "$(id -u)" -x jgmenu > /dev/null || d jgmenu --hide-on-startup; d nm-applet; d pnmixer; d lxpolkit; d dunst
 # Game mode by itself for any fullscreen 3D program, however it was started (ps3-game-detect;
 # it watches X and ends with it)
 systemctl --user restart --no-block ps3-game-detect.service

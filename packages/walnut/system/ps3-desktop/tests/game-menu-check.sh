@@ -38,5 +38,16 @@ echo x > "$W/nope"; M "$W/run"
 chk "rerun: file appeared, launcher shows" "[ -f $O/missing.desktop ] && [ -f $O/two.desktop ]"
 rm -f "$W/nope"; M "$W/run"
 chk "rerun: file gone, launcher hidden again" "[ ! -e $O/missing.desktop ]"
+# --reload: a running jgmenu is closed and a hidden one started (stand-in programs; none when none ran)
+mkdir -p "$W/bin" "$W/home"; cp "$(command -v sleep)" "$W/bin/jgmenu"
+printf '#!/bin/sh\nshift 4\necho "$*" >> %s/started\n' "$W" > "$W/bin/systemd-run"; chmod +x "$W/bin/systemd-run"
+R() { HOME=$W/home PATH=$W/bin:$PATH PS3_APPLICATIONS=$A sh "$here/files/libexec/ps3-game-menu" --reload "$W/run"; }
+R; sleep 0.3
+chk "reload, no jgmenu running: none started" "[ ! -e $W/started ]"
+"$W/bin/jgmenu" 60 & jp=$!; touch "$W/home/.jgmenu-lockfile"; sleep 0.2
+R; sleep 0.5
+chk "reload: old jgmenu closed" "! kill -0 $jp 2>/dev/null"
+chk "reload: lockfile removed" "[ ! -e $W/home/.jgmenu-lockfile ]"
+chk "reload: one hidden jgmenu started" "[ \$(grep -c '^nice -n 10 jgmenu --hide-on-startup\$' $W/started) = 1 ]"
 [ $fail = 0 ] && echo "game-menu-check: ok"
 exit $fail
