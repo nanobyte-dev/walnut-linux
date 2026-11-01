@@ -1,0 +1,82 @@
+#!/usr/bin/python3 -I
+# ps3-gpu-escape: the escape hatch for when no picture shows (the user, 2026-11-01). Holding
+# Ctrl+Super+Alt+Shift+F12 (left or right modifiers) for 5 s writes 1 to ps3rsx's root-only
+# /sys/devices/platform/ps3rsx/force_display_only: ps3rsx goes display-only until reboot (no 3D,
+# KMS with CPU rendering), keeps a crash record, and its uevent makes ps3-gpu-crash-report keep
+# the report and restart the desktop without glamor. Works whether or not the GPU is wedged.
+# Root (ps3-gpu-escape.service, enabled), no X needed. Every /dev/input/event* device is
+# read without grabbing; devices are looked for again every 3 s (hot-plug).
+# Privacy: only the pressed state of those keys is kept; every other event is dropped as read.
+# Nothing is logged but the trigger.
+import glob
+import os
+import select
+import struct
+import sys
+import syslog
+import time
+
+HOLD = 5.0
+FORCE = "/sys/devices/platform/ps3rsx/force_display_only"
+EV_KEY = 1
+# each needed key: any of its codes (linux/input-event-codes.h)
+NEEDED = {"ctrl": (29, 97), "super": (125, 126), "alt": (56, 100), "shift": (42, 54), "f12": (88,)}
+CODES = {c: name for name, cs in NEEDED.items() for c in cs}
+EVENT = struct.Struct("llHHi")  # struct input_event: timeval, type, code, value
+
+
+def main():
+    devs = {}       # path -> fd
+    held = {}       # (path, code) -> True while down: only the hatch's keys
+    since = None
+    last_scan = 0.0
+    fired = False
+    while True:
+        now = time.monotonic()
+        if now - last_scan > 3:
+            last_scan = now
+            for p in glob.glob("/dev/input/event*"):
+                if p not in devs:
+                    try:
+                        devs[p] = os.open(p, os.O_RDONLY | os.O_NONBLOCK)
+                    except OSError:
+                        pass
+        r, _, _ = select.select(list(devs.values()), [], [], 0.25)
+        for p, fd in list(devs.items()):
+            if fd not in r:
+                continue
+            try:
+                data = os.read(fd, EVENT.size * 64)
+            except OSError:         # unplugged
+                os.close(fd)
+                del devs[p]
+                for k in [k for k in held if k[0] == p]:
+                    del held[k]
+                continue
+            for i in range(0, len(data) - EVENT.size + 1, EVENT.size):
+                _, _, typ, code, value = EVENT.unpack_from(data, i)
+                if typ != EV_KEY or code not in CODES:
+                    continue        # everything else is dropped unread
+                if value:
+                    held[(p, code)] = True
+                else:
+                    held.pop((p, code), None)
+        down = {CODES[c] for (_, c) in held}
+        if len(down) == len(NEEDED):
+            since = since or time.monotonic()
+            if not fired and time.monotonic() - since >= HOLD:
+                fired = True
+                syslog.syslog(syslog.LOG_WARNING, "escape hatch held 5 s: forcing display-only mode")
+                try:
+                    with open(FORCE, "w") as f:
+                        f.write("1\n")
+                except OSError as e:
+                    syslog.syslog(syslog.LOG_ERR, f"escape hatch: {FORCE}: {e}")
+        else:
+            since = None
+            fired = False
+
+
+if __name__ == "__main__":
+    syslog.openlog("ps3-gpu-escape")
+    sys.exit(main())

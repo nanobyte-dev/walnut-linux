@@ -138,6 +138,12 @@ static __always_inline bool rt_enable_ok(u32 data)
 {
 	u32 targets = data & 0xf;
 
+#ifdef __KERNEL__
+	/* the wedge generator for regression tests of the recovery (unwedge.c's
+	 * test_allow_rt_enable_12: root only, off by default, cleared by every recovery) */
+	if (data == 0x12 && READ_ONCE(ps3rsx_test_allow_rt12))
+		return true;
+#endif
 	return !(data & ~0x1fu) && !(targets & (targets + 1)) && (!(data & 0x10) || targets >= 3);
 }
 

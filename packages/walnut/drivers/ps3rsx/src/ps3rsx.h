@@ -7,6 +7,7 @@
 #ifndef PS3RSX_H
 #define PS3RSX_H
 
+#include "blame.h"
 #include <linux/list.h>
 #include <linux/mutex.h>
 #include <drm/drm_device.h>
@@ -110,7 +111,29 @@ struct ps3rsx_device {
 	bool fast_poll;			/* someone waits on a fence: poll fast (fence_lock) */
 	u32 last_ref;
 	ktime_t last_progress;
-	bool wedged;			/* a graph exception or a stall: nothing runs until reboot */
+	bool wedged;			/* a graph exception or a stall: nothing runs until a recovery */
+	/* unwedge.c: in-place recovery after a graph exception */
+	struct work_struct recover_work;
+	wait_queue_head_t recover_wq;
+	bool recovering;		/* the work runs: submits wait for its outcome */
+	u32 recover_gen;		/* bumped at each recovery: kernel copies from before fail */
+	u32 kcopy_gen;			/* recover_gen when the pending kernel copy was queued */
+	bool vblank_irq_on;		/* enable_vblank set the vsync mask (kms.c) */
+	bool uw_ready;			/* exec_init done: only then may the recovery run */
+	int fault_chan;			/* the faulting commit's channel (blame.h): refused; -1 none */
+	pid_t fault_pid;		/* its pid and comm (crash record) */
+	u32 fault_ref;			/* the reference register at the exception (hard IRQ) */
+	u32 fault_seq;			/* the trapping commit (blame.h), if fault_known */
+	bool fault_known;
+	struct ps3rsx_blame blame;	/* the last commits, in ring order (exec_lock) */
+	int blame_chan;			/* the channel the next commit belongs to, -1 the kernel */
+	u64 blame_serial;		/* and its serial (0: the kernel) */
+	u64 fault_serial;		/* the trapping commit's channel serial (mark_clients) */
+	u64 chan_serial;		/* the last channel serial handed out (chan_lock) */
+	struct list_head reports_bos;	/* every BO_REPORTS (mm_lock): zapped when the context moves */
+	struct rw_semaphore reports_lock;	/* faults (read) against the switch and its zap (write) */
+	u64 reports_lpar, reports_size;	/* the current context's reports area (reports_lock) */
+	char fault_comm[TASK_COMM_LEN];
 
 	struct mutex chan_lock;
 	DECLARE_BITMAP(chan_ids, PS3RSX_MAX_CHANNELS);
@@ -154,6 +177,7 @@ enum bo_kind { BO_VRAM, BO_VRAM_GPU_ONLY, BO_GART, BO_REPORTS };
 struct ps3rsx_bo {
 	struct drm_gem_object base;
 	enum bo_kind kind;
+	struct list_head reports_link;	/* BO_REPORTS: on rsx->reports_bos (mm_lock) */
 	u32 domain;			/* NOUVEAU_GEM_DOMAIN_VRAM or _GART */
 	u64 offset;			/* GPU offset in its domain's ctxdma */
 	struct drm_mm_node node;
@@ -166,6 +190,7 @@ int ps3rsx_mem_init(struct ps3rsx_device *rsx);
 void ps3rsx_mem_fini(struct ps3rsx_device *rsx);
 struct ps3rsx_bo *ps3rsx_bo_new(struct ps3rsx_device *rsx, u32 domain, size_t size, u32 align);
 struct ps3rsx_bo *ps3rsx_bo_new_reports(struct ps3rsx_device *rsx);
+void ps3rsx_reports_moved(struct ps3rsx_device *rsx, u64 lpar, u64 size);
 int ps3rsx_bo_handle(struct drm_file *file, struct ps3rsx_bo *bo,
 		     struct drm_nouveau_gem_info *info);
 int ps3rsx_ioctl_gem_new(struct drm_device *dev, void *data, struct drm_file *file);
@@ -193,6 +218,24 @@ int ps3rsx_dumb_create(struct drm_file *file, struct drm_device *dev,
 		       struct drm_mode_create_dumb *args);
 
 int ps3rsx_exec_init(struct ps3rsx_device *rsx);
+/* unwedge.c: the in-place recovery after a graph exception, display-only mode, the crash record */
+bool ps3rsx_uw_active(void);
+void ps3rsx_uw_exception(struct ps3rsx_device *rsx);
+void ps3rsx_uw_dev_init(struct ps3rsx_device *rsx);
+void ps3rsx_uw_dev_fini(struct ps3rsx_device *rsx);
+void ps3rsx_uw_sysfs_init(struct ps3rsx_device *rsx);
+void ps3rsx_uw_quiesce(struct ps3rsx_device *rsx);
+void ps3rsx_exec_fail_fences(struct ps3rsx_device *rsx);
+void ps3rsx_exec_cancel_poll(struct ps3rsx_device *rsx);
+void ps3rsx_exec_restart_poll(struct ps3rsx_device *rsx);
+int ps3rsx_gart_remap_all(struct ps3rsx_device *rsx);
+void ps3rsx_kms_vsync_irq_fini(struct ps3rsx_device *rsx);
+void ps3rsx_kms_vsync_irq_init(struct ps3rsx_device *rsx);
+extern bool ps3rsx_test_allow_rt12;
+bool ps3rsx_uw_display_only(void);
+void ps3rsx_uw_start(void);
+void ps3rsx_uw_stop(void);
+void ps3rsx_uw_exit(void);
 void ps3rsx_exec_fini(struct ps3rsx_device *rsx);
 u32 *ps3rsx_ring_begin(struct ps3rsx_device *rsx, u32 len, int *err);
 struct dma_fence *ps3rsx_ring_commit(struct ps3rsx_device *rsx, u32 len, bool kick);
@@ -271,9 +314,19 @@ struct ps3rsx_vstate {
 
 struct ps3rsx_shadow;
 
+/* the crash record: the channel's last submits (unwedge.c prints them at an exception) */
+#define PS3RSX_HIST	8
+struct ps3rsx_subhist {
+	u32 seq;		/* its fence */
+	pid_t pid;
+	u32 len;		/* bytes of pushes */
+	u32 first, last;	/* the first and the last word of the pushes */
+};
+
 struct ps3rsx_chan {
 	struct list_head head;
 	u32 id;
+	u64 serial;			/* unique per device, never reused (blame.h) */
 	struct ps3rsx_vstate vstate;
 	struct ps3rsx_shadow *shadow;	/* the state this channel's pushes set (shadow.c) */
 	struct ps3rsx_file *pf;		/* the file it belongs to */
@@ -281,6 +334,10 @@ struct ps3rsx_chan {
 				 * push of it was rejected (its later ones count on it), and
 				 * its client doesn't recover (PS3_RECOVER) */
 	u32 cancelled;			/* submits cancelled for a rejected push (it recovers) */
+	bool fatal;			/* its client's push trapped the GPU: -ENODEV from now on */
+	bool lost;			/* the GPU was recovered under it: -ECANCELED once (PS3_RECOVER) or -EIO */
+	struct ps3rsx_subhist hist[PS3RSX_HIST];	/* the last submits (exec_lock) */
+	u32 hist_n;
 };
 
 /* Per open file */
@@ -288,6 +345,8 @@ struct ps3rsx_file {
 	struct mutex lock;
 	bool abi_ok;			/* PS3_ABI was queried */
 	bool recover;			/* PS3_RECOVER was queried: -ECANCELED, not refusal */
+	bool refused;			/* its push trapped the GPU, or it was lost under a
+					 * recovery without PS3_RECOVER: no new channel or buffer */
 	struct list_head objects;	/* NVIF objects (device, engine objects) */
 	struct list_head chans;
 	bool was_master;		/* counted in masters_open */

@@ -175,6 +175,7 @@ static void ps3rsx_remove(struct platform_device *pdev)
 {
 	struct ps3rsx_device *rsx = platform_get_drvdata(pdev);
 
+	ps3rsx_uw_quiesce(rsx);		/* no recovery work under the teardown below */
 	drm_dev_unregister(&rsx->drm);
 	drm_atomic_helper_shutdown(&rsx->drm);	/* flips back to ps3fb's frame */
 	ps3rsx_kms_fini(rsx);
@@ -216,6 +217,7 @@ static void __exit ps3rsx_exit(void)
 {
 	platform_device_unregister(ps3rsx_pdev);
 	platform_driver_unregister(&ps3rsx_platform_driver);
+	ps3rsx_uw_exit();
 }
 
 module_init(ps3rsx_init);

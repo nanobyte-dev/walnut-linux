@@ -1,0 +1,9 @@
+[Unit]
+Description=Tell the desktop user when the graphics driver recovered from a crash, or couldn't
+Documentation=file:///usr/lib/ps3/desktop/ps3-gpu-recovered
+# ps3-session restarts it at every session start; it waits for X by itself
+
+[Service]
+ExecStart=/usr/lib/ps3/desktop/ps3-gpu-recovered
+Restart=on-failure
+RestartSec=5

@@ -1,0 +1,272 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Sun, 1 Nov 2026 21:00:00 +0200
+Subject: ps3fb: let the RSX driver replace its context after a graph exception
+
+A graph exception wedges the RSX until a reboot: lv1 stops the FIFO and the
+graph engine, and the context the RSX driver (ps3rsx) works in keeps its
+broken state. ps3rsx can restart the FIFO and the graph engine itself
+(nouveau's documented NV04/NV40 registers), but it needs a new driver context,
+and only ps3fb can give it one: ps3fb allocated the context, records its IO
+maps and frees it at shutdown, and lv1 hands out new LPAR addresses with every
+allocation.
+
+Three calls for the RSX driver that is hooked in (its hook proves it; any other
+caller gets -EBUSY):
+
+- ps3fb_gpu_recover_begin(): from now on ps3fb makes no lv1 context, memory or
+  device teardown and never takes the GPU back (ps3fb_gpu_takeover(false) gets
+  -EBUSY, channel 0 is not run again), not even at shutdown. Freeing a context
+  that had run work after a recovery shut the console down in a test, and lv1
+  cleans up the partition at reboot anyway. Once per boot: -EALREADY after.
+- ps3fb_gpu_ctx_leak(): the faulted driver context is forgotten, not freed (its
+  IO maps are undone as ps3fb_gpu_ctx_free does); the next ps3fb_gpu_ctx_get()
+  allocates a new one.
+- ps3fb_gpu_ctx_realloc(): the first new context after a trap can fail to bind
+  its notifier; it is then freed and allocated again. Only that context (the
+  one allocated after the leak, handed out exactly once, so it ran nothing but
+  the recovery's own bind), once per boot, never the leaked one or ps3fb's own.
+
+ps3fb_gpu_recovered() tells whether a recovery began in this boot (a module
+reload must not start another).
+
+Tested on the PS3 (2026-11-01, four sessions): the RSX recovered in place from
+a graph exception (cause 0x106) with X, glxgears, mpv and Neverball running,
+and kept drawing; a second exception in the same boot left display-only mode,
+and the console shut down and rebooted normally after either.
+
+Forwarded: no
+---
+diff --git a/arch/powerpc/include/asm/ps3gpu.h b/arch/powerpc/include/asm/ps3gpu.h
+--- a/arch/powerpc/include/asm/ps3gpu.h
++++ b/arch/powerpc/include/asm/ps3gpu.h
+@@ -110,4 +110,10 @@
+ void ps3fb_gpu_set_exception_hook(const struct ps3fb_gpu_hook *hook);
+ unsigned int ps3fb_gpu_exception_seen(void);
+ 
++/* In-place recovery after a graph exception, by the hooked RSX driver (see ps3fb.c) */
++int ps3fb_gpu_recover_begin(const struct ps3fb_gpu_hook *hook);
++int ps3fb_gpu_ctx_leak(const struct ps3fb_gpu_hook *hook);
++int ps3fb_gpu_ctx_realloc(const struct ps3fb_gpu_hook *hook, u64 handle, struct ps3fb_gpu_ctx *ctx);
++bool ps3fb_gpu_recovered(void);
++
+ #endif /* _ASM_POWERPC_PS3GPU_H */
+diff --git a/drivers/video/fbdev/ps3fb.c b/drivers/video/fbdev/ps3fb.c
+--- a/drivers/video/fbdev/ps3fb.c
++++ b/drivers/video/fbdev/ps3fb.c
+@@ -221,6 +221,18 @@
+ static DEFINE_MUTEX(gpu_ctx_lock);
+ static struct ps3fb_gpu_ctx gpu_ctx;	/* the driver's context, allocated once, never freed */
+ static u64 gpu_ctx_iomap[256];		/* lpar mapped at each 1 MiB IO page of gpu_ctx, or 0 */
++/*
++ * In-place recovery (ps3fb_gpu_recover_begin and the calls after it). Once the RSX driver starts
++ * a recovery, ps3fb makes no lv1 context, memory or device teardown any more and never takes the
++ * GPU back (channel 0 is not run again), not even at shutdown: freeing a context that ran work
++ * after a recovery shut the console down (2026-11-01), and lv1 cleans up the LPAR at reboot.
++ */
++static bool gpu_recovered;	/* under gpu_own_lock: a recovery began (once per boot) */
++static bool gpu_ctx_leaked;	/* under both locks: the driver context was leaked */
++static u64 gpu_ctx_leaked_handle;	/* under gpu_own_lock: never freed, never reallocated */
++static unsigned int gpu_ctx_reallocs;	/* under gpu_own_lock: at most one per boot */
++static u64 gpu_ctx_fresh;		/* under gpu_ctx_lock: the context the first get after the leak allocated */
++static unsigned int gpu_ctx_fresh_gets;	/* under gpu_ctx_lock: how often it was handed out */
+ static const struct ps3fb_gpu_hook *gpu_hook;
+ static unsigned int gpu_exceptions;	/* sticky: restore_state clears GPU_USER_DEBUG */
+ 
+@@ -2487,8 +2499,12 @@
+ 			pr_err("%s: lv1_gpu_context_allocate failed: %d\n", __func__, status);
+ 			gpu_ctx.handle = 0;
+ 			status = -ENOSPC;
++		} else if (gpu_ctx_leaked && !gpu_ctx_fresh) {
++			gpu_ctx_fresh = gpu_ctx.handle;	/* the only context a realloc may free */
+ 		}
+ 	}
++	if (!status && gpu_ctx_fresh && gpu_ctx.handle == gpu_ctx_fresh)
++		gpu_ctx_fresh_gets++;
+ 	if (!status)
+ 		*ctx = gpu_ctx;
+ 	mutex_unlock(&gpu_ctx_lock);
+@@ -2582,6 +2598,10 @@
+ 		ret = -ENODEV;		/* ps3fb has shut down: its context is gone */
+ 		goto out;
+ 	}
++	if (!own && gpu_recovered) {
++		ret = -EBUSY;		/* after a recovery ps3fb's channel 0 is never run again */
++		goto out;
++	}
+ 	if (own == gpu_owned)
+ 		goto out;
+ 	if (own && gpu_direct && ps3gpu_direct_owner_gone())
+@@ -2637,6 +2657,144 @@
+ }
+ EXPORT_SYMBOL_GPL(ps3fb_gpu_exception_seen);
+ 
++/*
++ * In-place recovery after a graph exception, driven by the RSX driver that is hooked in (its own
++ * hook proves it; any other caller is refused). The RSX driver restarts the GPU's FIFO and graph
++ * engine itself; ps3fb's part is the driver context: lv1 hands out fresh LPAR addresses on every
++ * allocation, so only ps3fb can replace the context it records (its iomaps, its shutdown).
++ *
++ * 1. ps3fb_gpu_recover_begin: from now on no lv1 teardown and no handback to ps3fb (above).
++ *    Once per boot: a second call answers -EALREADY.
++ * 2. ps3fb_gpu_ctx_leak: the faulted driver context is forgotten, never freed (its IO maps are
++ *    undone); the next ps3fb_gpu_ctx_get allocates a new one.
++ * 3. ps3fb_gpu_ctx_realloc, only if the first new context can't bind its notifier: that context
++ *    is freed and allocated again. Only the context ps3fb allocated after the leak, handed out
++ *    exactly once (so it ran nothing but the recovery's own bind), once per boot, never the leaked
++ *    context or ps3fb's own. The caller has parked PFIFO's CACHE1 off it.
++ */
++int ps3fb_gpu_recover_begin(const struct ps3fb_gpu_hook *hook)
++{
++	int ret = 0;
++
++	mutex_lock(&gpu_own_lock);
++	if (shadow.dead || !gpu_owned || READ_ONCE(gpu_hook) != hook) {
++		pr_warn("%s: refused (shut down %d, ps3fb on the GPU %d, foreign hook %d)\n", __func__,
++			shadow.dead, !gpu_owned, READ_ONCE(gpu_hook) != hook);
++		ret = -EBUSY;
++	} else if (gpu_recovered) {
++		ret = -EALREADY;	/* one recovery per boot */
++	} else {
++		gpu_recovered = true;
++		pr_info("%s: no lv1 GPU teardown and no handback to ps3fb from now on\n", __func__);
++	}
++	mutex_unlock(&gpu_own_lock);
++	return ret;
++}
++EXPORT_SYMBOL_GPL(ps3fb_gpu_recover_begin);
++
++/* the driver context's IO maps undone (lv1_gpu_context_iomap, as ps3fb_gpu_ctx_free does); both locks held */
++static void gpu_ctx_unmap_all(u64 handle)
++{
++	unsigned int i;
++
++	for (i = 0; i < ARRAY_SIZE(gpu_ctx_iomap); i++)
++		if (gpu_ctx_iomap[i])
++			lv1_gpu_context_iomap(handle, (u64)i << 20, gpu_ctx_iomap[i], 1024 * 1024,
++					      CBE_IOPTE_M);
++	memset(gpu_ctx_iomap, 0, sizeof(gpu_ctx_iomap));
++}
++
++int ps3fb_gpu_ctx_leak(const struct ps3fb_gpu_hook *hook)
++{
++	u64 old;
++
++	mutex_lock(&gpu_own_lock);
++	if (gpu_ctx_leaked) {
++		mutex_unlock(&gpu_own_lock);
++		return -EALREADY;
++	}
++	if (shadow.dead || READ_ONCE(gpu_hook) != hook || !gpu_recovered) {
++		pr_warn("%s: refused (shut down %d, foreign hook %d, recovery begun %d)\n", __func__,
++			shadow.dead, READ_ONCE(gpu_hook) != hook, gpu_recovered);
++		mutex_unlock(&gpu_own_lock);
++		return -EBUSY;
++	}
++	mutex_lock(&gpu_ctx_lock);
++	old = gpu_ctx.handle;
++	if (old)
++		gpu_ctx_unmap_all(old);
++	memset(&gpu_ctx, 0, sizeof(gpu_ctx));
++	gpu_ctx_leaked = true;
++	gpu_ctx_leaked_handle = old;
++	mutex_unlock(&gpu_ctx_lock);
++	mutex_unlock(&gpu_own_lock);
++	pr_info("%s: driver context %#llx left to lv1, not freed (graph exceptions %u)\n", __func__,
++		old, gpu_exceptions);
++	return 0;
++}
++EXPORT_SYMBOL_GPL(ps3fb_gpu_ctx_leak);
++
++int ps3fb_gpu_ctx_realloc(const struct ps3fb_gpu_hook *hook, u64 handle, struct ps3fb_gpu_ctx *ctx)
++{
++	int ret = 0;
++	s64 s;
++
++	mutex_lock(&gpu_own_lock);
++	if (shadow.dead || READ_ONCE(gpu_hook) != hook || !gpu_recovered || gpu_ctx_reallocs ||
++	    !handle || handle == gpu_ctx_leaked_handle || handle == ps3fb.context_handle) {
++		pr_warn("%s: refused (handle %#llx, reallocs %u)\n", __func__, handle, gpu_ctx_reallocs);
++		mutex_unlock(&gpu_own_lock);
++		return -EBUSY;
++	}
++	mutex_lock(&gpu_ctx_lock);
++	if (!gpu_ctx_leaked || gpu_ctx.handle != handle || handle != gpu_ctx_fresh ||
++	    gpu_ctx_fresh_gets != 1) {
++		/* only the context allocated after the leak, handed out once: it ran only the
++		 * recovery's own words, never a client's */
++		pr_warn("%s: refused: %#llx (driver %#llx, fresh %#llx handed out %u times)\n",
++			__func__, handle, gpu_ctx.handle, gpu_ctx_fresh, gpu_ctx_fresh_gets);
++		ret = -EINVAL;
++		goto out;
++	}
++	gpu_ctx_reallocs++;
++	gpu_ctx_unmap_all(handle);
++	s = lv1_gpu_context_free(handle);
++	memset(&gpu_ctx, 0, sizeof(gpu_ctx));
++	if (s) {
++		pr_err("%s: lv1_gpu_context_free(%#llx) failed: %lld\n", __func__, handle, s);
++		ret = -EIO;
++		goto out;
++	}
++	s = lv1_gpu_context_allocate(ps3fb.memory_handle, 0x820, &gpu_ctx.handle,
++				     &gpu_ctx.ctrl_lpar, &gpu_ctx.dinfo_lpar,
++				     &gpu_ctx.reports_lpar, &gpu_ctx.reports_size);
++	if (s) {
++		pr_err("%s: lv1_gpu_context_allocate failed: %lld\n", __func__, s);
++		memset(&gpu_ctx, 0, sizeof(gpu_ctx));
++		ret = -ENOSPC;
++		goto out;
++	}
++	pr_info("%s: driver context %#llx freed, %#llx allocated\n", __func__, handle,
++		gpu_ctx.handle);
++	*ctx = gpu_ctx;
++out:
++	mutex_unlock(&gpu_ctx_lock);
++	mutex_unlock(&gpu_own_lock);
++	return ret;
++}
++EXPORT_SYMBOL_GPL(ps3fb_gpu_ctx_realloc);
++
++bool ps3fb_gpu_recovered(void)
++{
++	bool r;
++
++	mutex_lock(&gpu_own_lock);
++	r = gpu_recovered;
++	mutex_unlock(&gpu_own_lock);
++	return r;
++}
++EXPORT_SYMBOL_GPL(ps3fb_gpu_recovered);
++
+ static void ps3fb_gpu_vma_open(struct vm_area_struct *vma) {}
+ static void ps3fb_gpu_vma_close(struct vm_area_struct *vma) {}
+ 
+@@ -2988,6 +3146,7 @@
+ {
+ 	struct fb_info *info = ps3_system_bus_get_drvdata(dev);
+ 	u64 xdr_lpar = ps3_mm_phys_to_lpar(__pa(ps3fb_videomemory.address));
++	bool recovered;
+ 
+ 	dev_dbg(&dev->core, " -> %s:%d\n", __func__, __LINE__);
+ 	mutex_lock(&shadow_lock);
+@@ -2995,6 +3154,7 @@
+ 	mutex_unlock(&shadow_lock);
+ 	mutex_lock(&gpu_own_lock);
+ 	shadow.dead = true;
++	recovered = gpu_recovered;
+ 	put_pid(gpu_direct_owner);	/* a direct session just stops: the context goes */
+ 	gpu_direct_owner = NULL;
+ 	mutex_unlock(&gpu_own_lock);
+@@ -3020,6 +3180,11 @@
+ 	}
+ 	iounmap((u8 __force __iomem *)ps3fb.dinfo);
+ 	iounmap((u8 __force __iomem *)ps3fb.fifo.ctrl);
++	if (recovered) {
++		pr_warn("%s: the GPU was recovered after a graph exception: its contexts are left to lv1\n",
++			__func__);
++		return;
++	}
+ 	ps3fb_gpu_ctx_free();
+ 	lv1_gpu_fb_close(ps3fb.context_handle);
+ 	if (shadow.changed) {

@@ -1,0 +1,25 @@
+[Unit]
+Description=Escape hatch: Ctrl+Super+Alt+Shift+F12 held 5 s forces software rendering (ps3rsx display-only mode)
+
+[Service]
+ExecStart=/usr/lib/ps3/sbin/ps3-gpu-escape
+Restart=on-failure
+RestartSec=5
+Environment=PATH=/usr/sbin:/usr/bin:/sbin:/bin
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateNetwork=yes
+ProtectHome=yes
+ProtectSystem=strict
+ProtectKernelModules=yes
+# the journal socket (syslog); /sys stays writable under ProtectSystem=strict, so ps3rsx's 0200
+# force_display_only file needs no entry (it comes and goes with the module)
+ReadWritePaths=/run/systemd/journal
+DevicePolicy=closed
+DeviceAllow=char-input r
+# root's own files only: the input nodes (root:input 0660) and the sysfs file need no capability
+CapabilityBoundingSet=
+
+[Install]
+WantedBy=multi-user.target

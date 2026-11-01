@@ -213,6 +213,10 @@ int ps3rsx_ioctl_channel_alloc(struct drm_device *dev, void *data, struct drm_fi
 
 	if (!pf->abi_ok)
 		return -EPERM;		/* not a PS3-patched Mesa: its streams would wedge the GPU */
+	if (ps3rsx_uw_display_only())
+		return -ENODEV;		/* display-only: no 3D (Mesa falls back to software) */
+	if (READ_ONCE(pf->refused))
+		return -ENODEV;		/* a refused client gets no new channel */
 	ch = kzalloc(sizeof(*ch), GFP_KERNEL);
 	if (!ch)
 		return -ENOMEM;
@@ -223,8 +227,10 @@ int ps3rsx_ioctl_channel_alloc(struct drm_device *dev, void *data, struct drm_fi
 	}
 	mutex_lock(&rsx->chan_lock);
 	id = find_first_zero_bit(rsx->chan_ids, PS3RSX_MAX_CHANNELS);
-	if (id < PS3RSX_MAX_CHANNELS)
+	if (id < PS3RSX_MAX_CHANNELS) {
 		set_bit(id, rsx->chan_ids);
+		ch->serial = ++rsx->chan_serial;
+	}
 	mutex_unlock(&rsx->chan_lock);
 	if (id >= PS3RSX_MAX_CHANNELS) {
 		ps3rsx_shadow_free(ch->shadow);
@@ -384,6 +390,13 @@ int ps3rsx_ioctl_gem_pushbuf(struct drm_device *dev, void *data, struct drm_file
 		return -ENOENT;
 	if (!req->nr_push)
 		return 0;		/* Mesa's first call only asks for the suffixes */
+	if (ps3rsx_uw_display_only())
+		return -ENODEV;		/* display-only: the GPU is gone, KMS stays */
+	/* an in-place recovery is running: wait for its outcome (10 s at most) */
+	if (READ_ONCE(rsx->recovering) &&
+	    wait_event_interruptible_timeout(rsx->recover_wq, !READ_ONCE(rsx->recovering),
+					     10 * HZ) < 0)
+		return -EINTR;
 	if (READ_ONCE(rsx->wedged))
 		return -EIO;
 	if (req->nr_push > NOUVEAU_GEM_MAX_PUSH || req->nr_buffers > NOUVEAU_GEM_MAX_BUFFERS ||
@@ -444,6 +457,24 @@ int ps3rsx_ioctl_gem_pushbuf(struct drm_device *dev, void *data, struct drm_file
 		goto out;
 	held = true;
 	mutex_lock(&rsx->exec_lock);
+	if (ch->fatal) {		/* this client's push trapped the GPU */
+		mutex_unlock(&rsx->exec_lock);
+		ret = -ENODEV;
+		goto out;
+	}
+	if (ch->lost) {			/* the GPU was recovered under this channel */
+		ch->lost = false;
+		if (chan_recovers(ch)) {
+			ch->cancelled++;
+			ret = -ECANCELED;	/* Mesa (0053) re-sends its whole state */
+		} else {
+			ch->broken = true;
+			WRITE_ONCE(ch->pf->refused, true);	/* the whole client */
+			ret = -EIO;
+		}
+		mutex_unlock(&rsx->exec_lock);
+		goto out;
+	}
 	if (ch->broken) {
 		mutex_unlock(&rsx->exec_lock);
 		ret = -EIO;
@@ -520,7 +551,11 @@ int ps3rsx_ioctl_gem_pushbuf(struct drm_device *dev, void *data, struct drm_file
 			dst += len / 4;
 		}
 	}
+	rsx->blame_chan = ch->id;	/* blame.h's record of this commit */
+	rsx->blame_serial = ch->serial;
 	fence = ps3rsx_ring_commit(rsx, restore + total, !dry_run);
+	rsx->blame_chan = -1;
+	rsx->blame_serial = 0;
 	if (!IS_ERR(fence)) {
 		u32 *dst = ring + restore / 4;
 
@@ -549,6 +584,16 @@ int ps3rsx_ioctl_gem_pushbuf(struct drm_device *dev, void *data, struct drm_file
 		/* who to blame if the GPU raises an exception on this submit */
 		rsx->last_pid = task_pid_nr(current);
 		get_task_comm(rsx->last_comm, current);
+		{	/* the crash record: this channel's last submits */
+			struct ps3rsx_subhist *h = &ch->hist[ch->hist_n++ % PS3RSX_HIST];
+			u32 *w = ring + restore / 4;
+
+			h->seq = rsx->seqno;
+			h->pid = rsx->last_pid;
+			h->len = total;
+			h->first = total ? w[0] : 0;
+			h->last = total ? w[total / 4 - 1] : 0;
+		}
 		rsx->prim_owner = ch->vstate.prim_open ? ch : NULL;
 		if (!rsx->prim_owner)
 			wake_up_all(&rsx->prim_wq);

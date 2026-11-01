@@ -164,11 +164,40 @@ static void exception_hook(void *data, u64 status, const void __iomem *info)
 {
 	struct ps3rsx_device *rsx = data;
 
-	/* hard IRQ: record only; the poll timer errors the fences */
-	pr_err("ps3rsx: graph exception; last submit from channel %d, %s (pid %d)\n",
-	       READ_ONCE(rsx->last_chan), rsx->last_comm, READ_ONCE(rsx->last_pid));
+	/* hard IRQ: record only; the poll timer errors the fences. The faulting commit is found
+	 * from the reference register (blame.h), in the recovery work under exec_lock */
+	WRITE_ONCE(rsx->fault_ref, ref_read(rsx));
+	pr_err("ps3rsx: graph exception at reference %#x (last submit from channel %d, %s)\n",
+	       rsx->fault_ref, READ_ONCE(rsx->last_chan), rsx->last_comm);
 	WRITE_ONCE(rsx->wedged, true);
 	hrtimer_start(&rsx->fence_timer, 0, HRTIMER_MODE_REL);
+	ps3rsx_uw_exception(rsx);	/* the crash record and the in-place recovery (unwedge.c) */
+}
+
+/* every pending fence ends with -EIO now (the recovery work, process context) */
+void ps3rsx_exec_fail_fences(struct ps3rsx_device *rsx)
+{
+	unsigned long flags;
+
+	spin_lock_irqsave(&rsx->fence_lock, flags);
+	fences_update(rsx, 0, -EIO);
+	spin_unlock_irqrestore(&rsx->fence_lock, flags);
+}
+
+void ps3rsx_exec_cancel_poll(struct ps3rsx_device *rsx)
+{
+	hrtimer_cancel(&rsx->fence_timer);
+}
+
+void ps3rsx_exec_restart_poll(struct ps3rsx_device *rsx)
+{
+	unsigned long flags;
+
+	spin_lock_irqsave(&rsx->fence_lock, flags);
+	rsx->last_ref = ref_read(rsx);
+	rsx->last_progress = ktime_get();
+	spin_unlock_irqrestore(&rsx->fence_lock, flags);
+	hrtimer_start(&rsx->fence_timer, ns_to_ktime(SLOW_POLL_NS), HRTIMER_MODE_REL);
 }
 
 /* --- ring -------------------------------------------------------------------------------- */
@@ -240,6 +269,8 @@ struct dma_fence *ps3rsx_ring_commit(struct ps3rsx_device *rsx, u32 len, bool ki
 	p = ring_cpu(rsx, rsx->ring_put + len);
 	*p++ = SET_REFERENCE;
 	*p++ = ++rsx->seqno;
+	ps3rsx_blame_add(&rsx->blame, rsx->seqno, rsx->blame_chan, rsx->blame_serial,
+			 task_pid_nr(current), current->comm);
 	dma_fence_init(&f->base, &ps3rsx_fence_ops, &rsx->fence_lock, rsx->fence_context,
 		       rsx->seqno);
 	dma_fence_get(&f->base);	/* the pending list's reference */
@@ -278,6 +309,7 @@ u32 ps3rsx_ring_commit_seq(struct ps3rsx_device *rsx, u32 len)
 
 	*p++ = SET_REFERENCE;
 	*p++ = ++rsx->seqno;
+	ps3rsx_blame_add(&rsx->blame, rsx->seqno, -1, 0, task_pid_nr(current), current->comm);
 	rsx->ring_put += len + 8;
 	wmb();
 	out_be32(rsx->ctrl + CTRL_PUT, rsx->ring_put);
@@ -330,6 +362,7 @@ int ps3rsx_exec_init(struct ps3rsx_device *rsx)
 	rsx->hw_shadow = ps3rsx_shadow_new();
 	rsx->restore_buf = kvmalloc(RESTORE_MAX_WORDS * 4, GFP_KERNEL);
 	rsx->last_chan = -1;
+	rsx->blame_chan = -1;		/* commits are the kernel's unless submit.c says (blame.h) */
 	rsx->prim_owner = NULL;
 	init_waitqueue_head(&rsx->prim_wq);
 	if (!rsx->hw_shadow || !rsx->restore_buf) {
@@ -341,6 +374,7 @@ int ps3rsx_exec_init(struct ps3rsx_device *rsx)
 	spin_lock_init(&rsx->fence_lock);
 	mutex_init(&rsx->exec_lock);
 	hrtimer_init(&rsx->fence_timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
+	ps3rsx_uw_dev_init(rsx);
 	rsx->fence_timer.function = fence_poll;
 	rsx->fence_context = dma_fence_context_alloc(1);
 	ps3rsx_submit_debugfs_init(rsx);
@@ -351,6 +385,9 @@ int ps3rsx_exec_init(struct ps3rsx_device *rsx)
 	}
 	rsx->ctrl = ioremap(rsx->ctx.ctrl_lpar, PAGE_SIZE);
 	rsx->dinfo = ioremap(rsx->ctx.dinfo_lpar, 128 * 1024);
+	/* the reports area faults map (mem.c); no mapping exists yet, so no lock needed */
+	WRITE_ONCE(rsx->reports_lpar, rsx->ctx.reports_lpar);
+	WRITE_ONCE(rsx->reports_size, rsx->ctx.reports_size);
 	if (!rsx->ctrl || !rsx->dinfo) {
 		if (rsx->ctrl)
 			iounmap(rsx->ctrl);
@@ -395,10 +432,14 @@ int ps3rsx_exec_init(struct ps3rsx_device *rsx)
 		goto err_release;
 	}
 	rsx->last_ref = rsx->seqno;
+	ps3rsx_uw_sysfs_init(rsx);
+	/* an exception before this point (during the reset program) is recorded and leaves
+	 * display-only mode: exec_init fails and unwinds by itself, nothing is recovered */
+	WRITE_ONCE(rsx->uw_ready, true);
 	return 0;
 
 err_release:
-	ps3fb_gpu_set_exception_hook(NULL);
+	ps3rsx_uw_quiesce(rsx);		/* the hook off, then no recovery work */
 	ps3fb_gpu_takeover(false);
 err_unmap:
 	iounmap(rsx->ctrl);
@@ -421,8 +462,12 @@ void ps3rsx_exec_fini(struct ps3rsx_device *rsx)
 	spin_lock_irqsave(&rsx->fence_lock, flags);
 	fences_update(rsx, ref_read(rsx), rsx->wedged ? -EIO : -ECANCELED);
 	spin_unlock_irqrestore(&rsx->fence_lock, flags);
-	ps3fb_gpu_set_exception_hook(NULL);
-	if (!rsx->wedged)
+	ps3rsx_uw_quiesce(rsx);		/* the hook off, the recovery work done */
+	ps3rsx_uw_dev_fini(rsx);
+	ps3rsx_uw_stop();		/* after it: the work can't re-arm the watchdog */
+	if (ps3rsx_uw_active())
+		drm_err(&rsx->drm, "the GPU was recovered in this boot: it stays with ps3rsx until reboot (ps3fb's channel 0 is not run again)\n");
+	else if (!rsx->wedged)
 		ps3fb_gpu_takeover(false);
 	else
 		drm_err(&rsx->drm, "GPU wedged: keeping it from ps3fb until reboot\n");

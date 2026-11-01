@@ -29,8 +29,8 @@
 /* Take the GPU for a kernel copy without waiting; 0, or -EAGAIN (use the PPE) */
 int ps3rsx_kcopy_begin(struct ps3rsx_device *rsx)
 {
-	if (!ps3rsx_kcopy_allowed() || READ_ONCE(rsx->wedged))
-		return -EAGAIN;
+	if (!ps3rsx_kcopy_allowed() || READ_ONCE(rsx->wedged) || ps3rsx_uw_display_only())
+		return -EAGAIN;		/* display-only: the PPE copies */
 	if (!mutex_trylock(&rsx->own_lock))
 		return -EAGAIN;
 	if (!rsx->gpu_owned || rsx->console_pending) {
@@ -89,6 +89,9 @@ int ps3rsx_kcopy_to_gart(struct ps3rsx_device *rsx, const struct kcopy_run *r, u
 		kput(rsx, &p, 0x30c, v, 8);
 	}
 	*seq = ps3rsx_ring_commit_seq(rsx, (p - start) * 4);
+	/* one field is enough: vswap queues and waits for each copy under vs->lock, so kernel
+	 * copies never overlap */
+	rsx->kcopy_gen = READ_ONCE(rsx->recover_gen);
 	rsx->last_chan = -1;			/* the next client submit restores its own state */
 	return 0;
 }
@@ -105,8 +108,9 @@ int ps3rsx_kcopy_wait(struct ps3rsx_device *rsx, u32 seq, unsigned int timeout_u
 	ktime_t end = ktime_add_us(ktime_get(), timeout_us);
 	int spins = 50;
 
-	while (!ps3rsx_seq_done(rsx, seq)) {
-		if (READ_ONCE(rsx->wedged))
+	while (READ_ONCE(rsx->recover_gen) != rsx->kcopy_gen || !ps3rsx_seq_done(rsx, seq)) {
+		/* a recovery since the copy was queued: the new ring never ran it */
+		if (READ_ONCE(rsx->wedged) || READ_ONCE(rsx->recover_gen) != rsx->kcopy_gen)
 			return -EIO;
 		if (ktime_after(ktime_get(), end))
 			return -ETIMEDOUT;

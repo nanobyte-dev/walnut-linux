@@ -1,0 +1,244 @@
+#!/usr/bin/python3 -I
+# ps3-gpu-recovered: tells the desktop user that ps3rsx recovered the GPU in place (or couldn't;
+# docs/DRIVER.md "Recovery"). Runs as the desktop user (ps3-gpu-recovered.service, a systemd user
+# service that ps3-session restarts at every session start). It watches the
+# DRM uevents (udevadm monitor) for RSX_RECOVERED=1 / RSX_RECOVERY_FAILED=1 and shows one dialog
+# per event; at start it compares ps3rsx's sysfs counters with a stamp (~/.cache, with this boot's
+# id), so an event before this session started (display-only restarts X) isn't missed or repeated.
+# "Reboot" runs the desktop's own reboot path (ps3-power's `sudo -n /usr/bin/systemctl reboot`, the
+# sudoers rule ps3-desktop ships). The first graph exception of a boot recovers in place
+# (RECOVERED); a second one or a failed recovery leaves display-only mode (FAILED).
+import os
+import subprocess
+import sys
+import time
+import tkinter as tk
+
+sys.path.insert(0, "/usr/lib/walnut-games")
+try:
+    import walnut_palette as P  # noqa: E402  (colours only from the palette)
+except ImportError:
+    P = None    # walnut-games is only recommended: Tk's own colours then
+
+
+def colours(**names):
+    """Tk colour options from the palette's names (bg="BG", ...), or none without the palette"""
+    return {opt: getattr(P, name) for opt, name in names.items()} if P else {}
+
+SYSFS = "/sys/devices/platform/ps3rsx"
+STAMP = os.path.expanduser("~/.cache/ps3-gpu-recovered.stamp")
+# a failure seen live but not shown yet: "boot failures since"
+PENDING = os.path.expanduser("~/.cache/ps3-gpu-recovered.pending")
+TITLE = "Walnut"
+
+# the user's own wording (2026-11-01)
+RECOVERED = "The graphics driver crashed and recovered! System stability may be degraded, a reboot is recommended"
+# the user's own wording: the second graph exception or a failed recovery (display-only mode)
+FAILED = ("The graphics driver crashed and couldn't recover, and your previous session couldn't be saved. "
+          "Using software rendering until the next reboot.")
+
+
+def counter(name):
+    try:
+        with open(os.path.join(SYSFS, name)) as f:
+            return int(f.read().strip())
+    except (OSError, ValueError):
+        return 0
+
+
+def boot_id():
+    try:
+        with open("/proc/sys/kernel/random/boot_id") as f:
+            return f.read().strip()
+    except OSError:
+        return "?"
+
+
+def read_stamp():
+    try:
+        with open(STAMP) as f:
+            b, r, x = f.read().split()
+            return (int(r), int(x)) if b == boot_id() else (0, 0)
+    except (OSError, ValueError):
+        return 0, 0
+
+
+def write_stamp(rec, fail):
+    try:
+        os.makedirs(os.path.dirname(STAMP), exist_ok=True)
+        with open(STAMP, "w") as f:
+            f.write(f"{boot_id()} {rec} {fail}\n")
+    except OSError:
+        pass
+
+
+def user_x_env():
+    """DISPLAY and XAUTHORITY as the user manager has them now: each session start imports its
+    own (ps3-session), so after a desktop restart they name the new X"""
+    env = {}
+    try:
+        out = subprocess.run(["systemctl", "--user", "show-environment"], capture_output=True,
+                             text=True, timeout=5, check=False).stdout
+    except (OSError, subprocess.SubprocessError):
+        return env
+    for line in out.splitlines():
+        k, _, v = line.partition("=")
+        if k in ("DISPLAY", "XAUTHORITY") and v:
+            env[k] = v
+    return env
+
+
+def newest_xorg_start():
+    """Start time (epoch seconds) of the newest Xorg process, or 0"""
+    try:
+        with open("/proc/stat") as f:
+            btime = next(int(l.split()[1]) for l in f if l.startswith("btime "))
+        hz = os.sysconf("SC_CLK_TCK")
+    except (OSError, StopIteration, ValueError):
+        return 0
+    newest = 0
+    for pid in os.listdir("/proc"):
+        if not pid.isdigit():
+            continue
+        try:
+            with open(f"/proc/{pid}/stat") as f:
+                st = f.read()
+        except OSError:
+            continue
+        comm = st[st.find("(") + 1:st.rfind(")")]
+        if comm == "Xorg":
+            newest = max(newest, btime + int(st[st.rfind(")") + 2:].split()[19]) / hz)
+    return newest
+
+
+def open_display(after=0.0, limit=300):
+    """A Tk root on a live X, waiting up to limit seconds for one; with after, only on an X
+    started after that time (display-only restarts X: never the old, dying one). None if none."""
+    end = time.monotonic() + limit
+    while True:
+        os.environ.update(user_x_env())
+        if not after or newest_xorg_start() > after or time.monotonic() >= end:
+            try:
+                return tk.Tk()
+            except tk.TclError:
+                pass
+        if time.monotonic() >= end:
+            return None
+        time.sleep(1)
+
+
+def read_pending(fail):
+    """the time a not yet shown failure was seen live (this boot, this count), else 0"""
+    try:
+        with open(PENDING) as f:
+            b, x, t = f.read().split()
+            return float(t) if b == boot_id() and int(x) == fail else 0.0
+    except (OSError, ValueError):
+        return 0.0
+
+
+def write_pending(fail, t):
+    try:
+        os.makedirs(os.path.dirname(PENDING), exist_ok=True)
+        with open(PENDING, "w") as f:
+            f.write(f"{boot_id()} {fail} {t}\n")
+    except OSError:
+        pass
+
+
+def shown(rec, fail):
+    write_stamp(rec, fail)
+    try:
+        os.unlink(PENDING)
+    except OSError:
+        pass
+
+
+def restart():
+    subprocess.run(["sudo", "-n", "/usr/bin/systemctl", "reboot"], check=False)
+
+
+def dialog(text, root=None, shown=None):
+    """shown(): called once the window is mapped on a live X (the stamp then remembers it)"""
+    root = root or tk.Tk()
+    root.title(TITLE)
+    root.configure(padx=24, pady=20, **colours(bg="BG"))
+    root.resizable(False, False)
+    tk.Label(root, text=text, font=("DejaVu Sans", 12), justify="left", **colours(bg="BG", fg="TEXT"),
+             wraplength=560, anchor="w").pack(fill="x", pady=(0, 18))
+    row = tk.Frame(root, **colours(bg="BG"))
+    row.pack(fill="x")
+
+    def reboot():
+        root.destroy()
+        restart()
+
+    # No keyboard path to "Reboot": keys typed into a game or a terminal as the dialog appears
+    # must not reboot. "Don't reboot" has the focus (Space or Return
+    # close the dialog), "Reboot" takes a click and only after 1.5 s.
+    b_reboot = tk.Button(row, text="Reboot", command=reboot, relief="flat", padx=16, pady=6,
+                         **colours(bg="ACCENT", fg="ON_ACCENT", activebackground="ACCENT_LIGHT",
+                                   activeforeground="ON_ACCENT", disabledforeground="ON_ACCENT"),
+                         font=("DejaVu Sans", 12, "bold"), takefocus=0, state="disabled")
+    b_reboot.pack(side="right")
+    b_later = tk.Button(row, text="Don't reboot", command=root.destroy,
+                        **colours(bg="BORDER", fg="TEXT", activebackground="BUTTON_HOVER",
+                                  activeforeground="TEXT_FOCUS"),
+                        relief="flat", padx=16, pady=6, font=("DejaVu Sans", 12))
+    b_later.pack(side="right", padx=(0, 10))
+    b_later.focus_set()
+    root.after(1500, lambda: b_reboot.configure(state="normal"))
+    root.bind("<Return>", lambda e: root.destroy())
+    root.bind("<Escape>", lambda e: root.destroy())
+    root.attributes("-topmost", True)
+    # centred on the screen, where the user looks (the window manager put the first one at the
+    # bottom edge and the second at the top-left corner)
+    root.update_idletasks()
+    w, h = root.winfo_reqwidth(), root.winfo_reqheight()
+    root.geometry(f"+{max(0, (root.winfo_screenwidth() - w) // 2)}+{max(0, (root.winfo_screenheight() - h) // 2)}")
+    if shown:
+        root.wait_visibility(root)
+        shown()
+    root.mainloop()
+
+
+def check(live=False):
+    """One dialog per new recovery or failure. The stamp is written only once the dialog is
+    mapped on a live X (2026-11-01: a stamp written first lost the failed dialog to a dying X);
+    if X goes away before that, the service exits, restarts and shows it on the next X."""
+    t0 = time.time()
+    rec, fail = counter("recoveries"), counter("recovery_failed")
+    srec, sfail = read_stamp()
+    if fail > sfail:
+        # on the event itself, display-only is about to restart X: wait for the new one. At
+        # the service's start (the session start runs it before X) any X that answers is new.
+        # A restarted service (X died under it before the window mapped) keeps the live time.
+        text, after = FAILED, (t0 - 2 if live else read_pending(fail))
+        if live:
+            write_pending(fail, after)
+    elif rec > srec:
+        text, after = RECOVERED, 0.0    # X keeps running
+    else:
+        write_stamp(rec, fail)
+        return
+    root = open_display(after)
+    if root is None:
+        sys.exit(1)                     # no X for 5 minutes: systemd restarts the service
+    dialog(text, root, lambda: shown(rec, fail))
+
+
+def main():
+    # for tests: show one dialog and exit, nothing read or written
+    if len(sys.argv) == 3 and sys.argv[1] == "--show" and sys.argv[2] in ("recovered", "failed"):
+        dialog(RECOVERED if sys.argv[2] == "recovered" else FAILED, open_display(limit=30))
+        return
+    check()
+    mon = subprocess.Popen(["udevadm", "monitor", "--udev", "--subsystem-match=drm", "--property"],
+                           stdout=subprocess.PIPE, text=True)
+    for line in mon.stdout:
+        if line.startswith("RSX_RECOVERED=1") or line.startswith("RSX_RECOVERY_FAILED=1"):
+            check(live=True)    # once per recovery: the counters decide, the stamp remembers
+
+
+if __name__ == "__main__":
+    main()

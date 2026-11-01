@@ -1,0 +1,97 @@
+#!/bin/sh
+# ps3-gpu-crash-report: after every RSX graph exception (ps3rsx's uevent RSX_RECOVERED=1,
+# RSX_RECOVERY_FAILED=1 or RSX_DISPLAY_ONLY_FORCED=1), keep ps3rsx's crash record plus context in
+# /var/log/walnut/gpu-crash (0700, files 0600 root), fsynced, for the next boot (docs/DRIVER.md
+# "Recovery"). Root, started by 72-ps3-gpu-crash.rules through ps3-gpu-crash-report.service.
+# Keeps the last 20.
+# In display-only mode (the recovery failed) it then restarts the desktop, whose session start
+# turns glamor off and selects software GL (/etc/X11/ps3-display-only.d).
+set -u
+SYS=/sys/devices/platform/ps3rsx
+DIR=/var/log/walnut/gpu-crash	# LogsDirectory= in the unit creates it 0700
+umask 077
+mkdir -p "$DIR"
+chmod 0700 "$DIR"
+n=$(cat "$SYS/recoveries" 2>/dev/null || echo 0)-$(cat "$SYS/recovery_failed" 2>/dev/null || echo 0)
+f="$DIR/gpu-crash-$(date +%Y%m%d-%H%M%S)-$n.txt"
+{
+	echo "# ps3rsx GPU crash report, $(date -R), $(uname -r), boot $(cat /proc/sys/kernel/random/boot_id)"
+	echo "# recoveries $(cat $SYS/recoveries 2>/dev/null) failed $(cat $SYS/recovery_failed 2>/dev/null) display_only $(cat $SYS/display_only 2>/dev/null)"
+	echo; echo "## ps3rsx crash record (/sys/devices/platform/ps3rsx/crash_report)"
+	cat "$SYS/crash_report" 2>&1
+	echo; echo "## packages"
+	dpkg-query -W -f '${Package} ${Version}\n' libgl1-mesa-dri mesa-libgallium libegl-mesa0 \
+		libglx-mesa0 xserver-xorg-core 'ps3rsx-modules*' ps3-gpu-tools linux-image-ps3 2>&1
+	echo; echo "## processes with the GL driver mapped"
+	for m in /proc/[0-9]*/maps; do
+		p=${m%/maps}; p=${p#/proc/}
+		grep -q -E 'libgallium|nouveau_dri|_dri\.so' "$m" 2>/dev/null &&
+			echo "$p $(tr '\0' ' ' < /proc/$p/cmdline 2>/dev/null | cut -c1-200)"
+	done
+	echo; echo "## memory"; free -m; cat /proc/swaps
+	echo; echo "## temperatures (ps3_sm)"
+	for h in /sys/class/hwmon/hwmon*; do
+		[ "$(cat $h/name 2>/dev/null)" = ps3_sm ] || continue
+		for t in $h/temp*_input; do echo "$(basename $t _input) $(($(cat $t) / 1000)) C"; done
+	done
+	echo; echo "## dmesg since boot"; dmesg
+} > "$f.tmp" 2>&1
+mv "$f.tmp" "$f"
+sync -f "$f"
+sync
+logger -t ps3-gpu-crash "GPU crash report: $f"
+ls -1t "$DIR"/gpu-crash-*.txt 2>/dev/null | tail -n +21 | xargs -r rm -f
+# The desktop restart (display-only), through logind and the autologin, never by starting X here.
+# 2026-11-01 (session 2): restarting getty@tty1 at once left the old X (stuck in GPU waits) holding
+# DRM master for a minute; the new X failed with "drmSetMaster failed: busy", and the next one took
+# :1 (a stale /tmp/.X0-lock) outside the seat's session (polkit's "session differs" error).
+# Once per boot: a later display-only event must not end the fresh software session too. Only
+# the desktop user's (or root's) /usr/lib/xorg/Xorg is waited for and signalled, never any process
+# that merely calls itself Xorg.
+DESKTOP_CONF=/etc/default/ps3-desktop
+MARK=/run/ps3-gpu-crash/desktop-restarted	# RuntimeDirectory=, preserved: /run is per boot
+XORG=/usr/lib/xorg/Xorg
+xorg_pids() {
+	for p in $(pgrep -x Xorg); do
+		u=$(stat -c %u "/proc/$p" 2>/dev/null) || continue
+		[ "$u" = 0 ] || [ "$u" = "$desktop_uid" ] || continue
+		[ "$(readlink "/proc/$p/exe" 2>/dev/null)" = "$XORG" ] && echo "$p"
+	done
+}
+xorg_gone() {		# wait up to $1 s for the desktop's X to exit
+	i=0
+	while [ -n "$(xorg_pids)" ]; do
+		[ "$i" -ge "$1" ] && return 1
+		sleep 1; i=$((i + 1))
+	done
+}
+if [ "$(cat $SYS/display_only 2>/dev/null)" = 1 ]; then
+	PS3_DESKTOP_USER=$(sed -n 's/^PS3_DESKTOP_USER=["'"'"']\{0,1\}\([a-z_][a-z0-9_-]*\)["'"'"']\{0,1\}$/\1/p' "$DESKTOP_CONF" 2>/dev/null | tail -1)
+	desktop_uid=$(id -u "$PS3_DESKTOP_USER" 2>/dev/null) || desktop_uid=
+	if [ -e "$MARK" ]; then
+		logger -t ps3-gpu-crash "display-only mode: the desktop was restarted once this boot already; not again"
+	elif [ -z "$desktop_uid" ]; then
+		logger -t ps3-gpu-crash "display-only mode: no desktop user in $DESKTOP_CONF; no restart"
+	else
+		: > "$MARK"
+		logger -t ps3-gpu-crash "display-only mode: restarting the desktop with software rendering"
+		# end tty1's login session (the autologin's): logind stops its processes, xinit asks X to quit
+		for s in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $1}'); do
+			[ "$(loginctl show-session "$s" -p TTY --value 2>/dev/null)" = tty1 ] &&
+				loginctl terminate-session "$s"
+		done
+		systemctl stop getty@tty1.service
+		# X runs in the user's ps3-display.slice, outside the session: wait, then ask, then kill
+		if ! xorg_gone 20; then
+			logger -t ps3-gpu-crash "the old X is still running after 20 s: SIGTERM"
+			kill -TERM $(xorg_pids) 2>/dev/null
+			if ! xorg_gone 10; then
+				logger -t ps3-gpu-crash "the old X is still running: SIGKILL"
+				kill -KILL $(xorg_pids) 2>/dev/null
+				xorg_gone 5 || logger -t ps3-gpu-crash "the old X didn't exit; starting the desktop anyway"
+			fi
+		fi
+		# a new autologin session on seat0; its session start runs X on :0 (a dead X's lock is stale)
+		systemctl start getty@tty1.service
+	fi
+fi

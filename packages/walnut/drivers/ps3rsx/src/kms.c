@@ -354,6 +354,7 @@ static int enable_vblank(struct drm_crtc *crtc)
 	struct ps3rsx_device *rsx = to_rsx(crtc->dev);
 
 	if (rsx->vsync_virq) {
+		WRITE_ONCE(rsx->vblank_irq_on, true);
 		out_be32(rsx->dinfo + DINFO_IRQ_MASK, INTR_VSYNC_A);
 		return 0;
 	}
@@ -366,10 +367,12 @@ static void disable_vblank(struct drm_crtc *crtc)
 {
 	struct ps3rsx_device *rsx = to_rsx(crtc->dev);
 
-	if (rsx->vsync_virq)
+	if (rsx->vsync_virq) {
+		WRITE_ONCE(rsx->vblank_irq_on, false);
 		out_be32(rsx->dinfo + DINFO_IRQ_MASK, 0);
-	else
+	} else {
 		hrtimer_try_to_cancel(&rsx->vblank_timer);
+	}
 }
 
 static void vsync_irq_init(struct ps3rsx_device *rsx)
@@ -392,6 +395,25 @@ static void vsync_irq_init(struct ps3rsx_device *rsx)
 		return;
 	}
 	rsx->vsync_virq = virq;
+}
+
+/* the recovery: the vsync plug off the old context and onto the new one (recovery work) */
+void ps3rsx_kms_vsync_irq_fini(struct ps3rsx_device *rsx)
+{
+	if (rsx->vsync_virq) {
+		out_be32(rsx->dinfo + DINFO_IRQ_MASK, 0);
+		free_irq(rsx->vsync_virq, rsx);
+		ps3_irq_plug_destroy(rsx->vsync_virq);
+		rsx->vsync_virq = 0;
+	}
+}
+
+void ps3rsx_kms_vsync_irq_init(struct ps3rsx_device *rsx)
+{
+	vsync_irq_init(rsx);
+	/* vblank was on (X holds a reference): the mask on the new context too */
+	if (rsx->vsync_virq && READ_ONCE(rsx->vblank_irq_on))
+		out_be32(rsx->dinfo + DINFO_IRQ_MASK, INTR_VSYNC_A);
 }
 
 void ps3rsx_kms_fini(struct ps3rsx_device *rsx)

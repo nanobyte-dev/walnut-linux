@@ -12,6 +12,7 @@
 #include <linux/slab.h>
 #include <drm/drm_file.h>
 #include <drm/drm_gem.h>
+#include <drm/drm_prime.h>
 #include <drm/drm_vma_manager.h>
 #include <drm/nouveau_drm.h>
 #include <asm/cell-regs.h>
@@ -29,11 +30,90 @@ static const struct vm_operations_struct ps3rsx_vm_ops = {
 	.close = drm_gem_vm_close,
 };
 
+/*
+ * The reports area (fence labels, query reports) belongs to the lv1 context, and a recovery
+ * moves us to a new context with a new one. Mesa reads its fences from its mapping of it
+ * (nv30_screen_fence_update): a mapping fixed at mmap time kept old clients reading the old,
+ * dead page, so their fences never completed and they never freed a buffer (2026-11-01 session
+ * 3: the GART ran out 12 s after every recovery). So it is mapped page by page on fault, from
+ * the current context, and the recovery zaps the mappings (ps3rsx_reports_moved).
+ */
+static vm_fault_t reports_fault(struct vm_fault *vmf)
+{
+	struct vm_area_struct *vma = vmf->vma;
+	struct drm_gem_object *obj = vma->vm_private_data;
+	struct ps3rsx_device *rsx = to_rsx(obj->dev);
+	unsigned long off = vma->vm_pgoff - drm_vma_node_start(&obj->vma_node) +
+			    ((vmf->address - vma->vm_start) >> PAGE_SHIFT);
+	vm_fault_t ret = VM_FAULT_SIGBUS;
+
+	/* the read side against ps3rsx_reports_moved: no PTE of the old area can be inserted after
+	 * its zap; a sleeping lock is fine in a fault (mmap_lock read held,
+	 * the switch never takes mmap_lock) */
+	down_read(&rsx->reports_lock);
+	/* never past the current context's area, whatever size the BO was made with */
+	if (rsx->reports_lpar &&
+	    off < min_t(u64, obj->size, rsx->reports_size) >> PAGE_SHIFT)
+		ret = vmf_insert_pfn_prot(vma, vmf->address, (rsx->reports_lpar >> PAGE_SHIFT) + off,
+					  vma->vm_page_prot);
+	up_read(&rsx->reports_lock);
+	return ret;
+}
+
+static const struct vm_operations_struct reports_vm_ops = {
+	.open = drm_gem_vm_open,
+	.close = drm_gem_vm_close,
+	.fault = reports_fault,
+};
+
+/*
+ * The context (and its reports area) changed: the new area becomes the one faults map, and
+ * every user mapping is zapped under the same write lock, so the next access faults in the new
+ * page.
+ *
+ * Lock order: mmap_lock -> reports_lock -> mm_lock -> i_mmap_rwsem (and the page
+ * table locks under it). A fault comes in with mmap_lock held for read and takes reports_lock
+ * for read; this switch takes reports_lock for write, mm_lock for the list, and the zap takes
+ * i_mmap_rwsem. The switch never takes mmap_lock, and no ps3rsx path touches user memory
+ * (copy_to/from_user, get_user_pages, anything that can fault) while it holds reports_lock or
+ * mm_lock, so no path can wait on these in the opposite order.
+ */
+void ps3rsx_reports_moved(struct ps3rsx_device *rsx, u64 lpar, u64 size)
+{
+	struct ps3rsx_bo *bo;
+
+	down_write(&rsx->reports_lock);
+	WRITE_ONCE(rsx->reports_lpar, lpar);
+	WRITE_ONCE(rsx->reports_size, size);
+	mutex_lock(&rsx->mm_lock);
+	list_for_each_entry(bo, &rsx->reports_bos, reports_link)
+		drm_vma_node_unmap(&bo->base.vma_node, rsx->drm.anon_inode->i_mapping);
+	mutex_unlock(&rsx->mm_lock);
+	up_write(&rsx->reports_lock);
+}
+
+/*
+ * No PRIME export of the reports BO: a dma-buf mapping of it lives in the dma-buf file's
+ * address space, which the zap above doesn't reach, so it could keep the old context's page.
+ * Mesa never exports it. Others export as before (drm_gem_prime_export).
+ */
+static struct dma_buf *bo_export(struct drm_gem_object *obj, int flags)
+{
+	if (to_bo(obj)->kind == BO_REPORTS)
+		return ERR_PTR(-EPERM);
+	return drm_gem_prime_export(obj, flags);
+}
+
 static void bo_free(struct drm_gem_object *obj)
 {
 	struct ps3rsx_bo *bo = to_bo(obj);
 	struct ps3rsx_device *rsx = to_rsx(obj->dev);
 
+	if (bo->kind == BO_REPORTS) {
+		mutex_lock(&rsx->mm_lock);
+		list_del_init(&bo->reports_link);
+		mutex_unlock(&rsx->mm_lock);
+	}
 	if (drm_mm_node_allocated(&bo->node)) {
 		mutex_lock(&rsx->mm_lock);
 		if (bo->kind == BO_GART)	/* fences up to the last submitted may still read it */
@@ -56,7 +136,7 @@ static unsigned long bo_pfn(struct ps3rsx_bo *bo)
 	case BO_VRAM:
 		return (rsx->info.ddr_lpar + bo->offset) >> PAGE_SHIFT;
 	case BO_REPORTS:
-		return rsx->ctx.reports_lpar >> PAGE_SHIFT;
+		return READ_ONCE(rsx->reports_lpar) >> PAGE_SHIFT;	/* mmap's check only: faults map it */
 	default:
 		return 0;
 	}
@@ -95,11 +175,20 @@ static int bo_mmap(struct drm_gem_object *obj, struct vm_area_struct *vma)
 		return ret;
 	}
 	vma->vm_page_prot = pgprot_noncached(vm_get_page_prot(vma->vm_flags));
+	if (bo->kind == BO_REPORTS) {
+		/* vmf_insert_pfn_prot can't serve a copy-on-write (private, writable) mapping of
+		 * PFNMAP memory: refuse it here, as drm_gem_shmem_mmap does */
+		if (is_cow_mapping(vma->vm_flags))
+			return -EINVAL;
+		vma->vm_ops = &reports_vm_ops;	/* on fault, from the current context */
+		return 0;
+	}
 	return io_remap_pfn_range(vma, vma->vm_start, pfn + pgoff, len, vma->vm_page_prot);
 }
 
 static const struct drm_gem_object_funcs ps3rsx_bo_funcs = {
 	.free = bo_free,
+	.export = bo_export,
 	.mmap = bo_mmap,
 	.vm_ops = &ps3rsx_vm_ops,
 };
@@ -111,6 +200,7 @@ static struct ps3rsx_bo *bo_alloc(struct ps3rsx_device *rsx, enum bo_kind kind, 
 	if (!bo)
 		return ERR_PTR(-ENOMEM);
 	bo->kind = kind;
+	INIT_LIST_HEAD(&bo->reports_link);
 	bo->base.funcs = &ps3rsx_bo_funcs;
 	drm_gem_private_object_init(&rsx->drm, &bo->base, size);
 	return bo;
@@ -198,8 +288,12 @@ struct ps3rsx_bo *ps3rsx_bo_new_reports(struct ps3rsx_device *rsx)
 {
 	struct ps3rsx_bo *bo = bo_alloc(rsx, BO_REPORTS, rsx->ctx.reports_size);
 
-	if (!IS_ERR(bo))
+	if (!IS_ERR(bo)) {
 		bo->domain = NOUVEAU_GEM_DOMAIN_GART;
+		mutex_lock(&rsx->mm_lock);
+		list_add(&bo->reports_link, &rsx->reports_bos);
+		mutex_unlock(&rsx->mm_lock);
+	}
 	return bo;
 }
 
@@ -229,11 +323,36 @@ int ps3rsx_bo_handle(struct drm_file *file, struct ps3rsx_bo *bo,
 	return ret;
 }
 
+/*
+ * Every channel of this file is refused (its push trapped the GPU, or it was lost under a
+ * recovery without PS3_RECOVER): it can't submit again, so it gets no new buffers either. A
+ * client looping on its errors otherwise eats the GART and starves the others (2026-11-01: the
+ * GART ran out 12 s and 70 s after a recovery, with refused clients still allocating).
+ */
+static bool file_refused(struct ps3rsx_file *pf)
+{
+	struct ps3rsx_chan *ch;
+	bool any = false, live = false;
+
+	mutex_lock(&pf->lock);
+	list_for_each_entry(ch, &pf->chans, head) {
+		any = true;
+		if (!READ_ONCE(ch->fatal) && !READ_ONCE(ch->broken))
+			live = true;
+	}
+	mutex_unlock(&pf->lock);
+	return any && !live;
+}
+
 int ps3rsx_ioctl_gem_new(struct drm_device *dev, void *data, struct drm_file *file)
 {
 	struct drm_nouveau_gem_new *req = data;
 	struct ps3rsx_bo *bo;
 	int ret;
+
+	if (READ_ONCE(((struct ps3rsx_file *)file->driver_priv)->refused) ||
+	    file_refused(file->driver_priv))
+		return -ENODEV;
 
 	/* tile_mode/tile_flags (NONCONTIG etc.) are ignored: no tiling yet, BOs are contiguous */
 	bo = ps3rsx_bo_new(to_rsx(dev), req->info.domain, req->info.size, req->align);
@@ -352,6 +471,8 @@ int ps3rsx_mem_init(struct ps3rsx_device *rsx)
 	int ret;
 
 	mutex_init(&rsx->mm_lock);
+	INIT_LIST_HEAD(&rsx->reports_bos);
+	init_rwsem(&rsx->reports_lock);
 	drm_mm_init(&rsx->vram_cpu, rsx->info.reserved, cpu_end - rsx->info.reserved);
 	drm_mm_init(&rsx->vram_gpu, cpu_end, rsx->info.memory_size - cpu_end);
 	drm_debugfs_add_file(&rsx->drm, "ps3rsx_mm", mm_show, NULL);

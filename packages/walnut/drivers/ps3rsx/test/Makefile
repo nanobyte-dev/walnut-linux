@@ -19,7 +19,7 @@ PPCFLAGS := --sysroot=$(SYSROOT) -isystem $(SYSROOT)/usr/include/powerpc64-linux
 	-L$(SYSROOT)/usr/lib/powerpc64-linux-gnu -L$(SYSROOT)/lib/powerpc64-linux-gnu -static
 
 all: $(O)/shadow-equiv $(O)/shadow-equiv-fast $(O)/shadow-equiv-ppc64 $(O)/zero-test $(O)/zero-test-ppc64 \
-	$(O)/validate-test $(O)/validate-capture
+	$(O)/validate-test $(O)/validate-capture $(O)/blame-test
 $(O)/shadow-equiv: $(SRC)
 	@mkdir -p $(O)
 	gcc $(CFLAGS) -fsanitize=address,undefined -fno-sanitize-recover=undefined -o $@ $<
@@ -44,6 +44,11 @@ $(O)/validate-test: validate-test.c ../src/validate.c ../src/shadow.c inc/shim.h
 	fixtures/mpv-vo-gpu-0x105.h fixtures/webkit-compositing.h
 	@mkdir -p $(O)
 	gcc $(CFLAGS) -Wno-unused-function -fsanitize=address,undefined -fno-sanitize-recover=undefined -o $@ $<
+# the recovery's choice of the trapping commit (src/blame.h): the first commit the reference
+# register hasn't reached, ring overflow and sequence wrap, a reused channel id
+$(O)/blame-test: blame-test.c ../src/blame.h
+	@mkdir -p $(O)
+	gcc $(CFLAGS) -I../src -fsanitize=address,undefined -fno-sanitize-recover=undefined -o $@ $<
 # a mesa-shim capture's pushes through the validator: validate-capture PUSH.BIN...
 $(O)/validate-capture: validate-capture.c ../src/validate.c ../src/shadow.c inc/shim.h
 	@mkdir -p $(O)

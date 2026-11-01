@@ -50,8 +50,8 @@ static void release_work(struct work_struct *work)
 						 release_work);
 
 	mutex_lock(&rsx->own_lock);
-	if (!rsx->gpu_owned || rsx->master_active)
-		goto out;
+	if (!rsx->gpu_owned || rsx->master_active || ps3rsx_uw_active())
+		goto out;	/* after a recovery ps3fb's channel 0 is not run again: keep the GPU */
 	if (rsx->submitting || !ps3rsx_exec_idle(rsx)) {
 		/* work in flight or a primitive left open: look again shortly */
 		schedule_delayed_work(&rsx->release_work, msecs_to_jiffies(20));

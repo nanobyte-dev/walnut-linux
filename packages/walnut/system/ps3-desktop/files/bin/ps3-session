@@ -76,4 +76,7 @@ d pcmanfm --desktop; d tint2; d nm-applet; d pnmixer; d lxpolkit; d dunst
 # Game mode by itself for any fullscreen 3D program, however it was started (ps3-game-detect;
 # it watches X and ends with it)
 systemctl --user restart --no-block ps3-game-detect.service
+# The graphics driver's recovery and display-only dialog (ps3rsx's uevents; it waits for X itself
+# and shows a crash from before this session, after display-only mode restarted the desktop)
+systemctl --user restart --no-block ps3-gpu-recovered.service
 exec openbox

@@ -83,8 +83,13 @@ static void reclaim_work(struct work_struct *work)
 
 		if (c->fixed || !c->page || c->users)
 			continue;
+		/* display-only after a failed recovery: the GPU stopped for good and its reference
+		 * never moves again; chunk_release puts scratch over the IO page before the memory
+		 * goes, as always (2026-11-01: 63 MiB stayed backed, CmaFree 0, after every client
+		 * had exited). Not after the escape hatch: that GPU still runs its queue. */
 		if (time_before(jiffies, c->idle_since + RECLAIM_IDLE) ||
-		    !ps3rsx_seq_done(rsx, c->free_seq)) {
+		    (!ps3rsx_seq_done(rsx, c->free_seq) &&
+		     !(ps3rsx_uw_display_only() && READ_ONCE(rsx->wedged)))) {
 			pending = true;
 			continue;
 		}
@@ -280,6 +285,24 @@ int ps3rsx_gart_init(struct ps3rsx_device *rsx)
 err:
 	ps3rsx_gart_fini(rsx);
 	return ret;
+}
+
+/* the recovery: every GART IO page onto ps3fb's (new) driver context, as at init; mm_lock held */
+int ps3rsx_gart_remap_all(struct ps3rsx_device *rsx)
+{
+	unsigned int i;
+	int ret;
+
+	for (i = 0; i < rsx->gart_nchunks; i++) {
+		struct page *page = rsx->gart_chunks[i].page ?: rsx->gart_scratch;
+
+		if (!page)
+			continue;
+		ret = map_chunk(rsx, i, page);
+		if (ret)
+			return ret;
+	}
+	return 0;
 }
 
 void ps3rsx_gart_fini(struct ps3rsx_device *rsx)

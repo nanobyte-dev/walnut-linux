@@ -1,0 +1,27 @@
+[Unit]
+Description=Keep the GPU crash report for the next boot (ps3rsx)
+# started by 72-ps3-gpu-crash.rules on ps3rsx's change uevent after a graph exception (static)
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/ps3/sbin/ps3-gpu-crash-report
+Environment=PATH=/usr/sbin:/usr/bin:/sbin:/bin
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateNetwork=yes
+ProtectHome=yes
+ProtectSystem=strict
+# /var/log/walnut/gpu-crash, created 0700 by systemd
+LogsDirectory=walnut/gpu-crash
+LogsDirectoryMode=0700
+# /run/ps3-gpu-crash: the once-per-boot marker of the display-only desktop restart (kept between runs)
+RuntimeDirectory=ps3-gpu-crash
+RuntimeDirectoryMode=0700
+RuntimeDirectoryPreserve=yes
+# the journal socket (logger) and systemd's (systemctl, loginctl for the display-only restart)
+ReadWritePaths=/run/systemd
+# root's own files only; dmesg under dmesg_restrict (CAP_SYSLOG); /proc/PID/maps of the GL processes
+# and /proc/PID/exe of an old X (CAP_SYS_PTRACE, read only); CAP_KILL: the display-only restart's
+# SIGTERM/SIGKILL to an old X that doesn't exit (it runs as the desktop user)
+CapabilityBoundingSet=CAP_SYSLOG CAP_SYS_PTRACE CAP_KILL

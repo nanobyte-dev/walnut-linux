@@ -1,0 +1,6 @@
+# ps3rsx's change uevent after a graph exception (recovered, failed, or display-only forced by the
+# escape hatch) starts the crash report service, which keeps the report in /var/log/walnut/gpu-crash
+# and, in display-only mode, restarts the desktop once with software rendering
+ACTION=="change", SUBSYSTEM=="drm", ENV{RSX_RECOVERED}=="1", TAG+="systemd", ENV{SYSTEMD_WANTS}+="ps3-gpu-crash-report.service"
+ACTION=="change", SUBSYSTEM=="drm", ENV{RSX_RECOVERY_FAILED}=="1", TAG+="systemd", ENV{SYSTEMD_WANTS}+="ps3-gpu-crash-report.service"
+ACTION=="change", SUBSYSTEM=="drm", ENV{RSX_DISPLAY_ONLY_FORCED}=="1", TAG+="systemd", ENV{SYSTEMD_WANTS}+="ps3-gpu-crash-report.service"
