@@ -204,6 +204,32 @@ chip works. Until then: a USB Wi-Fi dongle (the image carries no firmware packag
 Rank 55. Only one 1080p monitor has been used so far: 720p (decision D2, see
 [memory.md, "The 720p console"](memory.md#the-720p-console)), overscan on TVs, 50 Hz modes.
 
+Overscan: everything uses the full frame by default (the user, 2026-11-01: "we detect proper
+resolution and use it full screen"; the console since kernel local/0054, X always). Underscan is an
+opt-in, `PS3_UNDERSCAN=1` ([DRIVER.md](../DRIVER.md) "Video modes"), and must cover the console,
+the desktop and games alike (the user, 2026-11-01), with no per-game settings. Today it insets the
+console only. The plan for the rest, in ps3rsx, with the same switch (ps3rsx sees ps3fb's inset
+layout, which `native_frame()` already detects):
+
+- KMS reports the inset size (1688x964 at 1080p) as its only mode, so X, the desktop and every
+  fullscreen game render that many pixels, 21% fewer than 1920x1080.
+- Each flip becomes a present: an M2MF copy of the client's framebuffer (any pitch, so no Mesa
+  change) into the inset of a black-bordered native frame, then `lv1_gpu_display_flip` to that
+  frame. Two present frames (8 MB of VRAM each at 1080p; ps3fb's own frame might be one of them)
+  so a flip never shows a copy in progress. The cursor moves by the inset's offset; the console
+  handover and the reflip point at the present frame.
+- Cost, only with the setting on: about 2.8 ms of RSX time per presented frame at 1080p (6.5 MB at
+  M2MF's 2.3 GB/s, [RSX.md](../RSX.md)), 1.3 ms at 720p, 0.4 ms at 480p; 8 to 16 MB of VRAM; up to a
+  frame of latency when a copy misses the vsync. A fill-bound game gains most of it back from the
+  smaller frame.
+- Not chosen: a smaller mode with no copy (the display reads the inset frame's borders from
+  whatever lies around the client's buffer, and the buffer would need the display's pitch, a Mesa
+  change); a scaled scanout (no display scaler we may use, so a 3D-engine scale every frame: more
+  bandwidth, a blurrier picture, shaders in the kernel); an X transform (`xrandr --transform`:
+  X only, page flips off, and games that size themselves from the RandR mode see 1920x1080).
+- Effort: M (ps3rsx's kms.c and a blocking variant of kcopy.c), a security review, and a PS3
+  session for tearing, latency and frame times against the setting off.
+
 - **Effort:** M. **Needs:** the user, a TV. **Status:** never tried.
 - **Source:** PLAN 4.10.
 

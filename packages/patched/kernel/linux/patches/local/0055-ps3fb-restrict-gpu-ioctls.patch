@@ -1,0 +1,466 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Sun, 1 Nov 2026 13:00:00 +0200
+Subject: ps3fb: restrict the GPU ioctls to root and copy their arguments
+
+OtherOS++'s ps3/0030 gave ps3fb a direct GPU interface for GPU research
+tools: the PS3GPU_IOCTL_* calls on /dev/fbN and the /dev/ps3gpu_*
+mappings of the GPU's memory, FIFO and control areas. Keep it for those
+tools, run as root, and close it to everyone else:
+
+- PS3GPU_IOCTL_INFO, _ENTER and _EXIT, and opening /dev/ps3gpu_*, need
+  CAP_SYS_ADMIN (-EPERM otherwise). /dev/fbN and its other ioctls stay
+  as they are for the console, X and ps3-video-mode.
+- ENTER and EXIT copy their int argument in with get_user() and take
+  only 0 (-EINVAL otherwise). A second ENTER gets -EBUSY, an EXIT
+  without an ENTER -EINVAL, an EXIT from another process -EPERM.
+- The set-attribute, set-context-attribute and cursor ioctls (9 to 14)
+  are removed: nothing uses them. ps3fb answers them like any unknown
+  ioctl (-ENOTTY). Their structs leave the uapi header, and the numbers
+  stay reserved.
+- Between ENTER and EXIT, ps3fb skips its own blits and flips (the
+  console, a mode change, FSEL, the last close), checked under
+  ps3_gpu_mutex, which ENTER sets the flag under. ENTER no longer stops
+  ps3fb's blit thread or unmaps its FIFO control area, so it doesn't
+  wait on the thread while holding the fb_info lock, and EXIT is the
+  reset program under ps3_gpu_mutex.
+- A session also ends by itself when the process that entered is gone:
+  checked after each close of /dev/fbN or /dev/ps3gpu_* (also when no
+  file has /dev/fbN open any more), at the next ENTER and at a takeover.
+  A probe killed after ENTER no longer leaves the console without
+  updates and the RSX driver's takeover refused.
+
+The RSX driver (ps3rsx) doesn't use any of these: it shares the GPU
+through the in-kernel API (ps3fb_gpu_takeover() and the rest), which
+keeps working; its takeover is refused only during a live session, as
+before.
+
+Forwarded: no
+---
+diff --git a/arch/powerpc/include/uapi/asm/ps3fb.h b/arch/powerpc/include/uapi/asm/ps3fb.h
+--- a/arch/powerpc/include/uapi/asm/ps3fb.h
++++ b/arch/powerpc/include/uapi/asm/ps3fb.h
+@@ -57,62 +57,9 @@ struct ps3gpu_ioctl_info
+    __u32 video_size;
+ };
+ 
+-struct ps3gpu_ioctl_set_attribute
+-{
+-   __u64 p0;
+-   __u64 p1;
+-   __u64 p2;
+-};
+-
+-struct ps3gpu_ioctl_set_context_attribute
+-{	
+-   __u32 ctx;
+-   __u32 reserved;
+-   __u64 p0;
+-   __u64 p1;
+-   __u64 p2;
+-   __u64 p3;
+-   __u64 p4;
+-};
+-
+-struct ps3gpu_ioctl_init_cursor
+-{
+-   int ctx;
+-   int head;
+-};
+-
+-struct ps3gpu_ioctl_set_cursor_image
+-{
+-   int ctx;	
+-   int head;	
+-   __u32 offset;
+-   __u32 pad;	
+-};
+-
+-struct ps3gpu_ioctl_set_cursor_position
+-{
+-   int ctx;
+-   int head;
+-   int x;
+-   int y;
+-};
+-
+-struct ps3gpu_ioctl_set_cursor_enable
+-{
+-   int ctx;
+-   int head;
+-   int enable;
+-   int pad;
+-};
+-
+ #define PS3GPU_IOCTL_INFO                    _IOR('r', 7, struct ps3gpu_ioctl_info)
+ #define PS3GPU_IOCTL_EXIT                    _IOW('r', 8, int)
+-#define PS3GPU_IOCTL_SET_ATTRIBUTE           _IOW('r', 9, struct ps3gpu_ioctl_set_attribute)
+-#define PS3GPU_IOCTL_SET_CONTEXT_ATTRIBUTE   _IOW('r', 10, struct ps3gpu_ioctl_set_context_attribute)
+-#define PS3GPU_IOCTL_INIT_CURSOR             _IOW('r', 11, struct ps3gpu_ioctl_init_cursor)
+-#define PS3GPU_IOCTL_CURSOR_POS              _IOW('r', 12, struct ps3gpu_ioctl_set_cursor_position)
+-#define PS3GPU_IOCTL_CURSOR_IMAGE            _IOW('r', 13, struct ps3gpu_ioctl_set_cursor_image)
+-#define PS3GPU_IOCTL_CURSOR_ENABLE           _IOW('r', 14, struct ps3gpu_ioctl_set_cursor_enable)
++/* 9 to 14 (attribute and cursor calls) are retired: ps3fb refuses them, don't reuse */
+ #define PS3GPU_IOCTL_ENTER                   _IOW('r', 15, int)
+ 
+ #ifndef FBIO_WAITFORVSYNC
+diff --git a/drivers/video/fbdev/ps3fb.c b/drivers/video/fbdev/ps3fb.c
+--- a/drivers/video/fbdev/ps3fb.c
++++ b/drivers/video/fbdev/ps3fb.c
+@@ -33,6 +33,9 @@
+ #include <linux/slab.h>
+ #include <linux/workqueue.h>
+ #include <linux/uaccess.h>
++#include <linux/capability.h>
++#include <linux/pid.h>
++#include <linux/sched/signal.h>
+ #include <linux/fb.h>
+ #include <linux/fbcon.h>
+ #include <linux/init.h>
+@@ -206,6 +209,15 @@ EXPORT_SYMBOL_GPL(ps3fb_gpu_handles);
+  */
+ static DEFINE_MUTEX(gpu_own_lock);
+ static bool gpu_owned;			/* the RSX driver owns the GPU; ps3fb keeps off it */
++/*
++ * A direct-GPU user (PS3GPU_IOCTL_ENTER) holds the FIFO: ps3fb doesn't blit or flip until it
++ * ends. Set and cleared under gpu_own_lock and ps3_gpu_mutex; gpu_direct_owner (the process that
++ * entered) under gpu_own_lock.
++ */
++static bool gpu_direct;
++static struct pid *gpu_direct_owner;
++static void gpu_direct_work_fn(struct work_struct *work);
++static DECLARE_WORK(gpu_direct_work, gpu_direct_work_fn);
+ static DEFINE_MUTEX(gpu_ctx_lock);
+ static struct ps3fb_gpu_ctx gpu_ctx;	/* the driver's context, allocated once, never freed */
+ static u64 gpu_ctx_iomap[256];		/* lpar mapped at each 1 MiB IO page of gpu_ctx, or 0 */
+@@ -1552,6 +1564,10 @@ static void ps3fb_sync_image(struct device *dev, u64 frame_offset,
+ 		return;
+ 	src_offset += GPU_FB_START;
+ 	mutex_lock(&ps3_gpu_mutex);
++	if (gpu_direct) {
++		mutex_unlock(&ps3_gpu_mutex);
++		return;
++	}
+ 	status = ps3fb_fb_blit(&ps3fb.fifo, dst_offset, GPU_IOIF + src_offset,
+ 		width, height, dst_line_length, src_line_length, L1GPU_FB_BLIT_WAIT_FOR_COMPLETION);
+ 	mutex_unlock(&ps3_gpu_mutex);
+@@ -1614,6 +1630,9 @@ static int ps3fb_release(struct fb_info *info, int user)
+ 			mod_delayed_work(system_wq, &shadow_work, 0);
+ 		mutex_unlock(&shadow_lock);
+ 	}
++	/* a direct session ends once its process is gone or no file has fbN open (the work) */
++	if (READ_ONCE(gpu_direct))
++		schedule_work(&gpu_direct_work);
+ 	if (atomic_dec_and_test(&ps3fb.f_count))
+ 		if (atomic_read(&ps3fb.ext_flip)) {
+ 			atomic_set(&ps3fb.ext_flip, 0);
+@@ -1863,80 +1882,70 @@ static int ps3fb_wait_for_vsync(u32 crtc)
+ 	return 0;
+ }
+ 
+-static int ps3gpu_set_attribute(unsigned long arg)
++/*
++ * The direct GPU interface (PS3GPU_IOCTL_INFO, _ENTER, _EXIT and the /dev/ps3gpu_* mappings)
++ * hands the GPU's FIFO and memory to user space: root only. ENTER and EXIT take an int that
++ * must be 0.
++ */
++static int ps3gpu_direct_check(unsigned int cmd, unsigned long arg)
+ {
+-	struct ps3gpu_ioctl_set_attribute* parg = (struct ps3gpu_ioctl_set_attribute*)arg;
+-	int err = lv1_gpu_attribute( parg->p0, parg->p1, parg->p2);
+-	if(err != 0) {
+-		printk(KERN_INFO"Set GPU Attribute failed(%d).\n", err);
+-		err = -err;
+-	}
+-	return err;
+-}
++	int val;
+ 
+-static int ps3gpu_set_context_attribute(unsigned long arg)
+-{
+-	struct ps3gpu_ioctl_set_context_attribute* parg = (struct ps3gpu_ioctl_set_context_attribute*)arg;
+-	int err = lv1_gpu_context_attribute(ps3fb.context_handle,
+-			parg->p0, parg->p1, parg->p2, parg->p3,	parg->p4);
+-	if(err != 0) {
+-		printk(KERN_INFO"Set GPU Context Attribute failed(%d).\n", err);
+-		err = -err;
+-	}
+-	return err;
++	if (!capable(CAP_SYS_ADMIN))
++		return -EPERM;
++	if (cmd == PS3GPU_IOCTL_INFO)
++		return 0;
++	if (get_user(val, (int __user *)arg))
++		return -EFAULT;
++	return val ? -EINVAL : 0;
+ }
+ 
+-static int ps3gpu_init_cursor(unsigned long arg)
++/* Ends a direct session: ps3fb's reset program runs again, its blits resume. gpu_own_lock held */
++static int ps3gpu_direct_end(void)
+ {
+-	struct ps3gpu_ioctl_init_cursor *parg = 
+-		(struct ps3gpu_ioctl_init_cursor *)arg;
+-	int err = lv1_gpu_context_attribute(ps3fb.context_handle,
+-			0x10b, parg->head, 0x1,	0, 0);
+-	if (err != 0) {
+-		printk(KERN_INFO"Initialize cusor failed(%d).\n", err);
+-		return -ENXIO;
+-	}
+-	return 0;
+-}
++	int ret;
+ 
+-static int ps3gpu_set_cursor_image(unsigned long arg)
+-{
+-	struct ps3gpu_ioctl_set_cursor_image *parg = (struct ps3gpu_ioctl_set_cursor_image *)arg;
+-	int err = lv1_gpu_context_attribute(ps3fb.context_handle,
+-			0x10b,	parg->head, 0x2, parg->offset, 0);
+-	if (err != 0) {
+-		printk(KERN_INFO"Set cursor Image failed(%d).\n", err);
+-		return -ENXIO;
+-	}
+-	return 0;
++	mutex_lock(&ps3_gpu_mutex);
++	ret = ps3gpu_restore_state();
++	WRITE_ONCE(gpu_direct, false);
++	mutex_unlock(&ps3_gpu_mutex);
++	put_pid(gpu_direct_owner);
++	gpu_direct_owner = NULL;
++	return ret;
+ }
+ 
+-static int ps3gpu_set_cursor_position( unsigned long arg)
++/* The process that entered has exited, or closes its files on the way out. gpu_own_lock held */
++static bool ps3gpu_direct_owner_gone(void)
+ {
+-	struct ps3gpu_ioctl_set_cursor_position *parg = (struct ps3gpu_ioctl_set_cursor_position *)arg;
+-	int err = lv1_gpu_context_attribute(ps3fb.context_handle,
+-			0x10b,	parg->head,	0x3, parg->x,parg->y);
+-	if (err != 0) {
+-		printk(KERN_INFO"Set cursor position failed(%d).\n", err);
+-		return -ENXIO;
+-	}
+-	return 0;
++	struct task_struct *t;
++	bool gone;
++
++	rcu_read_lock();
++	t = pid_task(gpu_direct_owner, PIDTYPE_TGID);
++	gone = !t || !atomic_read(&t->signal->live);
++	rcu_read_unlock();
++	return gone;
+ }
+ 
+-static int ps3gpu_set_cursor_enable(unsigned long arg)
++/*
++ * Queued by every close of fbN or /dev/ps3gpu_* during a direct session (ENTER and takeover check
++ * too). A probe killed after ENTER would otherwise leave the console without blits and ps3rsx's
++ * takeover refused until a reboot.
++ */
++static void gpu_direct_work_fn(struct work_struct *work)
+ {
+-	struct ps3gpu_ioctl_set_cursor_enable *parg = (struct ps3gpu_ioctl_set_cursor_enable *)arg;
+-	int err = lv1_gpu_context_attribute(ps3fb.context_handle,
+-			0x10c,	parg->head, parg->enable ? 0x1 : 0x2, 0, 0);
+-	if (err != 0) {
+-		printk(KERN_INFO"Set cursor enable failed(%d).\n", err);
+-		return -ENXIO;
++	bool no_users;
++
++	mutex_lock(&gpu_own_lock);
++	/* shadow.users without shadow_lock: a stale count only delays the end to the next close */
++	no_users = !data_race(shadow.users);
++	if (!shadow.dead && gpu_direct && (no_users || ps3gpu_direct_owner_gone())) {
++		pr_info("ps3fb: direct GPU use ended: its process or file is gone\n");
++		ps3gpu_direct_end();
+ 	}
+-	return 0;
++	mutex_unlock(&gpu_own_lock);
+ }
+ 
+-static void StartStopTask(int val);
+-
+ /* The option bits PS3FB_IOCTL_SETMODE takes besides the mode number: the ones ps3fb and ps3av
+  * implement for a video mode */
+ #define PS3FB_SETMODE_OPTIONS	(PS3AV_MODE_FULL | PS3AV_MODE_DITHER | PS3AV_MODE_COLOR | \
+@@ -2025,7 +2034,12 @@ static int ps3fb_ioctl(struct fb_info *info, unsigned int cmd, unsigned long arg
+ 			retval = ps3fb_sync(info, val);
+ 			console_unlock();
+ 			break;
+-		case PS3GPU_IOCTL_INFO:	
++		case PS3GPU_IOCTL_INFO:
++			retval = ps3gpu_direct_check(cmd, arg);
++			if (retval)
++				break;
++			retval = -EFAULT;
++			memset(&ext_res, 0, sizeof(ext_res));
+ 			ext_res.fifo_size_max = GPU_FB_START; /* 128 Kb */
+ 			ext_res.ioif_base =  GPU_IOIF;
+ 			ext_res.gart_size = (u32)(ps3fb.xdr_size - GPU_FB_START);
+@@ -2042,52 +2056,54 @@ static int ps3fb_ioctl(struct fb_info *info, unsigned int cmd, unsigned long arg
+ 				retval = 0;
+ 			break;
+ 		case PS3GPU_IOCTL_EXIT:
+-			/* trylock: we hold the fb_info lock, and fbcon takes console_lock before
+-			 * it, while takeover holds gpu_own_lock across console_lock */
++			retval = ps3gpu_direct_check(cmd, arg);
++			if (retval)
++				break;
++			/*
++			 * trylock: the native ioctl path holds the fb_info lock (the compat path
++			 * doesn't), fbcon takes that lock under console_lock, and takeover holds
++			 * gpu_own_lock across console_lock
++			 */
+ 			if (!mutex_trylock(&gpu_own_lock)) {
+ 				retval = -EBUSY;
+ 				break;
+ 			}
+-			if (gpu_owned) {
++			if (shadow.dead)
++				retval = -ENODEV;	/* ps3fb has shut down */
++			else if (gpu_owned)
+ 				retval = -EBUSY;
+-			} else {
+-				StartStopTask(0);
+-				retval = ps3gpu_restore_state();
+-			}
+-			mutex_unlock(&gpu_own_lock);
+-			break;
+-		case PS3GPU_IOCTL_SET_ATTRIBUTE:
+-		case PS3GPU_IOCTL_SET_CONTEXT_ATTRIBUTE:
+-		case PS3GPU_IOCTL_INIT_CURSOR:
+-		case PS3GPU_IOCTL_CURSOR_IMAGE:
+-		case PS3GPU_IOCTL_CURSOR_POS:
+-		case PS3GPU_IOCTL_CURSOR_ENABLE:
+-			if (READ_ONCE(gpu_owned)) {
+-				retval = -EBUSY;
+-				break;
+-			}
+-			if (cmd == PS3GPU_IOCTL_SET_ATTRIBUTE)
+-				retval = ps3gpu_set_attribute(arg);
+-			else if (cmd == PS3GPU_IOCTL_SET_CONTEXT_ATTRIBUTE)
+-				retval = ps3gpu_set_context_attribute(arg);
+-			else if (cmd == PS3GPU_IOCTL_INIT_CURSOR)
+-				retval = ps3gpu_init_cursor(arg);
+-			else if (cmd == PS3GPU_IOCTL_CURSOR_IMAGE)
+-				retval = ps3gpu_set_cursor_image(arg);
+-			else if (cmd == PS3GPU_IOCTL_CURSOR_POS)
+-				retval = ps3gpu_set_cursor_position(arg);
++			else if (!gpu_direct)
++				retval = -EINVAL;	/* no ENTER to end */
++			else if (gpu_direct_owner != task_tgid(current))
++				retval = -EPERM;	/* another process's session */
+ 			else
+-				retval = ps3gpu_set_cursor_enable(arg);
++				retval = ps3gpu_direct_end();
++			mutex_unlock(&gpu_own_lock);
+ 			break;
+ 		case PS3GPU_IOCTL_ENTER:
++			retval = ps3gpu_direct_check(cmd, arg);
++			if (retval)
++				break;
+ 			if (!mutex_trylock(&gpu_own_lock)) {	/* see EXIT */
+ 				retval = -EBUSY;
+ 				break;
+ 			}
+-			if (gpu_owned || shadow.released) {
++			if (shadow.dead) {
++				mutex_unlock(&gpu_own_lock);
++				retval = -ENODEV;	/* ps3fb has shut down */
++				break;
++			}
++			/* a session whose process is gone, its last close not seen yet: end it */
++			if (gpu_direct && !gpu_owned && ps3gpu_direct_owner_gone())
++				ps3gpu_direct_end();
++			if (gpu_owned || shadow.released || gpu_direct) {
+ 				retval = -EBUSY;
+ 			} else {
+-				StartStopTask(1);
++				/* under the mutex: a blit in progress ends, later ones skip */
++				mutex_lock(&ps3_gpu_mutex);
++				WRITE_ONCE(gpu_direct, true);
++				mutex_unlock(&ps3_gpu_mutex);
++				gpu_direct_owner = get_pid(task_tgid(current));
+ 				retval = 0;
+ 			}
+ 			mutex_unlock(&gpu_own_lock);
+@@ -2119,26 +2135,6 @@ static int ps3fbd(void *arg)
+ 	return 0;
+ }
+ 
+-static void StartStopTask(int val)
+-{
+-	if(val) {
+-		if (ps3fb.task)	{
+-			struct task_struct *task = ps3fb.task;
+-			ps3fb.task = NULL;
+-			kthread_stop(task);
+-		}
+-		if(ps3fb.fifo.ctrl) {
+-			iounmap((u8 __force __iomem *)ps3fb.fifo.ctrl);
+-			ps3fb.fifo.ctrl=NULL;
+-		}
+-	} else {
+-		if(!ps3fb.fifo.ctrl)
+-			ps3fb.fifo.ctrl = (void __force *)ioremap( ps3fb.ctrl_lpar, ps3fb.ctrl_size);
+-		if(!ps3fb.task)
+-			ps3fb.task = kthread_run(ps3fbd,  ps3fb.fbinfo, DEVICE_NAME);
+-	}
+-}
+-
+ /*
+  * The FIFO cache holds the last 512 method:data pairs PFIFO fetched; GET is the next entry PGRAPH
+  * would take and PUT the next one PFIFO fills. Print the 32 entries ending at GET (wrapping),
+@@ -2207,7 +2203,7 @@ static irqreturn_t ps3fb_vsync_interrupt(int irq, void *ptr)
+ 		/* VSYNC */
+ 		ps3fb.vblank_count = head->vblank_count;
+ 		if (ps3fb.task && !ps3fb.is_blanked && !READ_ONCE(gpu_owned) &&
+-		    !atomic_read(&ps3fb.ext_flip)) {
++		    !READ_ONCE(gpu_direct) && !atomic_read(&ps3fb.ext_flip)) {
+ 			ps3fb.is_kicked = 1;
+ 			wake_up_process(ps3fb.task);
+ 		}
+@@ -2588,7 +2584,9 @@ int ps3fb_gpu_takeover(bool own)
+ 	}
+ 	if (own == gpu_owned)
+ 		goto out;
+-	if (own && !ps3fb.task) {
++	if (own && gpu_direct && ps3gpu_direct_owner_gone())
++		ps3gpu_direct_end();	/* a session whose process is gone */
++	if (own && (gpu_direct || !ps3fb.task)) {
+ 		ret = -EBUSY;		/* a direct-GPU user (PS3GPU_IOCTL_ENTER) holds the FIFO */
+ 		goto out;
+ 	}
+@@ -2648,9 +2646,17 @@ static struct vm_operations_struct ps3fb_gpu_vma_ops =
+ 	.close = ps3fb_gpu_vma_close,
+ };
+ 
+-static int ps3fb_gpu_open(struct inode *inode, struct file *filp) { return 0; }
++static int ps3fb_gpu_open(struct inode *inode, struct file *filp)
++{
++	return capable(CAP_SYS_ADMIN) ? 0 : -EPERM;	/* see ps3gpu_direct_check */
++}
+ 
+-static int ps3fb_gpu_release(struct inode *inode, struct file *filp) { return 0; }
++static int ps3fb_gpu_release(struct inode *inode, struct file *filp)
++{
++	if (READ_ONCE(gpu_direct))
++		schedule_work(&gpu_direct_work);	/* see ps3fb_release */
++	return 0;
++}
+ 
+ static int ps3fb_gpu_mmap(struct file *filp, struct vm_area_struct *vm)
+ {
+@@ -2989,8 +2995,11 @@ static void ps3fb_shutdown(struct ps3_system_bus_device *dev)
+ 	mutex_unlock(&shadow_lock);
+ 	mutex_lock(&gpu_own_lock);
+ 	shadow.dead = true;
++	put_pid(gpu_direct_owner);	/* a direct session just stops: the context goes */
++	gpu_direct_owner = NULL;
+ 	mutex_unlock(&gpu_own_lock);
+ 	cancel_delayed_work_sync(&shadow_work);
++	cancel_work_sync(&gpu_direct_work);
+ 	unregister_chrdev(ps3fb_gpu_major, DEVICE_NAME);
+ 	atomic_inc(&ps3fb.ext_flip);	/* flip off */
+ 	ps3fb.dinfo->irq.mask = 0;

@@ -27,6 +27,14 @@
 #   inactive pad on the cable ran Quake's menu up by itself (linux/tests/sixaxis-idle-axes.sh, ds3-idle-check.py on the PS3).
 # local/0051: ps3fb's graph exception dump prints the 32 FIFO cache entries ending at GET, GET and PUT marked, rate-limited
 #   (docs/RSX.md "Reading ps3fb's dump").
+# local/0052: ps3av masks the option bits off the mode before its audio setup's table lookup (upstream bug: with the
+#   full-screen bit or DVI set it read past the table and HDMI audio got 480p's N value).
+# local/0053: ps3fb validates PS3FB_IOCTL_SETMODE's argument (the mode number and the video mode's option bits only).
+# local/0054: ps3fb starts in the full-frame variant of the mode Petitboot passes or ps3av detects (no underscan inset;
+#   ps3fb.fullscreen=0 keeps the inset, PS3_UNDERSCAN=1 in /etc/default/ps3-boot; docs/DRIVER.md "Video modes"). Needs 0052.
+# local/0055: ps3fb's direct GPU interface from ps3/0030 (PS3GPU_IOCTL_INFO/ENTER/EXIT, /dev/ps3gpu_*) is root only and takes
+#   its arguments through get_user; the attribute and cursor ioctls are removed (nothing used them); a direct session
+#   ends by itself when its process is gone. ps3rsx is unaffected.
 ps3/0020-ps3stor-send-cmd-timeout.patch
 ps3/0035-ps3flash.patch
 ps3/0040-ps3-partition.patch
@@ -92,3 +100,7 @@ local/0048-ps3disk-probe-unwind-and-remove-order.patch
 local/0049-gelic-rx-watchdog.patch
 local/0050-hid-sony-sixaxis-center-sticks.patch
 local/0051-ps3fb-exception-dump-around-get.patch
+local/0052-ps3av-audio-mode-index-mask.patch
+local/0053-ps3fb-validate-setmode.patch
+local/0054-ps3fb-fullscreen-default.patch
+local/0055-ps3fb-restrict-gpu-ioctls.patch

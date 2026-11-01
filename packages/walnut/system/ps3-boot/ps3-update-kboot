@@ -11,16 +11,24 @@
 #
 # An entry's command line: this installation's root and extras (/etc/default/ps3-boot) plus the
 # kernel's own arguments, which its package ships as /usr/lib/ps3/boot/<release>.args (kernels
-# without that file get PS3_LEGACY_ARGS).
+# without that file get PS3_LEGACY_ARGS), then the display setting: PS3_UNDERSCAN=1 keeps the
+# picture inside the TV-safe inset for TVs that crop its edges (ps3fb.fullscreen=0, last so it wins
+# over the args file); unset or 0, the kernel's default, the full frame. The video mode itself is
+# never set here: it is Petitboot's (docs/DRIVER.md "Video modes"). An installer's or image build's
+# first menu has no setting yet; this script rewrites it on the next kernel change or run.
 #
 # Extra entries (e.g. the SSD root's, docs/GAMEOS-HDD.md "Phase B"): the "label='image args'" lines
 # of every /etc/kboot.d/*.conf, in file name order, come after the kernels' entries as written, so a
 # kernel install or removal keeps them. Left out, as a comment in kboot.conf and a message: a label
 # that is already taken (Petitboot keys its default on the label), a line that isn't an entry, and an
 # entry whose image or initrd= is missing on this disk (paths without "device:" are looked up here).
+# With PS3_UNDERSCAN=1 an extra entry gets ps3fb.fullscreen=0 at its end too, unless it sets
+# ps3fb.fullscreen= itself.
 # Petitboot ignores the default= line (docs/GAMEOS-HDD.md "Petitboot's behaviour"); it is kept for
 # the record. PS3_BOOT_ROOT: a prefix for every file (host tests only).
 set -e
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
 R=${PS3_BOOT_ROOT:-}
 DEFAULTS=$R/etc/default/ps3-boot
 CONF=$R/etc/kboot.conf
@@ -33,10 +41,17 @@ if [ ! -e "$DEFAULTS" ]; then
 # Petitboot boot menu settings (ps3-update-kboot writes /etc/kboot.conf from them)
 PS3_ROOT_ARGS="$root"
 PS3_EXTRA_ARGS="$extra"
-PS3_LEGACY_ARGS="video=ps3fb:mode:133 consoleblank=0 ps3rsx_gart=32M console=tty1 loglevel=4"
+PS3_LEGACY_ARGS="consoleblank=0 ps3rsx_gart=32M console=tty1 loglevel=4"
 EOF
 fi
 . "$DEFAULTS"
+
+# the display setting's kernel argument (the same values in ps3-hdd1-boot)
+case $(printf '%s' "${PS3_UNDERSCAN:-0}" | tr '[:upper:]' '[:lower:]') in
+	1|yes|true|on) display_args=ps3fb.fullscreen=0 ;;
+	0|no|false|off) display_args= ;;
+	*) echo "ps3-update-kboot: PS3_UNDERSCAN=$PS3_UNDERSCAN is not 0 or 1: the full frame" >&2; display_args= ;;
+esac
 
 # newest first, in Debian's kernel version order (linux-base), which knows about ~ and +
 # dpkg's temporary names during an upgrade (vmlinux-<release>.dpkg-tmp, .dpkg-new, ...) are not kernels
@@ -77,7 +92,7 @@ for k in $kernels; do
 	fi
 	[ -n "$default" ] || default=$release
 	# one space between the arguments: Petitboot passes an empty one on as "(null)"
-	echo "$release='$(printf '%s' "$k $PS3_ROOT_ARGS $PS3_EXTRA_ARGS $args" | tr -s ' ' | sed 's/ $//')'" >> "$tmp"
+	echo "$release='$(printf '%s' "$k $PS3_ROOT_ARGS $PS3_EXTRA_ARGS $args $display_args" | tr -s ' ' | sed 's/ $//')'" >> "$tmp"
 	labels="$labels$release "
 done
 
@@ -107,7 +122,10 @@ for f in "$R"/etc/kboot.d/*.conf; do
 			case $p in *:*) ;; *) [ -e "$R$p" ] || missing="$missing $p" ;; esac
 		done
 		if [ -n "$missing" ]; then skip "$name" "$label: missing$missing"; continue; fi
-		echo "$line" >> "$tmp"
+		case " $val " in
+		*" ps3fb.fullscreen="*) echo "$line" >> "$tmp" ;;
+		*) if [ -n "$display_args" ]; then echo "$label='$val $display_args'" >> "$tmp"; else echo "$line" >> "$tmp"; fi ;;
+		esac
 		labels="$labels$label "
 		extras=$((extras + 1))
 	done < "$f"

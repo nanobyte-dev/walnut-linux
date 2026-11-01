@@ -205,6 +205,68 @@ class Kboot(unittest.TestCase):
         self.assertEqual(lines[-1], "default=" + REL)
         self.assertIn("0 extra entries", out)
 
+    def test_underscan_setting(self):
+        """PS3_UNDERSCAN=1 (or yes/true/on, any case): ps3fb.fullscreen=0 ends every kernel's entry and
+        every /etc/kboot.d entry (after their args, so it wins); unset, 0/no/false/off, or anything
+        else (with a warning): nothing added, the kernel's full frame. Never a video=."""
+        defaults = (self.r / "etc/default/ps3-boot").read_text()
+        (self.r / "boot" / ("initrd-ssd-%s.img" % REL)).write_bytes(b"\0")
+        (self.r / "etc/kboot.d/ssd.conf").write_text(SSD + "\n")
+        for value, want, warn in (("", False, False), ("PS3_UNDERSCAN=0\n", False, False),
+                                  ("PS3_UNDERSCAN=off\n", False, False), ("PS3_UNDERSCAN=1\n", True, False),
+                                  ("PS3_UNDERSCAN=YES\n", True, False), ("PS3_UNDERSCAN=true\n", True, False),
+                                  ("PS3_UNDERSCAN='1 init=/bin/sh'\n", False, True)):
+            (self.r / "etc/default/ps3-boot").write_text(defaults + value)
+            lines, out = self.run_it()
+            ours = [x for x in lines if x.split("=", 1)[0] in (REL, DBG, OLD, "ssd-" + REL)]
+            self.assertEqual(len(ours), 4, lines)
+            for x in ours:
+                self.assertEqual(x.endswith(" ps3fb.fullscreen=0'"), want, (value, x))
+                self.assertNotIn("init=/bin/sh", x)
+            self.assertEqual(sum("ps3fb.fullscreen" in x for x in lines), 4 if want else 0, (value, lines))
+            if want:
+                self.assertIn(SSD[:-1] + " ps3fb.fullscreen=0'", lines)   # the SSD entry, the setting at its end
+            else:
+                self.assertIn(SSD, lines)                                  # as written
+            self.assertEqual("is not 0 or 1" in out, warn, (value, out))
+
+    def test_underscan_extra_entry_with_its_own_setting(self):
+        """an extra entry that sets ps3fb.fullscreen itself stays as written"""
+        own = SSD[:-1] + " ps3fb.fullscreen=1'"
+        (self.r / "boot" / ("initrd-ssd-%s.img" % REL)).write_bytes(b"\0")
+        (self.r / "etc/kboot.d/ssd.conf").write_text(own + "\n")
+        (self.r / "etc/default/ps3-boot").write_text((self.r / "etc/default/ps3-boot").read_text() + "PS3_UNDERSCAN=1\n")
+        lines, out = self.run_it()
+        self.assertIn(own, lines)
+
+    def test_first_run_legacy_args_have_no_video_mode(self):
+        """an installation from before ps3-boot: the defaults come from /proc/cmdline, and the legacy
+        arguments (kernels without an args file) carry no fixed video mode"""
+        (self.r / "etc/default/ps3-boot").unlink()
+        (self.r / "proc/cmdline").write_text("root=/dev/sda2 rootwait video=ps3fb:mode:133 ip=dhcp\n")
+        lines, out = self.run_it()
+        d = (self.r / "etc/default/ps3-boot").read_text()
+        self.assertIn('PS3_ROOT_ARGS="root=/dev/sda2 rootwait"', d)
+        self.assertNotIn("video=", d)
+        old = [x for x in lines if x.startswith(OLD + "=")]   # OLD has no args file
+        self.assertEqual(len(old), 1, lines)
+        self.assertNotIn("video=", old[0])
+        self.assertIn("consoleblank=0", old[0])
+
+    def test_hdd1_underscan_setting(self):
+        (self.r / "usr/lib/ps3/boot/initrd-walnut.img").write_bytes(b"i")
+        for extra, want, warn in (("", False, False), ("PS3_UNDERSCAN=1\n", True, False),
+                                  ("PS3_UNDERSCAN=On\n", True, False), ("PS3_UNDERSCAN=maybe\n", False, True)):
+            p, h = self.hdd1(extra)
+            self.assertEqual(p.returncode, 0, p.stderr)
+            ours = [x for x in (h / "kboot.conf").read_text().splitlines() if x.startswith(("walnut=", "walnut-prev="))]
+            self.assertEqual(len(ours), 2, ours)
+            for x in ours:
+                self.assertEqual(x.endswith(" ps3fb.fullscreen=0'"), want, (extra, x))
+                self.assertNotIn("  ", x)
+            self.assertIn(RARGS + (" ps3fb.fullscreen=0" if want else "") + "'", ours[0])   # walnut: REL, its args first
+            self.assertEqual("ps3-hdd1-boot: PS3_UNDERSCAN=maybe is not 0 or 1" in p.stderr, warn, p.stderr)
+
     def test_kernel_without_gpu_driver_listed_last(self):
         # the newest release kernel's ps3rsx module isn't published yet: the older one, which has it,
         # boots (the first entry) and is the release default; the new one is still listed

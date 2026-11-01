@@ -1,0 +1,50 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Sun, 1 Nov 2026 12:00:00 +0200
+Subject: ps3fb: validate PS3FB_IOCTL_SETMODE's argument
+
+PS3FB_IOCTL_SETMODE checked only the mode number in its argument and
+passed every other bit on to ps3av as the new mode id. Accept the mode
+number and the option bits that apply to a video mode (full screen,
+dither, colour, white, DVI, RGB) and refuse anything else with -EINVAL.
+
+ps3av_get_auto_mode() returns a negative error when it finds no mode;
+keep it in an int, so the "> 0" check sees it.
+
+Forwarded: no
+---
+ drivers/video/fbdev/ps3fb.c | 8 +++++++-
+ 1 file changed, 7 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/video/fbdev/ps3fb.c b/drivers/video/fbdev/ps3fb.c
+--- a/drivers/video/fbdev/ps3fb.c
++++ b/drivers/video/fbdev/ps3fb.c
+@@ -1894,6 +1894,11 @@ static int ps3gpu_set_cursor_enable(unsi
+ 
+ static void StartStopTask(int val);
+ 
++/* The option bits PS3FB_IOCTL_SETMODE takes besides the mode number: the ones ps3fb and ps3av
++ * implement for a video mode */
++#define PS3FB_SETMODE_OPTIONS	(PS3AV_MODE_FULL | PS3AV_MODE_DITHER | PS3AV_MODE_COLOR | \
++				 PS3AV_MODE_WHITE | PS3AV_MODE_DVI | PS3AV_MODE_RGB)
++
+ static int ps3fb_ioctl(struct fb_info *info, unsigned int cmd, unsigned long arg)
+ {
+ 	void __user *argp = (void __user *)arg;
+@@ -1924,11 +1929,13 @@ static int ps3fb_ioctl(struct fb_info *i
+ 			if (copy_from_user(&val, argp, sizeof(val)))
+ 				break;
+ 			if (!(val & PS3AV_MODE_MASK)) {
+-				u32 id = ps3av_get_auto_mode();
++				int id = ps3av_get_auto_mode();
+ 				if (id > 0) val = (val & ~PS3AV_MODE_MASK) | id;
+ 			}
+ 			dev_dbg(info->device, "PS3FB_IOCTL_SETMODE:%x\n", val);
+ 			retval = -EINVAL;
++			if (val & ~(PS3AV_MODE_MASK | PS3FB_SETMODE_OPTIONS))
++				break;
+ 			vmode = ps3fb_vmode(val);
+ 			if (vmode) {
+ 				var = info->var;
+-- 
+2.47.0

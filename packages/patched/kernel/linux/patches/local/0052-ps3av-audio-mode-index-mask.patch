@@ -1,0 +1,38 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Sun, 1 Nov 2026 12:00:00 +0200
+Subject: ps3av: mask the option bits off the mode in the audio setup
+
+ps3av_set_audio_mode() looks up the current video mode's vid with
+video_mode_table[ps3av->ps3av_mode], but ps3av_mode keeps the option
+bits ps3fb passes with the mode (PS3AV_MODE_FULL 0x80, DVI 0x40, RGB
+0x20 and the others). With any of them set, for example in the
+full-screen modes (video=ps3fb:mode:133) or with a DVI monitor in auto
+mode, the index runs past the 14-entry table. The vid read there is
+then usually not a known one, ps3av_vid_video2av() maps it to 480p and
+the HDMI audio N value is the 480p one for every mode.
+
+Every other use masks the id first (ps3av_set_videomode_packet(),
+ps3av_video_mode2res()); do the same here. ps3av_set_video_mode() and
+the probe store only ids whose mode bits are in the table, so the mask
+is enough.
+
+Forwarded: no (an upstream bug; to send with a PS3 test)
+---
+ drivers/ps3/ps3av.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/ps3/ps3av.c b/drivers/ps3/ps3av.c
+--- a/drivers/ps3/ps3av.c
++++ b/drivers/ps3/ps3av.c
+@@ -427,7 +427,7 @@ int ps3av_set_audio_mode(u32 ch, u32 fs,
+ 	avb_param.num_of_av_video_pkt = 0;
+ 	avb_param.num_of_av_audio_pkt = ps3av->av_hw_conf.num_of_hdmi;
+ 
+-	vid = video_mode_table[ps3av->ps3av_mode].vid;
++	vid = video_mode_table[ps3av->ps3av_mode & PS3AV_MODE_MASK].vid;
+ 
+ 	/* audio mute */
+ 	ps3av_set_audio_mute(PS3AV_CMD_MUTE_ON);
+-- 
+2.47.0

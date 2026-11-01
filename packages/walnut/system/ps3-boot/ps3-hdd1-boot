@@ -17,6 +17,8 @@
 # PS3_BOOT_ROOT: a prefix for /boot and /usr (host tests); PS3_HDD1_DIR: a directory standing in for
 # the mounted dev_hdd1 (host tests: no blkid, mount or blockdev).
 set -e
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
 R=${PS3_BOOT_ROOT:-}
 DEV=${PS3_HDD1_DEV:-/dev/ps3dc}
 die() { echo "ps3-hdd1-boot: $*" >&2; exit 1; }
@@ -61,8 +63,16 @@ put() {	# put SRC DEST: through DEST.tmp, then a rename
 	sync
 	mv -f "$M$2.tmp" "$M$2"
 }
+# the display setting (the same values as in ps3-update-kboot): PS3_UNDERSCAN=1 keeps the TV-safe
+# inset, after a kernel's own arguments so it wins over them
+case $(printf '%s' "${PS3_UNDERSCAN:-0}" | tr '[:upper:]' '[:lower:]') in
+	1|yes|true|on) display_args=ps3fb.fullscreen=0 ;;
+	0|no|false|off) display_args= ;;
+	*) echo "ps3-hdd1-boot: PS3_UNDERSCAN=$PS3_UNDERSCAN is not 0 or 1: the full frame" >&2; display_args= ;;
+esac
 args_of() {
-	if [ -e "$R/usr/lib/ps3/boot/$1.args" ]; then cat "$R/usr/lib/ps3/boot/$1.args"; else echo "${PS3_LEGACY_ARGS:-}"; fi
+	if [ -e "$R/usr/lib/ps3/boot/$1.args" ]; then a=$(cat "$R/usr/lib/ps3/boot/$1.args"); else a=${PS3_LEGACY_ARGS:-}; fi
+	echo "$a $display_args"
 }
 mkdir -p "$M/linux/boot"
 for r in $cur $prev; do

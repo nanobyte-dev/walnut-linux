@@ -1,0 +1,126 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Sun, 1 Nov 2026 12:00:00 +0200
+Subject: ps3fb: start in the boot mode's full-frame variant (ps3fb.fullscreen)
+
+Each PS3 broadcast mode (480i to 1080p50) has two frame layouts in
+ps3fb: an underscan one, where the console's picture is an inset in the
+frame for TVs that crop the edges (1688x964 in 1080p, 1124x644 in 720p,
+576x384 in 480p), and the full frame, selected by PS3AV_MODE_FULL
+(0x80, mode N+128). The video timing is the same in both; only ps3fb's
+frame layout differs.
+
+Petitboot passes video=ps3fb:mode:N, N being the mode from its settings,
+without the bit (mode:5 for 1080p), and with no video= ps3fb takes
+ps3av's autodetected mode, also without it. So the console, fbcon's
+logo and the boot splash (Plymouth on fbdev) sit inside black bars on
+every TV, while the desktop (the RSX DRM driver's KMS) always uses the
+whole frame. Forcing a full-screen mode number on the command line is
+not an answer: a fixed mode:133 is a black screen on a 720p or SD TV.
+
+Add a parameter, ps3fb.fullscreen, on by default: at probe ps3fb ORs
+PS3AV_MODE_FULL into whatever broadcast mode it was given or
+autodetected, so it keeps the console's resolution and only drops the
+inset. fullscreen=0 takes the mode as given (the old behaviour, for TVs
+that crop). Left alone: VESA modes (only a full frame), auto mode when
+ps3av has none (0), negative ids (rejected later as before), a
+resolution on the command line (video=ps3fb:<WxH> or a global
+video=<WxH>) and PS3FB_IOCTL_SETMODE, which ask for a layout
+explicitly. The bit is applied once, before the first set_par;
+read-only at run time (0444).
+
+The frame in VRAM is the native size in both layouts (ddr_frame_size),
+and the XDR frame grows only up to it (1920x1080x4 in 1080p), so the
+default 9 MiB of ps3fb video memory holds one frame either way.
+
+Depends on the previous patch (ps3av: mask the option bits off the mode
+in the audio setup): with the bit set on every boot, the audio setup
+would otherwise index past ps3av's mode table.
+
+Forwarded: no (on by default for Walnut; an upstream version would
+default to off)
+---
+ drivers/video/fbdev/ps3fb.c | 43 +++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 43 insertions(+)
+
+diff --git a/drivers/video/fbdev/ps3fb.c b/drivers/video/fbdev/ps3fb.c
+--- a/drivers/video/fbdev/ps3fb.c
++++ b/drivers/video/fbdev/ps3fb.c
+@@ -30,6 +30,7 @@
+ #include <linux/memblock.h>
+ #include <linux/sizes.h>
+ #include <linux/vmalloc.h>
++#include <linux/slab.h>
+ #include <linux/workqueue.h>
+ #include <linux/uaccess.h>
+ #include <linux/fb.h>
+@@ -376,6 +377,21 @@ static const struct fb_videomode ps3fb_m
+ static int ps3fb_mode;
+ module_param(ps3fb_mode, int, 0);
+ 
++/*
++ * Each broadcast mode (480i to 1080p50) has two frame layouts: the underscan one, a picture inset
++ * in the frame for TVs that crop its edges (1688x964 in 1080p, 576x384 in 480p), and the full
++ * frame (PS3AV_MODE_FULL, +128), with the same video timing. The bootloader passes the console's
++ * mode without the bit (Petitboot: video=ps3fb:mode:5 for 1080p, the mode from its settings), or
++ * none (0: ps3av's autodetected one). fullscreen=1 starts ps3fb in the full-frame variant of
++ * whichever mode that is; fullscreen=0 takes the mode as given. Not applied when a resolution
++ * is given (video=ps3fb:<WxH>, or a global video=<WxH>) or to PS3FB_IOCTL_SETMODE, which ask for
++ * a layout explicitly.
++ */
++static bool fullscreen = true;
++module_param(fullscreen, bool, 0444);
++MODULE_PARM_DESC(fullscreen,
++	"Start in the full-frame variant of the boot video mode, no underscan inset (default: on)");
++
+ static char *mode_option;
+ 
+ static int ps3fb_gpu_major;
+@@ -1407,6 +1423,33 @@ static const struct fb_videomode *ps3fb_
+ 	return ps3fb_native_vmode(mode);
+ }
+ 
++/* The full-frame variant of a broadcast mode id; anything else (auto, VESA modes, which have
++ * only the full frame, ids that name no mode) is returned as it is */
++static int ps3fb_full_mode(int id)
++{
++	u32 mode = id & PS3AV_MODE_MASK;
++
++	if (id < 0 || mode < PS3AV_MODE_480I || mode > PS3AV_MODE_1080P50)
++		return id;
++	return id | PS3AV_MODE_FULL;
++}
++
++/* A resolution on the command line picks the layout: video=ps3fb:<WxH> (mode_option), or a
++ * global video=<WxH>, which fb_find_mode falls back to ("safe" is ps3av's, not a resolution) */
++static bool ps3fb_resolution_given(void)
++{
++	char *global = NULL;
++	bool given;
++
++	/* with no option of its own, ps3fb got the global one as mode_option */
++	if (mode_option && strcmp(mode_option, "safe"))
++		return true;
++	fb_get_options(NULL, &global);
++	given = global && strcmp(global, "safe");
++	kfree(global);
++	return given;
++}
++
+ static unsigned int ps3fb_find_mode(struct fb_var_screeninfo *var,
+       u32 *ddr_line_length, u32 *xdr_line_length)
+ {
+@@ -2725,6 +2768,11 @@ static int ps3fb_probe(struct ps3_system
+ 		goto err;
+ 	}
+ 	if (!ps3fb_mode) ps3fb_mode = ps3av_get_mode();
++	if (fullscreen && ps3fb_full_mode(ps3fb_mode) != ps3fb_mode && !ps3fb_resolution_given()) {
++		dev_info(&dev->core, "mode %d -> %d: full frame, no underscan inset (ps3fb.fullscreen=0 for the inset)\n",
++			 ps3fb_mode, ps3fb_full_mode(ps3fb_mode));
++		ps3fb_mode = ps3fb_full_mode(ps3fb_mode);
++	}
+ 	dev_dbg(&dev->core, "ps3fb_mode: %d\n", ps3fb_mode);
+ 	atomic_set(&ps3fb.f_count, -1);	/* fbcon opens ps3fb */
+ 	atomic_set(&ps3fb.ext_flip, 0);	/* for flip with vsync */
+-- 
+2.47.0
