@@ -60,8 +60,11 @@ MODULE_PARM_DESC(recovery, "recover the GPU in place after a graph exception, on
 static bool recovery_used;	/* one in-place recovery per boot (lv1's context limit) */
 static char *recs;		/* the crash records (below) */
 bool ps3rsx_test_allow_rt12;
+#ifdef PS3RSX_TEST_WEDGE
+/* only in the module for the debug kernel (debian/rules: PS3RSX_TEST_WEDGE=1 for a -debug release) */
 module_param_named(test_allow_rt_enable_12, ps3rsx_test_allow_rt12, bool, 0600);
 MODULE_PARM_DESC(test_allow_rt_enable_12, "regression tests of the recovery: the validator lets RT_ENABLE 0x12 through, which raises a graph exception (root only, off by default, cleared by every recovery)");
+#endif
 
 #define RSX_MMIO	0x28000000000ULL
 /*
@@ -845,6 +848,15 @@ static void recover_fn(struct work_struct *w)
 		UW("the notifier lookup failed on the first fresh context: park, free, allocate again");
 		if (park(chid))
 			goto failed;
+		/* the free comes after a pause and a second look: the test builds that proved it
+		 * waited a second or more here (their logging), and a free of a context still in
+		 * CACHE1 is the call that shut the console down; a recovery is rare, so 300 ms cost
+		 * nothing */
+		msleep(300);
+		if (rd(0x3204, "NV03_PFIFO_CACHE1_PUSH1") != 0x1f) {
+			UW("park didn't hold (CACHE1 back on a channel): no free");
+			goto failed;
+		}
 		iounmap(ctrl);
 		iounmap(dinfo);
 		ctrl = dinfo = NULL;

@@ -12,7 +12,7 @@ override_dh_auto_build:
 	mkdir -p b/ps3rsx b/probes
 	cp src/* b/ps3rsx/
 	cp probes/* b/probes/
-	$(KMAKE) M=$(CURDIR)/b/ps3rsx modules
+	$(KMAKE) M=$(CURDIR)/b/ps3rsx $(if $(findstring -debug,$(KREL)),PS3RSX_TEST_WEDGE=y) modules
 	$(KMAKE) M=$(CURDIR)/b/probes modules
 
 override_dh_auto_install:

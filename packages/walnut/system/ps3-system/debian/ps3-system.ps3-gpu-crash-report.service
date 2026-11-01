@@ -19,8 +19,8 @@ LogsDirectoryMode=0700
 RuntimeDirectory=ps3-gpu-crash
 RuntimeDirectoryMode=0700
 RuntimeDirectoryPreserve=yes
-# the journal socket (logger) and systemd's (systemctl, loginctl for the display-only restart)
-ReadWritePaths=/run/systemd
+# no write paths beyond those two directories: the sockets it uses (the journal's for logger,
+# systemd's and the system bus for systemctl and loginctl) connect on a read-only /run too
 # root's own files only; dmesg under dmesg_restrict (CAP_SYSLOG); /proc/PID/maps of the GL processes
 # and /proc/PID/exe of an old X (CAP_SYS_PTRACE, read only); CAP_KILL: the display-only restart's
 # SIGTERM/SIGKILL to an old X that doesn't exit (it runs as the desktop user)

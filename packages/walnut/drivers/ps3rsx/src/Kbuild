@@ -1,2 +1,4 @@
 obj-m := ps3rsx.o
+# the recovery's wedge generator (test_allow_rt_enable_12): only in the debug kernel's module
+ccflags-$(PS3RSX_TEST_WEDGE) += -DPS3RSX_TEST_WEDGE
 ps3rsx-y := drv.o abi16.o mem.o gart.o exec.o validate.o submit.o kms.o shadow.o console.o vswap.o kcopy.o unwedge.o

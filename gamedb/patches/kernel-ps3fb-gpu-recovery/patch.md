@@ -39,8 +39,9 @@ lv1 hands out new addresses with every allocation. Three calls, for the driver t
   which is what the realloc allows. With leaked contexts, lv1's own teardown at shutdown was never
   needed: the console powered off and rebooted normally after every recovery.
 - **How it was found:** the unwedge steps of 2026-11-01 ([RSX.md](../../../docs/RSX.md#lv1-gpu-calls-and-their-effects-on-a-wedged-rsx)).
-- **Minimal repro:** `rsxdrm-smoke quirks rt12` with ps3rsx's `test_allow_rt_enable_12=1` (root
-  only) raises graph exception 0x106; ps3rsx's recovery calls the three functions in order.
+- **Minimal repro:** on the debug kernel, `rsxdrm-smoke quirks rt12` with ps3rsx's
+  `test_allow_rt_enable_12=1` (root only; only the debug kernel's module has it) raises graph
+  exception 0x106; ps3rsx's recovery calls the three functions in order.
 
 ## Validation
 

@@ -40,9 +40,10 @@ and the recipe in [RSX.md](../../../docs/RSX.md#recovering-from-a-graph-exceptio
   clients kept allocating: they now get no new buffers or channels.
 - **How it was found:** the unwedge steps of 2026-11-01 and four PS3 sessions of the in-driver
   version, each with a security review.
-- **Minimal repro:** `echo 1 > /sys/module/ps3rsx/parameters/test_allow_rt_enable_12` (root), then
-  `rsxdrm-smoke quirks rt12`: the validator lets RT_ENABLE 0x12 through and the GPU traps. The switch
-  is cleared by every recovery.
+- **Minimal repro:** on the debug kernel (its module, `ps3rsx-modules-ps3-debug`, is the only one
+  built with the switch), `echo 1 > /sys/module/ps3rsx/parameters/test_allow_rt_enable_12` (root),
+  then `rsxdrm-smoke quirks rt12`: the validator lets RT_ENABLE 0x12 through and the GPU traps. The
+  switch is cleared by every recovery.
 
 ## Validation
 
