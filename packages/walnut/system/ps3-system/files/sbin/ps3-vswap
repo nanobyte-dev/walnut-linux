@@ -11,7 +11,11 @@ dev=$(awk '$3 == "swap" && $1 !~ "zram" { print $1; exit }' $R/etc/fstab)
 [ -n "$dev" ] || exit 0
 part=$(findfs "$dev" 2>/dev/null || echo "$dev")
 [ -b "$part" ] || exit 0
-grep -q "^$part " /proc/swaps && swapoff "$part"
+# Run again (the driver came back: debian/71-ps3-vswap.rules): if the VRAM swap is already on, there is
+# nothing to do, and mkswap below must never touch a live swap. If the partition is in use as the
+# fallback, it must come off cleanly before the VRAM swap takes it over; a failed swapoff stops here.
+grep -q "^/dev/ps3vswap0 " /proc/swaps && exit 0
+if grep -q "^$part " /proc/swaps; then swapoff "$part" || exit 1; fi
 B=$R/sys/block/ps3vswap0/backing
 PS3_VSWAP_DM=0
 [ -r $R/etc/default/ps3-vswap ] && . $R/etc/default/ps3-vswap
