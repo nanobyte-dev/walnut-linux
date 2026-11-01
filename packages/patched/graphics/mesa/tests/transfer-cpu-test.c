@@ -6,6 +6,10 @@
  *   Now: the map waits for the GPU and drains the staging pools, tries again, then hands out malloc
  *   memory; the unmap maps the texture (waiting for the GPU's use of it) and the CPU writes the
  *   texels where the GPU would have: swizzled, linear and DXT1 textures, a sub-box, a read back.
+ * Also the staging pool's small classes (Mesa 0040, NV30_STAGING_POOL_MB; uploads up to 256 KiB),
+ * through nv30_miptree.c's own functions: the size classes, a buffer back only in its own class,
+ * the 32-buffer and 2 MiB limits (the oldest given back first), the drain when GART runs out, and
+ * a pool closed with its screen.
  * (tools/run-tests.sh --only mesa-transfer-cpu runs it; skipped without build/work/mesa) */
 #include "nv30/nv30_miptree.c"
 #include "nv30/nv30_transfer.c"
@@ -258,6 +262,82 @@ static void test_dxt1(void)
 	pipe_resource_reference(&pt, NULL);
 }
 
+/* a buffer handed to the pool as the fence work after its copy does */
+static struct nouveau_bo *pool_put(unsigned cls)
+{
+	struct nv30_staging_return *r = CALLOC_STRUCT(nv30_staging_return);
+	struct nouveau_bo *bo = NULL;
+
+	nouveau_bo_new(NULL, NOUVEAU_BO_GART | NOUVEAU_BO_MAP, 0, cls, NULL, &bo);
+	r->screen = &screen;
+	r->bo = bo;
+	r->size = cls;
+	nv30_staging_pool_put(r);
+	return bo;
+}
+
+static void test_staging_small(void)
+{
+	struct nouveau_bo *bo, *first, *kept[40];
+	int base = bos;
+
+	gart_full = 0;
+	screen.staging_max = ARRAY_SIZE(screen.staging_pool);	/* NV30_STAGING_POOL_MB set */
+	screen.staging_closed = false;
+
+	CHECK(nv30_staging_pool_size(1) == 4096 && nv30_staging_pool_size(4096) == 4096 &&
+	      nv30_staging_pool_size(4097) == 8192 && nv30_staging_pool_size(200 << 10) == 256 << 10,
+	      "size classes: %u %u %u %u", nv30_staging_pool_size(1), nv30_staging_pool_size(4096),
+	      nv30_staging_pool_size(4097), nv30_staging_pool_size(200 << 10));
+	CHECK(!nv30_staging_pool_get(&screen, 4096), "a buffer from an empty pool");
+
+	/* back to the pool, and out again only in its own class */
+	first = pool_put(8192);
+	CHECK(screen.staging_count == 1 && screen.staging_bytes == 8192, "pool %u buffers, %u bytes after a put",
+	      screen.staging_count, screen.staging_bytes);
+	CHECK(!nv30_staging_pool_get(&screen, 4096), "a 4 KiB upload got the 8 KiB buffer");
+	bo = nv30_staging_pool_get(&screen, 8192);
+	CHECK(bo == first, "the 8 KiB upload did not get the idle 8 KiB buffer back");
+	CHECK(screen.staging_count == 0 && screen.staging_bytes == 0, "pool %u buffers, %u bytes after the get",
+	      screen.staging_count, screen.staging_bytes);
+	nouveau_bo_ref(NULL, &bo);
+	CHECK(bos == base, "%d buffers left after the get and free", bos - base);
+
+	/* at most 32 buffers: the 33rd put gives the oldest back to the kernel */
+	for (unsigned i = 0; i < 33; i++)
+		kept[i] = pool_put(4096);
+	CHECK(screen.staging_count == 32, "%u buffers pooled, want 32", screen.staging_count);
+	CHECK(bos - base == 32, "%d buffers alive, want 32 (the oldest freed)", bos - base);
+	CHECK(screen.staging_pool[0].bo == kept[1] && screen.staging_pool[31].bo == kept[32],
+	      "the pool does not hold the 32 newest buffers, oldest first");
+	bo = nv30_staging_pool_get(&screen, 4096);
+	CHECK(bo == kept[32], "a get does not take the newest buffer of its class");
+	nouveau_bo_ref(NULL, &bo);
+
+	/* out of GART: everything idle goes back */
+	nv30_staging_drain(&screen);
+	CHECK(screen.staging_count == 0 && screen.staging_bytes == 0 && bos == base,
+	      "after a drain: %u buffers, %u bytes pooled, %d alive", screen.staging_count,
+	      screen.staging_bytes, bos - base);
+
+	/* at most 2 MiB: nine 256 KiB buffers keep the newest eight */
+	for (unsigned i = 0; i < 9; i++)
+		kept[i] = pool_put(256 << 10);
+	CHECK(screen.staging_count == 8 && screen.staging_bytes == 2u << 20 && bos - base == 8,
+	      "2 MiB limit: %u buffers, %u bytes pooled, %d alive", screen.staging_count,
+	      screen.staging_bytes, bos - base);
+	CHECK(screen.staging_pool[0].bo == kept[1], "the oldest 256 KiB buffer was not the one given back");
+	nv30_staging_drain(&screen);
+
+	/* a closed pool (its screen going away) frees what comes back */
+	screen.staging_closed = true;
+	pool_put(4096);
+	CHECK(screen.staging_count == 0 && bos == base, "a closed pool kept a buffer");
+	screen.staging_closed = false;
+	screen.staging_max = 0;
+	gart_full = 1;
+}
+
 int main(void)
 {
 	screen.base.is_ps3 = true;
@@ -270,6 +350,7 @@ int main(void)
 	test_swizzled();
 	test_linear();
 	test_dxt1();
+	test_staging_small();
 	CHECK(bos == 0, "%d buffer objects left", bos);
 	printf("%s: %d checks, %d failed\n", fails ? "FAIL" : "ok", checks, fails);
 	return fails != 0;

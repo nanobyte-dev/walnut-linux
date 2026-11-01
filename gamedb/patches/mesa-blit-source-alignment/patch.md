@@ -40,4 +40,14 @@ through would now be cancelled instead of wedging the GPU.
 
 ## Validation
 
-Not yet validated on the PS3.
+Validated on 2026-11-01 (PS3 session M, the merged test kernel 6.12.111+ps3.1210~dev20261031171117, ps3rsx 0.1209, ps3-gpu-tools 0.1161, the Mesa ladder of key c12abbd5c30c45d4): `gl-mipread` at rung 1 (the fix off) and rung 2 (on), the last
+runs of the session. Off: the first unaligned read-back, the 2x2 level of a 32x32 RGBA8 texture at
++0x1540, became a push that ps3rsx's validator rejected. The channel was refused, so all 70 cases
+failed, but there was no graph exception and the GPU still answered (`rsxdrm-smoke nop`). On: all 70
+cases passed with no kernel lines.
+
+```
+off: ps3rsx: rejected push: texture offset not 128-byte aligned at word 66 (0020fa00)
+off: ps3rsx: channel 1 refused from now on (pid 5548, gl-mipread)
+on:  get I8 16x256: ok (9 levels, 0 wrong) ... PASS
+```

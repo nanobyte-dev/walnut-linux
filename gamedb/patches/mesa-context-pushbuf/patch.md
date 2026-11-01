@@ -5,23 +5,25 @@ aliases = ["Mesa 0003"]
 category = "stability"
 switch = "none"
 default = "always on"
-gating = "none: generic push buffer fixes; the staging counter it adds is used only by 0007's PS3 limit"
+gating = "none: generic push buffer fixes"
 forwarded = "no"
-tests = ["mesa-alloc-fail"]
+tests = ["mesa-alloc-fail:pushbuf-flush", "mesa-alloc-fail:pushbuf-destroy"]
 batches = []
 +++
 
 # nv30: push buffer robustness in the context
 
-Three small fixes to how an nv30 context handles its push buffer, and one counter:
+Three small fixes to how an nv30 context handles its push buffer:
 
 - the push buffer reserves room (`rsvd_kick = 16`) for the fence that `kick_notify` emits at every kick;
 - a context that never queued anything has no push buffer space yet, so its flush gets space first,
   instead of writing the fence through a NULL pointer;
 - `nv30_context_destroy` survives a context whose `nouveau_context_init` failed (out of GART), when there
-  is no push buffer to kick;
-- `staging_inflight`, the bytes of texture-upload staging whose copies may still be pending, which
-  [mesa-texture-uploads-gart](../mesa-texture-uploads-gart/patch.md) (0007) uses to cap a context at 4 MB.
+  is no push buffer to kick.
+
+The patch also declared `staging_inflight`, the counter that
+[mesa-texture-uploads-gart](../mesa-texture-uploads-gart/patch.md) (0007) uses to cap a context's
+staging at 4 MB; on 2026-10-31 it moved into 0007, its only user.
 
 The empty-context flush was "Mesa 0006" in the numbering of the time (commit 97ffb04); the series was
 renumbered when it moved into Debian's source package.

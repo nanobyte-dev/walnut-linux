@@ -25,10 +25,10 @@ AddressSanitizer at the first result read).
 diff --git a/src/gallium/drivers/nouveau/nv30/nv30_query.c b/src/gallium/drivers/nouveau/nv30/nv30_query.c
 --- a/src/gallium/drivers/nouveau/nv30/nv30_query.c
 +++ b/src/gallium/drivers/nouveau/nv30/nv30_query.c
-@@ -37,6 +37,17 @@ struct nv30_query_object {
+@@ -36,6 +36,17 @@
+ struct nv30_query_object {
     struct list_head list;
     struct nouveau_heap *hw;
-    struct nouveau_fence *fence; /* NV30_QUERY_KICK=0/2: the batch that writes the report */
 +   struct nv30_query *owner;    /* the query whose qo[0] or qo[1] this is, or NULL */
 +};
 +
@@ -43,16 +43,13 @@ diff --git a/src/gallium/drivers/nouveau/nv30/nv30_query.c b/src/gallium/drivers
  };
  
  /* Offset of the query notifier inside the query DMA object */
-@@ -60,17 +71,23 @@ nv30_ntfy(struct nv30_screen *screen, struct nv30_query_object *qo)
+@@ -59,22 +70,73 @@ nv30_ntfy(struct nv30_screen *screen, struct nv30_query_object *qo)
     return ntfy;
  }
  
 +static void
-+nv30_query_object_wait(struct nv30_query_object *qo, volatile uint32_t *ntfy)
++nv30_query_object_wait(volatile uint32_t *ntfy)
 +{
-+   /* NV30_QUERY_KICK=0/2: the report may still sit in a batch not submitted yet */
-+   if ((ntfy[3] & 0xff000000) && qo->fence)
-+      nouveau_fence_flush(qo->fence);
 +   while (ntfy[3] & 0xff000000) {
 +   }
 +}
@@ -63,16 +60,12 @@ diff --git a/src/gallium/drivers/nouveau/nv30/nv30_query.c b/src/gallium/drivers
     struct nv30_query_object *qo = *po; *po = NULL;
     if (qo) {
        volatile uint32_t *ntfy = nv30_ntfy(screen, qo);
--      /* NV30_QUERY_KICK=0/2: the report may still sit in a batch not submitted yet */
--      if ((ntfy[3] & 0xff000000) && qo->fence)
--         nouveau_fence_flush(qo->fence);
 -      while (ntfy[3] & 0xff000000) {
 -      }
-+      nv30_query_object_wait(qo, ntfy);
-       if (qo->fence)
-          nouveau_fence_ref(NULL, &qo->fence, &screen->base);
++      nv30_query_object_wait(ntfy);
        nouveau_heap_free(&qo->hw);
-@@ -79,8 +96,53 @@ nv30_query_object_del(struct nv30_screen *screen, struct nv30_query_object **po)
+       list_del(&qo->list);
+       FREE(qo);
     }
  }
  
@@ -114,7 +107,7 @@ diff --git a/src/gallium/drivers/nouveau/nv30/nv30_query.c b/src/gallium/drivers
 +      /* qo[0] of a TIME_ELAPSED query not ended yet: its start time is kept */
 +      volatile uint32_t *ntfy = nv30_ntfy(screen, qo);
 +      assert(q->qo[0] == qo);
-+      nv30_query_object_wait(qo, ntfy);
++      nv30_query_object_wait(ntfy);
 +      q->start = *(uint64_t *)&ntfy[0];
 +      q->qo[0] = NULL;
 +   }
@@ -127,7 +120,7 @@ diff --git a/src/gallium/drivers/nouveau/nv30/nv30_query.c b/src/gallium/drivers
  {
     struct nv30_query_object *oq, *qo = CALLOC_STRUCT(nv30_query_object);
     volatile uint32_t *ntfy;
-@@ -92,10 +154,15 @@ nv30_query_object_new(struct nv30_screen *screen)
+@@ -86,10 +148,15 @@ nv30_query_object_new(struct nv30_screen *screen)
      * spin waiting for one to become free
      */
     while (nouveau_heap_alloc(screen->query_heap, 32, NULL, &qo->hw)) {
@@ -144,7 +137,7 @@ diff --git a/src/gallium/drivers/nouveau/nv30/nv30_query.c b/src/gallium/drivers
     list_addtail(&qo->list, &screen->queries);
  
     ntfy = nv30_ntfy(screen, qo);
-@@ -106,15 +173,6 @@ nv30_query_object_new(struct nv30_screen *screen)
+@@ -100,15 +167,6 @@ nv30_query_object_new(struct nv30_screen *screen)
     return qo;
  }
  
@@ -160,7 +153,7 @@ diff --git a/src/gallium/drivers/nouveau/nv30/nv30_query.c b/src/gallium/drivers
  static inline struct nv30_query *
  nv30_query(struct pipe_query *pipe)
  {
-@@ -162,6 +220,8 @@ nv30_query_destroy(struct pipe_context *pipe, struct pipe_query *pq)
+@@ -156,6 +214,8 @@ nv30_query_destroy(struct pipe_context *pipe, struct pipe_query *pq)
  {
     struct nv30_query *q = nv30_query(pq);
  
@@ -169,7 +162,7 @@ diff --git a/src/gallium/drivers/nouveau/nv30/nv30_query.c b/src/gallium/drivers
     if (q->fence)
        nouveau_fence_ref(NULL, &q->fence, &nv30_screen(pipe->screen)->base);
     FREE(pq);
-@@ -174,9 +234,13 @@ nv30_query_begin(struct pipe_context *pipe, struct pipe_query *pq)
+@@ -168,9 +228,13 @@ nv30_query_begin(struct pipe_context *pipe, struct pipe_query *pq)
     struct nv30_query *q = nv30_query(pq);
     struct nouveau_pushbuf *push = nv30->base.pushbuf;
  
@@ -184,7 +177,7 @@ diff --git a/src/gallium/drivers/nouveau/nv30/nv30_query.c b/src/gallium/drivers
        if (q->qo[0]) {
           BEGIN_NV04(push, NV30_3D(QUERY_GET), 1);
           PUSH_DATA (push, (q->report << 24) | (nv30_query_base(nv30->screen) + q->qo[0]->hw->start));
-@@ -207,7 +271,8 @@ nv30_query_end(struct pipe_context *pipe, struct pipe_query *pq)
+@@ -199,7 +263,8 @@ nv30_query_end(struct pipe_context *pipe, struct pipe_query *pq)
     struct nv30_query *q = nv30_query(pq);
     struct nouveau_pushbuf *push = nv30->base.pushbuf;
  
@@ -194,7 +187,7 @@ diff --git a/src/gallium/drivers/nouveau/nv30/nv30_query.c b/src/gallium/drivers
     if (q->qo[1]) {
        BEGIN_NV04(push, NV30_3D(QUERY_GET), 1);
        PUSH_DATA (push, (q->report << 24) | (nv30_query_base(screen) + q->qo[1]->hw->start));
-@@ -279,12 +344,10 @@ nv30_query_wait(struct nv30_screen *screen, struct nv30_query *q, volatile uint3
+@@ -257,12 +322,10 @@ nv30_query_wait(struct nv30_screen *screen, struct nv30_query *q, volatile uint3
        sched_yield();
  }
  
@@ -209,7 +202,7 @@ diff --git a/src/gallium/drivers/nouveau/nv30/nv30_query.c b/src/gallium/drivers
     volatile uint32_t *ntfy0 = nv30_ntfy(screen, q->qo[0]);
     volatile uint32_t *ntfy1 = nv30_ntfy(screen, q->qo[1]);
  
-@@ -307,7 +370,7 @@ nv30_query_result(struct pipe_context *pipe, struct pipe_query *pq,
+@@ -282,7 +345,7 @@ nv30_query_result(struct pipe_context *pipe, struct pipe_query *pq,
           q->result = *(uint64_t *)&ntfy1[0];
           break;
        case PIPE_QUERY_TIME_ELAPSED:
@@ -218,7 +211,7 @@ diff --git a/src/gallium/drivers/nouveau/nv30/nv30_query.c b/src/gallium/drivers
           break;
        default:
           q->result = ntfy1[2];
-@@ -319,6 +382,17 @@ nv30_query_result(struct pipe_context *pipe, struct pipe_query *pq,
+@@ -294,6 +357,17 @@ nv30_query_result(struct pipe_context *pipe, struct pipe_query *pq,
        if (q->fence)
           nouveau_fence_ref(NULL, &q->fence, &screen->base);
     }
@@ -236,7 +229,7 @@ diff --git a/src/gallium/drivers/nouveau/nv30/nv30_query.c b/src/gallium/drivers
  
     if (q->type == PIPE_QUERY_OCCLUSION_PREDICATE ||
         q->type == PIPE_QUERY_OCCLUSION_PREDICATE_CONSERVATIVE)
-@@ -354,7 +428,10 @@ nv40_query_render_condition(struct pipe_context *pipe,
+@@ -329,7 +403,10 @@ nv40_query_render_condition(struct pipe_context *pipe,
     }
  
     BEGIN_NV04(push, SUBC_3D(0x1e98), 1);

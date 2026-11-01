@@ -1,13 +1,21 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Tiberiu Chibici <chibicitiberiu@gmail.com>
 Date: Fri, 16 Oct 2026 17:22:56 +0300
-Subject: mesa: S3TC DXT1 compression through libspeq on the PS3
+Subject: mesa: S3TC DXT1 and DXT5 compression through libspeq on the PS3
 
 The Cell's SPEs (or libspeq's own PPE encoder) compress RGB(A) uploads into DXT1 instead of
 Mesa's encoder, so games can use compressed textures (a quarter or an eighth of the VRAM, which
 the PS3 also uses as swap) without slow loads. libspeq is loaded at run time: Mesa doesn't
 depend on it, and without it, or when it returns an error, Mesa's own encoder runs. All policy
 (sizes, which unit, SPEQ_S3TC) lives in libspeq.
+
+Generic compressed RGBA requests (GL_COMPRESSED_RGBA: Teeworlds, TORCS, any game asking for
+compressed alpha textures) and RGBA_DXT5 go through the same entry point as DXT5, with a colour
+block that never relies on the 3-colour mode (DXT5's is always decoded in 4-colour mode). An
+older libspeq returns -ENOTSUP for DXT5 and Mesa's encoder runs as before. SPEQ_S3TC_DXT5=off
+gives DXT5 back to Mesa's encoder (SPEQ_S3TC=off all formats), no Mesa rebuild.
+
+(DXT1 was 0011 and DXT5 0032 until the two were folded, 2026-10-31.)
 
 Forwarded: no
 
@@ -36,6 +44,17 @@ diff --git a/src/mesa/main/texcompress_s3tc.c b/src/mesa/main/texcompress_s3tc.c
     tx_compress_dxt1(4, srcWidth, srcHeight, pixels, dst, dstRowStride, 4);
  
     free((void*) tempImage);
+@@ -252,6 +260,10 @@ _mesa_texstore_rgba_dxt5(TEXSTORE_PARAMS)
+ 
+    dst = dstSlices[0];
+ 
++#if DETECT_ARCH_PPC_64
++   if (!_mesa_s3tc_speq(GL_COMPRESSED_RGBA_S3TC_DXT5_EXT, 4, pixels, srcWidth, srcHeight,
++                        dst, dstRowStride))
++#endif
+    tx_compress_dxt5(4, srcWidth, srcHeight, pixels, dst, dstRowStride);
+ 
+    free((void *) tempImage);
 diff --git a/src/mesa/main/texcompress_s3tc.h b/src/mesa/main/texcompress_s3tc.h
 --- a/src/mesa/main/texcompress_s3tc.h
 +++ b/src/mesa/main/texcompress_s3tc.h

@@ -29,4 +29,3 @@ One run gave BananaBread 45.6 against 25.0 fps (gamedb:batch/2026-10-18-mesa-416
 interleaved repeat did not hold that up (gamedb:batch/2026-10-18-query-wait-repeat), so it stays off.
 The game-side fix is cube2's `oqwaterlag`
 ([gamedb:cube2/water-query-wait](../../engines/cube2/investigations/2026-10-18-water-query-wait.md)).
-[mesa-query-kick](../mesa-query-kick/patch.md) (0042) works on the same waits from the submission side.

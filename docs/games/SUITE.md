@@ -188,17 +188,17 @@ started, parsed and what its variants do is in its technical notes.
 <!-- gamedb:suite-recipes docs/games -->
 | Game | Command | Ends | Result read from | Variants |
 |---|---|---|---|---|
-| [Armagetron Advanced](../../gamedb/games/armagetronad/technical.md) | `/usr/games/armagetronad` | the window (`WINDOW_STOP`) | the Gallium HUD | [9](../../gamedb/games/armagetronad/benchmark/recipe.sh) |
+| [Armagetron Advanced](../../gamedb/games/armagetronad/technical.md) | `/usr/games/armagetronad` | the window (`WINDOW_STOP`) | the Gallium HUD | [6](../../gamedb/games/armagetronad/benchmark/recipe.sh) |
 | [BananaBread](../../gamedb/games/bananabread/technical.md) | set in `setup()` | the game quits | the game's steady line (`STEADY_RE`) | [42](../../gamedb/games/bananabread/benchmark/recipe.sh) |
-| [ClassiCube](../../gamedb/games/classicube/technical.md) | `/usr/games/classicube "$CC_DIR/maps/bench.cw"` | passes (the game repeats its demo) | the game's own line (`FPS_RE`) | [25](../../gamedb/games/classicube/benchmark/recipe.sh) |
+| [ClassiCube](../../gamedb/games/classicube/technical.md) | `/usr/games/classicube "$CC_DIR/maps/bench.cw"` | passes (the game repeats its demo) | the game's own line (`FPS_RE`) | [24](../../gamedb/games/classicube/benchmark/recipe.sh) |
 | [dsda-doom](../../gamedb/games/dsda-doom/technical.md) | set in `setup()` | passes (the game repeats its demo) | the game's own line (`FPS_RE`) | [21](../../gamedb/games/dsda-doom/benchmark/recipe.sh) |
 | [Extreme Tux Racer](../../gamedb/games/etr/technical.md) | `/usr/games/etr` | the window (`WINDOW_STOP`) | the Gallium HUD | [13](../../gamedb/games/etr/benchmark/recipe.sh) |
 | [Luanti](../../gamedb/games/luanti/technical.md) | `/usr/games/luanti --go --world "$LU_WORLD" --config "$LU_CONF"` | its own last line (`END_RE`) | the Gallium HUD | [57](../../gamedb/games/luanti/benchmark/recipe.sh) |
 | [Neverball](../../gamedb/games/neverball/technical.md) | `/usr/games/neverball --replay /usr/share/games/neverball/gui/demo1.nbr` | passes (the game repeats its demo) | the game's own line (`FPS_RE`) | [7](../../gamedb/games/neverball/benchmark/recipe.sh) |
-| [OpenArena](../../gamedb/games/openarena/technical.md) | set in `setup()` | passes (the game repeats its demo) | the game's own line (`FPS_RE`) | [54](../../gamedb/games/openarena/benchmark/recipe.sh) |
+| [OpenArena](../../gamedb/games/openarena/technical.md) | set in `setup()` | passes (the game repeats its demo) | the game's own line (`FPS_RE`) | [53](../../gamedb/games/openarena/benchmark/recipe.sh) |
 | [OpenTTD](../../gamedb/games/openttd/technical.md) | set in `setup()` | the window (`WINDOW_STOP`) | the Gallium HUD | [20](../../gamedb/games/openttd/benchmark/recipe.sh) |
 | [QuakeSpasm](../../gamedb/games/quakespasm/technical.md) | set in `setup()` | passes (the game repeats its demo) | the game's own line (`FPS_RE`) | [3](../../gamedb/games/quakespasm/benchmark/recipe.sh) |
-| [X-Moto](../../gamedb/games/xmoto/technical.md) | `/usr/games/xmoto --nowww -fs -res 1920x1080 --replay credits --timedemo --benchmark` | passes (the game repeats its demo) | the game's own line (`FPS_RE`) | [11](../../gamedb/games/xmoto/benchmark/recipe.sh) |
+| [X-Moto](../../gamedb/games/xmoto/technical.md) | `/usr/games/xmoto --nowww -fs -res 1920x1080 --replay credits --timedemo --benchmark` | passes (the game repeats its demo) | the game's own line (`FPS_RE`) | [10](../../gamedb/games/xmoto/benchmark/recipe.sh) |
 | [Yamagi Quake II](../../gamedb/games/yquake2/technical.md) | set in `setup()` | passes (the game repeats its demo) | the game's own line (`FPS_RE`) | [13](../../gamedb/games/yquake2/benchmark/recipe.sh) |
 <!-- /gamedb:suite-recipes -->
 

@@ -6,10 +6,24 @@ Subject: nv30: texture uploads that fit the PS3 GART
 The GART is a small shared boot-time reservation: big uploads go in bands of at most 1 MB,
 at most 4 MB of a context's staging is in flight (a burst crashed Xorg), 1-pixel-wide
 render targets stay linear (graph exception 0x106), fragment program constants are
-halfword-swapped, and a GART blit destination stays in GART.
+halfword-swapped, and a GART blit destination stays in GART. The context counts its texture
+upload staging in flight (staging_inflight) for the 4 MB limit.
 
 Forwarded: no
 
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_context.h b/src/gallium/drivers/nouveau/nv30/nv30_context.h
+--- a/src/gallium/drivers/nouveau/nv30/nv30_context.h
++++ b/src/gallium/drivers/nouveau/nv30/nv30_context.h
+@@ -59,6 +59,9 @@ struct nv30_context {
+ 
+    uint32_t dirty;
+ 
++   /* PS3: bytes of texture upload staging (GART) whose copies may still be pending */
++   unsigned staging_inflight;
++
+    struct draw_context *draw;
+    uint32_t draw_flags;
+    uint32_t draw_dirty;
 diff --git a/src/gallium/drivers/nouveau/nv30/nv30_miptree.c b/src/gallium/drivers/nouveau/nv30/nv30_miptree.c
 --- a/src/gallium/drivers/nouveau/nv30/nv30_miptree.c
 +++ b/src/gallium/drivers/nouveau/nv30/nv30_miptree.c

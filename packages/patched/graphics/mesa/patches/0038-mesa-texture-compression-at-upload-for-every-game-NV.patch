@@ -12,7 +12,7 @@ of GL_TEXTURE_2D level 0 with an internal format GL_RGB, GL_RGB8, 3, GL_RGBA, GL
 stopping at the first other value): an eighth of the VRAM and of the upload. NV30_FORCE_DXT=all
 also stores images with alpha as DXT5 (a quarter). The image gets a DXT TexFormat while its
 InternalFormat stays the game's, and Mesa's S3TC texstore compresses it as for any compressed
-upload: through libspeq on the PS3 (0011, 0032; the SPEs take RGB and RGBA sources directly).
+upload: through libspeq on the PS3 (0011; the SPEs take RGB and RGBA sources directly).
 Levels above 0 follow level 0 through _mesa_choose_texture_format's choice from the level below.
 
 Not taken: glTexImage2D(NULL) without a PBO (render targets, textures filled by glTexSubImage),

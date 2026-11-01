@@ -8,8 +8,10 @@ On the PS3 the RSX's VRAM fills up in big games (real Sauerbraten: 186-194 MB of
 buffers then go to GART (46-51 MB of the 63), and GART allocations start to fail. nouveau ignored
 most of those failures and went on with a NULL buffer object:
 
-- nouveau_mm_allocate(): when no new slab can be had, a buffer of the request's own size is
-  tried (as for requests past the largest bucket). Slabs for 1 and 2 MiB chunks are 4 MiB, so
+- nouveau_mm_allocate(): mm_slab_new() failing left the bucket empty and the allocator
+  dereferenced it; a failed slab allocation now unlocks the bucket, frees the allocation record
+  and returns NULL. Before that, a buffer of the request's own size is tried (as for requests
+  past the largest bucket). Slabs for 1 and 2 MiB chunks are 4 MiB, so
   the stream uploader's 1 MiB buffer failed with 1-3 MiB of GART still free ("out of GART for
   a 4096 KiB BO").
 - nouveau_buffer_transfer_map(), VRAM buffers: a staging area that cannot be had (or a read
@@ -20,6 +22,10 @@ most of those failures and went on with a NULL buffer object:
   Before, the buffer was left with no storage, and the map went on to map a NULL object.
 - nouveau_buffer_migrate() between VRAM and GART: if neither has room the buffer keeps its
   storage and the call fails, instead of copying into a NULL object.
+
+(The NULL return was 0002 until it was folded in, 2026-10-31.)
+
+Forwarded: no
 
 diff --git a/src/gallium/drivers/nouveau/nouveau_buffer.c b/src/gallium/drivers/nouveau/nouveau_buffer.c
 --- a/src/gallium/drivers/nouveau/nouveau_buffer.c
@@ -166,18 +172,22 @@ diff --git a/src/gallium/drivers/nouveau/nouveau_buffer.c b/src/gallium/drivers/
 diff --git a/src/gallium/drivers/nouveau/nouveau_mm.c b/src/gallium/drivers/nouveau/nouveau_mm.c
 --- a/src/gallium/drivers/nouveau/nouveau_mm.c
 +++ b/src/gallium/drivers/nouveau/nouveau_mm.c
-@@ -196,9 +196,13 @@ nouveau_mm_allocate(struct nouveau_mman *cache,
+@@ -194,8 +194,16 @@ nouveau_mm_allocate(struct nouveau_mman *cache,
+    if (!list_is_empty(&bucket->used)) {
+       slab = list_entry(bucket->used.next, struct mm_slab, head);
     } else {
-       if (list_is_empty(&bucket->free) &&
-           mm_slab_new(cache, bucket, MAX2(mm_get_order(size), MM_MIN_ORDER))) {
--         /* out of memory: no slab to take a chunk from (the caller sees *bo unset) */
+-      if (list_is_empty(&bucket->free)) {
+-         mm_slab_new(cache, bucket, MAX2(mm_get_order(size), MM_MIN_ORDER));
++      if (list_is_empty(&bucket->free) &&
++          mm_slab_new(cache, bucket, MAX2(mm_get_order(size), MM_MIN_ORDER))) {
 +         /* No new slab: a slab is up to 4 MiB (chunks of 1 and 2 MiB), the request may be
 +          * much smaller, so try a buffer of its own size, as for sizes past the buckets. If
 +          * that fails too, the caller sees *bo unset. */
-          simple_mtx_unlock(&bucket->lock);
-          FREE(alloc);
++         simple_mtx_unlock(&bucket->lock);
++         FREE(alloc);
 +         nouveau_bo_new(cache->dev, cache->domain, 0, size, &cache->config, bo);
 +         *offset = 0;
-          return NULL;
++         return NULL;
        }
        slab = list_entry(bucket->free.next, struct mm_slab, head);
+ 

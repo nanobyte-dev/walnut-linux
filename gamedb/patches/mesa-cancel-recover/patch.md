@@ -7,7 +7,7 @@ switch = "NV30_PS3_RECOVER"
 default = "on"
 gating = "ps3rsx-only"
 forwarded = "not-needed (ps3rsx only)"
-tests = ["mesa-alloc-fail"]
+tests = ["mesa-alloc-fail:fence-cancel"]
 batches = []
 +++
 

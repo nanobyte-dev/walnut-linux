@@ -5,8 +5,7 @@
  * reads their results a frame later, so the oldest slots are taken back while their queries
  * still point at them. Before the patch that was a use after free (AddressSanitizer stops at the
  * first result read); after it, every result must be the one the GPU wrote for that query.
- *   cases: Sauerbraten's pattern (300 queries, results read a frame later), the same with
- *   NV30_QUERY_KICK=0 (reports written only when their batch is submitted), and a random mix
+ *   cases: Sauerbraten's pattern (300 queries, results read a frame later), and a random mix
  *   of occlusion, TIME_ELAPSED and TIMESTAMP queries: begun again unread, destroyed unread,
  *   results asked with and without waiting.
  * (tools/run-tests.sh mesa-query-steal; skipped without build/work/mesa) */
@@ -26,7 +25,6 @@ static unsigned scanned;		/* pushbuffer words looked at */
 static struct { int pending; uint64_t ts; uint32_t value; } slot[NSLOT];
 static uint64_t gpu_clock = 1000;
 static uint32_t next_value;		/* what the next occlusion report counts */
-static int lazy;			/* NV30_QUERY_KICK=0: reports land when their batch is submitted */
 static struct nouveau_pushbuf push;
 
 static void gpu_write(unsigned s)
@@ -61,8 +59,7 @@ static void gpu_scan(void)
 		slot[s].pending = 1;
 		slot[s].ts = gpu_clock++;
 		slot[s].value = next_value;
-		if (!lazy)
-			gpu_write(s);
+		gpu_write(s);
 	}
 	if (end > 3000) {	/* reuse the pushbuffer (after what was queued is seen) */
 		push.cur = pushmem;
@@ -85,13 +82,11 @@ int nouveau_pushbuf_kick(struct nouveau_pushbuf *p)
 	gpu_complete_all();	/* a submission: everything queued gets written */
 	return 0;
 }
-static struct nouveau_fence fake_fence;
 void nouveau_fence_ref(struct nouveau_fence *fence, struct nouveau_fence **ref, struct nouveau_screen *s)
 {
 	(void)s;
 	*ref = fence;
 }
-bool nouveau_fence_flush(struct nouveau_fence *f) { (void)f; gpu_scan(); gpu_complete_all(); return true; }
 bool nouveau_fence_wait(struct nouveau_fence *f, struct util_debug_callback *d)
 {
 	(void)f; (void)d; gpu_scan(); gpu_complete_all(); return true;
@@ -113,8 +108,9 @@ static struct nouveau_bo notify_bo;
 static struct nouveau_object query_obj, eng3d;
 static struct nv04_notify query_ntfy;
 static struct nouveau_pushbuf_priv ppriv;
+static struct nouveau_device dev;	/* a real screen always has one (0056 reads its cancel count) */
 
-static void setup(int kick)
+static void setup(void)
 {
 	memset(notifier, 0, sizeof(notifier));
 	memset(slot, 0, sizeof(slot));
@@ -123,12 +119,11 @@ static void setup(int kick)
 	query_obj.data = &query_ntfy;
 	eng3d.oclass = NV40_3D_CLASS;
 	screen.base.is_ps3 = false;
+	screen.base.device = &dev;
 	screen.notify = &notify_bo;
 	screen.query = &query_obj;
 	screen.eng3d = &eng3d;
-	screen.query_kick = kick;
 	screen.query_wait_us = -1;
-	lazy = kick != 1;
 	if (screen.query_heap)
 		nouveau_heap_destroy(&screen.query_heap);
 	nouveau_heap_init(&screen.query_heap, 0, 4096 - 128);
@@ -139,7 +134,7 @@ static void setup(int kick)
 	push.end = pushmem + 4096;
 	ctx.screen = &screen;
 	ctx.base.pushbuf = &push;
-	ctx.base.fence = kick != 1 ? &fake_fence : NULL;
+	ctx.base.fence = NULL;
 	ctx.base.pipe.screen = &screen.base.base;
 	pctx = &ctx.base.pipe;
 	nv30_query_init(pctx);
@@ -169,12 +164,12 @@ static void q_begin(struct pipe_query *q)
 }
 
 /* Sauerbraten: n occlusion queries a frame, each frame's results read in the next one */
-static void test_sauerbraten(int kick, unsigned n, unsigned frames)
+static void test_sauerbraten(unsigned n, unsigned frames)
 {
 	struct pipe_query *q[2][512];
 	uint32_t want[2][512];
 
-	setup(kick);
+	setup();
 	for (unsigned f = 0; f < 2; f++)
 		for (unsigned i = 0; i < n; i++)
 			q[f][i] = pctx->create_query(pctx, PIPE_QUERY_OCCLUSION_COUNTER, 0);
@@ -190,10 +185,10 @@ static void test_sauerbraten(int kick, unsigned n, unsigned frames)
 		for (unsigned i = 0; i < n; i++) {
 			union pipe_query_result r = { 0 };
 			bool ok = pctx->get_query_result(pctx, q[prev][i], false, &r);
-			if (!ok)	/* not there yet (KICK=0 submits on asking, so it is): wait */
+			if (!ok)	/* not there yet: wait */
 				ok = pctx->get_query_result(pctx, q[prev][i], true, &r);
-			CHECK(ok && r.u64 == want[prev][i], "kick %d frame %u query %u: %d %llu, want %u",
-			      kick, frame, i, ok, (unsigned long long)r.u64, want[prev][i]);
+			CHECK(ok && r.u64 == want[prev][i], "frame %u query %u: %d %llu, want %u",
+			      frame, i, ok, (unsigned long long)r.u64, want[prev][i]);
 		}
 	}
 	for (unsigned f = 0; f < 2; f++)
@@ -203,7 +198,7 @@ static void test_sauerbraten(int kick, unsigned n, unsigned frames)
 }
 
 /* random traffic: every result read must be what the GPU wrote for that query's last end */
-static void test_random(int kick, unsigned steps, unsigned seed)
+static void test_random(unsigned steps, unsigned seed)
 {
 	enum { NQ = 200 };
 	struct pipe_query *q[NQ];
@@ -213,7 +208,7 @@ static void test_random(int kick, unsigned steps, unsigned seed)
 	static const unsigned types[] = { PIPE_QUERY_OCCLUSION_COUNTER, PIPE_QUERY_OCCLUSION_COUNTER,
 		PIPE_QUERY_OCCLUSION_PREDICATE, PIPE_QUERY_TIME_ELAPSED, PIPE_QUERY_TIMESTAMP };
 
-	setup(kick);
+	setup();
 	srand(seed);
 	for (unsigned i = 0; i < NQ; i++) {
 		type[i] = types[rand() % 5];
@@ -246,9 +241,9 @@ static void test_random(int kick, unsigned steps, unsigned seed)
 			bool wait = rand() & 1;
 			bool ok = pctx->get_query_result(pctx, q[i], wait, &r);
 			uint64_t got = type[i] == PIPE_QUERY_OCCLUSION_PREDICATE ? r.b : r.u64;
-			CHECK(!wait || ok, "kick %d step %u query %u: no result with wait", kick, s, i);
+			CHECK(!wait || ok, "step %u query %u: no result with wait", s, i);
 			if (ok)
-				CHECK(got == want[i], "kick %d step %u query %u (type %u): %llu, want %llu", kick,
+				CHECK(got == want[i], "step %u query %u (type %u): %llu, want %llu",
 				      s, i, type[i], (unsigned long long)got, (unsigned long long)want[i]);
 		} else if (op == 9 && state[i] != 1) {
 			/* destroyed, maybe unread, and made again */
@@ -264,13 +259,10 @@ static void test_random(int kick, unsigned steps, unsigned seed)
 
 int main(void)
 {
-	test_sauerbraten(1, 300, 6);
-	test_sauerbraten(0, 300, 6);
-	test_sauerbraten(1, 100, 4);	/* fits in the heap: nothing taken back */
-	for (unsigned seed = 1; seed <= 20; seed++) {
-		test_random(1, 20000, seed);
-		test_random(0, 20000, seed);
-	}
+	test_sauerbraten(300, 6);
+	test_sauerbraten(100, 4);	/* fits in the heap: nothing taken back */
+	for (unsigned seed = 1; seed <= 20; seed++)
+		test_random(20000, seed);
 	nouveau_heap_destroy(&screen.query_heap);
 	printf("%s: %d checks, %d failed\n", fails ? "FAIL" : "ok", checks, fails);
 	return fails != 0;

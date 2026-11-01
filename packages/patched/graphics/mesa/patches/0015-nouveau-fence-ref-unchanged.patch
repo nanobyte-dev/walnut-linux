@@ -1,20 +1,42 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Tiberiu Chibici <chibicitiberiu@gmail.com>
 Date: Sat, 17 Oct 2026 02:34:23 +0300
-Subject: nouveau: no fence reference work when the fence doesn't change
+Subject: nouveau: fewer fence and kref operations per draw
 
-nv30_state_validate re-references the context's current fence on every buffer bound to a draw
-(vertex buffers, the fragment program) once per draw, and nouveau_transfer_write and
-nouveau_copy_buffer do the same per buffer write. Between two kicks the fence is the same, so
-nearly all of these calls find *ref already pointing at it. nouveau_fence_ref still took the
-screen's fence lock and did an atomic increment and decrement that cancel out: four atomic
-read-modify-writes, two of them with a full barrier. On the PS3's PPE (in-order, lwarx/stwcx.
-and sync are slow) nouveau_fence_ref and _nouveau_fence_ref took 2-11% of the CPU in games,
-most in immediate-mode draws (X-Moto, ClassiCube).
+Three changes from the profiles of Mesa ps3.223, one round (ps3.246). The reference counts,
+the relocations, the kernel's buffer list and the command stream stay the same.
 
-Both functions now return at once when *ref already holds the fence. The reference counts and
-*ref end the same as before; only the cancelling increment and decrement and the lock are
-skipped.
+nouveau_fence_ref: nv30_state_validate re-references the context's current fence on every
+buffer bound to a draw (vertex buffers, the fragment program) once per draw, and
+nouveau_transfer_write and nouveau_copy_buffer do the same per buffer write. Between two kicks
+the fence is the same, so nearly all of these calls find *ref already pointing at it.
+nouveau_fence_ref still took the screen's fence lock and did an atomic increment and decrement
+that cancel out: four atomic read-modify-writes, two of them with a full barrier. On the PS3's
+PPE (in-order, lwarx/stwcx. and sync are slow) nouveau_fence_ref and _nouveau_fence_ref took
+2-11% of the CPU in games, most in immediate-mode draws (X-Moto, ClassiCube). Both functions
+now return at once when *ref already holds the fence; only the cancelling increment and
+decrement and the lock are skipped.
+
+nv30_state_validate: after validation every draw walks the buffers bound to it and references
+the context's current fence on each one that lives in a nouveau_mm slab, through an
+out-of-line nouveau_fence_ref. The fence only changes at a kick, so from the second draw of a
+batch on every one of these calls is a no-op. The pointers are compared first and the call
+made only when they differ; the fence is read once, after the last point in the function that
+can kick. An immediate-mode draw has 2-4 such buffers.
+
+pushbuf_validate (winsys): it adds the buffers a bufctx gained since the last validation to the
+kernel's buffer list and writes their relocations. For each one it called pushbuf_kref, then
+pushbuf_krel twice, and every pushbuf_krel looked up both the push buffer's kref and the
+buffer's kref again. nv30 adds one bufref per vertex attribute, all in the same buffer, and
+two per texture (offset and format), so a typical draw repeated the same pushbuf_kref two to
+four times and did twice as many kref lookups as relocations. pushbuf_kref only reads a
+bufref's domain and access flags (VRAM, GART, RD, WR); a call for the same buffer with the same
+flags as the call just before changes nothing, since the first one already registered the
+kref with this push buffer and narrowed its domains to these flags. It is now skipped, and the
+push buffer's kref (which no pushbuf_kref in the loop can move) is looked up once.
+pushbuf_krel (nouveau_pushbuf_reloc) keeps its lookups.
+
+(0015, 0016 and 0017 until they were folded, 2026-10-31.)
 
 Forwarded: no
 
@@ -45,3 +67,118 @@ diff --git a/src/gallium/drivers/nouveau/nouveau_fence.c b/src/gallium/drivers/n
     simple_mtx_lock(&fence_list->lock);
     _nouveau_fence_ref(fence, ref);
     simple_mtx_unlock(&fence_list->lock);
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_state_validate.c b/src/gallium/drivers/nouveau/nv30/nv30_state_validate.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_state_validate.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_state_validate.c
+@@ -525,16 +525,22 @@ nv30_state_validate(struct nv30_context *nv30, uint32_t mask, bool hwtnl)
+       PUSH_DATA (push, 0);
+    }
+ 
++   /* Buffers already fenced with the current fence (every draw after the first in a batch)
++    * need no call: nouveau_fence_ref would leave them unchanged.
++    */
++   struct nouveau_fence *fence = nv30->base.fence;
+    LIST_FOR_EACH_ENTRY(bref, &bctx->current, thead) {
+       struct nv04_resource *res = bref->priv;
+       if (res && res->mm) {
+-         nouveau_fence_ref(nv30->base.fence, &res->fence, nv30->base.screen);
++         if (res->fence != fence)
++            nouveau_fence_ref(fence, &res->fence, nv30->base.screen);
+ 
+          if (bref->flags & NOUVEAU_BO_RD)
+             res->status |= NOUVEAU_BUFFER_STATUS_GPU_READING;
+ 
+          if (bref->flags & NOUVEAU_BO_WR) {
+-            nouveau_fence_ref(nv30->base.fence, &res->fence_wr, nv30->base.screen);
++            if (res->fence_wr != fence)
++               nouveau_fence_ref(fence, &res->fence_wr, nv30->base.screen);
+             res->status |= NOUVEAU_BUFFER_STATUS_GPU_WRITING;
+          }
+       }
+diff --git a/src/gallium/winsys/nouveau/drm/nouveau.c b/src/gallium/winsys/nouveau/drm/nouveau.c
+--- a/src/gallium/winsys/nouveau/drm/nouveau.c
++++ b/src/gallium/winsys/nouveau/drm/nouveau.c
+@@ -1400,19 +1400,17 @@ pushbuf_kref(struct nouveau_pushbuf *push, struct nouveau_bo *bo, uint32_t flags
+    return kref;
+ }
+ 
++/* A relocation at push->cur in the push buffer (kref pkref) to the buffer with kref bkref. */
+ static uint32_t
+-pushbuf_krel(struct nouveau_pushbuf *push, struct nouveau_bo *bo,
+-        uint32_t data, uint32_t flags, uint32_t vor, uint32_t tor)
++pushbuf_krel_kref(struct nouveau_pushbuf *push, struct drm_nouveau_gem_pushbuf_bo *pkref,
++                  struct drm_nouveau_gem_pushbuf_bo *bkref,
++                  uint32_t data, uint32_t flags, uint32_t vor, uint32_t tor)
+ {
+    struct nouveau_pushbuf_priv *nvpb = nouveau_pushbuf(push);
+    struct nouveau_pushbuf_krec *krec = nvpb->krec;
+    struct drm_nouveau_gem_pushbuf_reloc *krel;
+-   struct drm_nouveau_gem_pushbuf_bo *pkref;
+-   struct drm_nouveau_gem_pushbuf_bo *bkref;
+    uint32_t reloc = data;
+ 
+-   pkref = cli_kref_get(push->client, nvpb->bo);
+-   bkref = cli_kref_get(push->client, bo);
+    krel  = &krec->reloc[krec->nr_reloc++];
+ 
+    assert(pkref);
+@@ -1440,6 +1438,16 @@ pushbuf_krel(struct nouveau_pushbuf *push, struct nouveau_bo *bo,
+    return reloc;
+ }
+ 
++static uint32_t
++pushbuf_krel(struct nouveau_pushbuf *push, struct nouveau_bo *bo,
++        uint32_t data, uint32_t flags, uint32_t vor, uint32_t tor)
++{
++   struct nouveau_pushbuf_priv *nvpb = nouveau_pushbuf(push);
++
++   return pushbuf_krel_kref(push, cli_kref_get(push->client, nvpb->bo),
++                            cli_kref_get(push->client, bo), data, flags, vor, tor);
++}
++
+ static int
+ pushbuf_refn_fail(struct nouveau_pushbuf *push, int sref, int srel)
+ {
+@@ -1514,18 +1522,35 @@ pushbuf_validate(struct nouveau_pushbuf *push, bool retry)
+    list_del(&bctx->head);
+    list_add(&bctx->head, &nvpb->bctx_list);
+ 
++   /* The push buffer's kref, and the last buffer's: pushbuf_kref of the same buffer with the
++    * same domain and access flags (the only ones it reads) as the call before changes nothing
++    * (a draw's vertex attributes, all in one buffer, or a texture's offset and format), so a
++    * run of them is looked up once.
++    */
++   const uint32_t kref_mask = NOUVEAU_BO_VRAM | NOUVEAU_BO_GART | NOUVEAU_BO_RD | NOUVEAU_BO_WR;
++   struct drm_nouveau_gem_pushbuf_bo *pkref = NULL;
++   struct nouveau_bo *kref_bo = NULL;
++   uint32_t kref_flags = 0;
++   kref = NULL;
++
+    list_for_each_entry(struct nouveau_bufref, bref, &bctx->pending, thead) {
+-      kref = pushbuf_kref(push, bref->bo, bref->flags);
+-      if (!kref) {
+-         ret = -ENOSPC;
+-         break;
++      if (!kref || bref->bo != kref_bo || (bref->flags & kref_mask) != kref_flags) {
++         kref = pushbuf_kref(push, bref->bo, bref->flags);
++         if (!kref) {
++            ret = -ENOSPC;
++            break;
++         }
++         kref_bo = bref->bo;
++         kref_flags = bref->flags & kref_mask;
+       }
+ 
+       if (bref->packet) {
+-         pushbuf_krel(push, bref->bo, bref->packet, 0, 0, 0);
++         if (!pkref)
++            pkref = cli_kref_get(push->client, nvpb->bo);
++         pushbuf_krel_kref(push, pkref, kref, bref->packet, 0, 0, 0);
+          *push->cur++ = 0;
+-         pushbuf_krel(push, bref->bo, bref->data, bref->flags,
+-                  bref->vor, bref->tor);
++         pushbuf_krel_kref(push, pkref, kref, bref->data, bref->flags,
++                           bref->vor, bref->tor);
+          *push->cur++ = 0;
+       }
+    }

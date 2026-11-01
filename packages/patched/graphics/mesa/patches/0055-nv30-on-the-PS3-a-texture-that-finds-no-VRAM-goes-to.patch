@@ -162,8 +162,8 @@ diff --git a/src/gallium/drivers/nouveau/nv30/nv30_screen.c b/src/gallium/driver
     screen->ps3_vbo_fifo = ps3 && debug_get_bool_option("NV30_PS3_VBO_FIFO", false);
 +   screen->gart_textures = ps3 && debug_get_bool_option("NV30_GART_TEXTURES", true);
     screen->tex_invalidate_always = debug_get_bool_option("NV30_TEX_INVALIDATE_ALWAYS", false);
-    screen->vtx_invalidate_draw = debug_get_bool_option("NV30_VTX_INVALIDATE_DRAW", false);
-    screen->vtxfmt_always = debug_get_bool_option("NV30_VTXFMT_ALWAYS", false);
+    screen->fp_const_vram = debug_get_bool_option("NV30_FP_CONST_VRAM", !ps3);
+    screen->index_upload = debug_get_num_option("NV30_INDEX_UPLOAD", ps3 ? 32 : 0);
 diff --git a/src/gallium/drivers/nouveau/nv30/nv30_screen.h b/src/gallium/drivers/nouveau/nv30/nv30_screen.h
 --- a/src/gallium/drivers/nouveau/nv30/nv30_screen.h
 +++ b/src/gallium/drivers/nouveau/nv30/nv30_screen.h

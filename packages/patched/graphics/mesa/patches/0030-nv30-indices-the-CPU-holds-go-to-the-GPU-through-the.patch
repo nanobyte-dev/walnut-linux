@@ -32,21 +32,21 @@ Forwarded: no
 diff --git a/src/gallium/drivers/nouveau/nv30/nv30_screen.c b/src/gallium/drivers/nouveau/nv30/nv30_screen.c
 --- a/src/gallium/drivers/nouveau/nv30/nv30_screen.c
 +++ b/src/gallium/drivers/nouveau/nv30/nv30_screen.c
-@@ -528,6 +528,7 @@ nv30_screen_create(struct nouveau_device *dev)
-    screen->constbuf_alloc = debug_get_bool_option("NV30_CONSTBUF_ALLOC", false);
-    screen->texunit_always = debug_get_bool_option("NV30_TEXUNIT_ALWAYS", false);
-    screen->vp_const_single = debug_get_bool_option("NV30_VP_CONST_SINGLE", false);
+@@ -523,6 +523,7 @@ nv30_screen_create(struct nouveau_device *dev)
+    const bool ps3 = screen->base.is_ps3;
+    screen->ps3_vbo_fifo = ps3 && debug_get_bool_option("NV30_PS3_VBO_FIFO", false);
+    screen->tex_invalidate_always = debug_get_bool_option("NV30_TEX_INVALIDATE_ALWAYS", false);
 +   screen->index_upload = debug_get_num_option("NV30_INDEX_UPLOAD", ps3 ? 32 : 0);
     screen->ctx_state_keep = debug_get_bool_option("NV30_CTX_STATE_KEEP", false);
     screen->idxbuf_late_ref = debug_get_bool_option("NV30_IDXBUF_LATE_REF", false);
-    screen->ps3_kick_draws = ps3 ? debug_get_num_option("NV30_PS3_KICK_DRAWS", 0) : 0;
+    screen->ps3_kick_auto = ps3 && debug_get_bool_option("NV30_PS3_KICK_AUTO", true);
 diff --git a/src/gallium/drivers/nouveau/nv30/nv30_screen.h b/src/gallium/drivers/nouveau/nv30/nv30_screen.h
 --- a/src/gallium/drivers/nouveau/nv30/nv30_screen.h
 +++ b/src/gallium/drivers/nouveau/nv30/nv30_screen.h
-@@ -34,6 +34,7 @@ struct nv30_screen {
-    bool texunit_always;        /* NV30_TEXUNIT_ALWAYS: rewrite every rebound texture unit */
-    bool vp_const_single;       /* NV30_VP_CONST_SINGLE: one constant per upload burst */
-    unsigned ps3_kick_draws;    /* NV30_PS3_KICK_DRAWS: submit every this many draws (0: off) */
+@@ -28,6 +28,7 @@ struct nv30_screen {
+     */
+    uint32_t tex_gen;
+    bool tex_invalidate_always; /* NV30_TEX_INVALIDATE_ALWAYS: before every draw, as before */
 +   unsigned index_upload;      /* NV30_INDEX_UPLOAD: least count of CPU-held indices uploaded */
     bool ctx_state_keep;        /* NV30_CTX_STATE_KEEP: trust the state after the last context went */
     bool idxbuf_late_ref;       /* NV30_IDXBUF_LATE_REF: index buffer referenced after validation */
@@ -141,7 +141,7 @@ diff --git a/src/gallium/drivers/nouveau/nv30/nv30_vbo.c b/src/gallium/drivers/n
  /* PS3, NV30_PS3_KICK_AUTO: submit what this context queued when that buys CPU/GPU overlap,
   * at the start of a draw (no primitive open). Two conditions, both cheap (no ioctl):
   *  - enough work queued since the last submission: at least NV30_PS3_KICK_MIN_BYTES and a
-@@ -689,17 +739,38 @@ nv30_draw_vbo(struct pipe_context *pipe, const struct pipe_draw_info *info,
+@@ -679,17 +729,38 @@ nv30_draw_vbo(struct pipe_context *pipe, const struct pipe_draw_info *info,
        }
     }
  
@@ -180,7 +180,7 @@ diff --git a/src/gallium/drivers/nouveau/nv30/nv30_vbo.c b/src/gallium/drivers/n
        return;
     }
  
-@@ -755,8 +826,11 @@ nv30_draw_vbo(struct pipe_context *pipe, const struct pipe_draw_info *info,
+@@ -728,8 +799,11 @@ nv30_draw_vbo(struct pipe_context *pipe, const struct pipe_draw_info *info,
        }
  
        nv30_draw_elements(nv30, shorten, info,

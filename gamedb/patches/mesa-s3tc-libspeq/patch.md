@@ -1,6 +1,6 @@
 +++
 component = "mesa"
-patches = ["patches/0011-s3tc-libspeq.patch", "patches/0032-s3tc-dxt5-libspeq.patch"]
+patches = ["patches/0011-s3tc-libspeq.patch"]
 aliases = ["Mesa 0011", "Mesa 0032"]
 category = "performance"
 switch = "SPEQ_S3TC, SPEQ_S3TC_DXT5 (libspeq's)"
@@ -21,7 +21,7 @@ is opened with `dlopen` at the first compression, so Mesa doesn't depend on it; 
 returns an error, Mesa's encoder runs as before. All policy (image sizes, which unit, `SPEQ_S3TC=off`)
 lives in libspeq, so tuning needs no Mesa rebuild ([SPU.md](../../../docs/SPU.md)).
 
-0011 (2026-10-16) did DXT1. 0032 (2026-10-17) routes DXT5 through the same entry point: generic
+0011 (2026-10-16) did DXT1. 0032 (2026-10-17, folded into 0011 on 2026-10-31) routes DXT5 through the same entry point: generic
 `GL_COMPRESSED_RGBA` requests (Teeworlds, TORCS) and `RGBA_DXT5`, with a colour block that never relies
 on the 3-colour mode, since DXT5's is always decoded in 4-colour mode. An older libspeq answers
 `-ENOTSUP` for DXT5 and Mesa encodes it; `SPEQ_S3TC_DXT5=off` does the same on purpose.

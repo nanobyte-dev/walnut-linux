@@ -51,4 +51,15 @@ type-0 conversion was its own patch first (commit b591cfd, 2026-10-14), the GPU 
 
 ## Validation
 
-Not yet validated on the PS3.
+Partly, on 2026-11-01 (PS3 session M, the merged test kernel 6.12.111+ps3.1210~dev20261031171117, ps3rsx 0.1209, ps3-gpu-tools 0.1161, the Mesa ladder of key c12abbd5c30c45d4). The fix is fused into the series, so there is no off run. With it
+on, `egl-short` drew on the RSX and passed at every rung (0 to 9) with no kernel lines:
+
+```
+GL_RENDERER: NV47
+checksum: b1704355 (64x64)
+pixel(12,24): 255 0 0 255
+```
+
+Its kernel-side test, `rsxdrm-smoke quirks`, is no longer on the PS3 ladder: it sends deliberately bad
+pushes to test ps3rsx's validator, which the host ladder does (fix-off.sh), and on 2026-10-31 (ps3rsx
+0.924) it wedged the RSX with graph exception 0x106 before rung 1 (docs/TESTS.md History, 10-31 23:56).

@@ -52,7 +52,7 @@ takes Mesa's series, the register and Mesa's host tests from the last commit ins
 **2026-10-31.** On the series before the Mesa merges (`--rev HEAD`, 2 min 25 s): 9 Mesa rungs, 0 the
 base, then 0002, 0014, 0046, 0047, 0048, 0049, 0052, 0053; fused mesa-context-pushbuf (0003),
 mesa-vbo-gpu-fetch (0005), mesa-texture-uploads-gart (0007), mesa-thin-mip-levels (0013) and
-mesa-ctx-state-reset (0029). On the merged series (42 patches with 0056, not committed yet; 3 min 21 s
+mesa-ctx-state-reset (0029). On the merged series (42 patches with 0056; 3 min 21 s
 for all four components): 10 rungs, 0 the base, then 0003 (removable now), 0014, 0046, 0047, 0048
 (0002 folded in), 0049, 0052, 0053, 0056 (mesa-query-wait-deadline); fused 0005, 0007, 0013, 0029. On
 both, with the register's tests split into parts, every test fails below its fix and passes from it on
@@ -117,6 +117,8 @@ hang, the session ends there (netconsole up, the user powers off).
 **After the runner,** by hand on the same rung folders, still no reinstall: mpv `--vo=gpu` on a video
 with `LD_LIBRARY_PATH=/var/tmp/ladder/rung06/lib` (below mesa-no-x16: a `rejected push` line per frame
 for its X16 texture; low wedge risk, `sync` first), then with rung07 (no such line).
+Done on 2026-11-01 in the unwedge session: on rung06 the validator refused the X16 texture as expected
+and mpv then hung on its refused channel (rung06 is below mesa-cancel-recover, rung08); rung07 played clean.
 
 ## 3. PS3 session K: the kernel's stability patches (1 boot, the shipped kernel)
 
@@ -160,11 +162,11 @@ kernel-sm-shutdown-wait's `sudo poweroff` at its end.
   them on; their off state is a hung task or a crash, not a check.
 
 <!-- BEGIN kernel-merges-2026-10-31 (written by the kernel merge agent; another agent is rewriting the rest of this file: keep this block whole) -->
-## Kernel merges of 2026-10-31 (testset `build/testsets/kernel-merged/`, not committed yet)
+## Kernel merges of 2026-10-31 (testset `build/testsets/kernel-merged/`)
 
 The kernel folds of [MERGES.md](../gamedb/patches/MERGES.md) are a local `~dev` build (its `MANIFEST`
-names the debs and their sha256). The patches and their register entries are committed only after this
-check passes. One boot, the user present and not playing, the testset's kernel and its ps3rsx module
+names the debs and their sha256). The patches and their register entries were committed after this
+check passed (2026-11-01, the result below). One boot, the user present and not playing, the testset's kernel and its ps3rsx module
 installed; the shipped kernel stays in the menu as the way back.
 
 | Merge | What to check | Pass |

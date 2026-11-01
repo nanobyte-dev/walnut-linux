@@ -8,7 +8,8 @@ powerpc64-linux-gnu-gcc on the 6.12.111 tree). Our source: `packages/patched/ker
 
 0041 is large: shutdown request retries (3 requests, 5 s apart), a `ps3_sm_final` flag so that button
 presses during the final shutdown are only logged, a busy-wait when interrupts are off, and it
-depends on local/0040 (hwmon temperature reply, which returned -EAGAIN to keep the old loop going).
+applies on top of local/0040 (the hwmon temperature replies; their handler's return value, which 0041
+used to change from -EAGAIN to 0, is in 0040 itself since 2026-10-31).
 None of that is needed for the core bug and 0040 is not upstream. The upstream form is the minimal
 fix: `ps3_sys_manager_handle_cmd()` returns `PS3_SM_MSG_SHUTDOWN_ACKED` (1) after the ack, and
 `ps3_sys_manager_fin()` loops until that value. A failed ack is returned as an error and the wait

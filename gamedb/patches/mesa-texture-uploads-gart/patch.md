@@ -34,8 +34,10 @@ The texture and render-target rules the PS3 needed in its first week, most of th
 
 [mesa-thin-mip-levels](../mesa-thin-mip-levels/patch.md) (0013) extends the linear rule to mipmap
 levels, [mesa-out-of-gart](../mesa-out-of-gart/patch.md) (0049) reworks the staging wait for a full
-GART, and the staging pools ([mesa-staging-pool](../mesa-staging-pool/patch.md),
-[mesa-staging-pool-big](../mesa-staging-pool-big/patch.md)) reuse what this patch allocates.
+GART, and the staging pool ([mesa-staging-pool-big](../mesa-staging-pool-big/patch.md)) reuses what
+this patch allocates. The context's count of staging in flight (`staging_inflight`) for the 4 MB limit
+is this patch's too since 2026-10-31 (before, [mesa-context-pushbuf](../mesa-context-pushbuf/patch.md),
+0003, declared it).
 
 ## Investigation
 
@@ -59,4 +61,12 @@ GART, and the staging pools ([mesa-staging-pool](../mesa-staging-pool/patch.md),
 
 ## Validation
 
-Not yet validated on the PS3.
+Partly, on 2026-11-01 (PS3 session M, the merged test kernel 6.12.111+ps3.1210~dev20261031171117, ps3rsx 0.1209, ps3-gpu-tools 0.1161, the Mesa ladder of key c12abbd5c30c45d4). The fix is fused into the series, so there is no off run. With it
+on, `gl-texsub` passed on the RSX at every rung (0 to 9) and `egl-thin 1 64` at rung 0, with no
+`rejected` or graph exception lines in dmesg, as on 2026-10-31 (kernel .874, ps3rsx 0.924):
+
+```
+2D 256x128, BGRA 8_8_8_8_REV full upload: ok (0 of 32768 pixels wrong)
+checksum: d68aff45 (1x64)
+pixel(0,32): 255 128 64 255
+```

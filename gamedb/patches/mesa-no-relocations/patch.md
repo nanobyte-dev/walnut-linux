@@ -32,5 +32,4 @@ This was one of the patches of Mesa ps3.262, which sped up most of the suite by 
 so Armagetron's frame reached the GPU in one piece and lost 13%: with `NV30_PS3_RELOCS=1` it was back at
 60.5 fps (gamedb:batch/2026-10-17-mesa-282-armagetron,
 [gamedb:armagetronad/submission-overlap](../../games/armagetronad/investigations/2026-10-17-submission-overlap.md)).
-[mesa-kick-draws](../mesa-kick-draws/patch.md) (0026) and then
 [mesa-kick-auto](../mesa-kick-auto/patch.md) (0027) gave the overlap back without the relocations.

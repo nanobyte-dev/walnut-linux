@@ -1,15 +1,36 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Tiberiu Chibici <chibicitiberiu@gmail.com>
-Date: Fri, 16 Oct 2026 01:28:43 +0300
-Subject: 0007-ps3-rsx-gart-cma.patch
+Date: Sat, 31 Oct 2026 19:08:31 +0200
+Subject: ps3: ps3rsx's GART from a CMA area
+
+The RSX reaches main memory through its context's IO window in 1 MiB
+pages, and 1 MiB contiguous allocations are unreliable on a 256 MB
+machine once it is up, so the memory for ps3rsx's GART (the RSX
+driver, out of tree) is set aside at boot.
+
+ps3rsx_cma=<size> declares a CMA area of that size and exports three
+functions to ps3rsx: the area's size, an allocation of whole 1 MiB
+chunks (1 MiB aligned, the GPU's IO page size) and their release.
+ps3rsx backs an IO page with a chunk when a buffer object first needs
+it and gives it back once it is idle, so between uses the area holds
+ordinary movable pages and the GART costs RAM only while the GPU uses
+it.
+
+ps3rsx_gart=<size> reserves a fixed area instead, from memblock like
+ps3fb's video memory, held for good; ps3rsx uses it in place of the CMA
+area when it is set. It is the earlier scheme, kept as a fallback for
+experiments. Its default is 0 (it was 64 MiB, so a command line without
+ps3rsx_gart=0 reserved 64 MiB for good next to the CMA area). Without
+either parameter ps3rsx has no GART and says so when it probes.
 
 diff --git a/arch/powerpc/include/asm/ps3.h b/arch/powerpc/include/asm/ps3.h
 --- a/arch/powerpc/include/asm/ps3.h
 +++ b/arch/powerpc/include/asm/ps3.h
-@@ -451,6 +451,13 @@ struct ps3_prealloc {
+@@ -450,6 +450,14 @@ struct ps3_prealloc {
+ };
  
  extern struct ps3_prealloc ps3fb_videomemory;
- extern struct ps3_prealloc ps3rsx_gart;
++extern struct ps3_prealloc ps3rsx_gart;
 +
 +/* ps3rsx's GART from a CMA area (ps3rsx_cma=<size>): 1 MiB chunks taken and given back on demand,
 + * so the memory serves movable pages while the GPU doesn't use it */
@@ -32,15 +53,44 @@ diff --git a/arch/powerpc/platforms/ps3/setup.c b/arch/powerpc/platforms/ps3/set
  #include <linux/of.h>
  
  #include <asm/machdep.h>
-@@ -175,6 +177,67 @@ early_param("ps3rsx_gart", early_parse_ps3rsx_gart);
- #define prealloc_ps3rsx_gart()	do { } while (0)
+@@ -148,6 +150,96 @@ early_param("ps3fb", early_parse_ps3fb);
+ #define prealloc_ps3fb_videomemory()	do { } while (0)
  #endif
  
++#if defined(CONFIG_FB_PS3) || defined(CONFIG_FB_PS3_MODULE)
++/*
++ * Main memory the RSX driver (ps3rsx, out of tree) maps into the GPU's IO window. The GPU maps
++ * main memory in 1 MiB pages, and 1 MiB contiguous allocations are unreliable once the system
++ * is up, so the GART's memory is set aside at boot: normally as the CMA area below
++ * (ps3rsx_cma=<size>), which costs RAM only while the GPU uses it. ps3rsx_gart=<size> instead
++ * reserves a fixed area, held for good; ps3rsx uses it in place of the CMA area. Default 0: none.
++ */
++struct ps3_prealloc ps3rsx_gart = {
++	.name = "ps3rsx gart",
++	.size = 0,
++	.align = 1024*1024
++};
++EXPORT_SYMBOL_GPL(ps3rsx_gart);
++#define prealloc_ps3rsx_gart()	prealloc(&ps3rsx_gart)
++
++static int __init early_parse_ps3rsx_gart(char *p)
++{
++	if (!p)
++		return 1;
++
++	ps3rsx_gart.size = ALIGN(memparse(p, &p), ps3rsx_gart.align);
++	return 0;
++}
++early_param("ps3rsx_gart", early_parse_ps3rsx_gart);
++#else
++#define prealloc_ps3rsx_gart()	do { } while (0)
++#endif
++
 +#if defined(CONFIG_CMA) && (defined(CONFIG_FB_PS3) || defined(CONFIG_FB_PS3_MODULE))
 +/*
-+ * ps3rsx's GART as a CMA area instead of a fixed reservation: ps3rsx takes 1 MiB chunks when
-+ * GPU buffers need them and gives them back when they're idle, and in between the area holds
-+ * ordinary movable pages. ps3rsx_cma=<size> (0 = none; then ps3rsx uses ps3rsx_gart=).
++ * ps3rsx's GART as a CMA area: ps3rsx takes 1 MiB chunks when GPU buffers need them and gives
++ * them back when they're idle, and in between the area holds ordinary movable pages.
++ * ps3rsx_cma=<size> (default 0: no area, and ps3rsx has no GART unless ps3rsx_gart= is set).
 + */
 +static struct cma *ps3rsx_cma;
 +static phys_addr_t ps3rsx_cma_req __initdata;
@@ -100,10 +150,11 @@ diff --git a/arch/powerpc/platforms/ps3/setup.c b/arch/powerpc/platforms/ps3/set
  #if defined(CONFIG_PS3_FLASH) || defined(CONFIG_PS3_FLASH_MODULE)
  struct ps3_prealloc ps3flash_bounce_buffer = {
  	.name = "ps3flash bounce buffer",
-@@ -281,6 +344,7 @@ static void __init ps3_setup_arch(void)
+@@ -253,6 +345,8 @@ static void __init ps3_setup_arch(void)
+ #endif
  
  	prealloc_ps3fb_videomemory();
- 	prealloc_ps3rsx_gart();
++	prealloc_ps3rsx_gart();
 +	reserve_ps3rsx_cma();
  	prealloc_ps3flash_bounce_buffer();
  

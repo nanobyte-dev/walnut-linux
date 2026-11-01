@@ -54,8 +54,8 @@ NFS_ROOT            ?= /srv/ps3root
 # netboot's HTTP server on this PC (make netboot-deb, usb-root-petitboot)
 HTTP_PORT           := 8000
 # Boot arguments (packages/patched/kernel/linux/flavours/*.args and the ones below). ps3rsx_cma=64M: the GPU's GART comes
-# on demand from a 64 MiB CMA area, which holds ordinary movable pages while the GPU doesn't use it (packages/walnut/drivers/ps3rsx/src/gart.c); ps3rsx_gart=0 turns off the
-# fixed reservation that was used before (ps3rsx_gart=<size> still works as a fallback).
+# on demand from a 64 MiB CMA area, which holds ordinary movable pages while the GPU doesn't use it (packages/walnut/drivers/ps3rsx/src/gart.c); the fixed reservation used before,
+# ps3rsx_gart=<size>, is off unless set (a fallback for experiments).
 # netconsole spells out source IP, device and target MAC: built-in netconsole starts before
 # ip=dhcp has configured eth0 and gives up without them.
 # loglevel=4: two boots hung in early userspace while systemd flooded the kernel log through

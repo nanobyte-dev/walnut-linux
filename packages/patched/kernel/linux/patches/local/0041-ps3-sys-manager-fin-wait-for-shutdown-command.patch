@@ -34,8 +34,6 @@ Now:
 - With the final shutdown under way, a power or reset button press is
   only logged: no kill_cad_pid() to init from the final path, and
   ps3_sm_force_power_off isn't changed after the next op was sent.
-- The temperature reply handler of local/0040 returned -EAGAIN only to
-  keep the old loop going; it returns 0 now.
 
 Not changed (upstream): the event and command handlers still BUG()
 when the payload isn't queued behind its header (the System Manager
@@ -87,21 +85,7 @@ diff --git a/drivers/ps3/ps3-sys-manager.c b/drivers/ps3/ps3-sys-manager.c
  /**
   * ps3_sys_manager_write - Helper to write a two part message to the vuart.
   *
-@@ -674,11 +696,8 @@ static int ps3_sm_temp_handle_reply(struct ps3_system_bus_device *dev,
- 	}
- 	spin_unlock_irqrestore(&hw->reply_lock, flags);
- 
--	/*
--	 * Non-zero: ps3_sys_manager_fin() polls until a message returns 0,
--	 * which must be the shutdown command, not this.
--	 */
--	return -EAGAIN;
-+	/* ps3_sys_manager_fin() waits for PS3_SM_MSG_SHUTDOWN_ACKED only. */
-+	return 0;
- }
- 
- static void ps3_sm_temp_request_error(void)
-@@ -908,6 +927,10 @@ static int ps3_sys_manager_handle_event(struct ps3_system_bus_device *dev)
+@@ -905,6 +927,10 @@ static int ps3_sys_manager_handle_event(struct ps3_system_bus_device *dev)
  			__func__, __LINE__,
  			(event.value == PS3_SM_BUTTON_EVENT_SOFT ? "soft"
  			: "hard"));
@@ -112,7 +96,7 @@ diff --git a/drivers/ps3/ps3-sys-manager.c b/drivers/ps3/ps3-sys-manager.c
  		ps3_sm_force_power_off = 1;
  		/*
  		 * A memory barrier is use here to sync memory since
-@@ -926,6 +949,10 @@ static int ps3_sys_manager_handle_event(struct ps3_system_bus_device *dev)
+@@ -923,6 +949,10 @@ static int ps3_sys_manager_handle_event(struct ps3_system_bus_device *dev)
  			__func__, __LINE__,
  			(event.value == PS3_SM_BUTTON_EVENT_SOFT ? "soft"
  			: "hard"));
@@ -123,7 +107,7 @@ diff --git a/drivers/ps3/ps3-sys-manager.c b/drivers/ps3/ps3-sys-manager.c
  		ps3_sm_force_power_off = 0;
  		/*
  		 * A memory barrier is use here to sync memory since
-@@ -962,6 +989,7 @@ static int ps3_sys_manager_handle_event(struct ps3_system_bus_device *dev)
+@@ -959,6 +989,7 @@ static int ps3_sys_manager_handle_event(struct ps3_system_bus_device *dev)
   * ps3_sys_manager_handle_cmd - Second stage command msg handler.
   *
   * The system manager sends this in reply to a 'request' message from the guest.
@@ -131,7 +115,7 @@ diff --git a/drivers/ps3/ps3-sys-manager.c b/drivers/ps3/ps3-sys-manager.c
   */
  
  static int ps3_sys_manager_handle_cmd(struct ps3_system_bus_device *dev)
-@@ -995,14 +1023,23 @@ static int ps3_sys_manager_handle_cmd(struct ps3_system_bus_device *dev)
+@@ -992,14 +1023,23 @@ static int ps3_sys_manager_handle_cmd(struct ps3_system_bus_device *dev)
  		return -EIO;
  	}
  
@@ -157,7 +141,7 @@ diff --git a/drivers/ps3/ps3-sys-manager.c b/drivers/ps3/ps3-sys-manager.c
   */
  
  static int ps3_sys_manager_handle_msg(struct ps3_system_bus_device *dev)
-@@ -1080,15 +1117,80 @@ static int ps3_sys_manager_handle_msg(struct ps3_system_bus_device *dev)
+@@ -1077,15 +1117,80 @@ static int ps3_sys_manager_handle_msg(struct ps3_system_bus_device *dev)
  	return -EIO;
  }
  
@@ -191,9 +175,13 @@ diff --git a/drivers/ps3/ps3-sys-manager.c b/drivers/ps3/ps3-sys-manager.c
 +	unsigned int request = 0;
 +	u64 deadline = 0;
 +	int result;
-+
+ 
+-	pr_emerg("System Halted, OK to turn off power\n");
 +	WRITE_ONCE(ps3_sm_final, true);
-+
+ 
+-	while (ps3_sys_manager_handle_msg(dev)) {
+-		/* pause until next DEC interrupt */
+-		lv1_pause(0);
 +	while (1) {
 +		if (request < PS3_SM_FIN_REQUESTS && get_tb() >= deadline) {
 +			if (request)
@@ -218,13 +206,9 @@ diff --git a/drivers/ps3/ps3-sys-manager.c b/drivers/ps3/ps3-sys-manager.c
 +				PS3_SM_FIN_REQUESTS);
 +			deadline = U64_MAX;
 +		}
- 
--	pr_emerg("System Halted, OK to turn off power\n");
++
 +		result = ps3_sys_manager_handle_msg(dev);
- 
--	while (ps3_sys_manager_handle_msg(dev)) {
--		/* pause until next DEC interrupt */
--		lv1_pause(0);
++
 +		if (result == PS3_SM_MSG_SHUTDOWN_ACKED)
 +			break;
 +

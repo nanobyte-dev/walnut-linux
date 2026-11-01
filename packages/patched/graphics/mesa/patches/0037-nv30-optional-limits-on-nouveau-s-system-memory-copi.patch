@@ -253,7 +253,7 @@ diff --git a/src/gallium/drivers/nouveau/nv30/nv30_context.c b/src/gallium/drive
  static void
  nv30_context_flush(struct pipe_context *pipe, struct pipe_fence_handle **fence,
                     unsigned flags)
-@@ -97,12 +123,24 @@ nv30_context_flush(struct pipe_context *pipe, struct pipe_fence_handle **fence,
+@@ -96,12 +122,24 @@ nv30_context_flush(struct pipe_context *pipe, struct pipe_fence_handle **fence,
     if (flags & PIPE_FLUSH_END_OF_FRAME) {
        nv30->frame_words_last = nv30->frame_words;
        nv30->frame_words = 0;
@@ -278,7 +278,7 @@ diff --git a/src/gallium/drivers/nouveau/nv30/nv30_context.c b/src/gallium/drive
  }
  
  static int
-@@ -172,6 +210,9 @@ nv30_context_destroy(struct pipe_context *pipe)
+@@ -171,6 +209,9 @@ nv30_context_destroy(struct pipe_context *pipe)
  {
     struct nv30_context *nv30 = nv30_context(pipe);
  
@@ -291,7 +291,7 @@ diff --git a/src/gallium/drivers/nouveau/nv30/nv30_context.c b/src/gallium/drive
 diff --git a/src/gallium/drivers/nouveau/nv30/nv30_context.h b/src/gallium/drivers/nouveau/nv30/nv30_context.h
 --- a/src/gallium/drivers/nouveau/nv30/nv30_context.h
 +++ b/src/gallium/drivers/nouveau/nv30/nv30_context.h
-@@ -74,6 +74,9 @@ struct nv30_context {
+@@ -71,6 +71,9 @@ struct nv30_context {
     unsigned frame_words;
     unsigned frame_words_last;
  
@@ -336,7 +336,7 @@ diff --git a/src/gallium/drivers/nouveau/nv30/nv30_screen.c b/src/gallium/driver
     caps->generate_mipmap = false;
     caps->string_marker = false;
     caps->buffer_sampler_view_rgba_only = false;
-@@ -560,6 +560,21 @@ nv30_screen_create(struct nouveau_device *dev)
+@@ -542,6 +542,21 @@ nv30_screen_create(struct nouveau_device *dev)
     screen->ps3_kick_min_words =
        MAX2(debug_get_num_option("NV30_PS3_KICK_MIN_BYTES", 16384), 1024) / 4;
     screen->ps3_kick_split = MAX2(debug_get_num_option("NV30_PS3_KICK_SPLIT", 4), 1);
@@ -361,7 +361,7 @@ diff --git a/src/gallium/drivers/nouveau/nv30/nv30_screen.c b/src/gallium/driver
 diff --git a/src/gallium/drivers/nouveau/nv30/nv30_screen.h b/src/gallium/drivers/nouveau/nv30/nv30_screen.h
 --- a/src/gallium/drivers/nouveau/nv30/nv30_screen.h
 +++ b/src/gallium/drivers/nouveau/nv30/nv30_screen.h
-@@ -42,6 +42,9 @@ struct nv30_screen {
+@@ -36,6 +36,9 @@ struct nv30_screen {
     unsigned ps3_kick_min_words; /* NV30_PS3_KICK_MIN_BYTES / 4: least work worth a submission */
     unsigned ps3_kick_split;    /* NV30_PS3_KICK_SPLIT: at most about this many parts per frame */
     int query_wait_us;          /* NV30_QUERY_WAIT: spin this long for a query, then sleep (-1: spin) */
@@ -369,5 +369,5 @@ diff --git a/src/gallium/drivers/nouveau/nv30/nv30_screen.h b/src/gallium/driver
 +   unsigned sysmem_stats;      /* NV30_SYSMEM_STATS=N: system memory copies on stderr every N frames */
 +   bool sysmem_hint_seen;      /* the stats line for the hint was printed */
  
-    /* NV30_STAGING_POOL=N: up to N idle staging buffers of texture uploads, already mapped,
-     * kept for the next uploads of the same size class (nv30_miptree.c); 0: off */
+    struct nouveau_bo *notify;
+ 

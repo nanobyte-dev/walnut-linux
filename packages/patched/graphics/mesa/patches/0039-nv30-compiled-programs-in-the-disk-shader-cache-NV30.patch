@@ -48,7 +48,7 @@ diff --git a/src/gallium/drivers/nouveau/meson.build b/src/gallium/drivers/nouve
 diff --git a/src/gallium/drivers/nouveau/nv30/nv30_context.c b/src/gallium/drivers/nouveau/nv30/nv30_context.c
 --- a/src/gallium/drivers/nouveau/nv30/nv30_context.c
 +++ b/src/gallium/drivers/nouveau/nv30/nv30_context.c
-@@ -212,6 +212,7 @@ nv30_context_destroy(struct pipe_context *pipe)
+@@ -211,6 +211,7 @@ nv30_context_destroy(struct pipe_context *pipe)
  
     if (nv30->screen->sysmem_stats && nv30->frames)
        nv30_sysmem_stats_print(nv30, "end");
@@ -59,7 +59,7 @@ diff --git a/src/gallium/drivers/nouveau/nv30/nv30_context.c b/src/gallium/drive
 diff --git a/src/gallium/drivers/nouveau/nv30/nv30_context.h b/src/gallium/drivers/nouveau/nv30/nv30_context.h
 --- a/src/gallium/drivers/nouveau/nv30/nv30_context.h
 +++ b/src/gallium/drivers/nouveau/nv30/nv30_context.h
-@@ -244,6 +244,18 @@ nv30_state_validate(struct nv30_context *nv30, uint32_t mask, bool hwtnl);
+@@ -241,6 +241,18 @@ nv30_state_validate(struct nv30_context *nv30, uint32_t mask, bool hwtnl);
  void
  nv30_state_release(struct nv30_context *nv30);
  
@@ -102,7 +102,7 @@ diff --git a/src/gallium/drivers/nouveau/nv30/nv30_fragprog.c b/src/gallium/driv
 diff --git a/src/gallium/drivers/nouveau/nv30/nv30_screen.c b/src/gallium/drivers/nouveau/nv30/nv30_screen.c
 --- a/src/gallium/drivers/nouveau/nv30/nv30_screen.c
 +++ b/src/gallium/drivers/nouveau/nv30/nv30_screen.c
-@@ -572,6 +572,7 @@ nv30_screen_create(struct nouveau_device *dev)
+@@ -554,6 +554,7 @@ nv30_screen_create(struct nouveau_device *dev)
     default: screen->base.hint_buf_mode = NOUVEAU_HINT_BUF_ALL; break;
     }
     screen->sysmem_stats = MAX2(debug_get_num_option("NV30_SYSMEM_STATS", 0), 0);
@@ -126,7 +126,7 @@ diff --git a/src/gallium/drivers/nouveau/nv30/nv30_screen.h b/src/gallium/driver
  struct nv30_screen {
     struct nouveau_screen base;
  
-@@ -46,6 +52,11 @@ struct nv30_screen {
+@@ -40,6 +46,11 @@ struct nv30_screen {
     unsigned sysmem_stats;      /* NV30_SYSMEM_STATS=N: system memory copies on stderr every N frames */
     bool sysmem_hint_seen;      /* the stats line for the hint was printed */
  
@@ -135,9 +135,9 @@ diff --git a/src/gallium/drivers/nouveau/nv30/nv30_screen.h b/src/gallium/driver
 +   bool shader_cache;
 +   bool shader_cache_stats;
 +
-    /* NV30_STAGING_POOL=N: up to N idle staging buffers of texture uploads, already mapped,
-     * kept for the next uploads of the same size class (nv30_miptree.c); 0: off */
-    simple_mtx_t staging_lock;
+    struct nouveau_bo *notify;
+ 
+    struct nouveau_object *ntfy;
 diff --git a/src/gallium/drivers/nouveau/nv30/nv30_shader_cache.c b/src/gallium/drivers/nouveau/nv30/nv30_shader_cache.c
 new file mode 100644
 --- /dev/null

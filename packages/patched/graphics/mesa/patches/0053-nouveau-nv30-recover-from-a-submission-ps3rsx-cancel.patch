@@ -99,10 +99,10 @@ diff --git a/src/gallium/drivers/nouveau/nv30/nv30_context.h b/src/gallium/drive
 +   bool in_validate;
 +   uint32_t blit_fp_gen;
 +
-    /* draws since the last submission of this context (NV30_PS3_KICK_DRAWS) */
-    unsigned draws_since_kick;
- 
-@@ -247,6 +254,21 @@ nv30_render_vbo(struct pipe_context *pipe, const struct pipe_draw_info *info,
+    /* NV30_PS3_KICK_AUTO: the push buffer position at the first draw after the last
+     * submission (NULL: none since), and the words queued in this frame and the last one */
+    uint32_t *kick_mark;
+@@ -244,6 +251,21 @@ nv30_render_vbo(struct pipe_context *pipe, const struct pipe_draw_info *info,
  bool
  nv30_state_validate(struct nv30_context *nv30, uint32_t mask, bool hwtnl);
  
@@ -142,7 +142,7 @@ diff --git a/src/gallium/drivers/nouveau/nv30/nv30_fragprog.c b/src/gallium/driv
 diff --git a/src/gallium/drivers/nouveau/nv30/nv30_query.c b/src/gallium/drivers/nouveau/nv30/nv30_query.c
 --- a/src/gallium/drivers/nouveau/nv30/nv30_query.c
 +++ b/src/gallium/drivers/nouveau/nv30/nv30_query.c
-@@ -48,6 +48,7 @@ struct nv30_query {
+@@ -47,6 +47,7 @@ struct nv30_query {
     uint64_t result;
     uint64_t start; /* TIME_ELAPSED: the start time, once qo[0] was taken back */
     struct nouveau_fence *fence; /* NV30_QUERY_WAIT: the submission that ends the query */
@@ -150,7 +150,7 @@ diff --git a/src/gallium/drivers/nouveau/nv30/nv30_query.c b/src/gallium/drivers
  };
  
  /* Offset of the query notifier inside the query DMA object */
-@@ -58,6 +59,16 @@ nv30_query_base(struct nv30_screen *screen)
+@@ -57,6 +58,16 @@ nv30_query_base(struct nv30_screen *screen)
     return screen->base.is_ps3 ? query->offset - 0x1400 : 0;
  }
  
@@ -167,7 +167,7 @@ diff --git a/src/gallium/drivers/nouveau/nv30/nv30_query.c b/src/gallium/drivers
  static volatile void *
  nv30_ntfy(struct nv30_screen *screen, struct nv30_query_object *qo)
  {
-@@ -272,6 +283,7 @@ nv30_query_end(struct pipe_context *pipe, struct pipe_query *pq)
+@@ -264,6 +275,7 @@ nv30_query_end(struct pipe_context *pipe, struct pipe_query *pq)
     struct nouveau_pushbuf *push = nv30->base.pushbuf;
  
     nv30_query_object_release(screen, &q->qo[1]);   /* TIMESTAMP: ended again, never begun */
@@ -175,7 +175,7 @@ diff --git a/src/gallium/drivers/nouveau/nv30/nv30_query.c b/src/gallium/drivers
     q->qo[1] = nv30_query_object_new(screen, q);
     if (q->qo[1]) {
        BEGIN_NV04(push, NV30_3D(QUERY_GET), 1);
-@@ -340,7 +352,7 @@ nv30_query_wait(struct nv30_screen *screen, struct nv30_query *q, volatile uint3
+@@ -318,7 +330,7 @@ nv30_query_wait(struct nv30_screen *screen, struct nv30_query *q, volatile uint3
     nv30_query_spin_medium();
     if ((ntfy[3] & 0xff000000) && q->fence)
        nouveau_fence_wait(q->fence, NULL);
@@ -184,16 +184,13 @@ diff --git a/src/gallium/drivers/nouveau/nv30/nv30_query.c b/src/gallium/drivers
        sched_yield();
  }
  
-@@ -352,20 +364,30 @@ nv30_query_read(struct nv30_screen *screen, struct nv30_query *q, bool wait)
+@@ -330,17 +342,27 @@ nv30_query_read(struct nv30_screen *screen, struct nv30_query *q, bool wait)
     volatile uint32_t *ntfy1 = nv30_ntfy(screen, q->qo[1]);
  
     if (ntfy1) {
+-      if (screen->query_wait_us >= 0 && (ntfy1[3] & 0xff000000)) {
 +      bool lost;
 +
-       /* NV30_QUERY_KICK=0/2: the end of the query may not be submitted yet */
-       if (q->fence && screen->query_kick != 1 && (ntfy1[3] & 0xff000000))
-          nouveau_fence_flush(q->fence);
--      if (screen->query_wait_us >= 0 && (ntfy1[3] & 0xff000000)) {
 +      lost = (ntfy1[3] & 0xff000000) && nv30_query_lost(screen, q);
 +      if (!lost && screen->query_wait_us >= 0 && (ntfy1[3] & 0xff000000)) {
           if (!wait)
@@ -233,8 +230,8 @@ diff --git a/src/gallium/drivers/nouveau/nv30/nv30_screen.h b/src/gallium/driver
 +   uint32_t lost_gen;
 +
     bool tex_invalidate_always; /* NV30_TEX_INVALIDATE_ALWAYS: before every draw, as before */
-    bool vtx_invalidate_draw;   /* NV30_VTX_INVALIDATE_DRAW: the draw-time 0x1710 too, as before */
-    bool vtxfmt_always;         /* NV30_VTXFMT_ALWAYS: rewrite VTXFMT even when unchanged */
+    bool fp_const_vram;         /* NV30_FP_CONST_VRAM: constant changes re-upload the VRAM program */
+    unsigned index_upload;      /* NV30_INDEX_UPLOAD: least count of CPU-held indices uploaded */
 diff --git a/src/gallium/drivers/nouveau/nv30/nv30_state.h b/src/gallium/drivers/nouveau/nv30/nv30_state.h
 --- a/src/gallium/drivers/nouveau/nv30/nv30_state.h
 +++ b/src/gallium/drivers/nouveau/nv30/nv30_state.h

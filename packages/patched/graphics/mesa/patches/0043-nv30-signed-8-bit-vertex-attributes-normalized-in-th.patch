@@ -94,25 +94,25 @@ diff --git a/src/gallium/drivers/nouveau/nv30/nv30_screen.c b/src/gallium/driver
     if (bindings & PIPE_BIND_INDEX_BUFFER) {
        if (format != PIPE_FORMAT_R8_UINT &&
            format != PIPE_FORMAT_R16_UINT &&
-@@ -570,6 +578,11 @@ nv30_screen_create(struct nouveau_device *dev)
-     * GPU has nothing left to do (nv30_query.c)
+@@ -554,6 +562,11 @@ nv30_screen_create(struct nouveau_device *dev)
+     * submission that ended the query; unset or negative: spin until it lands, as before.
      */
-    screen->query_kick = CLAMP(debug_get_num_option("NV30_QUERY_KICK", 1), 0, 2);
+    screen->query_wait_us = MIN2(debug_get_num_option("NV30_QUERY_WAIT", -1), 1000000);
 +   /* NV30_VTX_SNORM8=1: GL_BYTE normalized attributes are fetched as unsigned bytes and
 +    * normalized by four instructions at the start of the vertex program, instead of u_vbuf
 +    * converting them to floats on the CPU at every draw (18% of Sauerbraten's CPU with 0033's
 +    * table): nv30_vtx_snorm8.h */
 +   screen->vtx_snorm8 = debug_get_bool_option("NV30_VTX_SNORM8", false);
     simple_mtx_init(&screen->staging_lock, mtx_plain);
-    screen->staging_max = CLAMP(debug_get_num_option("NV30_STAGING_POOL", 0), 0,
-                                (int64_t)ARRAY_SIZE(screen->staging_pool));
+    /* NV30_STAGING_POOL_MB=M: write-only texture uploads keep their staging buffers, idle and
+     * still mapped, for the next uploads (nv30_miptree.c): those up to 256 KiB in up to 32
 diff --git a/src/gallium/drivers/nouveau/nv30/nv30_screen.h b/src/gallium/drivers/nouveau/nv30/nv30_screen.h
 --- a/src/gallium/drivers/nouveau/nv30/nv30_screen.h
 +++ b/src/gallium/drivers/nouveau/nv30/nv30_screen.h
-@@ -50,6 +50,7 @@ struct nv30_screen {
+@@ -43,6 +43,7 @@ struct nv30_screen {
+    unsigned ps3_kick_min_words; /* NV30_PS3_KICK_MIN_BYTES / 4: least work worth a submission */
     unsigned ps3_kick_split;    /* NV30_PS3_KICK_SPLIT: at most about this many parts per frame */
     int query_wait_us;          /* NV30_QUERY_WAIT: spin this long for a query, then sleep (-1: spin) */
-    unsigned query_kick;        /* NV30_QUERY_KICK: 1 submit at every query end, 0 when asked, 2 idle */
 +   bool vtx_snorm8;            /* NV30_VTX_SNORM8: SNORM8 attributes normalized by the program */
     bool invalidate_buffer;     /* NV30_INVALIDATE_BUFFER: orphaning keeps the buffer (invalidate) */
     unsigned sysmem_stats;      /* NV30_SYSMEM_STATS=N: system memory copies on stderr every N frames */

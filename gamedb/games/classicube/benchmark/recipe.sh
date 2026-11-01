@@ -78,8 +78,6 @@ cc_nosound() {
 	sed -i '/^\(soundsvolume\|musicvolume\)=/d' "$CC_DIR/options.txt"
 	printf 'soundsvolume=0\nmusicvolume=0\n' >> "$CC_DIR/options.txt"
 }
-# Mesa ps3.282: a submission every 100 draws (0026), the Armagetron fix, checked here
-variant_kick100() { ENV+=(NV30_PS3_KICK_DRAWS=100); }
 # Mesa ps3.299 switches, to bisect its cost here: 0027 (adaptive submission) off, 0030 (index upload) off
 variant_autooff() { ENV+=(NV30_PS3_KICK_AUTO=0); }
 variant_idxoff() { ENV+=(NV30_INDEX_UPLOAD=0); }

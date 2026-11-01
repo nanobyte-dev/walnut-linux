@@ -134,7 +134,7 @@ diff --git a/src/gallium/drivers/nouveau/nouveau_screen.c b/src/gallium/drivers/
 diff --git a/src/gallium/drivers/nouveau/nv30/nv30_screen.c b/src/gallium/drivers/nouveau/nv30/nv30_screen.c
 --- a/src/gallium/drivers/nouveau/nv30/nv30_screen.c
 +++ b/src/gallium/drivers/nouveau/nv30/nv30_screen.c
-@@ -532,6 +532,12 @@ nv30_screen_create(struct nouveau_device *dev)
+@@ -527,6 +527,12 @@ nv30_screen_create(struct nouveau_device *dev)
     screen->index_upload = debug_get_num_option("NV30_INDEX_UPLOAD", ps3 ? 32 : 0);
     screen->ctx_state_keep = debug_get_bool_option("NV30_CTX_STATE_KEEP", false);
     screen->idxbuf_late_ref = debug_get_bool_option("NV30_IDXBUF_LATE_REF", false);
@@ -144,6 +144,6 @@ diff --git a/src/gallium/drivers/nouveau/nv30/nv30_screen.c b/src/gallium/driver
 +   screen->base.fence.bo_pool_max =
 +      CLAMP(debug_get_num_option("NV30_FENCE_BO_POOL", 0), 0,
 +            (int64_t)ARRAY_SIZE(screen->base.fence.bo_pool));
-    screen->ps3_kick_draws = ps3 ? debug_get_num_option("NV30_PS3_KICK_DRAWS", 0) : 0;
-    screen->ps3_kick_auto = ps3 && !screen->ps3_kick_draws &&
-                            debug_get_bool_option("NV30_PS3_KICK_AUTO", true);
+    screen->ps3_kick_auto = ps3 && debug_get_bool_option("NV30_PS3_KICK_AUTO", true);
+    screen->ps3_kick_min_words =
+       MAX2(debug_get_num_option("NV30_PS3_KICK_MIN_BYTES", 16384), 1024) / 4;

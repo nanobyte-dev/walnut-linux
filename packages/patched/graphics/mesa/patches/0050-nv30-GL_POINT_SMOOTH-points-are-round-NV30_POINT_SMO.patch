@@ -51,7 +51,7 @@ diff --git a/src/gallium/drivers/nouveau/meson.build b/src/gallium/drivers/nouve
 diff --git a/src/gallium/drivers/nouveau/nv30/nv30_context.h b/src/gallium/drivers/nouveau/nv30/nv30_context.h
 --- a/src/gallium/drivers/nouveau/nv30/nv30_context.h
 +++ b/src/gallium/drivers/nouveau/nv30/nv30_context.h
-@@ -110,7 +110,10 @@ struct nv30_context {
+@@ -107,7 +107,10 @@ struct nv30_context {
     } vertprog;
  
     struct {
@@ -62,7 +62,7 @@ diff --git a/src/gallium/drivers/nouveau/nv30/nv30_context.h b/src/gallium/drive
  
        struct pipe_resource *constbuf;
        unsigned constbuf_nr;
-@@ -191,6 +194,9 @@ nv30_fragprog_init(struct pipe_context *pipe);
+@@ -188,6 +191,9 @@ nv30_fragprog_init(struct pipe_context *pipe);
  void
  nv30_fragprog_validate(struct nv30_context *nv30);
  
@@ -336,7 +336,7 @@ new file mode 100644
 diff --git a/src/gallium/drivers/nouveau/nv30/nv30_screen.c b/src/gallium/drivers/nouveau/nv30/nv30_screen.c
 --- a/src/gallium/drivers/nouveau/nv30/nv30_screen.c
 +++ b/src/gallium/drivers/nouveau/nv30/nv30_screen.c
-@@ -557,6 +557,7 @@ nv30_screen_create(struct nouveau_device *dev)
+@@ -552,6 +552,7 @@ nv30_screen_create(struct nouveau_device *dev)
     screen->index_upload = debug_get_num_option("NV30_INDEX_UPLOAD", ps3 ? 32 : 0);
     screen->ctx_state_keep = debug_get_bool_option("NV30_CTX_STATE_KEEP", false);
     screen->idxbuf_late_ref = debug_get_bool_option("NV30_IDXBUF_LATE_REF", false);
@@ -347,7 +347,7 @@ diff --git a/src/gallium/drivers/nouveau/nv30/nv30_screen.c b/src/gallium/driver
 diff --git a/src/gallium/drivers/nouveau/nv30/nv30_screen.h b/src/gallium/drivers/nouveau/nv30/nv30_screen.h
 --- a/src/gallium/drivers/nouveau/nv30/nv30_screen.h
 +++ b/src/gallium/drivers/nouveau/nv30/nv30_screen.h
-@@ -45,6 +45,7 @@ struct nv30_screen {
+@@ -39,6 +39,7 @@ struct nv30_screen {
     unsigned index_upload;      /* NV30_INDEX_UPLOAD: least count of CPU-held indices uploaded */
     bool ctx_state_keep;        /* NV30_CTX_STATE_KEEP: trust the state after the last context went */
     bool idxbuf_late_ref;       /* NV30_IDXBUF_LATE_REF: index buffer referenced after validation */
@@ -392,7 +392,7 @@ diff --git a/src/gallium/drivers/nouveau/nv30/nv30_state_validate.c b/src/galliu
 diff --git a/src/gallium/drivers/nouveau/nv30/nv30_vbo.c b/src/gallium/drivers/nouveau/nv30/nv30_vbo.c
 --- a/src/gallium/drivers/nouveau/nv30/nv30_vbo.c
 +++ b/src/gallium/drivers/nouveau/nv30/nv30_vbo.c
-@@ -792,6 +792,12 @@ nv30_draw_vbo(struct pipe_context *pipe, const struct pipe_draw_info *info,
+@@ -782,6 +782,12 @@ nv30_draw_vbo(struct pipe_context *pipe, const struct pipe_draw_info *info,
        }
     }
  

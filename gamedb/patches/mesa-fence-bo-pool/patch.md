@@ -27,6 +27,5 @@ contents. The pool is drained before the screen's device goes away.
 
 Measured neutral on ClassiCube (48.4 fps both ways, gamedb:batch/2026-10-18-mesa-407-switches), so it
 stays off ([HOTPATHS.md, target 4](../../../docs/HOTPATHS.md#target-4-a-buffer-per-fence-mesa-0034)). It
-is the first of three buffer pools: [mesa-staging-pool](../mesa-staging-pool/patch.md) (0036) and
-[mesa-staging-pool-big](../mesa-staging-pool-big/patch.md) (0040) follow the same pattern for staging
-buffers.
+came before the staging pool, [mesa-staging-pool-big](../mesa-staging-pool-big/patch.md) (0040), which
+follows the same pattern for staging buffers.

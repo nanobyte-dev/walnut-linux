@@ -150,7 +150,7 @@ non-ps3rsx modules) because of three per-module costs. A model computed from the
 | `THREAD_SHIFT` | 14 | 13 would give back ~1.2 MB of the 2.4 MB of stacks, but ppc64 ELFv1 frames are big and root-on-USB plus NFS plus swap paths are deep | not advised |
 
 The boot arguments both flavours ship (`packages/patched/kernel/linux/flavours/release.args`, `debug.args`) start with
-`video=ps3fb:mode:133 consoleblank=0 ps3rsx_gart=0 ps3rsx_cma=64M`.
+`consoleblank=0 ps3rsx_cma=64M` (the fixed GART reservation, `ps3rsx_gart=`, is off by default).
 
 ### ps3fb: how big must it be, and can the console move to VRAM?
 

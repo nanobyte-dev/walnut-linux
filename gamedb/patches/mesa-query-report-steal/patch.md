@@ -24,8 +24,8 @@ A render condition on a query whose report is gone draws.
 The design point is that the slot had to be waited for anyway, so reading the result at that moment
 costs nothing extra and the query never needs the object again.
 
-It builds on nothing of ours. [mesa-query-kick](../mesa-query-kick/patch.md) (0042) later made the
-recycling submit the batch that writes the oldest report before spinning on it.
+It builds on nothing of ours: every query's end submits its batch, so the report it spins on is always
+on its way.
 
 ## Investigation
 

@@ -15,7 +15,9 @@
 #            an NV40 vertex program interpreter with and without it), mesa-minmax-vmx (Mesa 0044's
 #            AltiVec index min/max against the scalar loops, on the host and as ppc64 under qemu),
 #            mesa-query-steal (Mesa 0046: nv30's queries when the report slots run out, against a
-#            fake GPU, under AddressSanitizer), mesa-alloc-fail (0047-0049's alloc-fail-test: u_upload_mgr,
+#            fake GPU, under AddressSanitizer), mesa-query-lost (Mesa 0056: a query whose report never
+#            lands after a cancelled submission, or ever: its wait must end, not hang; a late one keeps
+#            its value), mesa-alloc-fail (0047-0049's alloc-fail-test: u_upload_mgr,
 #            nouveau_mm and nouveau_fence when buffers cannot be had; 0003's context-pushbuf-test: nv30's flush
 #            before any draw and destroy after a failed init; each fix off too, the file as it was before
 #            its patch, which must fail: 0002, 0003, 0047, 0048; 0053's fence wait after a cancelled submission), mesa-transfer-cpu (0049's
@@ -151,6 +153,7 @@ run mesa-staging-pool packages/patched/graphics/mesa/tests/host-tests.sh staging
 run mesa-vtx-snorm8 packages/patched/graphics/mesa/tests/host-tests.sh vtx-snorm8
 run mesa-minmax-vmx packages/patched/graphics/mesa/tests/host-tests.sh minmax-vmx
 run mesa-query-steal packages/patched/graphics/mesa/tests/host-tests.sh query-steal
+run mesa-query-lost packages/patched/graphics/mesa/tests/host-tests.sh query-lost
 run mesa-alloc-fail packages/patched/graphics/mesa/tests/host-tests.sh alloc-fail
 run mesa-transfer-cpu packages/patched/graphics/mesa/tests/host-tests.sh transfer-cpu
 run mesa-point-smooth packages/patched/graphics/mesa/tests/host-tests.sh point-smooth

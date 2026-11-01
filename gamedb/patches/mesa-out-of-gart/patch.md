@@ -7,7 +7,7 @@ switch = "none"
 default = "always on"
 gating = "none: nouveau's fence code and nv30's transfers, for every nouveau driver and nv30 card"
 forwarded = "no"
-tests = ["mesa-alloc-fail", "mesa-transfer-cpu"]
+tests = ["mesa-alloc-fail:fence", "mesa-transfer-cpu"]
 batches = []
 +++
 
@@ -29,9 +29,8 @@ and were lost. The patch makes "out of GART" cost time instead of a crash or los
   buffer keeps the bound one instead of writing through a NULL map.
 
 It follows [mesa-upload-null](../mesa-upload-null/patch.md) (0047) and
-[mesa-alloc-fail](../mesa-alloc-fail/patch.md) (0048), and drains the pools of
-[mesa-staging-pool](../mesa-staging-pool/patch.md) (0036) and [mesa-staging-pool-big](../mesa-staging-pool-big/patch.md)
-(0040).
+[mesa-alloc-fail](../mesa-alloc-fail/patch.md) (0048), and drains the staging pool of
+[mesa-staging-pool-big](../mesa-staging-pool-big/patch.md) (0040), both its classes.
 
 ## Investigation
 

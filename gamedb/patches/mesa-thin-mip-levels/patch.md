@@ -48,4 +48,11 @@ which now set the window origin and clip themselves.
 
 ## Validation
 
-Not yet validated on the PS3.
+Partly, on 2026-11-01 (PS3 session M, the merged test kernel 6.12.111+ps3.1210~dev20261031171117, ps3rsx 0.1209, ps3-gpu-tools 0.1161, the Mesa ladder of key c12abbd5c30c45d4). The fix is fused into the series, so there is no off run. With it
+on, `gl-genmip` passed on the RSX at rung 0 with no kernel lines, as it did on 2026-10-31 (kernel .874,
+ps3rsx 0.924):
+
+```
+64x64 glGenerateMipmap: ok (7 levels, 0 wrong)
+256x16 glGenerateMipmap: ok (9 levels, 0 wrong)
+```

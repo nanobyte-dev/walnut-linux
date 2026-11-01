@@ -37,4 +37,11 @@ next reboot, and NTP corrects the clock after it.
 
 ## Validation
 
-Not yet validated on the PS3.
+Validated by its passive check on 2026-11-01 (PS3 session K, the merged test kernel 6.12.111+ps3.1210~dev20261031171117 with ps3rsx 0.1209): the switch is off, the boot log has the
+patch's line, and the 24 minutes of the boot had no `FLASH ROM` line. Nothing was written to prove a
+refusal, and the switch was never turned on.
+
+```
+ps3_os_area: writes to the OS area in flash disabled, RTC changes last until reboot
+/sys/module/ps3_os_area/parameters/write=N
+```

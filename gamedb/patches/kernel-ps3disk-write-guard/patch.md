@@ -42,4 +42,14 @@ logic lives in `ps3disk_guard.h` without kernel APIs, so the host test compiles 
 
 ## Validation
 
-Not yet validated on the PS3.
+Partly, on 2026-11-01 (PS3 session K, the merged test kernel 6.12.111+ps3.1210~dev20261031171117 with ps3rsx 0.1209), read-only checks: no write was tried, inside or outside the
+ranges. The guard is on and sealed: `ps3da` (the whole disk) is read-only, `ps3dc` too (set by the
+initramfs), and `ps3db` takes writes only inside 507 sealed ranges (33552384 sectors, the Linux image),
+with nothing refused so far. The EIO for a write outside the ranges was shown on kernel .648
+(2026-10-21) and is not repeated on purpose.
+
+```
+ps3disk sb_04: ps3da (region 0 id 0, start 0, 1875385008 sectors): write guard: read-only
+ps3disk sb_04: ps3db: write guard sealed: 507 ranges, 33552384 sectors writable
+write_guard/: policy whitelist, sealed 1, nr_ranges 507, refused 0
+```

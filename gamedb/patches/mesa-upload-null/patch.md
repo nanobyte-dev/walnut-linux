@@ -7,7 +7,7 @@ switch = "none"
 default = "always on"
 gating = "none: generic fixes in u_upload, u_vbuf and st/mesa, plus nv30's zero-stride attributes, for every driver"
 forwarded = "no"
-tests = ["mesa-alloc-fail"]
+tests = ["mesa-alloc-fail:upload"]
 batches = []
 +++
 
@@ -25,7 +25,7 @@ zero for a frame instead of crashing.
 
 It is the first of the out-of-memory fixes from Sauerbraten's sessions; [mesa-alloc-fail](../mesa-alloc-fail/patch.md)
 (0048) came in the same commit (1462313), [mesa-out-of-gart](../mesa-out-of-gart/patch.md) (0049) a day
-later for SuperTuxKart. The early [mesa-mm-slab-oom](../mesa-mm-slab-oom/patch.md) (0002) and
+later for SuperTuxKart. The early NULL return of 0048's slab path (once Mesa 0002) and
 [mesa-context-pushbuf](../mesa-context-pushbuf/patch.md) (0003) cover neighbouring paths.
 
 ## Investigation

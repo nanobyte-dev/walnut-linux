@@ -21,8 +21,9 @@ again, three in all, then keeps polling, so a late command is still acked. It pa
 is queued, spins 1 ms instead of pausing with interrupts off, and a power or reset press during the final
 shutdown is only logged.
 
-It builds on [kernel-sm-temperatures](../kernel-sm-temperatures/patch.md) (local/0040), whose
-temperature reply handler returned -EAGAIN only to keep the old loop going. An upstream draft is in
+It applies after [kernel-sm-temperatures](../kernel-sm-temperatures/patch.md) (local/0040), whose
+temperature replies it handles as before, but no longer changes that patch's code: the reply handler's
+return value (0 instead of -EAGAIN) moved into 0040 on 2026-10-31 ([MERGES.md](../MERGES.md)). An upstream draft is in
 `docs/upstream/linux-ps3-sys-manager.md`.
 
 ## Investigation
@@ -42,4 +43,6 @@ temperature reply handler returned -EAGAIN only to keep the old loop going. An u
 
 ## Validation
 
-Not yet validated on the PS3.
+Partly, on 2026-11-01 (PS3 session K, the merged test kernel 6.12.111+ps3.1210~dev20261031171117 with ps3rsx 0.1209): the temperature replies whose return value was folded into 0040
+arrive and are handled during normal running (kernel-sm-temperatures). The check this patch is for,
+`sudo poweroff` ending with the console off by itself, has not run: powering off is the user's call.

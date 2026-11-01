@@ -256,7 +256,7 @@ diff --git a/src/gallium/drivers/nouveau/nouveau_fence.c b/src/gallium/drivers/n
  }
  
  void
-@@ -428,6 +516,23 @@ nouveau_fence_flush(struct nouveau_fence *fence)
+@@ -415,6 +503,23 @@ nouveau_fence_wait(struct nouveau_fence *fence, struct util_debug_callback *debu
     return res;
  }
  
@@ -283,15 +283,15 @@ diff --git a/src/gallium/drivers/nouveau/nouveau_fence.c b/src/gallium/drivers/n
 diff --git a/src/gallium/drivers/nouveau/nouveau_fence.h b/src/gallium/drivers/nouveau/nouveau_fence.h
 --- a/src/gallium/drivers/nouveau/nouveau_fence.h
 +++ b/src/gallium/drivers/nouveau/nouveau_fence.h
-@@ -87,6 +87,8 @@ bool nouveau_fence_work(struct nouveau_fence *, void (*)(void *), void *);
+@@ -80,6 +80,8 @@ bool nouveau_fence_work(struct nouveau_fence *, void (*)(void *), void *);
  void nouveau_fence_update(struct nouveau_screen *, bool flushed);
  /** returns false on error */
  MUST_CHECK bool nouveau_fence_next_if_current(struct nouveau_context *, struct nouveau_fence *);
 +/* waits for the GPU to finish the context's work so far (out of memory: let it go back) */
 +bool nouveau_fence_wait_idle(struct nouveau_context *);
  bool nouveau_fence_wait(struct nouveau_fence *, struct util_debug_callback *);
- /** submits the fence's batch if that has not happened yet; returns false on error */
- bool nouveau_fence_flush(struct nouveau_fence *);
+ bool nouveau_fence_signalled(struct nouveau_fence *);
+ void nouveau_fence_ref(struct nouveau_fence *, struct nouveau_fence **,
 diff --git a/src/gallium/drivers/nouveau/nv30/nv30_fragprog.c b/src/gallium/drivers/nouveau/nv30/nv30_fragprog.c
 --- a/src/gallium/drivers/nouveau/nv30/nv30_fragprog.c
 +++ b/src/gallium/drivers/nouveau/nv30/nv30_fragprog.c
@@ -352,7 +352,7 @@ diff --git a/src/gallium/drivers/nouveau/nv30/nv30_miptree.c b/src/gallium/drive
 --- a/src/gallium/drivers/nouveau/nv30/nv30_miptree.c
 +++ b/src/gallium/drivers/nouveau/nv30/nv30_miptree.c
 @@ -87,6 +87,7 @@ struct nv30_transfer {
-    unsigned pooled_size; /* NV30_STAGING_POOL: tmp.bo goes back to the pool in this class */
+    unsigned pooled_size; /* NV30_STAGING_POOL_MB: tmp.bo goes back to the small pool (class) */
     unsigned big_size;    /* NV30_STAGING_POOL_MB: tmp.bo goes back to the big pool (class) */
     bool big_reused;      /* tmp.bo came from the big pool: no new GART, not "in flight" */
 +   char *cpu;            /* no staging buffer could be had: malloc memory, copied by the CPU */

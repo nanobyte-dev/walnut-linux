@@ -69,12 +69,9 @@ variant_record() { AA_LIVE=0; NEEDS=(); CMD=(/usr/games/armagetronad --record /v
 variant_live() { DURATION=45; HUD_SKIP=15; WINDOW_STOP=0; }
 # Mesa 0020 off (texture caches invalidated on every draw, as before ps3.262): bisects its cost
 variant_texinv() { ENV+=(NV30_TEX_INVALIDATE_ALWAYS=1); }
-# Mesa ps3.282 switches (docs/archive/GAME-PLAN.md): relocations back on (0019 off), or 0019 kept with a
-# submission every N draws (0026)
+# Mesa ps3.282 switches (docs/archive/GAME-PLAN.md): relocations back on (0019 off). The kick150,
+# kick100 and kick50 variants went on 2026-10-31 with NV30_PS3_KICK_DRAWS (0026, folded into 0027)
 variant_relocs() { ENV+=(NV30_PS3_RELOCS=1); }
-variant_kick150() { ENV+=(NV30_PS3_KICK_DRAWS=150); }
-variant_kick100() { ENV+=(NV30_PS3_KICK_DRAWS=100); }
-variant_kick50() { ENV+=(NV30_PS3_KICK_DRAWS=50); }
 
 # vsync off, as in every other recipe (2026-10-18): Mesa ignores the swap interval the game asks for,
 # so the numbers are uncapped and comparable (ETR's 59 fps looked like a 60 Hz cap)

@@ -128,7 +128,7 @@ diff --git a/src/gallium/drivers/nouveau/nv30/nv30_query.c b/src/gallium/drivers
 diff --git a/src/gallium/drivers/nouveau/nv30/nv30_screen.c b/src/gallium/drivers/nouveau/nv30/nv30_screen.c
 --- a/src/gallium/drivers/nouveau/nv30/nv30_screen.c
 +++ b/src/gallium/drivers/nouveau/nv30/nv30_screen.c
-@@ -538,6 +538,11 @@ nv30_screen_create(struct nouveau_device *dev)
+@@ -533,6 +533,11 @@ nv30_screen_create(struct nouveau_device *dev)
     screen->base.fence.bo_pool_max =
        CLAMP(debug_get_num_option("NV30_FENCE_BO_POOL", 0), 0,
              (int64_t)ARRAY_SIZE(screen->base.fence.bo_pool));
@@ -137,13 +137,13 @@ diff --git a/src/gallium/drivers/nouveau/nv30/nv30_screen.c b/src/gallium/driver
 +    * submission that ended the query; unset or negative: spin until it lands, as before.
 +    */
 +   screen->query_wait_us = MIN2(debug_get_num_option("NV30_QUERY_WAIT", -1), 1000000);
-    screen->ps3_kick_draws = ps3 ? debug_get_num_option("NV30_PS3_KICK_DRAWS", 0) : 0;
-    screen->ps3_kick_auto = ps3 && !screen->ps3_kick_draws &&
-                            debug_get_bool_option("NV30_PS3_KICK_AUTO", true);
+    screen->ps3_kick_auto = ps3 && debug_get_bool_option("NV30_PS3_KICK_AUTO", true);
+    screen->ps3_kick_min_words =
+       MAX2(debug_get_num_option("NV30_PS3_KICK_MIN_BYTES", 16384), 1024) / 4;
 diff --git a/src/gallium/drivers/nouveau/nv30/nv30_screen.h b/src/gallium/drivers/nouveau/nv30/nv30_screen.h
 --- a/src/gallium/drivers/nouveau/nv30/nv30_screen.h
 +++ b/src/gallium/drivers/nouveau/nv30/nv30_screen.h
-@@ -41,6 +41,7 @@ struct nv30_screen {
+@@ -35,6 +35,7 @@ struct nv30_screen {
     bool ps3_kick_auto;         /* NV30_PS3_KICK_AUTO: submit once the GPU caught up (nv30_vbo.c) */
     unsigned ps3_kick_min_words; /* NV30_PS3_KICK_MIN_BYTES / 4: least work worth a submission */
     unsigned ps3_kick_split;    /* NV30_PS3_KICK_SPLIT: at most about this many parts per frame */

@@ -12,6 +12,9 @@
 #                  output on an NV40 vertex program interpreter)
 #   minmax-vmx     host (0044's AltiVec index min/max against the scalar loops), ppc64 (the same under qemu)
 #   query-steal    0046: nv30's queries when the report slots run out, fake GPU, ASan
+#   query-lost     0056: a query whose report never lands (a cancelled submission, 0053; a GPU
+#                  that stopped): end, steal, destroy, elapsed, deadline must return, not hang
+#                  (alarm); late and x86: a late report keeps its value (query-lost-test.c)
 #   alloc-fail     upload (0047), mm-fallback and mm-nomem (0048), fence (0049), fence-cancel (0053):
 #                  alloc-fail-test.c; pushbuf-flush, pushbuf-destroy (0003): context-pushbuf-test.c;
 #                  fix-off: the parts against each file as it was before its patch (the parent of the
@@ -28,10 +31,10 @@ T=${MESA_TEST_OUT:-build/tmp/tests}
 t=${MESA_TESTS:-packages/patched/graphics/mesa/tests}
 S=${1:-}; shift || true
 declare -A PARTS=([forcedxt]="" [staging-pool]="" [vtx-snorm8]="unpack vpsim" [minmax-vmx]="host ppc64"
-	[query-steal]="" [alloc-fail]="upload mm-fallback mm-nomem fence fence-cancel pushbuf-flush pushbuf-destroy fix-off"
+	[query-steal]="" [query-lost]="end steal destroy elapsed deadline late x86" [alloc-fail]="upload mm-fallback mm-nomem fence fence-cancel pushbuf-flush pushbuf-destroy fix-off"
 	[transfer-cpu]="" [point-smooth]="")
 if [ "$S" = --list ]; then
-	for s in forcedxt staging-pool vtx-snorm8 minmax-vmx query-steal alloc-fail transfer-cpu point-smooth; do
+	for s in forcedxt staging-pool vtx-snorm8 minmax-vmx query-steal query-lost alloc-fail transfer-cpu point-smooth; do
 		echo "$s ${PARTS[$s]}"; done
 	exit 0
 fi
@@ -135,6 +138,17 @@ minmax-vmx)
 query-steal)
 	[ -e $M/src/gallium/drivers/nouveau/nv30/nv30_query.c ] || skip "no Mesa tree at $M (make mesa-work)"
 	gen && mcc $T/query-steal-test $t/query-steal-test.c -Wall -Werror && $T/query-steal-test; result "" $?
+	;;
+query-lost)
+	[ -e $M/src/gallium/drivers/nouveau/nv30/nv30_query.c ] || skip "no Mesa tree at $M (make mesa-work)"
+	gen || exit 1
+	CANC=; grep -q 'uint32_t cancelled;' $M/src/gallium/winsys/nouveau/drm/nouveau.h && CANC=-DHAVE_DEVICE_CANCELLED
+	built=
+	for p in ${PARTS[$S]}; do
+		wants $p || continue
+		[ -n "$built" ] || { mcc $T/query-lost-test $t/query-lost-test.c -Wall -Werror -pthread $CANC && built=ok || built=no; }
+		if [ $built = ok ]; then $T/query-lost-test $p; result $p $?; else echo "query-lost-test.c does not build against $M"; result $p 1; fi
+	done
 	;;
 alloc-fail)
 	[ -e $M/src/gallium/drivers/nouveau/nouveau_mm.c ] || skip "no Mesa tree at $M (make mesa-work)"

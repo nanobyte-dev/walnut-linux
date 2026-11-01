@@ -12,7 +12,7 @@ staging pool (0036) measured neutral and stay off; ps3rsx's `shadow_fast` showed
 (`NV30_FENCE_WORK_KICK`, `NV30_QUERY_KICK`), SNORM8 attributes normalized in the vertex program
 (`NV30_VTX_SNORM8`) and AltiVec index scans (`NV30_MINMAX_VMX`), built in Mesa
 26.2.4-1+ps3.545~dev, off by default. 0041, 0042 and 0044 are measured ([below](#measured-0041-0042-0044)): 0041 and
-0042 neutral, 0044 +10% on [SuperTuxKart](../gamedb/games/supertuxkart/) at n=5 (a candidate default) and neutral elsewhere. 0043 as built there wedged the RSX
+0042 neutral (both dropped from the series on 2026-10-31, with their switches), 0044 +10% on [SuperTuxKart](../gamedb/games/supertuxkart/) at n=5 (a candidate default) and neutral elsewhere. 0043 as built there wedged the RSX
 on its first run (graph exception 0x106: [below](#snorm8-attributes-in-the-vertex-program-mesa-0043));
 the fixed 0043 is in Mesa 26.2.4-1+ps3.570~dev (`build/debs/hotpaths3b/mesa`), not yet run. How the profiles are taken is in
 [PROFILING.md](PROFILING.md); nv30, ps3rsx and the other terms are in the [glossary](README.md#glossary).
@@ -589,6 +589,8 @@ and top-of-range values: 2.7 million cases) on the host and as a ppc64 `-mcpu=ce
 deb builder's cross compiler under qemu-ppc64.
 
 ### Measured: 0041, 0042, 0044
+
+0041 and 0042 were dropped on 2026-10-31 on these numbers; what follows is why.
 
 Each switch against the unset default in the same boot, rotated, webcam picture right in every run,
 interfered runs left out (kernel .472, SSD root, Mesa ps3.545~dev, 0043 not used). First x2-x3 on the

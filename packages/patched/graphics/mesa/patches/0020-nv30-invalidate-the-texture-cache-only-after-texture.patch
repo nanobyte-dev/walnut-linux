@@ -1,33 +1,81 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Tiberiu Chibici <chibicitiberiu@gmail.com>
 Date: Sat, 17 Oct 2026 13:06:30 +0300
-Subject: nv30: invalidate the texture cache only after texture memory may have
- changed
+Subject: nv30: less work per draw (texture and vertex caches, vertex formats,
+ constants, texture units)
 
-nv30_state_validate ended every draw with the texture cache invalidate the NVIDIA blob was
-traced doing (TEX_CACHE_CTL 2, then 1: the vertex and the fragment texture caches, then three
-0x1718 PIPE_NOPs), ten words in the push buffer, ten more for the kernel to copy and check,
-and a flush of the GPU's texture caches before each draw. libgcm leaves the invalidate to the
-application, after it changed texels (docs/RSX-PROGRAMS.md); binding other textures needs
-none.
+Six changes to what nv30 sends and does per draw, measured together in Mesa ps3.262 (every
+suite game 11-24% faster except Armagetron, whose loss came from 0019). Each one leaves out
+writes that change nothing on the GPU, or work on the PPE whose result is the same.
 
-The screen now counts the events after which texture memory may hold something the cache
-doesn't (tex_gen, bumped atomically by any context): a copy into or out of a texture
-(nv30_transfer_rect: uploads, readbacks, copies, the 3D blit), a new framebuffer (what was
-rendered may be sampled from now on; also after a context switch, which revalidates it), and
-a flush (another context of the process, on the same channel, may sample what this one
-rendered). A context emits the same sequence as before, at the same place, before its first
-draw after the count moved. ps3rsx already invalidates both caches whenever another channel
-ran (shadow.c), so other processes' rendering and uploads are covered. nv30 doesn't expose
-texture barriers, so sampling a bound render target isn't defined anyway.
-
+Texture cache: nv30_state_validate ended every draw with the texture cache invalidate the
+NVIDIA blob was traced doing (TEX_CACHE_CTL 2, then 1: the vertex and the fragment texture
+caches, then three 0x1718 PIPE_NOPs), ten words in the push buffer, ten more for the kernel to
+copy and check, and a flush of the GPU's texture caches before each draw. libgcm leaves the
+invalidate to the application, after it changed texels (docs/RSX-PROGRAMS.md); binding other
+textures needs none. The screen now counts the events after which texture memory may hold
+something the cache doesn't (tex_gen, bumped atomically by any context): a copy into or out of
+a texture (nv30_transfer_rect: uploads, readbacks, copies, the 3D blit), a new framebuffer
+(what was rendered may be sampled from now on; also after a context switch, which revalidates
+it), and a flush (another context of the process, on the same channel, may sample what this
+one rendered). A context emits the same sequence as before, at the same place, before its
+first draw after the count moved. ps3rsx already invalidates both caches whenever another
+channel ran (shadow.c), so other processes' rendering and uploads are covered. nv30 doesn't
+expose texture barriers, so sampling a bound render target isn't defined anyway.
 NV30_TEX_INVALIDATE_ALWAYS=1 restores the invalidate before every draw, to tell a stale
-texture from another bug on the PS3.
+texture from another bug on the PS3: watch for a texture showing what it held before
+(just-uploaded glyphs, minimap or atlas updates, render-to-texture effects).
 
-Changes the command stream: the ten words are left out of draws that follow no upload, copy,
-framebuffer change or flush (most draws of a frame). Needs a hardware test: watch for stale
-texels, a texture showing what it held before (just-uploaded glyphs, minimap or atlas
-updates, render-to-texture effects), and compare with NV30_TEX_INVALIDATE_ALWAYS=1.
+Vertex cache: nv30_state_validate invalidates the vertex cache (0x1710) in every draw, after
+the last write any vertex or index buffer of the draw could have had (CPU writes go before the
+draw call, coherent mappings included). nv30_draw_vbo then emitted another one, right before
+the primitive, whenever a buffer had been written since the last draw (vbo_dirty) or a bound
+buffer was mapped coherently, and for the latter walked the vertex buffers every draw to find
+out. Nothing writes vertex memory between the two, so the second one invalidated an empty
+cache: it is dropped, with the walk. Two words saved in every draw that follows a vertex or
+index buffer write, which with u_vbuf uploading user arrays and Mesa's immediate-mode buffers
+is most draws of GL 1.x games.
+
+Vertex formats: nv30_vbo_validate runs whenever the vertex buffers or elements change, and
+wrote the whole VTXFMT burst each time: one word per attribute plus the header. The formats
+depend only on the vertex elements (their formats and strides) and on whether vertices are
+pushed inline, not on the buffers, and Mesa's state tracker rebinds vertex buffers far more
+often than it changes the element layout (u_vbuf binds a new upload buffer for user arrays in
+every draw). The context now keeps the VTXFMT words the GPU holds (state.vtxfmt, carried over a
+context switch with the rest of nv30->state; the swtnl path, the only other writer, records
+its own) and leaves the burst out when it would write the same words. ps3rsx shadows VTXFMT
+and puts it back after another channel ran, and the offsets (VTXBUF) are written as before.
+
+Constants: the state tracker hands nv30 its shader constants as user memory, again whenever
+they change, in fixed-function GL about every draw. nv30_set_constant_buffer wrapped each such
+pointer in a new nv04_resource and freed the previous wrapper, an allocation and a free on the
+PPE per update. Only the wrapper's data pointer and size are ever read (vertex and fragment
+program validation, the swtnl path), and nothing but the context's constbuf slot references a
+wrapper. While the slot still holds the wrapper made by the last call and nothing else
+references it, it is now pointed at the new memory instead; a real constant buffer, or a
+wrapper someone else holds on to, takes the old path. Constants are uploaded exactly as before.
+
+Texture units: the state tracker passes nv30 all its sampler views (and binds all its
+samplers) when any of them changes. nv30 marked every unit dirty and dropped every unit's
+buffer reference, so nv30_fragtex_validate rewrote each one: 13 words and two buffer
+references per unit, for units that kept what they had. A unit is now marked only when its
+view or its sampler is a different object. The context holds a reference to each bound view,
+so an equal pointer is the same view of the same texture; sampler CSOs aren't deleted while
+bound. The 3D blit marks the unit it uses, as before. A context switch (two contexts of a
+process on the same channel) marked everything dirty but validated only the units changed
+since the context last drew, so a context could sample the other one's textures; it now marks
+all the context's units.
+
+Vertex program constants: nv30_vertprog_validate sent every changed constant on its own
+(VP_UPLOAD_CONST_ID, the slot, its four words: six words per constant), and a matrix is four
+consecutive slots. The GPU moves to the next slot after every four words of a burst (libgcm
+uploads up to eight constants per burst; ps3rsx's shadow follows the same rule), so a run of
+changed constants in consecutive slots now goes up as one burst of at most four, the
+VP_UPLOAD_CONST window the method table documents. The same constant writes, six words less
+per matrix.
+
+(0020 to 0025 until they were folded, 2026-10-31; their switches other than
+NV30_TEX_INVALIDATE_ALWAYS, which brought back each old path, went with the fold.)
 
 Forwarded: no
 
@@ -63,7 +111,17 @@ diff --git a/src/gallium/drivers/nouveau/nv30/nv30_context.c b/src/gallium/drive
 diff --git a/src/gallium/drivers/nouveau/nv30/nv30_context.h b/src/gallium/drivers/nouveau/nv30/nv30_context.h
 --- a/src/gallium/drivers/nouveau/nv30/nv30_context.h
 +++ b/src/gallium/drivers/nouveau/nv30/nv30_context.h
-@@ -59,6 +59,9 @@ struct nv30_context {
+@@ -52,6 +52,9 @@ struct nv30_context {
+       unsigned rt_enable;
+       unsigned scissor_off;
+       unsigned num_vtxelts;
++      /* VTXFMT words the GPU holds, for the first vtxfmt_nr attributes */
++      uint32_t vtxfmt[16];
++      unsigned vtxfmt_nr;
+       int index_bias;
+       bool prim_restart;
+       struct nv30_fragprog *fragprog;
+@@ -59,6 +62,9 @@ struct nv30_context {
  
     uint32_t dirty;
  
@@ -73,6 +131,79 @@ diff --git a/src/gallium/drivers/nouveau/nv30/nv30_context.h b/src/gallium/drive
     /* PS3: bytes of texture upload staging (GART) whose copies may still be pending */
     unsigned staging_inflight;
  
+@@ -81,6 +87,8 @@ struct nv30_context {
+ 
+       struct pipe_resource *constbuf;
+       unsigned constbuf_nr;
++      /* constbuf when it wraps user memory (set_constant_buffer), or NULL */
++      struct pipe_resource *constbuf_user;
+ 
+       struct pipe_sampler_view *textures[PIPE_MAX_SAMPLERS];
+       unsigned num_textures;
+@@ -94,6 +102,8 @@ struct nv30_context {
+ 
+       struct pipe_resource *constbuf;
+       unsigned constbuf_nr;
++      /* constbuf when it wraps user memory (set_constant_buffer), or NULL */
++      struct pipe_resource *constbuf_user;
+ 
+       struct pipe_sampler_view *textures[PIPE_MAX_SAMPLERS];
+       unsigned num_textures;
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_draw.c b/src/gallium/drivers/nouveau/nv30/nv30_draw.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_draw.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_draw.c
+@@ -361,6 +361,8 @@ nv30_render_validate(struct nv30_context *nv30)
+ 
+    BEGIN_NV04(push, NV30_3D(VTXFMT(0)), 16);
+    PUSH_DATAp(push, r->vtxfmt, 16);
++   memcpy(nv30->state.vtxfmt, r->vtxfmt, sizeof(nv30->state.vtxfmt));
++   nv30->state.vtxfmt_nr = 16;
+ 
+    BEGIN_NV04(push, NV30_3D(VP_START_FROM_ID), 1);
+    PUSH_DATA (push, r->vertprog->start);
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_fragtex.c b/src/gallium/drivers/nouveau/nv30/nv30_fragtex.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_fragtex.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_fragtex.c
+@@ -157,12 +157,18 @@ nv30_fragtex_sampler_states_bind(struct pipe_context *pipe,
+    struct nv30_context *nv30 = nv30_context(pipe);
+    unsigned i;
+ 
++   /* The state tracker binds all its samplers when any changes: a unit keeping its sampler
++    * (and its view, nv30_fragtex_set_sampler_views) needs no new texture state. */
+    for (i = 0; i < nr; i++) {
++      if (nv30->fragprog.samplers[i] == hwcso[i])
++         continue;
+       nv30->fragprog.samplers[i] = hwcso[i];
+       nv30->fragprog.dirty_samplers |= (1 << i);
+    }
+ 
+    for (; i < nv30->fragprog.num_samplers; i++) {
++      if (!nv30->fragprog.samplers[i])
++         continue;
+       nv30->fragprog.samplers[i] = NULL;
+       nv30->fragprog.dirty_samplers |= (1 << i);
+    }
+@@ -179,13 +185,20 @@ nv30_fragtex_set_sampler_views(struct pipe_context *pipe, unsigned nr,
+    struct nv30_context *nv30 = nv30_context(pipe);
+    unsigned i;
+ 
++   /* The state tracker passes all its views when any changes. A unit whose view stays the
++    * same object (it holds a reference, so the same pointer is the same view of the same
++    * texture) keeps its texture state and its buffer reference, unless its sampler changed. */
+    for (i = 0; i < nr; i++) {
++      if (nv30->fragprog.textures[i] == views[i])
++         continue;
+       nouveau_bufctx_reset(nv30->bufctx, BUFCTX_FRAGTEX(i));
+       pipe_sampler_view_reference(&nv30->fragprog.textures[i], views[i]);
+       nv30->fragprog.dirty_samplers |= (1 << i);
+    }
+ 
+    for (; i < nv30->fragprog.num_textures; i++) {
++      if (!nv30->fragprog.textures[i])
++         continue;
+       nouveau_bufctx_reset(nv30->bufctx, BUFCTX_FRAGTEX(i));
+       pipe_sampler_view_reference(&nv30->fragprog.textures[i], NULL);
+       nv30->fragprog.dirty_samplers |= (1 << i);
 diff --git a/src/gallium/drivers/nouveau/nv30/nv30_screen.c b/src/gallium/drivers/nouveau/nv30/nv30_screen.c
 --- a/src/gallium/drivers/nouveau/nv30/nv30_screen.c
 +++ b/src/gallium/drivers/nouveau/nv30/nv30_screen.c
@@ -102,6 +233,76 @@ diff --git a/src/gallium/drivers/nouveau/nv30/nv30_screen.h b/src/gallium/driver
     struct nouveau_bo *notify;
  
     struct nouveau_object *ntfy;
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_state.c b/src/gallium/drivers/nouveau/nv30/nv30_state.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_state.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_state.c
+@@ -332,9 +332,43 @@ nv30_set_constant_buffer(struct pipe_context *pipe,
+ {
+    struct nv30_context *nv30 = nv30_context(pipe);
+    struct pipe_resource *buf = cb ? cb->buffer : NULL;
++   struct pipe_resource **pconst, **puser;
++   unsigned *pnr;
+    unsigned size;
+ 
++   if (shader == MESA_SHADER_VERTEX) {
++      pconst = &nv30->vertprog.constbuf;
++      puser = &nv30->vertprog.constbuf_user;
++      pnr = &nv30->vertprog.constbuf_nr;
++      nv30->dirty |= NV30_NEW_VERTCONST;
++   } else
++   if (shader == MESA_SHADER_FRAGMENT) {
++      pconst = &nv30->fragprog.constbuf;
++      puser = &nv30->fragprog.constbuf_user;
++      pnr = &nv30->fragprog.constbuf_nr;
++      nv30->dirty |= NV30_NEW_FRAGCONST;
++   } else
++      return;
++
+    if (cb && cb->user_buffer) {
++      /* The state tracker passes new user constants whenever they change, which in
++       * fixed-function GL is about every draw (a new modelview matrix per object). Only the
++       * wrapper's data pointer is ever read (vertprog/fragprog validate, swtnl): while this
++       * context holds the only reference to the wrapper it made last time, point that one
++       * at the new memory instead of allocating a wrapper per call and freeing the last. */
++      struct pipe_resource *user = *puser;
++
++      if (user && user == *pconst && p_atomic_read(&user->reference.count) == 1) {
++         struct nv04_resource *res = nv04_resource(user);
++
++         res->data = (void *)cb->user_buffer;
++         user->width0 = cb->buffer_size;
++         util_range_set_empty(&res->valid_buffer_range);
++         util_range_add(user, &res->valid_buffer_range, 0, cb->buffer_size);
++         *pnr = cb->buffer_size / (4 * sizeof(float));
++         return;
++      }
++
+       buf = nouveau_user_buffer_create(pipe->screen, (void*)cb->user_buffer,
+                                        cb->buffer_size,
+                                        PIPE_BIND_CONSTANT_BUFFER);
+@@ -344,18 +378,12 @@ nv30_set_constant_buffer(struct pipe_context *pipe,
+    if (buf)
+       size = buf->width0 / (4 * sizeof(float));
+ 
+-   if (shader == MESA_SHADER_VERTEX) {
+-      pipe_resource_reference(&nv30->vertprog.constbuf, buf);
+-      nv30->vertprog.constbuf_nr = size;
+-      nv30->dirty |= NV30_NEW_VERTCONST;
+-   } else
+-   if (shader == MESA_SHADER_FRAGMENT) {
+-      pipe_resource_reference(&nv30->fragprog.constbuf, buf);
+-      nv30->fragprog.constbuf_nr = size;
+-      nv30->dirty |= NV30_NEW_FRAGCONST;
+-   }
++   pipe_resource_reference(pconst, buf);
++   *pnr = size;
++   *puser = NULL;
+ 
+    if (cb && cb->user_buffer) {
++      *puser = buf;
+       pipe_resource_reference(&buf, NULL);
+    }
+ }
 diff --git a/src/gallium/drivers/nouveau/nv30/nv30_state_validate.c b/src/gallium/drivers/nouveau/nv30/nv30_state_validate.c
 --- a/src/gallium/drivers/nouveau/nv30/nv30_state_validate.c
 +++ b/src/gallium/drivers/nouveau/nv30/nv30_state_validate.c
@@ -123,7 +324,19 @@ diff --git a/src/gallium/drivers/nouveau/nv30/nv30_state_validate.c b/src/galliu
     BEGIN_NV04(push, SUBC_3D(0x1da4), 1);
     PUSH_DATA (push, 0);
     BEGIN_NV04(push, NV30_3D(RT_HORIZ), 3);
-@@ -512,7 +516,15 @@ nv30_state_validate(struct nv30_context *nv30, uint32_t mask, bool hwtnl)
+@@ -448,6 +452,11 @@ nv30_state_context_switch(struct nv30_context *nv30)
+       nv30->state = prev->state;
+    nv30->dirty = NV30_NEW_ALL;
+ 
++   /* The other context left its own textures in the units: write this one's again (NEW_ALL
++    * alone validates only the units marked since this context last drew). */
++   nv30->fragprog.dirty_samplers |=
++      BITFIELD_MASK(MAX2(nv30->fragprog.num_textures, nv30->fragprog.num_samplers));
++
+    if (!nv30->vertex)
+       nv30->dirty &= ~(NV30_NEW_VERTEX | NV30_NEW_ARRAYS);
+ 
+@@ -512,7 +521,15 @@ nv30_state_validate(struct nv30_context *nv30, uint32_t mask, bool hwtnl)
     /*XXX*/
     BEGIN_NV04(push, NV30_3D(VTX_CACHE_INVALIDATE_1710), 1);
     PUSH_DATA (push, 0);
@@ -161,3 +374,134 @@ diff --git a/src/gallium/drivers/nouveau/nv30/nv30_transfer.c b/src/gallium/driv
     for (method = methods; method->possible; method++) {
        if (method->possible(nv30, filter, src, dst)) {
           method->execute(nv30, filter, src, dst);
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_vbo.c b/src/gallium/drivers/nouveau/nv30/nv30_vbo.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_vbo.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_vbo.c
+@@ -214,20 +214,28 @@ nv30_vbo_validate(struct nv30_context *nv30)
+    if (redefine == 0)
+       return;
+ 
+-   BEGIN_NV04(push, NV30_3D(VTXFMT(0)), redefine);
++   /* The formats only depend on the vertex elements (and vbo_fifo): a draw that only rebinds
++    * its buffers writes the very words the GPU holds. Leave them out then. */
++   uint32_t vtxfmt[16];
+ 
+    for (i = 0; i < vertex->num_elements; i++) {
+       ve = &vertex->pipe[i];
+-      vb = &nv30->vtxbuf[ve->vertex_buffer_index];
+ 
+       if (likely(vertex->strides[ve->vertex_buffer_index]) || nv30->vbo_fifo)
+-         PUSH_DATA (push, (vertex->strides[ve->vertex_buffer_index] << 8) | vertex->element[i].state);
++         vtxfmt[i] = (vertex->strides[ve->vertex_buffer_index] << 8) | vertex->element[i].state;
+       else
+-         PUSH_DATA (push, NV30_3D_VTXFMT_TYPE_V32_FLOAT);
++         vtxfmt[i] = NV30_3D_VTXFMT_TYPE_V32_FLOAT;
+    }
+ 
+-   for (; i < nv30->state.num_vtxelts; i++) {
+-      PUSH_DATA (push, NV30_3D_VTXFMT_TYPE_V32_FLOAT);
++   for (; i < redefine; i++)
++      vtxfmt[i] = NV30_3D_VTXFMT_TYPE_V32_FLOAT;
++
++   if (redefine > nv30->state.vtxfmt_nr ||
++       memcmp(vtxfmt, nv30->state.vtxfmt, redefine * sizeof(vtxfmt[0]))) {
++      BEGIN_NV04(push, NV30_3D(VTXFMT(0)), redefine);
++      PUSH_DATAp(push, vtxfmt, redefine);
++      memcpy(nv30->state.vtxfmt, vtxfmt, redefine * sizeof(vtxfmt[0]));
++      nv30->state.vtxfmt_nr = MAX2(nv30->state.vtxfmt_nr, redefine);
+    }
+ 
+    for (i = 0; i < vertex->num_elements; i++) {
+@@ -586,7 +594,6 @@ nv30_draw_vbo(struct pipe_context *pipe, const struct pipe_draw_info *info,
+ 
+    struct nv30_context *nv30 = nv30_context(pipe);
+    struct nouveau_pushbuf *push = nv30->base.pushbuf;
+-   int i;
+ 
+    if (!info->primitive_restart &&
+        !u_trim_pipe_prim(info->mode, (unsigned*)&draws[0].count))
+@@ -624,22 +631,10 @@ nv30_draw_vbo(struct pipe_context *pipe, const struct pipe_draw_info *info,
+       return;
+    }
+ 
+-   for (i = 0; i < nv30->num_vtxbufs && !nv30->base.vbo_dirty; ++i) {
+-      if (!nv30->vtxbuf[i].buffer.resource)
+-         continue;
+-      if (nv30->vtxbuf[i].buffer.resource->flags & PIPE_RESOURCE_FLAG_MAP_COHERENT)
+-         nv30->base.vbo_dirty = true;
+-   }
+-
+-   if (!nv30->base.vbo_dirty && info->index_size && !info->has_user_indices &&
+-       info->index.resource->flags & PIPE_RESOURCE_FLAG_MAP_COHERENT)
+-      nv30->base.vbo_dirty = true;
+-
+-   if (nv30->base.vbo_dirty) {
+-      BEGIN_NV04(push, NV30_3D(VTX_CACHE_INVALIDATE_1710), 1);
+-      PUSH_DATA (push, 0);
+-      nv30->base.vbo_dirty = false;
+-   }
++   /* nv30_state_validate invalidated the vertex cache just now, after every write to a vertex
++    * or index buffer this draw can see (coherent mappings included): a second invalidate
++    * here, for buffers written since the last draw, would change nothing. */
++   nv30->base.vbo_dirty = false;
+ 
+    if (!info->index_size) {
+       nv30_draw_arrays(nv30,
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_vertprog.c b/src/gallium/drivers/nouveau/nv30/nv30_vertprog.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_vertprog.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_vertprog.c
+@@ -174,24 +174,40 @@ nv30_vertprog_validate(struct nv30_context *nv30)
+ 
+    if (vp->nr_consts) {
+       struct nv04_resource *res = nv04_resource(nv30->vertprog.constbuf);
++      /* Changed constants in consecutive slots go up in one burst: the GPU moves to the next
++       * slot after every four words (libgcm writes up to eight per burst), up to the four
++       * VP_UPLOAD_CONST the method window has. A matrix is four such slots. */
++      const unsigned max_run = NV30_3D_VP_UPLOAD_CONST__LEN;
++      unsigned run = 0;
+ 
+-      for (i = 0; i < vp->nr_consts; i++) {
++      for (i = 0; i <= vp->nr_consts; i++) {
+          struct nv30_vertprog_data *data = &vp->consts[i];
+-
+-         if (data->index < 0) {
+-            if (!upload_data)
+-               continue;
+-         } else {
+-            float *constbuf = (float *)res->data;
+-            if (!upload_data &&
+-                !memcmp(data->value, &constbuf[data->index * 4], 16))
+-               continue;
+-            memcpy(data->value, &constbuf[data->index * 4], 16);
++         bool upload = false;
++
++         if (i < vp->nr_consts) {
++            if (data->index < 0) {
++               upload = upload_data;
++            } else {
++               float *constbuf = (float *)res->data;
++               if (upload_data ||
++                   memcmp(data->value, &constbuf[data->index * 4], 16)) {
++                  memcpy(data->value, &constbuf[data->index * 4], 16);
++                  upload = true;
++               }
++            }
+          }
+ 
+-         BEGIN_NV04(push, NV30_3D(VP_UPLOAD_CONST_ID), 5);
+-         PUSH_DATA (push, vp->data->start + i);
+-         PUSH_DATAp(push, data->value, 4);
++         if (run && (!upload || run == max_run)) {
++            unsigned first = i - run;
++
++            BEGIN_NV04(push, NV30_3D(VP_UPLOAD_CONST_ID), 1 + 4 * run);
++            PUSH_DATA (push, vp->data->start + first);
++            for (unsigned j = first; j < i; j++)
++               PUSH_DATAp(push, vp->consts[j].value, 4);
++            run = 0;
++         }
++         if (upload)
++            run++;
+       }
+    }
+ 

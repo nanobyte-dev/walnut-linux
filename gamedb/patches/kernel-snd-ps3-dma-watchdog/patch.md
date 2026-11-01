@@ -48,4 +48,13 @@ starts it only when it is in SETUP or XRUN, which never happens here.
 
 ## Validation
 
-Not yet validated on the PS3.
+Validated on 2026-11-01 (PS3 session K, the merged test kernel 6.12.111+ps3.1210~dev20261031171117 with ps3rsx 0.1209): `speaker-test -t sine` through dmix, then
+`dma_test_stall=1`. With the watchdog on (200 ms), three forced stalls in a row were each restarted
+before the next sample half a second later; the hardware pointer kept moving and `dma_stats` counted 3
+restarts. With `dma_watchdog_ms=0` the pointer stood still for 4 s and the stall stayed set until
+speaker-test closed the stream. Back at 200, the next stream played normally.
+
+```
+snd_ps3: no buffer-empty interrupt for over 200 ms, DMA restarted (1 so far): kick 00010000 00130000 ... ax_is 00000c08 intr0 00000000 3wmctrl 80408100
+off, 1 s and 4 s after the stall: state: RUNNING hw_ptr : 150528  stall=1
+```

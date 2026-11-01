@@ -47,4 +47,13 @@ The switch came a day later (commit 5de5764) for same-boot A/B runs. An upstream
 
 ## Validation
 
-Not yet validated on the PS3.
+Validated on 2026-11-01 (PS3 session K, the merged test kernel 6.12.111+ps3.1210~dev20261031171117 with ps3rsx 0.1209), the desktop idle: `ps3-waker -m probe -i 1.37 -t 120` three
+times in one boot, with `ps3_idle_prep` at 1, 0 and 1 again. With the fix off, thread 1 woke up to
+5.4 s late (16 wakeups 100 ms or more late, 6 of them over a second, and about 18000 fewer wakeups in
+the two minutes). With it on, the worst wakeup on either thread was 4.0 ms, both times.
+
+```
+ps3_idle_prep=Y  cpu 1 prio=fifo wakeups=86392 max_ms=0.4 ge1=0 ge10=0 ge100=0 ge1000=0
+ps3_idle_prep=N  cpu 1 prio=fifo wakeups=67947 max_ms=5442.1 ge1=36 ge10=20 ge100=16 ge1000=6
+ps3_idle_prep=Y  cpu 1 prio=fifo wakeups=86398 max_ms=4.0 ge1=1 ge10=0 ge100=0 ge1000=0
+```

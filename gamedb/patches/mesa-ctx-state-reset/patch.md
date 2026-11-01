@@ -18,8 +18,9 @@ last was destroyed, the next one to draw kept its own view from whenever it last
 zeroes), though the GPU still held the destroyed context's state. Now the whole cached state is reset: the
 fragment program is set again, all 16 vertex formats are written, and the base index and restart state go
 out with the next indexed draw. The command stream changes only on that first draw, with methods Mesa
-already sends. [mesa-vtxfmt-cache](../mesa-vtxfmt-cache/patch.md) (0022) had already forgotten the vertex
-formats in that case.
+already sends. With `NV30_CTX_STATE_KEEP=1` the context keeps the rest of its view and forgets only the
+cached vertex formats of [mesa-tex-invalidate](../mesa-tex-invalidate/patch.md) (0020), as Mesa 0022
+did before that part moved into this patch (2026-10-31).
 
 [mesa-cancel-recover](../mesa-cancel-recover/patch.md) (0053) reuses this path: after ps3rsx cancels a
 submission, the next context to draw writes all of its state, also with `NV30_CTX_STATE_KEEP=1`.
