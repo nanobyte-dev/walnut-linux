@@ -193,8 +193,11 @@ chip) with 0170, which clears this LPAR's bit in the hypervisor repository at ev
 dropped on 2026-10-18 ([OTHEROS-PATCHES.md](../OTHEROS-PATCHES.md) decision 1). Bluetooth on the same
 chip works. Until then: a USB Wi-Fi dongle (the image carries no firmware packages, so most need one).
 
-- **Effort:** M. **Needs:** the user (the call on the repository write). **Status:** backlog (the user,
-  2026-10-23: reconsider later).
+- **Effort:** M. **Needs:** the user (the call on the repository write). **Status:** passed (the user,
+  2026-11-01). No CFW or OtherOS++ install is known to unlock slim Wi-Fi without the repository write,
+  and the dongles at hand are a Netis WF2190 (RTL8812AU: in-kernel only from Linux 6.14 as rtw88_8812au,
+  big-endian untested, non-free firmware) and an RTL8153 wired adapter. USB Wi-Fi drivers, if ever
+  enabled, go in as modules (loaded only when a dongle is plugged in), ath9k_htc first (free firmware).
 - **First step:** prove 0170's repository write is gone after a power cycle (read the node back with
   lv1_read_repository_node before and after), the reversibility question that dropped it.
 - **Source:** PLAN 4.8; docs/release/TESTING-0.1.md 25.
