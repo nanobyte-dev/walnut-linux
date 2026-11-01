@@ -5,32 +5,40 @@
 # instead of the partition itself. The backing is set once per boot, but the table under it can be
 # switched while the VRAM swap is off: the bench's SSD swap arm (bench/harness/ssd-arm.sh,
 # docs/GAMEOS-HDD.md "Test drive, Phase A"). Without dmsetup or dm-mod, or if the device fails,
-# the partition as before. PS3_VSWAP_ROOT: a prefix for /etc and /sys (host tests only).
+# the partition as before. PS3_VSWAP_ROOT: a prefix for /etc, /sys and /proc, PS3_VSWAP_BIN: a directory
+# searched before the fixed PATH (host tests only; only root sets either).
+PATH=${PS3_VSWAP_BIN:+$PS3_VSWAP_BIN:}/usr/sbin:/usr/bin:/sbin:/bin
 R=${PS3_VSWAP_ROOT:-}
 dev=$(awk '$3 == "swap" && $1 !~ "zram" { print $1; exit }' $R/etc/fstab)
 [ -n "$dev" ] || exit 0
 part=$(findfs "$dev" 2>/dev/null || echo "$dev")
 [ -b "$part" ] || exit 0
-# Run again (the driver came back: debian/71-ps3-vswap.rules): if the VRAM swap is already on, there is
-# nothing to do, and mkswap below must never touch a live swap. If the partition is in use as the
-# fallback, it must come off cleanly before the VRAM swap takes it over; a failed swapoff stops here.
-grep -q "^/dev/ps3vswap0 " /proc/swaps && exit 0
-if grep -q "^$part " /proc/swaps; then swapoff "$part" || exit 1; fi
+# Run again (the driver came back: debian/71-ps3-vswap.rules, or the boot start was interrupted):
+# the VRAM swap already on means nothing to do, and mkswap must never touch a live swap.
+grep -q "^/dev/ps3vswap0 " $R/proc/swaps && exit 0
 B=$R/sys/block/ps3vswap0/backing
 PS3_VSWAP_DM=0
 [ -r $R/etc/default/ps3-vswap ] && . $R/etc/default/ps3-vswap
-back=$part
-if [ "$PS3_VSWAP_DM" = 1 ] && [ -e $B ] && [ -z "$(cat $B)" ]; then
-	mb=$(cat $R/sys/module/ps3rsx/parameters/vswap_size_mb 2>/dev/null || echo 1024)
-	n=$(blockdev --getsz "$part" 2>/dev/null || echo 0)
-	[ "$n" -gt $((mb * 2048)) ] && n=$((mb * 2048))
-	modprobe dm-mod 2>/dev/null
-	if [ "$n" -gt 0 ] && command -v dmsetup >/dev/null &&
-	   dmsetup create ps3vswap-back --table "0 $n linear $part 0" 2>/dev/null; then
-		back=/dev/mapper/ps3vswap-back
-	fi
+if [ -e $B ] && [ -n "$(cat $B)" ]; then
+	# the backing is set and the swap is off (a run was cut off between the two): resume
+	case $(cat $B) in "$part"|/dev/mapper/ps3vswap-back) ;; *) exit 1 ;; esac
+	mkswap /dev/ps3vswap0 >/dev/null && exec swapon -p 300 --discard=pages /dev/ps3vswap0
+	exit 1
 fi
-if [ -e $B ] && [ -z "$(cat $B)" ]; then
+back=$part
+if [ -e $B ]; then
+	# the disk partition comes off cleanly before the VRAM swap takes it over; a failed swapoff stops here
+	if grep -q "^$part " $R/proc/swaps; then swapoff "$part" || exit 1; fi
+	if [ "$PS3_VSWAP_DM" = 1 ]; then
+		mb=$(cat $R/sys/module/ps3rsx/parameters/vswap_size_mb 2>/dev/null || echo 1024)
+		n=$(blockdev --getsz "$part" 2>/dev/null || echo 0)
+		[ "$n" -gt $((mb * 2048)) ] && n=$((mb * 2048))
+		modprobe dm-mod 2>/dev/null
+		if [ "$n" -gt 0 ] && command -v dmsetup >/dev/null &&
+		   dmsetup create ps3vswap-back --table "0 $n linear $part 0" 2>/dev/null; then
+			back=/dev/mapper/ps3vswap-back
+		fi
+	fi
 	if ! echo "$back" > $B 2>/dev/null && [ "$back" != "$part" ]; then
 		dmsetup remove ps3vswap-back 2>/dev/null	# the device-mapper backing refused: the partition
 		back=$part
@@ -42,5 +50,6 @@ if [ -e $B ] && [ -z "$(cat $B)" ]; then
 	fi
 fi
 # no VRAM swap: the partition itself (its header is gone once VRAM swap had it: swap
-# contents never outlive a boot anyway)
+# contents never outlive a boot anyway). Never when vswap or device-mapper holds it.
+[ -z "$(ls $R/sys/class/block/${part##*/}/holders 2>/dev/null)" ] || exit 1
 swapon -p 200 "$part" 2>/dev/null || { mkswap "$part" >/dev/null && swapon -p 200 "$part"; }

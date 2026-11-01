@@ -979,6 +979,8 @@ class VswapScript(unittest.TestCase):
         shutil.rmtree(self.d, ignore_errors=True)
         r, b = self.d / "root", self.d / "bin"
         (r / "etc" / "default").mkdir(parents=True)
+        (r / "proc").mkdir()
+        (r / "proc" / "swaps").write_text("Filename Type Size Used Priority\n")
         (r / "sys" / "block" / "ps3vswap0").mkdir(parents=True)
         (r / "sys" / "module" / "ps3rsx" / "parameters").mkdir(parents=True)
         b.mkdir()
@@ -1000,9 +1002,10 @@ class VswapScript(unittest.TestCase):
         shutil.rmtree(self.d, ignore_errors=True)
 
     def run_script(self, **env):
-        e = dict(os.environ, PS3_VSWAP_ROOT=str(self.root), PATH="%s:%s" % (self.bin, os.environ["PATH"]), **env)
-        subprocess.run(["sh", str(self.SCRIPT)], env=e, capture_output=True, text=True, timeout=30)
-        back = (self.root / "sys" / "block" / "ps3vswap0" / "backing").read_text().strip()
+        e = dict(os.environ, PS3_VSWAP_ROOT=str(self.root), PS3_VSWAP_BIN=str(self.bin), **env)
+        self.rc = subprocess.run(["sh", str(self.SCRIPT)], env=e, capture_output=True, text=True, timeout=30).returncode
+        bf = self.root / "sys" / "block" / "ps3vswap0" / "backing"
+        back = bf.read_text().strip() if bf.exists() else ""
         return back, [x for x in self.log.read_text().splitlines() if not x.startswith("swapoff")] if self.log.exists() else []
 
     def test_default_is_the_partition(self):
@@ -1026,11 +1029,52 @@ class VswapScript(unittest.TestCase):
     def test_no_vram_swap(self):
         (self.root / "sys" / "block" / "ps3vswap0" / "backing").unlink()
         back_file = self.root / "sys" / "block" / "ps3vswap0" / "backing"
-        e = dict(os.environ, PS3_VSWAP_ROOT=str(self.root), PATH="%s:%s" % (self.bin, os.environ["PATH"]))
+        e = dict(os.environ, PS3_VSWAP_ROOT=str(self.root), PS3_VSWAP_BIN=str(self.bin))
         subprocess.run(["sh", str(self.SCRIPT)], env=e, capture_output=True, text=True, timeout=30)
         log = [x for x in self.log.read_text().splitlines() if not x.startswith("swapoff")]
         self.assertFalse(back_file.exists())
         self.assertEqual(log, ["swapon -p 200 %s" % self.part])
+
+    def swaps(self, *lines):
+        (self.root / "proc" / "swaps").write_text("Filename Type Size Used Priority\n" + "".join(l + " partition 1 0 1\n" for l in lines))
+
+    def full_log(self):
+        return self.log.read_text().splitlines() if self.log.exists() else []
+
+    def test_vram_swap_already_on(self):
+        self.swaps("/dev/ps3vswap0")
+        back, log = self.run_script()
+        self.assertEqual((self.rc, back, self.full_log()), (0, "", []))
+
+    def test_cut_off_run_resumes(self):
+        # the backing was written, swapon never ran: mkswap and swapon the VRAM swap, nothing else
+        (self.root / "sys" / "block" / "ps3vswap0" / "backing").write_text(self.part + "\n")
+        self.run_script()
+        self.assertEqual(self.full_log(), ["mkswap /dev/ps3vswap0", "swapon -p 300 --discard=pages /dev/ps3vswap0"])
+
+    def test_foreign_backing_untouched(self):
+        (self.root / "sys" / "block" / "ps3vswap0" / "backing").write_text("/dev/sdz9\n")
+        self.run_script()
+        self.assertEqual((self.rc, self.full_log()), (1, []))
+
+    def test_fallback_swapoff_first(self):
+        self.swaps(self.part)
+        self.run_script()
+        self.assertEqual(self.full_log(), ["swapoff " + self.part, "mkswap /dev/ps3vswap0",
+                                           "swapon -p 300 --discard=pages /dev/ps3vswap0"])
+
+    def test_failed_swapoff_stops(self):
+        self.swaps(self.part)
+        (self.bin / "swapoff").write_text("#!/bin/sh\necho \"swapoff $*\" >> %s\nexit 1\n" % self.log)
+        back, _ = self.run_script()
+        self.assertEqual((self.rc, back, self.full_log()), (1, "", ["swapoff " + self.part]))
+
+    def test_no_vram_swap_leaves_a_held_partition(self):
+        (self.root / "sys" / "block" / "ps3vswap0" / "backing").unlink()
+        h = self.root / "sys" / "class" / "block" / self.part.rsplit("/", 1)[1] / "holders"
+        (h / "dm-0").mkdir(parents=True)
+        self.run_script()
+        self.assertEqual((self.rc, self.full_log()), (1, []))
 
 
 if __name__ == "__main__":

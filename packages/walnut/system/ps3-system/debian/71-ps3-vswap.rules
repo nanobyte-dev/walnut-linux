@@ -1,5 +1,7 @@
 # ps3rsx (re)loaded: its VRAM swap disk appears, and ps3-vswap.service (RemainAfterExit, so it
-# would not run again by itself) sets the swap up again. The script exits if the VRAM swap is
-# already on, and takes the fallback partition off with swapoff before the VRAM swap uses it.
+# would not run again by itself) sets the swap up again. Only when the unit is enabled (a disabled
+# one stays off); the script exits if the VRAM swap is already on, resumes a run that was cut off,
+# and takes the fallback partition off with swapoff before the VRAM swap uses it.
 ACTION=="add", SUBSYSTEM=="block", KERNEL=="ps3vswap0", \
+	PROGRAM="/usr/bin/systemctl is-enabled --quiet ps3-vswap.service", \
 	RUN+="/usr/bin/systemctl restart --no-block ps3-vswap.service"
