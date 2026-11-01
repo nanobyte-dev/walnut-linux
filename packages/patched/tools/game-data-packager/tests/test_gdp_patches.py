@@ -40,6 +40,11 @@ deb make game-data-packager-deb built into the deb builder image and runs this t
   scummvm_common) has the .desktop link and an icon without it, neither with it.
 - 0019 diablo-data: a second 1.09 DIABDAT.MPQ (517501242 bytes) beside GOG's (517501282), with its
   size and checksums, both usable for diablo-data (loader only).
+- 0020 cd_byte_order: a ripped WAV whose samples are byte-swapped (cdparanoia on a big-endian PS3)
+  is swapped back in place, judged by the zero-crossing rate of 5 s from the middle; synthetic
+  WAVs: a sine and music-like chords swapped (fixed, back to the original bytes) and not (left
+  alone), white noise, a 9 kHz tone and noise both ways, silence, 8-bit PCM and a header with a
+  0 data size; build.py runs it on every rip before the encoder.
 
 game-data-packager checks every file against its checksums, so the builds use a game of our own,
 "walnuttest" (plugin doom_common, so DoomTask writes its launchers), whose checksums are those of
@@ -803,6 +808,109 @@ sha256sums: |
         for gone in ('applications/walnut-scumm', 'pixmaps/walnut-scumm', 'apps/walnut-scumm'):
             self.assertNotIn(gone, c)
         self.assertNotIn('game-data-packager-runtime', rec)
+
+
+class CDRipByteOrder(unittest.TestCase):
+    """0020: game_data_packager/cd_byte_order.py, on synthetic 44.1 kHz stereo WAVs."""
+    RATE = 44100
+
+    @classmethod
+    def setUpClass(cls):
+        from game_data_packager import cd_byte_order
+        cls.mod = cd_byte_order
+        cls.tmp = tempfile.mkdtemp(prefix='gdp-cdrip.')
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp)
+
+    @classmethod
+    def samples(cls, kind, seconds=12):
+        import math
+        import random
+        rnd = random.Random(20261101)
+        out = []
+        for n in range(cls.RATE * seconds):
+            t = n / cls.RATE
+            if kind == 'sine':
+                v = 0.6 * math.sin(2 * math.pi * 440 * t)
+            elif kind == 'music':	# chords with an envelope, a little hiss
+                env = 0.55 + 0.35 * math.sin(2 * math.pi * 0.7 * t)
+                v = env * (0.4 * math.sin(2 * math.pi * 110 * t) + 0.25 * math.sin(2 * math.pi * 220.5 * t)
+                           + 0.15 * math.sin(2 * math.pi * 329.6 * t)
+                           + 0.06 * math.sin(2 * math.pi * 1318 * t)) + rnd.gauss(0, 0.003)
+            elif kind == 'noise':
+                v = max(-1.0, min(1.0, rnd.gauss(0, 0.3)))
+            elif kind == 'hiss':	# a cymbal-like 9 kHz tone in noise
+                v = 0.4 * math.sin(2 * math.pi * 9000 * t) + rnd.gauss(0, 0.1)
+            else:
+                v = 0.0
+            s = int(max(-32768, min(32767, round(v * 32767))))
+            out += (s, s // 2)
+        return out
+
+    def wav(self, name, samples, swapped=False, bits=16, size_field=None):
+        import struct
+        fmt = '>' if swapped else '<'
+        if bits == 16:
+            data = struct.pack('%s%dh' % (fmt, len(samples)), *samples)
+        else:
+            data = bytes((s >> 8) + 128 for s in samples)
+        block = 2 * bits // 8
+        hdr = (b'RIFF' + struct.pack('<I', 36 + len(data)) + b'WAVE'
+               + b'fmt ' + struct.pack('<IHHIIHH', 16, 1, 2, self.RATE, self.RATE * block, block, bits)
+               + b'data' + struct.pack('<I', len(data) if size_field is None else size_field))
+        path = os.path.join(self.tmp, name)
+        with open(path, 'wb') as f:
+            f.write(hdr + data)
+        return path, hdr + data
+
+    def check(self, kind, swapped, fixed, **kw):
+        s = self.samples(kind)
+        path, before = self.wav('%s-%s.wav' % (kind, swapped), s, swapped, **kw)
+        self.assertEqual(self.mod.fix_byte_order(path), fixed)
+        with open(path, 'rb') as f:
+            after = f.read()
+        if fixed:
+            _, right = self.wav('%s-right.wav' % kind, s, **kw)
+            self.assertEqual(after[44:], right[44:])
+            self.assertEqual(after[:44], before[:44])
+            self.assertFalse(self.mod.fix_byte_order(path))	# and once right, it stays
+        else:
+            self.assertEqual(after, before)
+
+    def test_sine(self):
+        self.check('sine', False, False)
+        self.check('sine', True, True)
+
+    def test_music(self):
+        self.check('music', False, False)
+        self.check('music', True, True)
+
+    def test_noisy_material_left_alone(self):
+        for kind in ('noise', 'hiss'):
+            for swapped in (False, True):
+                with self.subTest(kind=kind, swapped=swapped):
+                    self.check(kind, swapped, False)
+
+    def test_silence_and_other_formats(self):
+        self.check('silence', False, False)
+        self.check('silence', True, False)
+        self.check('music', False, False, bits=8)
+        path = os.path.join(self.tmp, 'not.wav')
+        with open(path, 'wb') as f:
+            f.write(b'not a wav file')
+        self.assertFalse(self.mod.fix_byte_order(path))
+
+    def test_zero_data_size(self):	# a writer to a pipe leaves the size at 0
+        self.check('music', True, True, size_field=0)
+
+    def test_build_runs_it_on_every_rip(self):
+        with open(os.path.join(PKGDATADIR, 'game_data_packager', 'build.py')) as f:
+            src = f.read()
+        self.assertRegex(src, r"\['cdparanoia', '-d', cd_device, str\(i\), tmp_wav\],\s*\) != 0:\s*break\s*"
+                              r"(#[^\n]*\s*)?fix_byte_order\(tmp_wav\)\s*if encoding_tool == 'oggenc'")
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -1,0 +1,175 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Sun, 1 Nov 2026 16:21:02 +0200
+Subject: Swap back a CD rip whose samples come out byte-swapped
+
+On a PlayStation 3 (ppc64, big-endian) cdparanoia 3.10.2+debian-14+b1
+writes its WAV with every sample byte-swapped, and quake2-music came out
+as white noise. A 5 s rip of Quake II's track 2 had a zero-crossing
+rate of 0.50 as stored and 0.13 read the other way round, and the
+swapped bytes are the CD image's own (at the drive's 708-byte read
+offset). cdparanoia's -E and -L (the drive's byte order) gave identical
+output, -p (host order) the same bytes as -r (little-endian), and only
+-R (big-endian) came out little-endian.
+
+After each rip, game_data_packager/cd_byte_order.py reads 5 s from the
+middle of the WAV's data chunk and compares the zero-crossing rate of
+the first channel as stored with the byte-swapped one. The data chunk is
+swapped in place, with one warning line, only when the stored rate is
+above 0.35 and the swapped one under half of it: music is about 0.1,
+swapped music about 0.5, and a genuinely noisy track is high both ways
+and left alone. Rips that are right are not touched, on any host.
+
+Forwarded: not yet (the cdparanoia bug is the real fix)
+
+diff --git a/game_data_packager/build.py b/game_data_packager/build.py
+--- a/game_data_packager/build.py
++++ b/game_data_packager/build.py
+@@ -24,6 +24,7 @@ from typing import (Any, BinaryIO, cast, TYPE_CHECKING)
+ 
+ import yaml
+ 
++from .cd_byte_order import (fix_byte_order)
+ from .data import (HashedFile, WantedFile)
+ from .download import (Downloader, NotDownloadable, OutOfSpace)
+ from .gog import GOG
+@@ -2647,6 +2648,9 @@ class PackagingTask:
+             ) != 0:
+                 break
+ 
++            # Walnut: a big-endian host's rip can come out byte-swapped
++            fix_byte_order(tmp_wav)
++
+             if encoding_tool == 'oggenc':
+                 track = os.path.join(self.get_workdir(), 'tmp', '%d.ogg' % i)
+                 check_call(['oggenc', '-o', track, tmp_wav])
+diff --git a/game_data_packager/cd_byte_order.py b/game_data_packager/cd_byte_order.py
+new file mode 100644
+--- /dev/null
++++ b/game_data_packager/cd_byte_order.py
+@@ -0,0 +1,114 @@
++#!/usr/bin/python3
++# encoding=utf-8
++#
++# Copyright © 2026 Tiberiu Chibici <chibicitiberiu@gmail.com>
++# SPDX-License-Identifier: GPL-2.0-or-later
++
++"""The byte order of a CD track ripped by cdparanoia.
++
++On a big-endian host cdparanoia can write its WAV with every sample
++byte-swapped (seen with cdparanoia 3.10.2+debian-14 on ppc64, a
++PlayStation 3, where -E and -L made no difference): oggenc then encodes
++white noise. Music crosses zero rarely (a zero-crossing rate of about
++0.1), while byte-swapped samples look like noise (about 0.5). So a rip
++whose stored rate is high and whose byte-swapped rate is far lower has
++its data chunk swapped back. A genuinely noisy passage (cymbals,
++applause) is high both ways and is left alone.
++"""
++
++from __future__ import annotations
++
++import array
++import logging
++import struct
++import sys
++
++logger = logging.getLogger(__name__)
++
++# a rip is swapped back only when the stored rate is above STORED_MIN and
++# the swapped one is below RATIO times the stored one
++STORED_MIN = 0.35
++RATIO = 0.5
++WINDOW_SECONDS = 5
++
++
++def pcm16_data(f) -> tuple[int, int, int, int] | None:
++    """(offset, size, channels, rate) of a 16-bit PCM WAV's data chunk,
++    None for anything else"""
++    head = f.read(12)
++    if len(head) < 12 or head[:4] != b'RIFF' or head[8:12] != b'WAVE':
++        return None
++    fmt = None
++    while True:
++        h = f.read(8)
++        if len(h) < 8:
++            return None
++        cid, size = h[:4], struct.unpack('<I', h[4:])[0]
++        if cid == b'fmt ':
++            body = f.read(size)
++            if len(body) < 16:
++                return None
++            tag, channels, rate, _, _, bits = struct.unpack(
++                '<HHIIHH', body[:16])
++            if tag != 1 or bits != 16 or channels < 1:
++                return None
++            fmt = (channels, rate)
++            if size & 1:
++                f.seek(1, 1)
++        elif cid == b'data':
++            if fmt is None:
++                return None
++            offset = f.tell()
++            f.seek(0, 2)
++            # a cut file, or a size left at 0 by a writer to a pipe
++            if size == 0 or size > f.tell() - offset:
++                size = f.tell() - offset
++            return offset, size - size % (2 * fmt[0]), fmt[0], fmt[1]
++        else:
++            f.seek(size + (size & 1), 1)
++
++
++def zero_crossing_rate(data: bytes, channels: int, swapped: bool) -> float:
++    """sign changes per sample of the first channel of little-endian
++    16-bit data (byte-swapped first if swapped)"""
++    a = array.array('h', data[:len(data) - len(data) % 2])
++    if (sys.byteorder == 'big') != swapped:
++        a.byteswap()
++    x = a[::channels]
++    if len(x) < 2:
++        return 0.0
++    changes = sum(1 for p, q in zip(x, x[1:]) if (p < 0) != (q < 0))
++    return changes / (len(x) - 1)
++
++
++def fix_byte_order(path: str) -> bool:
++    """Swap the samples of the WAV at path in place if they are
++    byte-swapped (see above). True when they were."""
++    with open(path, 'r+b') as f:
++        info = pcm16_data(f)
++        if info is None:
++            return False
++        offset, size, channels, rate = info
++        frame = 2 * channels
++        window = min(size, WINDOW_SECONDS * rate * frame)
++        # from the middle of the track
++        start = offset + (size - window) // 2 // frame * frame
++        f.seek(start)
++        data = f.read(window)
++        stored = zero_crossing_rate(data, channels, False)
++        swapped = zero_crossing_rate(data, channels, True)
++        if not (stored > STORED_MIN and swapped < RATIO * stored):
++            return False
++        logger.warning(
++            '%s: the rip\'s samples are byte-swapped (zero-crossing rate '
++            '%.2f, %.2f swapped): swapping them back', path, stored, swapped,
++        )
++        pos, end, block = offset, offset + size, 1 << 20
++        while pos < end:
++            f.seek(pos)
++            chunk = array.array('h', f.read(min(block, end - pos)))
++            chunk.byteswap()
++            f.seek(pos)
++            f.write(chunk.tobytes())
++            pos += block
++        return True
+diff --git a/game_data_packager/meson.build b/game_data_packager/meson.build
+--- a/game_data_packager/meson.build
++++ b/game_data_packager/meson.build
+@@ -4,6 +4,7 @@
+ install_data(
+   '__init__.py',
+   'build.py',
++  'cd_byte_order.py',
+   'command_line.py',
+   'config.py',
+   'data.py',

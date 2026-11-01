@@ -43,6 +43,7 @@ the gain is mainly fewer patches for us to carry. Noted here, not worked on:
   master still has it, and upstream ships PowerPC Mac and Amiga builds. A two-line fix (BGRA32) with a host test
   (`tests/hwcursor-alpha-test.cpp`, XFixes read-back under Xvfb, amd64 and ppc64 qemu-user); worth a PR once the
   PS3 confirms it.
+- **cdparanoia: on a big-endian host the WAV/raw output is byte-swapped, and `-E`/`-L` don't change it** (3.10.2+debian-14+b1 on the PS3, ppc64; worked around in game-data-packager 0020, [its register entry](../../gamedb/patches/gdp-cd-rip-byte-order/patch.md)): `-p` equals `-r`, only `-R` comes out little-endian. Upstream is dormant since 2008, so the Debian BTS would be the place; worth it only after a check on a second big-endian machine with a CD drive.
 - **GCC 16.2 wrong code** (Warzone patch 0007, PACKAGING.md): the loop vectorizer on AltiVec without VSX at `-O3`.
   Worth a GCC report only with a minimal reproducer and a check of GCC 14/15 (a regression gets triaged);
   the reproducer would also show which of our other `-O3 -mcpu=cell` builds could be hit.
