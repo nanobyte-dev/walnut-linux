@@ -208,7 +208,8 @@ Overscan: everything uses the full frame by default (the user, 2026-11-01: "we d
 resolution and use it full screen"; the console since kernel local/0054, X always). Underscan is an
 opt-in, `PS3_UNDERSCAN=1` ([DRIVER.md](../DRIVER.md) "Video modes"), and must cover the console,
 the desktop and games alike (the user, 2026-11-01), with no per-game settings. Today it insets the
-console only. The plan for the rest, in ps3rsx, with the same switch (ps3rsx sees ps3fb's inset
+console only. Parked until a bug report asks for it (the user, 2026-11-01), as are the 720p and
+480p checks of the full-screen console. The plan for the rest, in ps3rsx, with the same switch (ps3rsx sees ps3fb's inset
 layout, which `native_frame()` already detects):
 
 - KMS reports the inset size (1688x964 at 1080p) as its only mode, so X, the desktop and every

@@ -43,6 +43,7 @@ return value (0 instead of -EAGAIN) moved into 0040 on 2026-10-31 ([MERGES.md](.
 
 ## Validation
 
-Partly, on 2026-11-01 (PS3 session K, the merged test kernel 6.12.111+ps3.1210~dev20261031171117 with ps3rsx 0.1209): the temperature replies whose return value was folded into 0040
-arrive and are handled during normal running (kernel-sm-temperatures). The check this patch is for,
-`sudo poweroff` ending with the console off by itself, has not run: powering off is the user's call.
+Validated on 2026-11-01. Session K (the merged test kernel 6.12.111+ps3.1210~dev20261031171117 with ps3rsx 0.1209): the temperature replies whose return value was folded into 0040
+arrive and are handled during normal running (kernel-sm-temperatures). The check this patch is for:
+at about 05:20 the same day, after a GPU wedge, the PS3 was powered off with `sudo -n systemctl poweroff`
+on the same merged test kernel (.1210~dev), and it went down by itself within about 15 s.

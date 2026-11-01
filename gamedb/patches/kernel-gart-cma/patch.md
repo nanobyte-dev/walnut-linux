@@ -40,13 +40,17 @@ local/0004 was folded into this patch on 2026-10-31 ([MERGES.md](../MERGES.md)).
 
 ## Validation
 
-Validated on 2026-11-01 (PS3 session K, the merged test kernel 6.12.111+ps3.1210~dev20261031171117 with ps3rsx 0.1209), all but the game run, which waits for the user's OK. The
+Validated on 2026-11-01 (PS3 session K, the merged test kernel 6.12.111+ps3.1210~dev20261031171117 with ps3rsx 0.1209), the game run in the next boot (below). The
 command line has `ps3rsx_cma=64M` and no `ps3rsx_gart`; ps3rsx's probe line says `(on demand)` and
 there is no fixed-reservation line. `MemTotal` is 222560 kB, the same as kernel .874 in the 2026-10-29
 bench snapshots (a comparison across boots), so the 64 MiB reservation did not come back; `CmaTotal` is
 65536 kB. `rsxdrm-smoke gart` filled the GART with 4 MiB buffers until the 13th failed, as it should,
 and copied into each with the GPU. The backing rose from 12 to 60 MiB and was back at 12 MiB within
 20 s (CmaFree 20608, then 112, then 30748 kB). No `no GART` or `no memory to back the GART` line.
+
+Game run, 2026-11-01, kernel .1220.dev20261101045143 (U5d session 2 boot, with the merged series):
+`rsxdrm-smoke gart` fine; OpenTTD drew; the GART backing rose from 13 to 20 MiB and was back at 12 MiB
+within 5 s of the exit; CmaFree fell from 28 to 11 MB and came back to about 20 MB; no GART errors.
 
 ```
 ps3rsx ps3rsx: [drm] VRAM 245 MiB (from 0x900000), GART 63 MiB (on demand), display 1920x1080 pitch 7680

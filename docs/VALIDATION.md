@@ -132,8 +132,7 @@ The kernel stability patches with a repro on the PS3, through their switches, le
 | kernel-snd-ps3-dma-watchdog (0047) | `speaker-test`, then `echo 1 > /sys/module/snd_ps3/parameters/dma_test_stall` | `echo 0 > .../dma_watchdog_ms`; set 200 again after | the hardware pointer stops and sound with it; on: restarted within 200 ms | sound (`sync` first) |
 | kernel-gelic-rx-watchdog (0049) | `rx_watchdog_test=1` with the watchdog on: receive stalls, and comes back | `ps3_gelic.rx_watchdog=0` takes the network away with no way back over ssh: only with the user at the console's keyboard, else the on run only (shown on +ps3.747) | receive stays dead; on: the watchdog restarts it, ssh answers | the network (last) |
 
-The merged GART check below (the kernel merge agent's part) goes in the same boot, with
-kernel-sm-shutdown-wait's `sudo poweroff` at its end.
+The merged GART check below (the kernel merge agent's part) is run in the same boot.
 
 ## Left out, and why
 
@@ -181,13 +180,17 @@ two rows above; the fold changes no code path that runs on the shipped kernel.
 
 **Result, 2026-11-01 00:38-00:54** (one boot of the testset's kernel 6.12.111+ps3.1210~dev20261031171117
 with ps3rsx 0.1209, the user at the console, not playing; raw logs in
-`~/Documents/walnut/process-2026-10-31/ps3-session-KM/`): **passed, except two checks still to do.**
+`~/Documents/walnut/process-2026-10-31/ps3-session-KM/`): **passed; the three checks it left open ran later the same day.**
 The command line and dmesg as stated (`64 MiB CMA area for the GART`, `GART 63 MiB (on demand)`, no
 fixed-reservation line); `MemTotal` 222560 kB, equal to kernel .874's in the 2026-10-29 bench snapshots
 (across boots: the shipped kernel wasn't booted in this session), `CmaTotal` 65536 kB. `rsxdrm-smoke
 gart`: 12 x 4 MiB copied with 0 words wrong, the 13th refused as expected; `GART backed by memory`
 12 MiB, 60 MiB during, 12 MiB again within 20 s; no `no GART` and no `no memory to back the GART`.
-`ps3_sm` read both zones (Cell 63.8 C, RSX 57.5 C); at boot `fan: SYSCON automatic`. Still to do: the
-game run under use (it waits for the user's OK) and `sudo poweroff` (the user's call). The same boot ran
+`ps3_sm` read both zones (Cell 63.8 C, RSX 57.5 C); at boot `fan: SYSCON automatic`. The game run
+under use (kernel .1220.dev20261101045143, U5d session 2 boot): OpenTTD drew, GART backing 13 -> 20 MiB
+and 12 MiB again within 5 s of the exit, CmaFree 28 -> 11 -> about 20 MB, no GART errors. `sudo poweroff`
+(about 05:20, `sudo -n systemctl poweroff` on the .1210~dev kernel, after a GPU wedge): down within
+about 15 s. The gelic off run (same .1220 boot): no fault and no re-probe, packets kept coming (869 to
+1194); the watchdog was put back on. The first boot ran
 session K's switch repros and session M (TESTS.md History, 11-01 00:38).
 <!-- END kernel-merges-2026-10-31 -->

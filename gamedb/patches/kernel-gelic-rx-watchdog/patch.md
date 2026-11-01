@@ -39,11 +39,14 @@ what brought a dead port back by hand.
 
 ## Validation
 
-Partly, on 2026-11-01 (PS3 session K, the merged test kernel 6.12.111+ps3.1210~dev20261031171117 with ps3rsx 0.1209): the on run only. **The off run (`rx_watchdog=0`, the gelic-off check) has not been run on the PS3:**
-it leaves the console without a network, so it needs someone at its keyboard. `rx_watchdog_test=1`, then eth0 down and up:
+Validated on 2026-11-01, both runs. The on run (PS3 session K, the merged test kernel 6.12.111+ps3.1210~dev20261031171117 with ps3rsx 0.1209): `rx_watchdog_test=1`, then eth0 down and up:
 20 s later the watchdog re-probed the device, NetworkManager had the address back about 10 s after
 that, and the next check, 43 s after the re-probe, saw frames coming in. An ssh session open through
 it survived the gap.
+
+The off run (`rx_watchdog=0`, the gelic-off check) came in the U5d session 2 boot the same day, kernel
+.1220.dev20261101045143, which includes the merged series: with the watchdog off there was no simulated
+fault and no re-probe, and packets kept coming (869 to 1194). The watchdog was put back on afterwards.
 
 ```
 ps3_gelic_driver sb_06 eth0: receive watchdog: a fault simulated (rx_watchdog_test)
