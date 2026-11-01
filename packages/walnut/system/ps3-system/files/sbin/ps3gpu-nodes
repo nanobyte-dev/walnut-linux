@@ -1,10 +1,18 @@
 #!/bin/sh
-# /dev/ps3gpu_* nodes for the ps3fb GPU interface (char major is dynamic: read /proc/devices)
+# /dev/ps3gpu_* nodes for the ps3fb GPU interface (char major is dynamic: read /proc/devices).
+# Root only (0600 root:root): only the GPU probes in ps3-gpu-tools use them, and they run as root.
+# Nodes left from an older run are fixed too.
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
 major=$(awk '$2=="ps3fb" {print $1}' /proc/devices)
 [ -n "$major" ] || exit 0
 i=0
 for n in vram fifo ctrl driver reports; do
-	[ -e /dev/ps3gpu_$n ] || mknod -m 660 /dev/ps3gpu_$n c "$major" $i
-	chgrp video /dev/ps3gpu_$n
+	p=/dev/ps3gpu_$n
+	[ -e "$p" ] || [ -L "$p" ] || mknod -m 600 "$p" c "$major" $i
+	if [ -c "$p" ] && [ ! -L "$p" ]; then
+		chown root:root "$p"
+		chmod 600 "$p"
+	fi
 	i=$((i+1))
 done
