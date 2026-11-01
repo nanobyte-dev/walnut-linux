@@ -35,7 +35,7 @@ Decided 2026-10-15, with the packaging plan of 2026-10-16.
 - `Dockerfile.games`: [ClassiCube](../gamedb/games/classicube/)'s sound conversion and game-data-packager;
 - `Dockerfile.spu`: the spu-elf toolchain.
 
-The builder image is pinned by digest (`BUILDER_BASE`) with apt on the same snapshot. Every build (images, chroots, the image, the few direct downloads) fetches the snapshot through walnut.nanobyte.dev's cache of it, `SNAPSHOT_URL` in `config.mk` (`walnut-aptcache`, servers/walnut.nanobyte.dev/aptcache): snapshot.debian.org throttles bulk downloads with `503 TooManyRequests`, and a pinned snapshot never changes, so each file is fetched from it once. `SNAPSHOT_URL=http://snapshot.debian.org` bypasses the cache. Outputs go to `build/`, which is ephemeral except `build/aptly`. SPU toolchain experiments build side by side (`SPU_OUT=build/tmp/spu-<name>`). The tree is organised by package kind (docs/LAYOUT.md).
+The builder image is pinned by digest (`BUILDER_BASE`) with apt on the same snapshot. Every build (images, chroots, the image, the few direct downloads) fetches the snapshot through walnut.nanobyte.dev's cache of it, `SNAPSHOT_URL` in `config.mk` (`walnut-aptcache`, servers/walnut.nanobyte.dev/aptcache): snapshot.debian.org throttles bulk downloads with `503 TooManyRequests`, and a pinned snapshot never changes, so each file is fetched from it once. `SNAPSHOT_URL=http://snapshot.debian.org` bypasses the cache. Outputs go to `build/`, which is ephemeral. SPU toolchain experiments build side by side (`SPU_OUT=build/tmp/spu-<name>`). The tree is organised by package kind (docs/LAYOUT.md).
 
 ## Kinds of source packages
 
