@@ -439,12 +439,40 @@ class PublicScan(unittest.TestCase):
 
     def test_allow_file_covers_secrets_not_private_patterns(self):
         self.commit({"fixtures/k.bin": self.SECRET_BLOB, "fixtures/p.txt": b"x " + self.PRIVATE + b"\n"})
-        Path(self.allow).write_text("fixtures/*  # fake secrets\n")
+        Path(self.allow).write_text("fixtures/k.bin  # fake secrets\n")
         rc, out = self.scan("--enforce")
         self.assertEqual(rc, 1, out)
         self.assertNotIn("k.bin", out)
         self.assertIn("fixtures/p.txt: matches a private pattern", out)
         self.assertNotIn("xyz", out)
+
+    def test_broad_allow_lines_are_refused(self):
+        self.commit({"k.bin": self.SECRET_BLOB})
+        for line in ("*", "fixtures/*", "**/k.bin", "/k.bin", "../k.bin", "k.[bn]in"):
+            Path(self.allow).write_text(line + "\n")
+            rc, out = self.scan("--enforce")
+            self.assertEqual(rc, 2, line + out)
+
+    def test_allowed_path_does_not_cover_the_same_bytes_elsewhere(self):
+        self.commit({"fixtures/k.bin": self.SECRET_BLOB, "src/copy.bin": self.SECRET_BLOB})
+        Path(self.allow).write_text("fixtures/k.bin\n")
+        rc, out = self.scan("--enforce")
+        self.assertEqual(rc, 1, out)
+
+    def test_an_allowed_path_alone_passes(self):
+        self.commit({"fixtures/k.bin": self.SECRET_BLOB})
+        Path(self.allow).write_text("fixtures/k.bin\n")
+        self.assertEqual(self.scan("--enforce")[0], 0)
+
+    def test_file_and_directory_names_are_scanned(self):
+        self.commit({"docs/%s-notes.txt" % self.PRIVATE.decode(): b"fine\n"})
+        rc, out = self.scan("--enforce")
+        self.assertEqual(rc, 1, out)
+        self.assertIn("a file or directory name", out)
+        self.assertNotIn("xyz", out)
+        self.git("rm", "-rq", "docs")
+        self.commit({"%s/a.txt" % self.PRIVATE.decode(): b"fine\n"})
+        self.assertEqual(self.scan("--enforce")[0], 1)
 
     def test_commit_message(self):
         Path(self.repo, "a").write_text("a")

@@ -6,9 +6,10 @@ the same patterns the commit hook reads, tools/commit_tests/checks/private.py lo
 (the hook's SECRETS: key blocks, tokens, passwords in URLs, netrc logins).
 
 A finding names the object's path (or the commit), the kind and the list line, never the text. Paths
-listed in the allow file (default tools/public-scan-allow.txt: one shell pattern per line, # comments) are
-skipped for SECRETS only: the files that hold the patterns themselves and the fixtures that plant fake
-secrets. A private-list match is never allowed.
+listed in the allow file (default tools/public-scan-allow.txt: one exact repository path per line, # comments;
+a pattern is refused) are skipped for SECRETS only, and only when every path the blob was ever added at
+is listed: the files that hold the patterns themselves and the fixtures that plant fake secrets. A
+private-list match is never allowed. File and directory names are scanned too.
 
 Exit status: 0 clean, or findings in the default warn-only mode (printed as WARN); 1 findings with
 --enforce; 2 the repository or a list can't be read. tools/public-export.sh passes --enforce when
@@ -16,7 +17,6 @@ WALNUT_EXPORT_SCAN=enforce.
 Run it as python3 -I tools/public-scan.py.
 """
 import argparse
-import fnmatch
 import importlib.util
 import os
 import subprocess
@@ -34,15 +34,50 @@ def load_private():
 
 
 def read_allow(path):
+    """the exact blob paths whose secret-like text is allowed (never a pattern: a broad line would switch
+    the secret checks off for everything it matches)"""
     if not os.path.isfile(path):
         return []
     out = []
     with open(path, encoding="utf-8") as f:
-        for line in f:
+        for n, line in enumerate(f, 1):
             line = line.split("#", 1)[0].strip()
-            if line:
-                out.append(line)
+            if not line:
+                continue
+            if any(c in line for c in "*?[]") or line.startswith("/") or ".." in line.split("/"):
+                raise ValueError("%s line %d: only exact repository paths are allowed, not a pattern" % (path, n))
+            out.append(line)
     return out
+
+
+def blob_paths(repo):
+    """{blob sha: every path it was added at}: rev-list --objects names a blob once, but the same bytes can
+    sit at several paths and only a path-by-path look keeps an allowed path from covering another"""
+    out = {}
+    raw = git(repo, "log", "--all", "-m", "--raw", "--no-abbrev", "--no-renames", "--format=", "-z")
+    parts = raw.split(b"\0")
+    i = 0
+    while i < len(parts):
+        meta = parts[i]
+        if meta.startswith(b":"):
+            f = meta.split()
+            if len(f) >= 5 and i + 1 < len(parts):
+                out.setdefault(f[3].decode(), set()).add(parts[i + 1].decode("utf-8", "surrogateescape"))
+            i += 2
+        else:
+            i += 1
+    return out
+
+
+def tree_names(data):
+    """the entry names of a raw tree object"""
+    names, i = [], 0
+    while i < len(data):
+        sp = data.index(b" ", i)
+        nul = data.index(b"\0", sp)
+        names.append(data[sp + 1:nul])
+        i = nul + 21
+    return names
 
 
 def git(repo, *args, inp=None):
@@ -91,11 +126,22 @@ def scan(repo, patterns, secrets, allow):
     paths = {}
     for sha, path in objs:
         paths.setdefault(sha, path)
+    where_added = blob_paths(repo)
     for sha, typ, data in batch(repo, list(paths)):
         if sha in seen:
             continue
         seen.add(sha)
-        if typ in ("tree",):
+        if typ == "tree":
+            # file and directory names: the replace list does not rewrite paths
+            for name in tree_names(data):
+                for label, rx in patterns:
+                    if rx.search(name):
+                        findings.append(("a file or directory name in tree %s" % sha[:10],
+                                         "matches a private pattern (%s)" % label, "private"))
+                text = name.decode("latin-1")
+                for what, rx in secrets:
+                    if rx.search(text):
+                        findings.append(("a file or directory name in tree %s" % sha[:10], "looks like %s" % what, "secret"))
             continue
         where = paths[sha] or ("%s %s" % (typ, sha[:10]))
         if len(data) > MAX_BLOB:
@@ -104,7 +150,8 @@ def scan(repo, patterns, secrets, allow):
         for label, rx in patterns:
             if rx.search(data):
                 findings.append((where, "matches a private pattern (%s)" % label, "private"))
-        if paths[sha] and any(fnmatch.fnmatch(paths[sha], g) for g in allow):
+        every = set(where_added.get(sha, ())) | ({paths[sha]} if paths[sha] else set())
+        if every and all(q in allow for q in every):
             continue
         text = data.decode("latin-1")
         for what, rx in secrets:
@@ -128,7 +175,7 @@ def main(argv):
         if not patterns:
             raise OSError("the private replace list has no pattern")
         findings = scan(a.repo, patterns, private.SECRETS, read_allow(a.allow))
-    except (OSError, ValueError) as e:
+    except (OSError, ValueError) as e:  # ValueError: a bad allow file
         print("!! public-scan: %s" % e, file=sys.stderr)
         return 2
     for where, what, _ in sorted(set(findings)):
