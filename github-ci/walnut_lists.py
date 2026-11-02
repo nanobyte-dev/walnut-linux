@@ -163,7 +163,7 @@ def check_relations(lists, protected, entry, fields):
 	"""(refusals, warnings) for one deb's control fields: relations to names the entry doesn't own."""
 	R, W = [], []
 	for k in fields:
-		if k.lower() in ("essential", "protected") or (k.lower() == "important" and fields[k].strip() == "yes"):
+		if k.lower() in ("essential", "protected", "important"):	# apt reads Important with StringToBool: any value
 			R.append(f"{k} field")
 	for f in RELATION_FIELDS:
 		for n in parse_relation(fields.get(f, "")):

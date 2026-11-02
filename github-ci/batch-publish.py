@@ -46,7 +46,7 @@ Env: GITHUB_TOKEN, GITHUB_REPOSITORY, GITHUB_API_URL (Actions sets the last two)
 what github-ci/publish.sh needs (the keys).
 """
 import argparse, functools, hashlib, importlib.machinery, importlib.util, json, os, re, shutil, subprocess, sys
-import lzma, tarfile, tempfile, time, urllib.error, urllib.request, zipfile
+import tempfile, time, urllib.error, urllib.request, zipfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _spec = importlib.util.spec_from_loader("walnut_repo", importlib.machinery.SourceFileLoader(
@@ -60,6 +60,7 @@ wl = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(wl)
 
 GIT_DIR = os.environ.get("WALNUT_GIT_DIR", ROOT)	# the trusted checkout the lists are read from (tests: their own)
+LEAK_CHECK = os.environ.get("WALNUT_LEAK_CHECK", f"{ROOT}/tools/leak-check.py")	# tests: their own
 LISTS = "github-ci/packages.toml"
 PROTECTED = "github-ci/protected-names.txt"
 # checks that only warn while the rollout runs (due before the next public release); everything else
@@ -110,6 +111,10 @@ def parse_name(name):
 	return m.group(1), m.group(2), {s: v.replace("%", ":") for s, v in pairs.items()}
 
 
+class ZipRefusal(wr.Error):
+	"""The artifact's zip itself is wrong (names, bounds, damage): about its contents, not about the network."""
+
+
 # --- GitHub --------------------------------------------------------------------------------------
 
 class GitHub:
@@ -158,16 +163,18 @@ class GitHub:
 				# the zip is the build job's own work (it can replace the upload action): bounded before extracting
 				infos = zf.infolist()
 				if len(infos) > MAX_ZIP_FILES or sum(m.file_size for m in infos) > MAX_ZIP_BYTES:
-					raise wr.Error(f"artifact {art['id']}: too many or too big files in the zip")
+					raise ZipRefusal(f"artifact {art['id']}: too many or too big files in the zip")
 				for m in infos:
 					if m.is_dir():
 						continue
 					if not FILE_RE.match(m.filename):
-						raise wr.Error(f"{art['name']}: unexpected file {m.filename!r}")
+						raise ZipRefusal(f"{art['name']}: unexpected file {esc(m.filename)}")
 					dst = f"{to}/{m.filename}"
 					os.makedirs(os.path.dirname(dst), exist_ok=True)
 					with zf.open(m) as src, open(dst, "wb") as f:
 						shutil.copyfileobj(src, f, 1 << 20)
+		except zipfile.BadZipFile as e:
+			raise ZipRefusal(f"artifact {art['id']}: not a zip ({esc(e)})") from None
 		finally:
 			os.unlink(z)
 
@@ -316,7 +323,7 @@ def current_plan(gh, a):
 		run = t[2]["run_record"]
 		wf = WORKFLOW_RE.fullmatch(run.get("path") or "")
 		if not wf or wf.group(1) != t[0]:
-			refused.append((t, f"its run is workflow {esc(run.get('path'))}, not pkg-{t[0]}.yml", True))
+			refused.append((t, f"its run is workflow {esc(run.get('path'))}, not pkg-{t[0]}.yml", False))
 			continue
 		try:
 			ctx.lists(run["head_sha"])
@@ -372,7 +379,8 @@ class Ctx:
 		self.dpkg, self.leak = dpkg, leak
 		self.disk_lists = disk_lists	# check-output: the working tree's file, not git
 		self._lists, self._versions, self.claimed = {}, {}, {}
-		self.protected = wl.load_protected(self.show("HEAD", PROTECTED) or "")
+		text = self.show("HEAD", PROTECTED)
+		self.protected = wl.load_protected(text) if text is not None else None	# None: no list, nothing is judged
 
 	def show(self, rev, path):
 		"""A file at a commit of the trusted checkout (None when it isn't there)."""
@@ -470,6 +478,8 @@ def check_artifact(ctx, pkg, claimed_srcs, d, sha):
 
 	try:
 		L, H = ctx.lists(sha), ctx.lists("HEAD")
+		if ctx.protected is None:
+			raise NoList(f"no {PROTECTED} at HEAD")
 	except NoList as e:
 		R("list", str(e), False)
 		return v
@@ -500,7 +510,7 @@ def check_artifact(ctx, pkg, claimed_srcs, d, sha):
 		path = f"{d}/{f}"
 		try:
 			fields = wr.deb_fields(path)
-		except (wr.Error, OSError, EOFError, ValueError, tarfile.TarError, lzma.LZMAError) as e:
+		except Exception as e:	# every malformed input is a refusal, whatever it raises
 			R("format", f"{f}: {esc(e)}")
 			continue
 		name, ver = fields["Package"], fields["Version"]
@@ -537,13 +547,17 @@ def check_artifact(ctx, pkg, claimed_srcs, d, sha):
 		if src != entry.source or src != hentry.source:
 			R("source", f"{f}: Source {esc(src)}, {pkg} makes {entry.source}")
 		idx = ctx.debug_index if name.endswith("-dbgsym") else ctx.index
-		others = idx.get(name, set()) - {entry.source} - set(entry.moved_from)
+		others = idx.get(name, set()) - {entry.source} - (set(entry.moved_from) & set(hentry.moved_from))
 		if others:
 			R("moved", f"{f}: {esc(name)} is in the suite under {esc(sorted(others))}, not a listed move")
 		if src not in newest or wr.vercmp(srcver, newest[src]) > 0:
 			newest[src] = srcver
 		# relations, version, architecture, file name
-		rr, ww = wl.check_relations(H, ctx.protected, entry, fields)
+		rr, ww = [], []
+		for LL, ee in ((L, entry), (H, hentry)):	# a relation must be allowed by both lists
+			r1, w1 = wl.check_relations(LL, ctx.protected, ee, fields)
+			rr += [x for x in r1 if x not in rr]
+			ww += [x for x in w1 if x not in ww]
 		for x in rr:
 			v.refuse.append(("relations-r", f"{f}: {esc(x)}", True))
 		for x in ww:
@@ -570,7 +584,7 @@ def check_artifact(ctx, pkg, claimed_srcs, d, sha):
 		if f.endswith(".dsc"):
 			try:
 				st, files = wr.dsc_stanza(f"{d}/src/{f}", ctx.suite)
-			except (wr.Error, OSError, ValueError) as e:
+			except Exception as e:
 				R("dsc", f"src/{f}: {esc(e)}")
 				continue
 			listed |= {os.path.basename(x) for x, _ in files}
@@ -581,26 +595,30 @@ def check_artifact(ctx, pkg, claimed_srcs, d, sha):
 	if [f for f in src_files if f not in listed]:
 		R("dsc", f"src/ holds files no .dsc lists: {esc([f for f in src_files if f not in listed])}")
 	# a package built elsewhere and pinned (BUILD=xcc): exactly the pinned files with the pinned hashes
-	pin = ctx.show(sha, f"github-ci/prebuilt/{pkg}.sha256")
-	if pin is not None:
-		want = {}
-		for l in pin.splitlines():
-			if l.strip() and not l.startswith("#"):
-				h, _, n = l.partition(" ")
-				want[("" if n.endswith(".deb") else "src/") + n.strip()] = h
+	pins = [ctx.show(rev, f"github-ci/prebuilt/{pkg}.sha256") for rev in (sha, "HEAD")]	# at the commit and at HEAD
+	if any(p is not None for p in pins):
+		def pinned(pin):
+			want = {}
+			for l in (pin or "").splitlines():
+				if l.strip() and not l.startswith("#"):
+					h, _, n = l.partition(" ")
+					want[("" if n.endswith(".deb") else "src/") + n.strip()] = h
+			return want
 		have = {os.path.relpath(os.path.join(dp, f), d): sha256_file(os.path.join(dp, f))
 		        for dp, _, fs in os.walk(d) for f in fs}
-		if have != want:
-			R("pin", f"the files are not exactly the ones github-ci/prebuilt/{pkg}.sha256 pins")
-	if ctx.leak and not v.refuse and os.path.exists(f"{ROOT}/tools/leak-check.py"):
+		if pins[0] is None or pins[1] is None or have != pinned(pins[0]) or have != pinned(pins[1]):
+			R("pin", f"the files are not exactly the ones github-ci/prebuilt/{pkg}.sha256 pins, at the commit and at HEAD")
+	if ctx.leak and not v.refuse and os.path.exists(LEAK_CHECK):
 		for kind, files in (("debs", [f"{d}/{f}" for f in debs]),
 		                    ("sources", [f"{d}/src/{f}" for f in src_files if f.endswith(".dsc")])):
 			if not files:
 				continue
-			r = subprocess.run([sys.executable, "-I", f"{ROOT}/tools/leak-check.py", kind, *files],
+			r = subprocess.run([sys.executable, "-I", LEAK_CHECK, kind, *files],
 			                   capture_output=True, text=True)
-			if r.returncode:
-				R("leak", f"leak-check {kind}: exit {r.returncode}: {esc(r.stdout + r.stderr, 300)}", r.returncode == 1)
+			if r.returncode == 1 and "LEAK:" in r.stdout:
+				R("leak", f"leak-check {kind}: {esc(r.stdout, 300)}")	# a leak: about the contents
+			elif r.returncode:	# a crash or an unreadable declaration is not a verdict: keep the artifact, fail visibly
+				R("leak-error", f"leak-check {kind} did not finish (exit {r.returncode}): {esc(r.stdout + r.stderr, 300)}", False)
 	return v
 
 
@@ -622,6 +640,8 @@ def report(t, v):
 		log(f"!! {t[0]}: warning ({id_}): {msg}")
 		if os.environ.get("GITHUB_ACTIONS"):
 			log(f"::warning title=walnut publish {t[0]}::{id_}")	# fixed text: nothing from the artifact in a command
+	if os.environ.get("GITHUB_ACTIONS") and any(i == "leak-error" for i, _, _ in v.refuse):
+		log("::error title=walnut publish::leak-check did not finish: artifact kept, not published")
 
 
 def stage(d, to, want):
@@ -653,6 +673,11 @@ def cmd_publish(a):
 
 
 def run_batch(a, publishing):
+	if publishing:
+		# the keys leave this process's environment (and every child's: git, leak-check, ...); only publish.sh gets them
+		for k in ("WALNUT_SIGN_KEY", "WALNUT_DEPLOY_KEY_DATA", "WALNUT_SIGN_PASSPHRASE"):
+			if k in os.environ:
+				SECRETS[k] = os.environ.pop(k)
 	gh = GitHub()
 	ctx, todo, refused = current_plan(gh, a)
 	manifest = None
@@ -660,6 +685,7 @@ def run_batch(a, publishing):
 		with open(a.manifest) as f:
 			manifest = json.load(f)["ok"]
 		ctx.dpkg = "off"	# verify's job (it holds no secret); this one reads the same bytes only with python
+		ctx.leak = False	# verify ran leak-check on these bytes; the manifest binds them. Nothing here opens a deb or a tarball with a tool
 	elif not publishing and a.dpkg_required:
 		ctx.dpkg = "require"
 	failed, done, ok_manifest, refused_names = [], [], {}, []
@@ -699,8 +725,16 @@ def run_batch(a, publishing):
 						raise wr.Error("the files are not the ones the verify job checked")
 				ok_manifest[str(t[2]["id"])] = {"name": t[2]["name"], "files": hashes}
 				dirs.append((t, d, hashes))
-			except (wr.Error, urllib.error.URLError, OSError, zipfile.BadZipFile) as e:
+			except ZipRefusal as e:	# the zip itself is wrong: refused for its contents
+				log(f"!! {t[0]}: artifact {t[2]['id']} refused (zip): {esc(e)}")
+				refused_names.append(t[0])
+				if a.delete_refused and publishing and not a.dry_run:
+					delete(gh, t)
+			except (wr.Error, urllib.error.URLError, OSError) as e:
 				log(f"!! {t[0]}: {esc(e)}")
+				failed.append(t[0])
+			except Exception as e:	# a bug: this artifact is left for the next run, the others go on
+				log(f"!! {t[0]}: internal error {type(e).__name__}: {esc(e)}")
 				failed.append(t[0])
 		if not dirs:
 			continue
@@ -734,8 +768,12 @@ def run_batch(a, publishing):
 	if not publishing:
 		log(f">> verified: {' '.join(done) or '-'}; refused: {' '.join(refused_names) or '-'}; failed: {' '.join(failed) or '-'}")
 		summary([f"Verified: {', '.join(done) or 'nothing'}."] +
-		        ([f"Refused: {', '.join(refused_names)}."] if refused_names else []))
-		return 1 if failed else 0
+		        ([f"Refused: {', '.join(refused_names)}."] if refused_names else []) +
+		        ([f"Failed (left for the next run): {', '.join(failed)}."] if failed else []))
+		if failed and os.environ.get("GITHUB_ACTIONS"):
+			log("::warning title=walnut verify::some builds could not be checked; the others go on")
+		# one odd artifact never stops the rest: the status is bad only when nothing passed and something did not
+		return 1 if not done and (failed or refused_names) else 0
 	for pkg in done:
 		for wf in REBUILD_AFTER.get(pkg, []):
 			if a.dry_run:
@@ -773,14 +811,21 @@ def write_manifest(a, ok):
 def cmd_check_output(a):
 	"""The checks on a build's output directory, from the working tree's lists (build-package.sh: the
 	drift check; stable's publish job: with --strict, nothing only warns)."""
-	ctx = Ctx(a.suite, warn=set() if a.strict else None, dpkg="auto", disk_lists=True)
+	ctx = Ctx(a.suite, warn=set() if a.strict else None, dpkg="require" if a.strict else "auto", disk_lists=True)
 	if a.suite_index:
 		keyring = f"{ROOT}/apt-repo/keyrings/{'archive' if a.suite == 'stable' else 'testing'}-keyring.gpg"
 		for st, attr in ((wr.Suite(a.url, a.suite, keyring), "index"), (wr.Suite(a.url, f"{a.suite}-debug", keyring), "debug_index")):
 			for p in st.packages:
 				getattr(ctx, attr).setdefault(p["Package"], set()).add(wr.stanza_source(p))
 	sha = subprocess.run(["git", "-C", GIT_DIR, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
-	ctx._lists[sha] = ctx.lists("HEAD")
+	try:
+		ctx._lists[sha] = ctx.lists("HEAD")
+	except NoList as e:
+		log(f"!! {e}")
+		if a.strict:
+			return 1
+		log("-- no usable list: not a failure")
+		return 0
 	ctx._lists["HEAD"] = ctx._lists[sha]
 	claimed = {}
 	debs = [f for f in sorted(os.listdir(a.dir)) if f.endswith(".deb")]
@@ -798,8 +843,12 @@ def cmd_check_output(a):
 	return 0
 
 
+SECRETS = {}	# the signing and upload keys, taken out of the environment; only publish.sh's child gets them
+
+
 def publish(suite, label, dirs):
 	env = {k: v for k, v in os.environ.items() if k not in ("GITHUB_TOKEN", "ACTIONS_RUNTIME_TOKEN", "ACTIONS_ID_TOKEN_REQUEST_TOKEN")}
+	env.update(SECRETS)
 	return subprocess.run([f"{ROOT}/github-ci/publish.sh", suite, label, *dirs], env=env).returncode
 
 

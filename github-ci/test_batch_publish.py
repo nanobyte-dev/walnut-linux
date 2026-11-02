@@ -5,7 +5,7 @@ published) and whole runs against a fake GitHub API, github-ci/publish.sh and th
 repository's main runs count: a fork's pull request whose branch is called main, a pull_request run, a
 commit main doesn't contain are refused.
   python3 github-ci/test_batch_publish.py"""
-import functools, hashlib, http.server, importlib.machinery, importlib.util, io, json, os, shutil, subprocess
+import functools, hashlib, http.server, importlib.machinery, importlib.util, io, json, lzma, os, shutil, subprocess
 import sys, tarfile, tempfile, threading, unittest, urllib.parse, zipfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -240,7 +240,7 @@ class Runs(unittest.TestCase):
 		self.n = 0
 
 	def build(self, pkg, version, debs=None, created=None, size=None, run=None, sha=None, src_extra=None, dsc_lists=None,
-	          as_name=None):
+	          as_name=None, dsc_text=None):
 		"""A package build's artifact: its debs (name, package, source) and a source package."""
 		self.n += 1
 		d = f"{self.root}/build{self.n}"
@@ -261,7 +261,10 @@ class Runs(unittest.TestCase):
 			data = f.read()
 		h, md5, size_o = hashlib.sha256(data).hexdigest(), hashlib.md5(data).hexdigest(), len(data)
 		listed = dsc_lists or os.path.basename(orig)
-		with open(f"{d}/src/{pkg}_{version}.dsc", "w") as f:
+		with open(f"{d}/src/{pkg}_{version}.dsc", "w" if dsc_text is None else "wb") as f:
+			if dsc_text is not None:
+				f.write(dsc_text)
+				f = open(os.devnull, "w")
 			f.write(f"Format: 3.0 (native)\nSource: {pkg}\nVersion: {version}\nArchitecture: any\n"
 			        f"Files:\n {md5} {size_o} {listed}\nChecksums-Sha256:\n {h} {size_o} {listed}\n")
 		name = as_name or bp.output_name("testing", pkg, d)
@@ -423,8 +426,9 @@ class Runs(unittest.TestCase):
 		self.assertIn("Package: foo\n", self.packages())
 		for n in ("bar", "baz", "qux", "tiny"):
 			self.assertNotIn(f"Package: {n}\n", self.packages())
-		# deleted: bar, baz (their names lie) and tiny (the claim); not qux (a missing list says nothing about the contents)
-		self.assertEqual(sorted(FakeGitHub.deleted), sorted([102, 103, 105]))
+		# deleted: tiny (the claim its debs contradict); not bar and baz (a workflow path says nothing about the
+		# contents: if GitHub changed its format every pending artifact would go), not qux (no list)
+		self.assertEqual(FakeGitHub.deleted, [105])
 
 	def test_strict_debs_and_dsc_and_unlisted_files(self):
 		base = "Package: evil\nVersion: 1\nArchitecture: ppc64\nMaintainer: T <t@t>\nDescription: x\n"
@@ -475,7 +479,7 @@ class Runs(unittest.TestCase):
 		old = fixture_repo(repo)
 		# HEAD: baz gives its name up (retired); foo is untouched
 		toml = open(f"{repo}/github-ci/packages.toml").read()
-		toml = toml.replace(f'binaries = ["baz"]', 'binaries = []\nretired = ["baz"]')
+		toml = toml.replace('binaries = ["baz"]', 'binaries = []\nretired = ["baz"]')
 		open(f"{repo}/github-ci/packages.toml", "w").write(toml)
 		commit_all(repo, "baz retires its name")
 		self.repo = repo
@@ -543,8 +547,16 @@ class Runs(unittest.TestCase):
 		r = subprocess.run([SCRIPT, "check-output", "foo", d], env=env, capture_output=True, text=True)
 		self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
 		r = subprocess.run([SCRIPT, "check-output", "--strict", "foo", d], env=env, capture_output=True, text=True)
+		self.assertNotEqual(r.returncode, 0)	# strict needs dpkg-deb: this host has none
+		self.assertIn("dpkg-deb is missing", r.stdout + r.stderr)
+		env = dict(env, PATH=f"{self.fake_dpkg(honest=True)}:{os.environ['PATH']}")
+		r = subprocess.run([SCRIPT, "check-output", "--strict", "foo", d], env=env, capture_output=True, text=True)
 		self.assertNotEqual(r.returncode, 0)	# strict: the fixture's versions are not what the commit gives
 		self.assertIn("(version)", r.stdout + r.stderr)
+		env = dict(env, PATH=f"{self.fake_dpkg(honest=False)}:{os.environ['PATH']}")	# dpkg reads other fields than walnut-repo
+		r = subprocess.run([SCRIPT, "check-output", "foo", d], env=env, capture_output=True, text=True)
+		self.assertNotEqual(r.returncode, 0)
+		self.assertIn("read different fields", r.stdout + r.stderr)
 		make_deb(f"{d}/libc6_1_ppc64.deb", "libc6", "1")
 		r = subprocess.run([SCRIPT, "check-output", "foo", d], env=env, capture_output=True, text=True)
 		self.assertNotEqual(r.returncode, 0)
@@ -597,6 +609,115 @@ class Runs(unittest.TestCase):
 		r = subprocess.run([pub, "--no-upload", "testing", "foo", d], env=dict(env, WALNUT_DEPLOY_KEY_DATA="nonsense"),
 		                   capture_output=True, text=True)
 		self.assertNotEqual(r.returncode, 0)
+
+	def fake_dpkg(self, honest):
+		"""A directory with a dpkg-deb that prints the fields (honest), or another Package (a differential)."""
+		d = tempfile.mkdtemp(dir=self.root)
+		path = f"{d}/dpkg-deb"
+		with open(path, "w") as f:
+			f.write(f"#!{sys.executable}\nimport importlib.machinery, importlib.util, sys\n"
+			        f"sp = importlib.util.spec_from_loader('wr', importlib.machinery.SourceFileLoader('wr', '{ROOT}/apt-repo/walnut-repo.py'))\n"
+			        "wr = importlib.util.module_from_spec(sp); sp.loader.exec_module(wr)\n"
+			        "f = wr.deb_fields(sys.argv[2])\n"
+			        f"if not {honest}: f['Package'] = 'libc6'\n"
+			        "for k in sys.argv[3:]:\n\tif k in f: print(f'{k}: {f[k]}')\n")
+		os.chmod(path, 0o755)
+		return d
+
+	def zip_artifact_with(self, pkg, member):
+		"""build(), then the artifact's zip gets one more member."""
+		name = self.build(pkg, "1")
+		aid = 100 + self.n
+		z = io.BytesIO(FakeGitHub.blobs[aid])
+		with zipfile.ZipFile(z, "a") as zf:
+			zf.writestr(member, b"x")
+		FakeGitHub.blobs[aid] = z.getvalue()
+		return name
+
+	def test_one_odd_artifact_never_stops_the_rest(self):
+		"""M-1: a zip member outside the name rules refuses that artifact (deleted); verify exits 0 and the others publish."""
+		self.zip_artifact_with("bar", "src/a/b")
+		self.build("foo", "1")
+		man = f"{self.root}/m.json"
+		out = self.run_publisher("--manifest-out", man, cmd="verify")
+		self.assertIn("refused (zip)", out)
+		self.assertEqual(list(json.load(open(man))["ok"]), ["102"])
+		self.run_publisher("--manifest", man, "--delete-refused")
+		self.assertIn("Package: foo\n", self.packages())
+		self.assertEqual(FakeGitHub.deleted, [101])
+		# nothing passed and something was refused: the status says so
+		self.zip_artifact_with("baz", "evil.sh")
+		self.run_publisher(cmd="verify", ok=False)
+
+	def test_malformed_inputs_refuse_the_artifact_not_the_run(self):
+		"""M-2: an empty or Source-less .dsc, a corrupt control.tar, a bomb: refusals; foo still publishes."""
+		self.build("foo", "1")
+		bad = {"bar": ("control_member", ("control.tar.gz", b"not gzip")),
+		       "baz": ("control_member", ("control.tar.xz", lzma.compress(b"\0" * (80 << 20)))),
+		       "qux": ("control_member", ("control.tar.zst", b"\x28\xb5\x2f\xfd junk"))}
+		for pkg, (k, v) in bad.items():
+			self.build(pkg, "1", debs=[(f"{pkg}_1_ppc64.deb", pkg, None, {k: v})], as_name=f"walnut-testing@{pkg}@{pkg}=1")
+		for pkg, dsc in (("tiny", b""), ("small", b"Version: 1\n")):
+			self.build(pkg, "1", dsc_text=dsc, as_name=f"walnut-testing@{pkg}@{pkg}=1")
+		out = self.run_publisher("--delete-refused")
+		for pkg in ("bar", "baz", "qux", "tiny", "small"):
+			self.assertIn(f"!! {pkg}: artifact", out)
+		self.assertNotIn("Traceback", out)
+		self.assertNotIn("internal error", out)
+		self.assertIn("Package: foo\n", self.packages())
+
+	def test_the_keys_stay_out_of_every_child_but_publish_sh(self):
+		"""M-3: git, leak-check and the rest never see the signing or upload key; publish.sh still gets them."""
+		bindir = tempfile.mkdtemp(dir=self.root)
+		log = f"{self.root}/git-env.log"
+		real = shutil.which("git")
+		with open(f"{bindir}/git", "w") as f:
+			f.write(f"#!/bin/bash\nenv | grep -E '^WALNUT_(SIGN|DEPLOY)' >> {log} || true\nexec {real} \"$@\"\n")
+		os.chmod(f"{bindir}/git", 0o755)
+		self.build("foo", "1")
+		man = f"{self.root}/m.json"
+		self.run_publisher("--manifest-out", man, cmd="verify", env={"PATH": f"{bindir}:{os.environ['PATH']}"})
+		if os.path.exists(log):
+			os.unlink(log)	# verify holds no secret in production; the test harness gives it the same env as publish
+		self.run_publisher("--manifest", man, env={"PATH": f"{bindir}:{os.environ['PATH']}"})
+		self.assertIn("Package: foo\n", self.packages())	# publish.sh had the key
+		self.assertTrue(os.path.exists(f"{self.root}/uploads"))
+		self.assertFalse(os.path.exists(log) and open(log).read().strip(), "a child saw the key")
+
+	def test_leak_check_crash_keeps_the_artifact(self):
+		"""M-4: only a LEAK: verdict deletes; a crash keeps the artifact, publishes nothing of it and fails visibly."""
+		script = f"{self.root}/leak.py"
+		self.build("foo", "1")
+		self.build("bar", "1")
+		open(script, "w").write("import sys\nif '/bar/' in ' '.join(sys.argv):\n\traise SystemExit(1)\n")
+		out = self.run_publisher(env={"WALNUT_LEAK_CHECK": script}, ok=None)
+		self.assertIn("(leak-error)", out)	# bar's run: exit 1 and no LEAK: line
+		self.assertNotIn("Package: bar\n", self.packages())
+		self.assertEqual(FakeGitHub.deleted, [])
+		open(script, "w").write("import sys\nif '/bar/' in ' '.join(sys.argv):\n\tprint('LEAK: licensed package bar')\n\traise SystemExit(1)\n")
+		out = self.run_publisher("--delete-refused", env={"WALNUT_LEAK_CHECK": script}, ok=None)
+		self.assertIn("(leak)", out)
+		self.assertEqual(FakeGitHub.deleted, [102])
+
+	def test_relations_pin_and_important_need_both_lists(self):
+		repo = f"{self.tmp.name}/repo3-{self.n}"
+		old = fixture_repo(repo, extra="")
+		toml = open(f"{repo}/github-ci/packages.toml").read()
+		# at the old commit foo may relate to "wanted-pkg" and bar may move from "oldsrc"; HEAD drops both
+		open(f"{repo}/github-ci/packages.toml", "w").write(toml.replace('[package.badwolf]\n', '[package.badwolf]\nrelations = ["wanted-pkg"]\n').replace(
+			'[package.bar]\n', '[package.bar]\nmoved_from = ["oldsrc"]\n'))
+		mid = commit_all(repo, "foo may relate")
+		open(f"{repo}/github-ci/packages.toml", "w").write(toml)
+		commit_all(repo, "and not any more")
+		self.repo = repo
+		self.build("badwolf", "1", sha=mid, debs=[("badwolf_1_ppc64.deb", "badwolf", None, {"control_extra": "Replaces: wanted-pkg\n"})])
+		self.build("baz", "1", sha=old, debs=[("baz_1_ppc64.deb", "baz", None, {"control_extra": "Important: no\n"})])
+		self.build("qux", "1", sha=old)
+		out = self.run_publisher()
+		self.assertIn("wanted-pkg", out)
+		self.assertNotIn("Package: badwolf\n", self.packages())
+		self.assertIn("Important field", out)
+		self.assertNotIn("Package: baz\n", self.packages())
 
 if __name__ == "__main__":
 	unittest.main()
