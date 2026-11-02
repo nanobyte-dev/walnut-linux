@@ -56,7 +56,7 @@ def ruler(path, h=CROP_H):
     args += ["-stroke", "none", "-fill", "#d49a5c", "-pointsize", "10"]
     for y, lab in ((10, "10"), (18, "18"), (30, "30")):
         args += ["-annotate", "+22+%d" % (y + 4), lab]
-    magick(*args, path)
+    magick(*args, "PNG:%s" % path)
 
 
 def text_sheet(pictures, out):
@@ -70,16 +70,16 @@ def text_sheet(pictures, out):
             cells = []
             for j, (name, (x, y)) in enumerate(REGIONS.items()):
                 c = tmp / ("c%d-%d.png" % (i, j))
-                magick(pic, "-crop", "%dx%d+%d+%d" % (CROP_W, CROP_H, x, y), "+repage", "-background", "#000000",
-                       "-extent", "%dx%d" % (CROP_W, CROP_H), c)
+                magick(shots.coded(pic), "-crop", "%dx%d+%d+%d" % (CROP_W, CROP_H, x, y), "+repage", "-background",
+                       "#000000", "-extent", "%dx%d" % (CROP_W, CROP_H), "PNG:%s" % c)
                 cells += [r, c]
             row = tmp / ("r%d.png" % i)
             head = tmp / ("h%d.png" % i)
             magick("-size", "%dx26" % (len(REGIONS) * (CROP_W + 40)), "xc:#202020", "-fill", "white", "-pointsize", "16",
-                   "-annotate", "+8+18", "%s, 1:1 crops: %s" % (label, ", ".join(REGIONS)), head)
-            magick(*cells, "+append", row)
+                   "-annotate", "+8+18", shots.text("%s, 1:1 crops: %s" % (label, ", ".join(REGIONS))), "PNG:%s" % head)
+            magick(*map(shots.coded, cells), "+append", "PNG:%s" % row)
             rows += [head, row]
-        magick(*rows, "-background", "#000000", "-append", "+repage", out)
+        magick(*map(shots.coded, rows), "-background", "#000000", "-append", "+repage", "PNG:%s" % out)
 
 
 def template(d, hints):

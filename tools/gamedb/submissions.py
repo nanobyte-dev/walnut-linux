@@ -136,7 +136,7 @@ def fetch_checked(n):
     except sc.Refused as e:
         print("!! #%d doesn't pass the submission check:" % n)
         for r in e.reasons:
-            print("   " + r)
+            print("   " + sc.shown(r, 400))
         raise SystemExit(1)
     return pr, info, files
 
@@ -168,6 +168,12 @@ def submitter(files):
     return tomllib.loads(files[sc.SUBMITTER].decode())
 
 
+def md_name(nick):
+    """the nickname for a Markdown comment: as code (no mention, link or markup in it); "a tester" without one"""
+    nick = " ".join(nick.replace("`", "'").split())
+    return "`%s`" % nick if nick else "a tester"
+
+
 def next_steps(n, run, info):
     print("next, as for our own sessions (docs/games/SUITE.md \"Played sessions\"): the PC reference if the game has "
           "none (make bench-ref GAME=%s), then python3 tools/gamedb/review.py %s and its questions answered by "
@@ -185,8 +191,8 @@ def cmd_list(a):
         subs = sorted({"/".join(f["filename"].split("/")[1:3]) for f in files
                        if f["filename"].startswith(sc.TOP + "/")})
         if subs:
-            rows.append((pr["number"], pr["user"]["login"], ", ".join(subs), len(files), check_state(pr["head"]["sha"]),
-                         pr["title"]))
+            rows.append((pr["number"], sc.shown(pr["user"]["login"], 16), sc.shown(", ".join(subs), 34), len(files),
+                         sc.shown(check_state(pr["head"]["sha"]), 8), sc.shown(pr["title"], 60)))
     if not rows:
         print("no open pull requests with a submission (%s)" % repo())
         return 0
@@ -200,11 +206,11 @@ def cmd_show(a):
     pr, info, files = fetch_checked(a.pr)
     run, fresh = write_run(a.pr, info, files, pr["head"]["sha"])
     s = submitter(files)
-    print("#%d by %s: %s/%s/%s, %d files, %.1f MB, the check passes" % (a.pr, pr["user"]["login"], sc.TOP, info["game"],
+    print("#%d by %s: %s/%s/%s, %d files, %.1f MB, the check passes" % (a.pr, sc.shown(pr["user"]["login"], 40), sc.TOP, info["game"],
                                                                      info["id"], info["files"], info["bytes"] / 1048576))
     print("  run %s, nickname %r, publish %s, walnut-rate %s, exported %s" % (
-        info["run"], s.get("nickname", ""), "yes" if s.get("publish") else "no", s.get("walnut_rate", "?"),
-        s.get("exported", "?")))
+        info["run"], s.get("nickname", ""), "yes" if s.get("publish") else "no", sc.shown(s.get("walnut_rate", "?"), 40),
+        sc.shown(s.get("exported", "?"), 40)))
     for r in sorted(files):
         print("  %9d  %s" % (len(files[r]), r))
     print("the run: %s%s" % (rel(run), "" if fresh else " (as reviewed: the pull request hasn't changed)"))
@@ -277,7 +283,7 @@ def cmd_accept(a):
     body = ("Thank you! This session is in Walnut's GameDB now: %s, session %s, credited to %s. It shows on "
             "https://walnut.nanobyte.dev/gamedb/ after the site's next update.\n\n"
             "We close the pull request rather than merge it: the session's record goes into the repository, the "
-            "submitted files don't." % (info["game"], folder.name, who))
+            "submitted files don't." % (info["game"], folder.name, md_name(nick)))
     if not ask("Comment on #%d and close it (public)? [y/N] " % a.pr, a.yes):
         print("not commented or closed yet: submissions.py accept %d again asks once more (the import is kept)" % a.pr)
         return 0
@@ -295,7 +301,7 @@ def cmd_reject(a):
         raise SystemExit("!! the reason, please: it goes into the comment")
     body = ("Thank you for sending it. We can't use this session: %s\n\n"
             "docs/games/SUITE.md (\"Played sessions\") says what a session needs; a new one is welcome." % reason)
-    print("#%d by %s, %r: the comment would be:\n%s" % (a.pr, pr["user"]["login"], pr["title"], body))
+    print("#%d by %s, %r: the comment would be:\n%s" % (a.pr, sc.shown(pr["user"]["login"], 40), pr["title"][:200], body))
     if not ask("Comment on #%d and close it (public)? [y/N] " % a.pr, a.yes):
         print("nothing done")
         return 1

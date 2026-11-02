@@ -67,8 +67,12 @@ def shot_name(p):
 
 
 def jpeg(src, dst):
-    """src as a JPEG at SHOT_SIZE (ImageMagick); None, or the error"""
-    p = subprocess.run(["magick", str(src), "-resize", SHOT_SIZE, "-strip", "-quality", SHOT_QUALITY, str(dst)],
+    """src as a JPEG at SHOT_SIZE (ImageMagick, src's coder named after its suffix); None, or the error"""
+    try:
+        coded = _shots_module().coded(src)
+    except ValueError as e:
+        return str(e)
+    p = subprocess.run(["magick", coded, "-resize", SHOT_SIZE, "-strip", "-quality", SHOT_QUALITY, "JPEG:%s" % dst],
                        capture_output=True, text=True)
     return "magick %s: %s" % (Path(src).name, p.stderr.strip()[-200:]) if p.returncode else None
 
@@ -291,7 +295,7 @@ def rebuild(sdir, dest):
     sh = shots.parse(rd)
     for p, s in list(sh["shots"].items()) + list(sh["marks"].items()):
         jpg = sdir / "shots" / shot_name(p)
-        if s.get("file") and jpg.is_file():
+        if s.get("file") and shots.SHOT_FILE.match(s["file"]) and jpg.is_file():     # only into the run's shots/
             out = (rd / s["file"]).with_suffix(".jpg")
             out.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(jpg, out)

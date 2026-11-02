@@ -431,7 +431,11 @@ BAR_MIN = 0.02      # bars count from this share of the width (height) on each s
 
 
 def gray(path, w=192, h=108):
-    p = subprocess.run(["magick", str(path), "-resize", "%dx%d!" % (w, h), "-colorspace", "Gray", "-depth", "8",
+    try:
+        coded = shots.coded(path)
+    except ValueError:
+        return None
+    p = subprocess.run(["magick", coded, "-resize", "%dx%d!" % (w, h), "-colorspace", "Gray", "-depth", "8",
                         "gray:-"], capture_output=True)
     return p.stdout if not p.returncode and len(p.stdout) == w * h else None
 
@@ -710,7 +714,11 @@ SHOT_DARK = 12     # mean brightness under which a frame is a black (or fading) 
 
 def tiny(path):
     """a picture as 32x18 greyscale bytes, for telling pictures apart"""
-    p = subprocess.run(["magick", str(path), "-resize", "32x18!", "-colorspace", "Gray", "-depth", "8", "gray:-"],
+    try:
+        coded = shots.coded(path)
+    except ValueError as e:
+        raise Refused(str(e))
+    p = subprocess.run(["magick", coded, "-resize", "32x18!", "-colorspace", "Gray", "-depth", "8", "gray:-"],
                        capture_output=True)
     if p.returncode or len(p.stdout) != 32 * 18:
         raise Refused("magick %s: can't read it" % Path(path).name)

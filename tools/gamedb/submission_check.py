@@ -18,7 +18,9 @@ Refused: any other change in the pull request (a second folder, a second game, a
 change to an existing file), a game that has no played test (gamedb/games/<game>/rating/test.toml), links,
 submodules and executable files, unknown names, a file over FILE_MAX, shots over SHOTS_MAX or the folder over
 TOTAL_MAX, a .jpg that isn't a JPEG, NUL in a text file, a submitter.toml that isn't well formed or lacks the
-consent, a bench.txt that isn't a played session of the folder's game, and what the scrub should have taken out:
+consent, a bench.txt that isn't a played session of the folder's game (every game= line), a variant that isn't a
+plain name, a shot=/shot_mark= line whose picture isn't one of the folder's shots/*.jpg (the importer opens it), and
+what the scrub should have taken out:
 home paths, MAC and LAN addresses (evidence.leftovers' generic patterns) and a host or user name in the places the
 logs carry one (Xorg's "Current Operating System: Linux NAME", uname's "Linux NAME 6.12", "user@host:").
 
@@ -47,9 +49,9 @@ import evidence  # noqa: E402
 
 TOP = "submissions"
 REPO = "nanobyte-dev/walnut-linux"      # where testers send their pull requests (walnut-rate submit)
-ID_RE = re.compile(r"\A\d{4}-\d{2}-\d{2}-[a-z0-9]{6}\Z")
-GAME_RE = re.compile(r"\A[a-z0-9][a-z0-9-]{0,63}\Z")
-RUN_RE = re.compile(r"\A(?:ps3-bench-)?\d{8}T\d{6}Z-session-([a-z0-9][a-z0-9-]*)-([a-z0-9]+)\Z")   # ps3-bench.sh's
+ID_RE = re.compile(r"\A\d{4}-\d{2}-\d{2}-[a-z0-9]{6}\Z", re.ASCII)
+GAME_RE = re.compile(r"\A[a-z0-9][a-z0-9-]{0,63}\Z", re.ASCII)
+RUN_RE = re.compile(r"\A(?:ps3-bench-)?\d{8}T\d{6}Z-session-([a-z0-9][a-z0-9-]*)-([a-z0-9]+)\Z", re.ASCII)   # ps3-bench.sh's
 EXTRA_FILES = ("session.toml", "clean-check.txt", "watch.log", "processes-check.txt")
 SUBMITTER = "submitter.toml"
 SUBMITTER_KEYS = {"nickname": (str, 40), "publish": (bool, 0), "walnut_rate": (str, 40), "exported": (str, 40),
@@ -61,9 +63,17 @@ TOTAL_MAX = 40 << 20         # the whole folder
 FILES_MAX = 400
 SHOTS_N = 200
 SUBMITTER_MAX = 4096
-HUD_RE = re.compile(r"\Ahud/[A-Za-z0-9_()+%,=-][A-Za-z0-9_.()+%,= -]{0,79}\Z")
-SHOT_RE = re.compile(r"\Ashots/[A-Za-z0-9_-][A-Za-z0-9_.-]{0,79}\.jpg\Z")
-FRESH_PART = re.compile(r"\A[A-Za-z0-9_.+@,=~ ()\[\]-]{1,128}\Z")
+# the HUD's dump files are named after its graphs (fps, frametime_(ms)): no dot, so no file name extension
+HUD_RE = re.compile(r"\Ahud/[A-Za-z0-9_()+%,=-][A-Za-z0-9_()+%,= -]{0,79}\Z", re.ASCII)
+SHOT_RE = re.compile(r"\Ashots/[A-Za-z0-9_-][A-Za-z0-9_.-]{0,79}\.jpg\Z", re.ASCII)
+FRESH_PART = re.compile(r"\A[A-Za-z0-9_.+@,=~ ()\[\]-]{1,128}\Z", re.ASCII)
+# bench.txt's shot=/shot_mark= lines (bench/harness/client.sh): <seconds>s:<the picture>:<ms>, the picture
+# shots/<name>.xwd as recorded (the submission carries it as shots/<name>.jpg) or - when the capture failed.
+# The importer and review.py open the picture: it must be one of the submission's own shots
+SHOT_LINE_RE = re.compile(r"\A(?:shot|shot_mark)=[0-9.]+s:([^:]*):[0-9]+\Z", re.ASCII)
+SHOT_SRC_RE = re.compile(r"\Ashots/[A-Za-z0-9_-][A-Za-z0-9_.-]{0,79}\.(?:xwd|png|jpg)\Z", re.ASCII)
+# bench.txt's variant: a recipe's name (shots.py takes the PC reference from <game>-<variant>/)
+VARIANT_RE = re.compile(r"\A[A-Za-z0-9][A-Za-z0-9_.+-]{0,63}\Z", re.ASCII)
 JPEG_SOI, JPEG_EOI = b"\xff\xd8\xff", b"\xff\xd9"
 # never a private name: words of the logs themselves (the scrub leaves a user or host called so as it is)
 GENERIC = {"root", "player", "host", "walnut", "ps3", "localhost", "debian", "user", "users", "admin", "test",
@@ -97,9 +107,16 @@ def kind_of(rel):
         return "shot", FILE_MAX
     parts = rel.split("/")
     if parts[0] == "fresh-home" and 2 <= len(parts) <= 16 and all(FRESH_PART.match(p) and p not in (".", "..")
+                                                                   and p.rstrip(". ").lower() != ".git"
                                                                    for p in parts[1:]):
         return "fresh", evidence.FRESH_MAX
     return None, 0
+
+
+def shown(s, n=120):
+    """s safe to print on a terminal: control characters (C0, DEL, C1, other unprintables) as escapes, at most n
+    characters"""
+    return "".join(c if c.isprintable() else repr(c)[1:-1] for c in str(s)[:n])
 
 
 def kv(data):
@@ -141,10 +158,10 @@ def submitter(data, game, sid):
     bad = []
     for k, v in s.items():
         if k not in SUBMITTER_KEYS:
-            bad.append("submitter.toml: unknown field %r" % k[:40])
+            bad.append("submitter.toml: unknown field %s" % shown(repr(k), 40))
             continue
         typ, n = SUBMITTER_KEYS[k]
-        if not isinstance(v, typ) or (typ is str and (len(v) > n or any(ord(c) < 32 or ord(c) == 127 for c in v))):
+        if not isinstance(v, typ) or (typ is str and (len(v) > n or any(not c.isprintable() for c in v))):
             bad.append("submitter.toml: %s: %s" % (k, "at most %d characters on one line" % n if typ is str
                                                    else "true or false"))
     if s.get("publish") is not True:
@@ -175,7 +192,7 @@ def check_files(game, sid, files, game_exists=None):
         data = files[rel]
         kind, bound = kind_of(rel)
         if not kind:
-            bad.append("%s: not a file a submission has" % rel[:120])
+            bad.append("%s: not a file a submission has" % shown(rel))
             continue
         total += len(data)
         if len(data) > bound:
@@ -212,6 +229,18 @@ def check_files(game, sid, files, game_exists=None):
         b = kv(texts["bench.txt"])
         if b.get("kind") != "session" or b.get("game") != game:
             bad.append("bench.txt: not a played session of %s (kind=session, game=%s)" % (game, game))
+        # every line, as shots.parse reads them (its keys unstripped, the last one counting), not only kv's view
+        for line in texts["bench.txt"].decode("utf-8", "replace").splitlines():
+            k, _, v = line.partition("=")
+            if k.strip() == "game" and v != game:
+                bad.append("bench.txt: %s is not this folder's game" % shown(repr(line), 80))
+            elif k.strip() == "variant" and not VARIANT_RE.match(v):
+                bad.append("bench.txt: the variant %s is not a recipe's name" % shown(repr(v), 60))
+            m = SHOT_LINE_RE.match(line)
+            if line.startswith(("shot=", "shot_mark=")) and not m:
+                bad.append("bench.txt: %s is not a shot line" % shown(repr(line), 80))
+            elif m and m[1] != "-" and not (SHOT_SRC_RE.match(m[1]) and m[1].rsplit(".", 1)[0] + ".jpg" in files):
+                bad.append("bench.txt: the picture %s is not one of the submission's shots/*.jpg" % shown(repr(m[1]), 80))
     allowed = GENERIC | run_words(texts.get("bench.txt", b""), texts.get("versions", b""))
     for rel, data in sorted(texts.items()):
         text = data.decode("utf-8", "replace")
@@ -219,7 +248,7 @@ def check_files(game, sid, files, game_exists=None):
             bad.append("%s: %s left (%r): the scrub missed it" % (rel, what, m))
     for rel in files:          # the names themselves (fresh-home/'s paths come from the console)
         for what, m in evidence.leftovers(rel, ((), ())):
-            bad.append("%s: %s in the name" % (rel[:120], what))
+            bad.append("%s: %s in the name" % (shown(rel), what))
     if bad:
         raise Refused(bad)
     return {"game": game, "id": sid, "run": s.get("run"), "nickname": s.get("nickname", ""), "files": len(files),
@@ -312,17 +341,19 @@ def changes(gitdir, ref="refs/pr"):
 def check_changes(chs):
     """(game, id, {path in the folder: blob}) of a pull request's changes, or raises Refused: it must only add
     plain files under one submissions/<game>/<id>/"""
+    if len(chs) > FILES_MAX:           # before anything is fetched
+        raise Refused(["%d files, at most %d" % (len(chs), FILES_MAX)])
     bad, folders, blobs = [], set(), {}
     for old, new, blob, st, path in chs:
         parts = path.split("/")
         if len(parts) < 4 or parts[0] != TOP or "" in parts:
-            bad.append("%s: outside submissions/<game>/<id>/ (a submission changes nothing else)" % path[:120])
+            bad.append("%s: outside submissions/<game>/<id>/ (a submission changes nothing else)" % shown(path))
             continue
         folders.add((parts[1], parts[2]))
         if st != "A":
-            bad.append("%s: %s (a submission only adds files)" % (path[:120], {"M": "changed", "D": "deleted"}.get(st, st)))
+            bad.append("%s: %s (a submission only adds files)" % (shown(path), {"M": "changed", "D": "deleted"}.get(st, st)))
         elif new != "100644":
-            bad.append("%s: %s" % (path[:120], {"120000": "a link", "160000": "a submodule",
+            bad.append("%s: %s" % (shown(path), {"120000": "a link", "160000": "a submodule",
                                                 "100755": "executable"}.get(new, "mode " + new)))
         else:
             blobs["/".join(parts[3:])] = blob
@@ -332,25 +363,41 @@ def check_changes(chs):
         bad.append("more than one game: %s (one session per pull request)" % ", ".join(sorted({f[0] for f in folders})))
     elif len(folders) > 1:
         bad.append("more than one folder: %s (one session per pull request)" % ", ".join("/".join(f) for f in sorted(folders)))
+    nshots = sum(1 for rel in blobs if SHOT_RE.match(rel))
+    if nshots > SHOTS_N:
+        bad.append("%d screenshots, at most %d" % (nshots, SHOTS_N))
     if bad:
         raise Refused(bad)
     (game, sid), = folders
     return game, sid, blobs
 
 
+FETCH_N = 4        # blobs fetched at a time: a fetch sends what it is asked for whatever its size (up to GitHub's 100 MB
+                   # a file), so at most TOTAL_MAX + FETCH_N such files land before the total refuses the rest
+
+
 def blobs_read(gitdir, blobs):
-    """{path: bytes} of {path: blob id}; sizes looked at first, nothing over FILE_MAX read"""
+    """{path: bytes} of {path: blob id}; fetched a few at a time, their sizes added up as they come: the folder over
+    TOTAL_MAX is refused before the rest is fetched, and nothing over FILE_MAX is read"""
     if not blobs:
         return {}
     ids = sorted(set(blobs.values()))
-    git(gitdir, "fetch", "-q", "--no-tags", "--filter=blob:none", "origin", *ids, check=False, timeout=600)
-    sizes = {}
-    p = subprocess.run(["git", "-C", str(gitdir), "cat-file", "--batch-check=%(objectname) %(objecttype) %(objectsize)"],
-                       input="".join(i + "\n" for i in ids), capture_output=True, text=True, timeout=600)
-    for line in p.stdout.splitlines():
-        f = line.split()
-        if len(f) == 3 and f[1] == "blob":
-            sizes[f[0]] = int(f[2])
+    sizes, total = {}, 0
+    env = dict(os.environ, GIT_NO_LAZY_FETCH="1", GIT_TERMINAL_PROMPT="0", GIT_CONFIG_NOSYSTEM="1", LC_ALL="C")
+    for i in range(0, len(ids), FETCH_N):
+        part = ids[i:i + FETCH_N]
+        # as git's own lazy fetch of a missing object does it (a plain fetch of a blob fails in a shallow repository)
+        git(gitdir, "-c", "fetch.negotiationAlgorithm=noop", "fetch", "-q", "--no-tags", "--no-write-fetch-head",
+            "--recurse-submodules=no", "--filter=blob:none", "origin", *part, check=False, timeout=600)
+        p = subprocess.run(["git", "-C", str(gitdir), "cat-file", "--batch-check=%(objectname) %(objecttype) %(objectsize)"],
+                           input="".join(x + "\n" for x in part), capture_output=True, text=True, timeout=600, env=env)
+        for line in p.stdout.splitlines():
+            f = line.split()
+            if len(f) == 3 and f[1] == "blob" and f[0] in part:
+                sizes[f[0]] = int(f[2])
+                total += int(f[2])
+        if total > TOTAL_MAX:
+            raise Refused(["the folder: over %.0f MB, at most %.0f MB" % (total / 1048576, TOTAL_MAX / 1048576)])
     out, bad = {}, []
     for rel, b in sorted(blobs.items()):
         if b not in sizes:
@@ -382,7 +429,7 @@ def report(info=None, err=None):
         gh = os.environ.get("GITHUB_ACTIONS") == "true"
         print("!! the submission doesn't pass the check (docs/games/SUITE.md \"Played sessions\"):")
         for r in err.reasons:
-            print(("::error::%s" if gh else "   %s") % r)
+            print(("::error::%s" if gh else "   %s") % shown(r, 400))
         return 1
     print("ok: %s/%s/%s, %d files, %.1f MB, run %s, credited to %s" % (
         TOP, info["game"], info["id"], info["files"], info["bytes"] / 1048576, info["run"], info["nickname"] or "a tester"))

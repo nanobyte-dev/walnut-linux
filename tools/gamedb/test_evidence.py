@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Tests of a played session's evidence (tools/gamedb/evidence.py, import-run.py, reimport.py): the scrub
 and the public-safe scan, the evidence a run leaves in its session folder, and that the record derived
-from the evidence alone is the one import-run wrote. python3 -I tools/gamedb/test_evidence.py
-(tools/run-tests.sh gamedb-evidence)."""
+from the evidence alone is the one import-run wrote. Shot paths: only a plain picture under the run's shots/ is
+opened (bench.txt may be a tester's), ImageMagick reads it with the coder its suffix names (a vector file refused),
+the PC reference's directory is never a path out, a rebuilt run's pictures land only in its shots/.
+python3 -I tools/gamedb/test_evidence.py (tools/run-tests.sh gamedb-evidence)."""
 import contextlib
 import importlib.util
 import io
@@ -179,6 +181,80 @@ class Evidence(unittest.TestCase):
             self.assertIn(want, errs)
         (t / "raw" / "extra.log.xz").write_bytes(evidence.LFS_MAGIC + b"\noid sha256:00\nsize 1\n")
         self.assertNotIn("raw/extra.log:", " ".join(evidence.folder_errors(t, listed)))   # not fetched: not read
+
+
+MVG = b"push graphic-context\nviewbox 0 0 64 36\nfill white\nrectangle 0,0 64,36\npop graphic-context\n"
+SVG = b'<svg xmlns="http://www.w3.org/2000/svg" width="64" height="36"><rect width="64" height="36" fill="white"/></svg>'
+
+
+@unittest.skipUnless(shutil.which("magick"), "needs ImageMagick (magick)")
+class ShotPaths(unittest.TestCase):
+    """bench.txt names each shot's picture; a submitted run's bench.txt is the tester's: only a picture under the
+    run's shots/ is opened, ImageMagick reads it with the coder its suffix names, and the PC reference's directory
+    and a rebuilt run's pictures are never a path out"""
+
+    def setUp(self):
+        import shots
+        self.shots = shots
+        self.ir = load("import_run", "import-run.py")
+        self.t = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        self.d = self.t / "a" / "b" / "run"
+        (self.d / "shots").mkdir(parents=True)
+        (self.d / "hud").mkdir()
+
+    def test_validate_shot_paths(self):
+        d = self.d
+        picture(d / "shots" / "shot-30s.png", "navy")
+        (d / "hud" / "x.msl").write_bytes(b"<image/>")
+        picture(self.t / "a" / "x.jpg", "navy")
+        picture(self.t / "x.jpg", "navy")
+        self.assertEqual(self.shots.image(d, {"file": "shots/shot-30s.xwd"}), d / "shots" / "shot-30s.png")
+        for f in ("hud/x.msl", "../x.jpg", "../../x.jpg", str(self.t / "x.jpg"), "shots/../../x.jpg", "shots/x.msl"):
+            self.assertIsNone(self.shots.image(d, {"file": f}), f)
+        (d / "shots" / "link.png").symlink_to(self.t / "x.jpg")
+        self.assertIsNone(self.shots.image(d, {"file": "shots/link.png"}))
+        # the PC reference: game and variant are names
+        ref = self.t / "ref"
+        (ref / "ex-base").mkdir(parents=True)
+        (ref / "ex-base" / "bench.txt").write_text("game=ex\n")
+        (self.t / "a" / "bench.txt").write_text("game=other\n")
+        self.assertEqual(self.shots.ref_dir({"game": "ex", "variant": "base"}, ref), ref / "ex-base")
+        for v in ("base/../../a", "base/..", "../a"):
+            self.assertIsNone(self.shots.ref_dir({"game": "ex", "variant": v}, ref), v)
+        self.assertIsNone(self.shots.ref_dir({"game": "../a", "variant": "base"}, ref))
+
+    def test_picture_coder_from_suffix(self):
+        d = self.d
+        (d / "shots" / "shot-30s.png").write_bytes(MVG)        # drawing commands under a picture's name
+        self.assertIsNone(self.ir.gray(d / "shots" / "shot-30s.png"))
+        self.assertEqual(self.shots.flag(d / "shots" / "shot-30s.png"), "UNREADABLE")
+        self.assertIsNotNone(evidence.jpeg(d / "shots" / "shot-30s.png", self.t / "out.jpg"))
+        self.assertFalse((self.t / "out.jpg").exists())
+        (self.t / "x.svg").write_bytes(SVG)                       # a vector format, by its suffix
+        self.assertIsNone(self.ir.gray(self.t / "x.svg"))
+        self.assertIn("not a screenshot", evidence.jpeg(self.t / "x.svg", self.t / "out.jpg"))
+        self.assertFalse((self.t / "out.jpg").exists())
+        with self.assertRaises(ValueError):
+            self.shots.coded("hud/x.msl")
+        picture(d / "shots" / "shot-60s.png", "navy")           # a real picture still reads
+        self.assertIsNotNone(self.ir.gray(d / "shots" / "shot-60s.png"))
+        self.assertIsNone(evidence.jpeg(d / "shots" / "shot-60s.png", self.t / "ok.jpg"))
+        self.assertEqual(self.shots.flag(d / "shots" / "shot-60s.png"), "")
+
+    def test_rebuild_writes_only_into_the_run(self):
+        sdir = self.t / "session"
+        (sdir / "raw").mkdir(parents=True)
+        (sdir / "shots").mkdir()
+        (sdir / "raw" / evidence.IMPORT).write_text('run = "ps3-bench-20261001T120000Z-session-ex-base"\n')
+        bench = "game=ex\nvariant=base\nshot=30s:../../../escaped.xwd:1\nshot=60s:shots/shot-60s.xwd:1\n"
+        (sdir / "raw" / "bench.txt.xz").write_bytes(evidence.pack(bench.encode()))
+        for p in (30, 60):
+            picture(sdir / "shots" / evidence.shot_name(p), "navy")
+        dest = self.t / "dest" / "x"
+        dest.mkdir(parents=True)
+        rd = evidence.rebuild(sdir, dest)
+        self.assertTrue((rd / "shots" / "shot-60s.jpg").is_file())
+        self.assertEqual([f for f in self.t.rglob("escaped*")], [])
 
 
 if __name__ == "__main__":

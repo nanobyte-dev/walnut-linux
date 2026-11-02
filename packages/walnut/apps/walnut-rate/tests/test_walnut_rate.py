@@ -32,7 +32,11 @@ python3 -I packages/walnut/apps/walnut-rate/tests/test_walnut_rate.py (tools/run
   without a played test, bad ids, a .jpg that isn't a JPEG, unknown names, NUL in a text file, oversize files and
   screenshots, a host name in Xorg's or uname's line, a user@host, home paths, LAN and MAC addresses, a
   submitter.toml without consent, with a contact, of another game, or missing, a bench.txt that isn't a session;
-  on disk: a link and an executable file.
+  on disk: a link and an executable file. Submitted shot paths: a shot= or shot_mark= picture outside shots/, not
+  one of the folder's JPEGs or of another suffix, a variant or game= line that is a path, a hud/ name with an
+  extension; non-ASCII digits in an id, .git under fresh-home/, control characters printed escaped (C1 refused in
+  submitter.toml), the file and screenshot counts refused from the change list alone, the size limit refusing
+  before every blob is fetched (a local repository), the nickname as code in the public comment.
 - The pull request round trip: walnut-rate submit without gh and with gh logged out (the steps by hand, nothing
   sent), then through a stubbed gh (the fork, one tree of only the folder on the base's tree, the pull request
   from the fork's branch, not editable by us); that commit as refs/pull/1/merge of a local repository standing in
@@ -909,7 +913,8 @@ def good_files(game="chromium-bsu", sid=SID, run=RUN, **sub):
     s = dict(nickname="tester", publish=True, walnut_rate="0.1", exported="2026-10-30T12:30:00Z", run=run, game=game,
              id=sid)
     s.update(sub)
-    return {"bench.txt": b"kind=session\ngame=%s\nvariant=base\nshot=60:shots/shot-60s.xwd:x\n" % game.encode(),
+    return {"bench.txt": b"kind=session\ngame=%s\nvariant=base\nshot=60s:shots/shot-60s.xwd:300\nshot=90s:-:120\n"
+                         % game.encode(),
             "versions": b"chromium-bsu 0.9.16.1-4+ps3.1\nmesa 25.2+ps3.40\n",
             "game.log": b"hello from player@host:~$\n",
             "Xorg.0.log": b"[  27.5] Current Operating System: Linux walnut 6.12.111+ps3.874 #1 SMP ppc64\n",
@@ -999,6 +1004,93 @@ class SubmissionCheck(unittest.TestCase):
         # a word of the run itself (a package's name) is not a host name the scrub missed
         sc.check_files("chromium-bsu", SID, dict(g, **{"Xorg.0.log": b"Current Operating System: Linux mesa 6.12\n"}),
                        self.EXISTS)
+
+    def test_validate_submitted_shot_paths(self):
+        g = good_files()
+
+        def bench(*lines):
+            return dict(g, **{"bench.txt": g["bench.txt"] + b"".join(x + b"\n" for x in lines)})
+        for line in (b"shot=10s:hud/x.msl:1", b"shot=10s:../../x.jpg:1", b"shot=10s:/tmp/x.jpg:1",
+                     b"shot_mark=12.5s:shots/../../x.xwd:1", b"shot=10s:shots/missing.xwd:1", b"shot=10s:shots/x.msl:1"):
+            self.refused("is not one of the submission's shots", bench(line))
+        self.refused("is not a shot line", bench(b"shot=10s:shots/shot-60s.xwd:1:2"))
+        # a picture named by bench.txt is checked as shots.parse reads it: every line, keys unstripped
+        self.refused("not a recipe's name", bench(b"variant=default/../../x"))
+        self.refused("not a recipe's name", dict(g, **{"bench.txt": b"kind=session\ngame=chromium-bsu\nvariant=../x\n"
+                                                                     b" variant=base\n"}))
+        self.refused("not this folder's game", bench(b"game=../../x", b" game=chromium-bsu"))
+        # a hud/ file is the HUD's dump (no name extension): not a script under a frame-time name
+        self.refused("not a file a submission has", dict(g, **{"hud/x.msl": b"push graphic-context\n"}))
+        self.assertIsNone(sc.kind_of("hud/x.svg")[0])
+        self.assertEqual(sc.kind_of("hud/frametime_(ms)")[0], "text")
+        sc.check_files("chromium-bsu", SID, bench(b"shot_mark=31.4s:shots/shot-60s.png:410"), self.EXISTS)
+
+    def test_plain_names_and_counts(self):
+        g = good_files()
+        self.refused("not a submission id", sid="\u0662\u0660\u0662\u0666-10-30-k3f9q2")    # digits, but not ASCII ones
+        self.assertIsNone(sc.ID_RE.match("2026-1\u0660-30-k3f9q2"))
+        self.assertIsNone(sc.RUN_RE.match(RUN.replace("2026", "\u0662\u0660\u0662\u0666")))
+        self.refused("not a file a submission has", dict(g, **{"fresh-home/x/.git/config": b"[core]\n"}))
+        self.refused("not a file a submission has", dict(g, **{"fresh-home/.GIT./HEAD": b"x\n"}))
+        self.assertEqual(sc.kind_of("fresh-home/.gitconfig")[0], "fresh")
+        # control characters: never printed raw, refused in submitter.toml (C1 too)
+        self.assertEqual(sc.shown("a\x1b]52;c;x\x07b\x9bc"), "a\\x1b]52;c;x\\x07b\\x9bc")
+        self.refused("one line", good_files(walnut_rate="0.1\x9b2J"))
+        reasons = self.refused("not a file a submission has", dict(g, **{"hud/a\x1b[2Jb": b"1\n"}))
+        self.assertFalse(any("\x1b" in r for r in reasons), reasons)
+        rc, out = quiet(sc.report, err=sc.Refused(["x\x1b[2Jy"]))
+        self.assertNotIn("\x1b", out)
+        # the counts before anything is fetched: the change list alone
+        many = [("000000", "100644", "%040x" % i, "A", "submissions/chromium-bsu/%s/hud/f%d" % (SID, i))
+                for i in range(sc.FILES_MAX + 1)]
+        with self.assertRaises(sc.Refused) as e:
+            sc.check_changes(many)
+        self.assertIn("at most %d" % sc.FILES_MAX, str(e.exception))
+        shots = pr_changes({"shots/s%d.jpg" % i: 1 for i in range(sc.SHOTS_N + 1)})
+        with self.assertRaises(sc.Refused) as e:
+            sc.check_changes(shots)
+        self.assertIn("screenshots, at most", str(e.exception))
+        self.assertEqual(load_submissions().md_name("@someone [x](https://e.invalid) `y`"),
+                         "`@someone [x](https://e.invalid) 'y'`")
+        self.assertEqual(load_submissions().md_name(""), "a tester")
+
+    def test_size_limit_before_fetching_everything(self):
+        if not shutil.which("git"):
+            self.skipTest("no git")
+        d = tmpdir()
+        try:
+            srv, cli = d / "srv", d / "cli"
+            run = lambda *a, cwd=srv: subprocess.run(["git", "-C", str(cwd)] + list(a), check=True, capture_output=True,
+                                                     text=True).stdout.strip()
+            srv.mkdir()
+            run("init", "-q")
+            for i in range(6):
+                (srv / ("f%d" % i)).write_bytes(bytes([65 + i]) * 1000)
+            run("add", ".")
+            run("-c", "user.name=t", "-c", "user.email=t@t.invalid", "commit", "-qm", "x")
+            run("config", "uploadpack.allowFilter", "true")
+            run("config", "uploadpack.allowAnySHA1InWant", "true")
+            blobs = {"hud/f%d" % i: run("rev-parse", "HEAD:f%d" % i) for i in range(6)}
+            cli.mkdir()
+            run("init", "-q", cwd=cli)
+            for k, v in (("remote.origin.url", srv.as_uri()), ("remote.origin.promisor", "true"),
+                         ("remote.origin.partialclonefilter", "blob:none")):
+                run("config", k, v, cwd=cli)
+            old = sc.TOTAL_MAX, sc.FETCH_N
+            sc.TOTAL_MAX, sc.FETCH_N = 2500, 1
+            try:
+                with self.assertRaises(sc.Refused) as e:
+                    sc.blobs_read(cli, blobs)
+            finally:
+                sc.TOTAL_MAX, sc.FETCH_N = old
+            self.assertIn("the folder: over", str(e.exception))
+            env = dict(os.environ, GIT_NO_LAZY_FETCH="1")
+            have = [subprocess.run(["git", "-C", str(cli), "cat-file", "-e", b], env=env, capture_output=True).returncode == 0
+                    for b in sorted(blobs.values())]
+            self.assertEqual(have, [True] * 3 + [False] * 3)      # refused after the third: the rest never fetched
+            self.assertEqual(sorted(sc.blobs_read(cli, dict(list(blobs.items())[:2]))), ["hud/f0", "hud/f1"])
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
 
     def test_folder_on_disk(self):
         d = tmpdir()
@@ -1218,7 +1310,7 @@ class PullRequest(unittest.TestCase):
             calls = self.calls(st)
             self.assertIn(("PATCH", "repos/%s/pulls/1" % up, {"state": "closed"}), [(c["args"][2], at(c), c["body"]) for c in calls])
             comment = [c["body"]["body"] for c in calls if at(c) == "repos/%s/issues/1/comments" % up]
-            self.assertTrue(comment and "credited to tester" in comment[0], comment)
+            self.assertTrue(comment and "credited to `tester`" in comment[0], comment)
             self.assertFalse([c for c in calls if at(c).endswith("/merge")])       # never merged
             # accept again: imported already, no second commit
             n = self.git(ours, "rev-list", "--count", "HEAD")

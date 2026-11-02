@@ -37,6 +37,10 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]   # this is bench/analysis/
 TILE_W, TILE_H, GAP = 800, 450, 8
+# a shot's picture as bench.txt names it: a file of the run's shots/ (bench.txt may come from a tester's submission)
+SHOT_FILE = re.compile(r"\Ashots/[A-Za-z0-9_-][A-Za-z0-9_.-]{0,79}\.(?:xwd|png|jpg)\Z", re.ASCII)
+NAME_RE = re.compile(r"\A[A-Za-z0-9][A-Za-z0-9_.+-]{0,63}\Z", re.ASCII)       # a game's id, a recipe's variant
+CODERS = {".xwd": "XWD", ".png": "PNG", ".jpg": "JPEG", ".jpeg": "JPEG"}
 SKIP_PKGS = {"libspeq0", "libfluidsynth3", "libopenal1", "libsdl3-0", "ps3-gpu-tools"}
 
 
@@ -93,14 +97,26 @@ def num(v):
 
 def image(d, s):
     """the shot's picture in run directory d: the .xwd as recorded, else its PNG (after convert), else its
-    JPEG (a run rebuilt from a gamedb session's evidence: tools/gamedb/evidence.py)"""
-    if not s.get("file"):
+    JPEG (a run rebuilt from a gamedb session's evidence: tools/gamedb/evidence.py). Only a plain file
+    under d/shots/ (SHOT_FILE), never a link"""
+    if not s.get("file") or not SHOT_FILE.match(s["file"]):
         return None
     p = Path(d) / s["file"]
+    if (Path(d) / "shots").is_symlink():
+        return None
     for c in (p, p.with_suffix(".png"), p.with_suffix(".jpg")):
-        if c.exists():
+        if c.is_file() and not c.is_symlink():
             return c
     return None
+
+
+def coded(path):
+    """path for ImageMagick with its coder named after the suffix (XWD:, PNG:, JPEG:), so a file's content can
+    never pick another coder (a script, a text or vector format); ValueError for any other suffix"""
+    c = CODERS.get(Path(path).suffix.lower())
+    if not c:
+        raise ValueError("%s: not a screenshot (.xwd, .png, .jpg)" % path)
+    return "%s:%s" % (c, path)
 
 
 def in_window(sh):
@@ -200,8 +216,8 @@ def magick(*args):
     return p.stdout
 
 
-def size(path):
-    return magick("identify", "-format", "%w %h\n", path).split("\n")[0].strip()
+def size(path, coder=True):
+    return magick("identify", "-format", "%w %h\n", coded(path) if coder else path).split("\n")[0].strip()
 
 
 def convert(d):
@@ -212,9 +228,9 @@ def convert(d):
         png = x.with_suffix(".png")
         tmp = x.with_suffix(".png.tmp")
         try:
-            magick(x, "PNG:%s" % tmp)
-            if size(tmp) != size(x):
-                raise RuntimeError("size %s against %s" % (size(tmp), size(x)))
+            magick(coded(x), "PNG:%s" % tmp)
+            if size("PNG:%s" % tmp, coder=False) != size(x):
+                raise RuntimeError("size %s against %s" % (size("PNG:%s" % tmp, coder=False), size(x)))
         except RuntimeError as e:
             print("!! %s: %s (the .xwd kept)" % (x, e))
             tmp.unlink(missing_ok=True)
@@ -227,7 +243,7 @@ def convert(d):
 
 def luma(path):
     """mean and standard deviation of the brightness (0..1), on a 64x36 thumbnail"""
-    v = magick(path, "-colorspace", "Gray", "-resize", "64x36!", "-format", "%[fx:mean] %[fx:standard_deviation]", "info:",
+    v = magick(coded(path), "-colorspace", "Gray", "-resize", "64x36!", "-format", "%[fx:mean] %[fx:standard_deviation]", "info:",
                ).split()
     return float(v[0]), float(v[1])
 
@@ -236,7 +252,7 @@ def flag(path):
     """BLACK (almost no light), FLAT (one colour all over), or empty"""
     try:
         m, sd = luma(path)
-    except (RuntimeError, ValueError, IndexError):
+    except (RuntimeError, ValueError, IndexError):     # ValueError: not a picture's suffix too
         return "UNREADABLE"
     if m < 0.03:
         return "BLACK"
@@ -256,16 +272,16 @@ def strip(path, w, lines, bg="#202020", pt=17):
     args = ["-size", "%dx%d" % (w, h), "xc:" + bg, "-fill", "white", "-pointsize", str(pt), "-gravity", "northwest"]
     for i, ln in enumerate(lines):
         args += ["-annotate", "+8+%d" % (6 + 24 * i), text(ln)]
-    magick(*args, path)
+    magick(*args, "PNG:%s" % path)
 
 
 def tile(path, src, note):
     if src is None:
         magick("-size", "%dx%d" % (TILE_W, TILE_H), "xc:#404040", "-fill", "#d0d0d0", "-pointsize", "26",
-               "-gravity", "center", "-annotate", "+0+0", text(note), path)
+               "-gravity", "center", "-annotate", "+0+0", text(note), "PNG:%s" % path)
     else:
-        magick(src, "-resize", "%dx%d" % (TILE_W, TILE_H), "-background", "#404040", "-gravity", "center",
-               "-extent", "%dx%d" % (TILE_W, TILE_H), path)
+        magick(coded(src), "-resize", "%dx%d" % (TILE_W, TILE_H), "-background", "#404040", "-gravity", "center",
+               "-extent", "%dx%d" % (TILE_W, TILE_H), "PNG:%s" % path)
 
 
 def versions(d):
@@ -302,8 +318,11 @@ def wrap(line, n=150):
 
 
 def ref_dir(sh, root):
+    """the PC reference ROOT/<game>-<variant>/ of a run, or None; game and variant are names, never a path"""
+    if not (NAME_RE.match(sh.get("game") or "") and NAME_RE.match(sh.get("variant") or "")):
+        return None
     r = Path(root) / ("%s-%s" % (sh["game"], sh["variant"]))
-    return r if (r / "bench.txt").exists() else None
+    return r if (r / "bench.txt").is_file() and not r.is_symlink() else None
 
 
 def sheet(d, root=None):
@@ -353,7 +372,7 @@ def sheet(d, root=None):
                 lb = "PC %d s: at %s s%s" % (p, b.get("t", "-"), "  " + fb if fb else "")
             lab = tmp / ("l%d.png" % i)
             magick("-size", "%dx34" % w, "xc:#202020", "-fill", "white", "-pointsize", "18", "-gravity", "northwest",
-                   "-annotate", "+8+7", text(la), "-annotate", "+%d+7" % (TILE_W + GAP + 8), text(lb), lab)
+                   "-annotate", "+8+7", text(la), "-annotate", "+%d+7" % (TILE_W + GAP + 8), text(lb), "PNG:%s" % lab)
             ta, tb = tmp / ("a%d.png" % i), tmp / ("b%d.png" % i)
             why = "not reached (the run ended)" if kind == "pt" and p in sh["skipped"] else "no shot"
             tile(ta, ia, "PS3: " + why)
@@ -361,10 +380,10 @@ def sheet(d, root=None):
                                    "no reference run" if not rd else
                                    "not reached (the run ended)" if p in rs["skipped"] else "no shot"))
             row = tmp / ("r%d.png" % i)
-            magick(ta, "-size", "%dx%d" % (GAP, TILE_H), "xc:#000000", tb, "+append", row)
+            magick(coded(ta), "-size", "%dx%d" % (GAP, TILE_H), "xc:#000000", coded(tb), "+append", "PNG:%s" % row)
             parts += [lab, row]
         new = tmp / "sheet.png"
-        magick(*parts, "-background", "#000000", "-append", "+repage", "-depth", "8", new)
+        magick(*map(coded, parts), "-background", "#000000", "-append", "+repage", "-depth", "8", "PNG:%s" % new)
         part = out.with_name(out.name + ".tmp")
         shutil.copyfile(new, part)
         os.replace(part, out)
