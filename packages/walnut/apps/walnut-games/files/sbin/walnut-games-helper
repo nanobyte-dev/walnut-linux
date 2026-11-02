@@ -24,6 +24,8 @@ Design
   --no-remove (an install never takes a package away), the configuration files kept
   (--force-confold), noninteractive, waiting up to 60 s for another apt's lock. apt's status
   descriptor is read on a pipe of our own (sudo closes every descriptor above 2) and relayed.
+  A dpkg run that was interrupted (dpkg --audit lists packages) is finished first with
+  dpkg --force-confold --configure -a; a failure of that is logged and apt-get goes on.
 - install of a game with catalog former_packages (older names of its packages: Debian's sauerbraten,
   which sauerbraten-walnut Conflicts/Replaces) one of which is installed: apt-get -s install first, every
   Remv must be one of those names (else refused, nothing changed), then the install without --no-remove
@@ -125,6 +127,7 @@ CATALOG = "/usr/share/walnut-games/catalog.json"
 LISTS = "/var/lib/apt/lists"
 APT_GET, APT_MARK, DPKG_QUERY = "/usr/bin/apt-get", "/usr/bin/apt-mark", "/usr/bin/dpkg-query"
 APT_CACHE = "/usr/bin/apt-cache"
+DPKG = "/usr/bin/dpkg"
 DPKG_DEB, SYSTEMCTL = "/usr/bin/dpkg-deb", "/usr/bin/systemctl"
 MANIFEST = "/usr/share/walnut-games/data-manifest.json"
 RUN_DIR = "/run/walnut-games"            # the lock and the state file
@@ -375,8 +378,24 @@ def check_sections(pkgs, runner=run):
                               % (p, sec))
 
 
+def repair_dpkg(runner):
+    """a power cut or a killed dpkg leaves packages unpacked or half-configured, and every later apt-get
+    install then fails until `dpkg --configure -a` runs. When dpkg --audit lists any, run it (the
+    configuration files kept, as for the install). A failure is logged, not fatal: apt-get says what is
+    still wrong, and another dpkg holding the lock is not a broken state."""
+    rc, out = runner([DPKG, "--audit"])
+    if rc != 0 or not out.strip():
+        return
+    say("log", "an earlier package installation was interrupted: finishing it")
+    rc, out = runner([DPKG, "--force-confold", "--configure", "-a"])
+    if rc != 0:
+        tail = out.strip().splitlines()
+        say("log", "dpkg --configure -a failed (%d)%s" % (rc, ": " + tail[-1] if tail else ""))
+
+
 def do_install(game_id, games, stream=apt_stream, age=lists_age, runner=run):
     pkgs = game_packages(game_id, games)
+    repair_dpkg(runner)
     a = age()
     stale = a is None or a > STALE_SECONDS
     say("plan", ("lists " if stale else "") + "download install")

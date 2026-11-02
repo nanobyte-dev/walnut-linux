@@ -177,6 +177,8 @@ def fake_apt_cache(sections, rc=0):
     """a runner answering apt-cache show: sections is {package: Section or None (no Section line)};
     a package missing from it gets no stanza"""
     def runner(cmd):
+        if cmd[:2] == [helper.DPKG, "--audit"]:
+            return 0, ""    # nothing interrupted
         assert cmd[0] == helper.APT_CACHE and cmd[1:3] == ["show", "--no-all-versions"], cmd
         out = ""
         for p in cmd[3:]:
@@ -283,6 +285,45 @@ class Install(unittest.TestCase):
         bad = dict(games, beta=dict(games["beta"], former_packages=["Bad name"]))
         r, _ = run_say(helper.do_install, "beta", bad, lambda a: (0, []), lambda: 600, sections)
         self.assertIsInstance(r, helper.Refused)
+
+    def test_interrupted_dpkg_is_finished_first(self):
+        seen = []
+
+        def runner(cmd):
+            seen.append(cmd)
+            if cmd[:2] == [helper.DPKG, "--audit"]:
+                return 0, "The following packages are only half configured:\n alpha  game\n"
+            if cmd[0] == helper.DPKG:
+                return 0, ""
+            return FREE(cmd)
+        calls = []
+        stream = lambda args: (calls.append(seen[-1:]), (0, []))[1]   # noqa: E731
+        r, out = run_say(helper.do_install, "alpha", GAMES, stream, lambda: 600, runner)
+        self.assertNotIsInstance(r, Exception, out)
+        cfg = [helper.DPKG, "--force-confold", "--configure", "-a"]
+        self.assertIn(cfg, seen)
+        self.assertEqual(seen[0], [helper.DPKG, "--audit"])
+        self.assertEqual(seen[1], cfg)
+        self.assertTrue(any("interrupted" in l for l in out))
+
+    def test_clean_dpkg_is_left_alone_and_a_failed_repair_does_not_stop_apt(self):
+        seen = []
+        r, _ = run_say(helper.do_install, "alpha", GAMES, lambda a: (0, []), lambda: 600,
+                       lambda cmd: (seen.append(cmd), FREE(cmd))[1])
+        self.assertNotIsInstance(r, Exception)
+        self.assertEqual([c for c in seen if c[0] == helper.DPKG], [[helper.DPKG, "--audit"]])
+
+        def runner(cmd):
+            if cmd[:2] == [helper.DPKG, "--audit"]:
+                return 0, "half configured: alpha\n"
+            if cmd[0] == helper.DPKG:
+                return 2, "dpkg: error: dpkg frontend lock is locked\n"
+            return FREE(cmd)
+        calls = []
+        r, out = run_say(helper.do_install, "alpha", GAMES, lambda a: (calls.append(a), (0, []))[1], lambda: 600, runner)
+        self.assertNotIsInstance(r, Exception, out)
+        self.assertEqual(calls, [["install", "--no-remove", "alpha", "alpha-data"]])
+        self.assertTrue(any("configure -a failed" in l for l in out))
 
     def test_install_options(self):
         o = helper.APT_OPTS
