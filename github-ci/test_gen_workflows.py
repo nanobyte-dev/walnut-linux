@@ -244,6 +244,13 @@ class CacheMac(unittest.TestCase):
 			self.assertNotIn("build-release.sh", body)
 			self.assertNotIn("make ", body)
 			self.assertIn("secrets.WALNUT_CACHE_SALT", body)
+		self.assertIn("sha256", jobs["layer"]["outputs"])	# R-4: cache-save checks the artifact against the job output
+		steps = [st.get("name", "") for st in jobs["cache-save"]["steps"]]
+		check = next(i for i, n in enumerate(steps) if n.startswith("The layer is the one the layer job built"))
+		self.assertLess(steps.index("The new package layer"), check)
+		self.assertLess(check, steps.index("Record the layer's MAC"))
+		self.assertLess(check, steps.index("Keep the package layer"))
+		self.assertIn("needs.layer.outputs.sha256", yaml.dump(jobs["cache-save"]["steps"][check]))
 		saved = yaml.dump(jobs["cache-save"])
 		self.assertIn("release-base-new", saved)	# the layer job's artifact
 		self.assertNotIn("release-base-out", saved)

@@ -87,6 +87,8 @@ jobs:
     if: needs.cache-restore.outputs.have != 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 360
+    outputs:
+      sha256: ${{ steps.sum.outputs.sha256 }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -96,6 +98,9 @@ jobs:
         run: github-ci/runner-prep.sh
       - name: The package layer
         run: make rootfs-base
+      - name: Its sha256, for cache-save (the artifact is handed over through the run, the hash through a job output)
+        id: sum
+        run: echo "sha256=$(sha256sum build/rootfs/base.tar | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@v7
         with:
           name: release-base-new
@@ -173,6 +178,13 @@ jobs:
         with:
           name: release-base-new
           path: build/rootfs
+      - name: The layer is the one the layer job built (code in the build job holds the run token too)
+        if: steps.key.outputs.base != ''
+        env:
+          WANT: ${{ needs.layer.outputs.sha256 }}
+        run: |
+          got=$(sha256sum build/rootfs/base.tar | cut -d' ' -f1)
+          [[ $WANT =~ ^[0-9a-f]{64}$ && $got = "$WANT" ]] || { echo "::error::the layer is not the one the layer job built: not signed, not saved"; rm -f build/rootfs/base.tar; exit 1; }
       - name: Record the layer's MAC
         if: steps.key.outputs.base != ''
         env:
