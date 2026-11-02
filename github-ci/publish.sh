@@ -59,8 +59,8 @@ if [ -n "$no_upload" ]; then
 	gpg_sign=(gpg --batch --quiet --pinentry-mode loopback --local-user "$fpr")
 	[ -z "${WALNUT_SIGN_PASSPHRASE_FILE:-}" ] || gpg_sign+=(--passphrase-file "$WALNUT_SIGN_PASSPHRASE_FILE")
 	"${gpg_sign[@]}" --clearsign -o "$tmp/probe.asc" "$tmp/probe"
-	gpgv --keyring "$ring" --status-fd 1 "$tmp/probe.asc" 2>/dev/null | grep -q '^\[GNUPG:\] VALIDSIG' ||
-		{ echo "!! the signing key does not sign for $ring" >&2; exit 1; }
+	status=$(gpgv --keyring "$ring" --status-fd 1 "$tmp/probe.asc" 2>/dev/null || true)
+	grep -q '^\[GNUPG:\] VALIDSIG' <<< "$status" || { echo "!! the signing key does not sign for $ring" >&2; exit 1; }
 	ssh-keygen -y -f "$tmp/deploy" >/dev/null || { echo "!! the upload key is not a private key ssh can read" >&2; exit 1; }
 	echo ">> keys ok for $target: signing key $fpr signs for $(basename "$ring"); the upload key parses; nothing was uploaded"
 	exit 0
