@@ -242,7 +242,7 @@ class Watch(unittest.TestCase):
 		p = f"{self.root}/www/{kind}/dists/{suite}/InRelease"
 		return sha(open(p, "rb").read()) if os.path.exists(p) else "none"
 
-	def apt_bundle(self, debs, suite="testing", who=None, base=None):
+	def apt_bundle(self, debs, suite="testing", who=None, base=None, bad_line=None):
 		who = who or ("ci" if suite.startswith("testing") else "good")
 		base = base or self.base("licensed" if suite == "licensed" else "apt", suite)
 		files, paras = {}, []
@@ -257,7 +257,7 @@ class Watch(unittest.TestCase):
 			files[f"dists/{suite}/{rel}"] = d
 		files[f"dists/{suite}/main/binary-ppc64/by-hash/SHA256/{sha(text)}"] = text
 		rel_text = f"Origin: Walnut\nSuite: {suite}\nX-Walnut-Base: {base}\nSHA256:\n" + "".join(
-			f" {sha(d)} {len(d)} {rel}\n" for rel, d in idx.items())
+			f" {sha(d)} {len(d)} {rel}\n" for rel, d in idx.items()) + (bad_line or "")
 		files[f"dists/{suite}/InRelease"] = sign(rel_text.encode(), who, clear=True)
 		return files
 
@@ -278,6 +278,18 @@ class Watch(unittest.TestCase):
 		self.assertEqual(self.www("apt/pool/main/f/foo/foo_2_ppc64.deb"), b"foo2")
 		now = os.listdir(f"{self.root}/www/apt/dists/testing/main/binary-ppc64/by-hash/SHA256")
 		self.assertTrue(set(first_hash) < set(now))	# the old index is still there by hash
+
+	def test_malformed_release_line_refuses_without_wedging(self):
+		# a signed Release with a SHA256 line of the wrong shape: this bundle is refused, and the next one
+		# (and one after a line with a size that is not a number) is still processed
+		for i, bad in enumerate((" onlytwo fields\n", " " + "0" * 64 + " notanumber name\n", " a b c d\n", " zz 1 x\n"), 1):
+			self.drop("apt", f"bad{i}", self.apt_bundle({"foo_1_ppc64.deb": b"foo1"}, bad_line=bad))
+		self.drop("apt", "good", self.apt_bundle({"foo_1_ppc64.deb": b"foo1"}))
+		self.run_watch()
+		for i in range(1, 5):
+			self.assertIn("malformed SHA256 line", self.result("apt", f"bad{i}"))
+		self.assertTrue(self.result("apt", "good").startswith("ok"), self.result("apt", "good"))
+		self.assertEqual(os.readlink(f"{self.root}/www/apt/dists/testing"), ".testing-good")
 
 	def test_apt_pool_never_changes(self):
 		self.drop("apt", "1", self.apt_bundle({"foo_1_ppc64.deb": b"foo1"}))

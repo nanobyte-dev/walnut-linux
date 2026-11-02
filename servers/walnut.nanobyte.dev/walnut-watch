@@ -293,7 +293,12 @@ def index_files(text, sources):
 			d = re.search(r"^Directory: (\S+)", para, re.M)
 			files = re.search(r"^Files:\n((?: .*\n?)+)", para, re.M)
 			if d and files:
-				out += [f"{d.group(1)}/{l.split()[2]}" for l in files.group(1).splitlines() if l.strip()]
+				for l in files.group(1).splitlines():
+					if l.strip():
+						f = l.split()
+						if len(f) != 3:
+							raise Refused("a Sources index has a malformed Files line")
+						out.append(f"{d.group(1)}/{f[2]}")
 		else:
 			m = re.search(r"^Filename: (\S+)", para, re.M)
 			if m:
@@ -311,8 +316,12 @@ def check_release_hashes(suite, sdir, signed):
 		raise Refused(f"dists/{suite}: the signed Release has no SHA256 section")
 	named = {}
 	for l in m.group(1).splitlines():
-		h, size, name = l.split()
-		named[name] = (h, int(size))
+		f = l.split()
+		# a line that is not "<sha256> <size> <name>" refuses the bundle; an unhandled error here would
+		# leave it undone, and every later run would stop on it again
+		if len(f) != 3 or not re.fullmatch(r"[0-9a-f]{64}", f[0]) or not f[1].isdigit():
+			raise Refused(f"dists/{suite}: the signed Release has a malformed SHA256 line")
+		named[f[2]] = (f[0], int(f[1]))
 	for rel, p in files_under(sdir):
 		if rel in ("InRelease", "Release", "Release.gpg") or "/by-hash/" in f"/{rel}":
 			continue
@@ -675,7 +684,7 @@ def run():
 					except Stale as e:
 						res = f"stale\n{e}\n"
 						log(f"-- {kind}/{bid} stale: {e}")
-					except (Refused, OSError, UnicodeDecodeError) as e:
+					except (Refused, OSError, UnicodeDecodeError, ValueError, IndexError) as e:
 						res = f"refused\n{e}\n"
 						log(f"!! {kind}/{bid} refused: {e}")
 					with open(done + ".new", "w") as f:
