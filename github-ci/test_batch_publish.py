@@ -645,9 +645,9 @@ class Runs(unittest.TestCase):
 		self.run_publisher("--manifest", man, "--delete-refused")
 		self.assertIn("Package: foo\n", self.packages())
 		self.assertEqual(FakeGitHub.deleted, [101])
-		# nothing passed and something was refused: the status says so
+		# only a refusal: a verdict, not a failure; publish then deletes it
 		self.zip_artifact_with("baz", "evil.sh")
-		self.run_publisher(cmd="verify", ok=False)
+		self.run_publisher(cmd="verify")
 
 	def test_malformed_inputs_refuse_the_artifact_not_the_run(self):
 		"""M-2: an empty or Source-less .dsc, a corrupt control.tar, a bomb: refusals; foo still publishes."""

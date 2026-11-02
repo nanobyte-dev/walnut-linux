@@ -99,6 +99,16 @@ class Lint(unittest.TestCase):
 		self.assertTrue(self.lint({"a.yml": "name: x\n"}, yaml=True))	# not a workflow
 		self.assertEqual(self.lint({}), [])
 
+	def test_write_permissions_and_cache_steps(self):
+		self.assertTrue(self.lint({"a.yml": "    permissions:\n      contents: write\n"}))
+		self.assertEqual(self.lint({"release-image.yml": "    permissions:\n      contents: write\n"}), [])
+		good = ("      - name: c\n        if: steps.keys.outputs.chroot != ''\n        uses: actions/cache@v6\n"
+		        "        with:\n          key: ${{ steps.keys.outputs.chroot }}\n")
+		self.assertEqual(self.lint({"a.yml": good}), [])
+		self.assertTrue(self.lint({"a.yml": good.replace("        if: steps.keys.outputs.chroot != ''\n", "")}))	# unguarded
+		self.assertTrue(self.lint({"a.yml": good.replace("steps.keys.outputs.chroot }}", "hashFiles('x') }}")}))	# unsalted key
+		self.assertTrue(self.lint({"a.yml": good + "          restore-keys: chroot-\n"}))
+
 	def test_every_workflow_in_the_tree_parses(self):
 		self.assertEqual([e for e in gw.workflow_lint() if "YAML" in e or "duplicate" in e or "top" in e], [])
 

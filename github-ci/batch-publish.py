@@ -510,8 +510,8 @@ def check_artifact(ctx, pkg, claimed_srcs, d, sha):
 		path = f"{d}/{f}"
 		try:
 			fields = wr.deb_fields(path)
-		except Exception as e:	# every malformed input is a refusal, whatever it raises
-			R("format", f"{f}: {esc(e)}")
+		except Exception as e:	# every malformed input is a refusal, whatever it raises; only a parser's own verdict
+			R("format", f"{f}: {esc(e)}", isinstance(e, wr.Error))	# (wr.Error) deletes: anything else is a bug here
 			continue
 		name, ver = fields["Package"], fields["Version"]
 		if ctx.dpkg != "off":
@@ -585,7 +585,7 @@ def check_artifact(ctx, pkg, claimed_srcs, d, sha):
 			try:
 				st, files = wr.dsc_stanza(f"{d}/src/{f}", ctx.suite)
 			except Exception as e:
-				R("dsc", f"src/{f}: {esc(e)}")
+				R("dsc", f"src/{f}: {esc(e)}", isinstance(e, wr.Error))
 				continue
 			listed |= {os.path.basename(x) for x, _ in files}
 			if st["Package"] != entry.source or st["Package"] != hentry.source:
@@ -772,8 +772,9 @@ def run_batch(a, publishing):
 		        ([f"Failed (left for the next run): {', '.join(failed)}."] if failed else []))
 		if failed and os.environ.get("GITHUB_ACTIONS"):
 			log("::warning title=walnut verify::some builds could not be checked; the others go on")
-		# one odd artifact never stops the rest: the status is bad only when nothing passed and something did not
-		return 1 if not done and (failed or refused_names) else 0
+		# one odd artifact never stops the rest. A refusal is a verdict, not a failure (publish deletes what was
+		# refused for its contents); the status is bad only when something could not be checked and nothing passed
+		return 1 if not done and failed else 0
 	for pkg in done:
 		for wf in REBUILD_AFTER.get(pkg, []):
 			if a.dry_run:
@@ -819,6 +820,12 @@ def cmd_check_output(a):
 		for st, attr in ((wr.Suite(a.url, a.suite, keyring), "index"), (wr.Suite(a.url, f"{a.suite}-debug", keyring), "debug_index")):
 			for p in st.packages:
 				getattr(ctx, attr).setdefault(p["Package"], set()).add(wr.stanza_source(p))
+	if a.manifest:	# the bytes first: nothing is parsed that isn't the bytes the check job saw
+		with open(a.manifest) as f:
+			want = json.load(f)["files"]
+		if want != hash_dir(a.dir):
+			log("!! the files are not the ones the check job checked")
+			return 1
 	sha = subprocess.run(["git", "-C", GIT_DIR, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
 	try:
 		ctx._lists[sha] = ctx.lists("HEAD")

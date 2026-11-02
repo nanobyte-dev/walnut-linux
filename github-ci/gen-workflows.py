@@ -393,6 +393,7 @@ def tier_errors(pkgs, licensed, lists):
 
 
 WORKFLOW_FILES = lambda: sorted(glob.glob(f"{WF}/*.yml"))
+WRITE_OK = {"walnut-publish.yml", "release-image.yml"}	# job-level write permissions: the testing publisher's artifacts and dispatch, the GitHub release
 STABLE_ENV_RE = re.compile(r"environment:\s*(?:walnut-stable|walnut-\$\{\{ inputs\.channel \}\})")
 
 
@@ -444,6 +445,13 @@ def workflow_lint(check_yaml=True):
 			             or (pc.group(1).split("#")[0].strip() == "true" and name == "walnut-site.yml"))
 			if not ok:
 				errs.append(f"{name}: a checkout without persist-credentials: false (true only where git lfs pull needs it)")
+		if name not in WRITE_OK and re.search(r"^\s+[a-z-]+: write\s*$", text, re.M):
+			errs.append(f"{name}: a write permission (only {sorted(WRITE_OK)} may hold one)")
+		for st in re.split(r"\n      - ", text):
+			if re.search(r"uses: actions/cache(?:/restore|/save)?@", st):
+				if not re.search(r"if: .*steps\.(?:keys|key)\.outputs\.\w+ != ''", st) or "restore-keys" in st \
+				        or not re.search(r"key: \$\{\{ steps\.(?:keys|key|base)\.outputs", st):
+					errs.append(f"{name}: an Actions cache step that isn't guarded by, and keyed from, the salted key step")
 		if STABLE_ENV_RE.search(text) and "refs/heads/main" not in text:
 			errs.append(f"{name}: publishes to stable without a refs/heads/main check")
 	return errs
