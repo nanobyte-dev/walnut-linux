@@ -19,6 +19,7 @@ setup() {
 		"show game intro = off" "lang = en" > "$FH_CFG"
 }
 CMD=(/usr/games/fheroes2)
+REF_IMAGE=fheroes2-amd64	# the PC side (tools/play-pc.sh): our package with 0001 built for amd64 (tools/ref-image.sh fheroes2)
 FH_KEYS=(@1410,520 +4 @1566,74 +5 @834,716 +10 @956,618 +2)	# NEW GAME, STANDARD GAME, OKAY (the first map, "4 Dimensions"), OKAY on its story (1920x1080, the 4:3 picture in the middle)
 during() { [ ${#FH_KEYS[@]} = 0 ] && return 0; smoke_xkeys fheroes2 10 "${FH_KEYS[@]}"; shot_mark; }
 SHOT_FROM=mark
