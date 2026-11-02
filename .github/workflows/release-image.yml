@@ -79,8 +79,33 @@ jobs:
           retention-days: 1
           compression-level: 0
 
-  build:
+  layer:
+    # on a miss: the Debian-only package layer, built from the pinned snapshot by `make rootfs-base`. No secret and
+    # none of our packages here, so cache-save can sign what this job hands over; the build job never hands a
+    # layer back (it installs our testing packages, some from external sources, as root on its runner).
     needs: cache-restore
+    if: needs.cache-restore.outputs.have != 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: The runner (disk, qemu)
+        run: github-ci/runner-prep.sh
+      - name: The package layer
+        run: make rootfs-base
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-base-new
+          path: build/rootfs/base.tar
+          retention-days: 1
+          compression-level: 0
+
+  build:
+    needs: [cache-restore, layer]
+    if: always() && needs.cache-restore.result == 'success' && (needs.cache-restore.outputs.have == 'true' || needs.layer.result == 'success')
     runs-on: ubuntu-24.04
     timeout-minutes: 360
     outputs:
@@ -98,25 +123,23 @@ jobs:
           id=$(github-ci/release-id.sh "$CHANNEL")
           echo "id=$id" >> "$GITHUB_OUTPUT"
           echo "### Walnut $id ($CHANNEL)" >> "$GITHUB_STEP_SUMMARY"
-      - name: The authentic package layer from cache-restore
+      - name: The package layer from the cache (cache-restore checked its MAC)
         if: needs.cache-restore.outputs.have == 'true'
         uses: actions/download-artifact@v8
         with:
           name: release-base-in
+          path: build/rootfs
+      - name: The package layer from the layer job
+        if: needs.cache-restore.outputs.have != 'true'
+        uses: actions/download-artifact@v8
+        with:
+          name: release-base-new
           path: build/rootfs
       - name: Build
         env:
           ID: ${{ steps.id.outputs.id }}
           CHANNEL: ${{ inputs.channel }}
         run: github-ci/build-release.sh "$ID" out "$CHANNEL"
-      - name: The new package layer, for cache-save (also after a failed step; it is written whole, by rename)
-        if: always() && needs.cache-restore.outputs.have != 'true' && hashFiles('build/rootfs/base.tar') != ''
-        uses: actions/upload-artifact@v7
-        with:
-          name: release-base-out
-          path: build/rootfs/base.tar
-          retention-days: 1
-          compression-level: 0
       - uses: actions/upload-artifact@v7
         with:
           name: release-${{ steps.id.outputs.id }}
@@ -125,9 +148,9 @@ jobs:
           compression-level: 0
 
   cache-save:
-    # records the layer's MAC and saves it; no package code runs here either
-    needs: [cache-restore, build]
-    if: always() && needs.cache-restore.result == 'success' && needs.cache-restore.outputs.have != 'true'
+    # records the layer's MAC and saves it: the layer is the layer job's, never the build job's
+    needs: [cache-restore, layer]
+    if: needs.cache-restore.outputs.have != 'true' && needs.layer.result == 'success'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -146,19 +169,17 @@ jobs:
           echo "base=$base" >> "$GITHUB_OUTPUT"
       - name: The new package layer
         if: steps.key.outputs.base != ''
-        continue-on-error: true  # the build may have stopped before it made one
         uses: actions/download-artifact@v8
         with:
-          name: release-base-out
+          name: release-base-new
           path: build/rootfs
       - name: Record the layer's MAC
-        id: mac
-        if: steps.key.outputs.base != '' && hashFiles('build/rootfs/base.tar') != ''
+        if: steps.key.outputs.base != ''
         env:
           SALT: ${{ secrets.WALNUT_CACHE_SALT }}
         run: github-ci/cache-mac.sh record build/rootfs/base.tar build/rootfs/base.tar.mac
       - name: Keep the package layer
-        if: steps.key.outputs.base != '' && steps.mac.outcome == 'success'
+        if: steps.key.outputs.base != ''
         uses: actions/cache/save@v6
         with:
           path: |

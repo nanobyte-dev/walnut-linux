@@ -221,18 +221,32 @@ class CacheMac(unittest.TestCase):
 		self.assertLess(r.index("cache-mac.sh verify"), r.index("run: github-ci/build-release.sh"))
 		self.assertLess(r.index("cache-mac.sh record"), r.index("actions/cache/save"))
 		self.assertIn("::add-mask::", r)
-		# C-2: the job that installs our testing packages never holds the salt; the salt jobs run no package code
+		# C-2/R-4: the job that installs our testing packages never holds the salt and never hands a layer back; the
+		# salt jobs run no package code; the layer cache-save signs comes from the layer job (Debian packages only)
 		import yaml
 		jobs = yaml.safe_load(r)["jobs"]
-		self.assertEqual(list(jobs), ["cache-restore", "build", "cache-save", "publish"])
+		self.assertEqual(list(jobs), ["cache-restore", "layer", "build", "cache-save", "publish"])
 		build = yaml.dump(jobs["build"])
 		self.assertIn("build-release.sh", build)
 		self.assertNotIn("secrets.", build)
 		self.assertNotIn("actions/cache", build)
+		uploads = [st["with"]["name"] for st in jobs["build"]["steps"] if "upload-artifact" in st.get("uses", "")]
+		self.assertEqual(len(uploads), 1)	# the release's files; no layer goes back
+		self.assertTrue(uploads[0].startswith("release-${{"))
+		self.assertNotIn("base.tar", yaml.dump([st for st in jobs["build"]["steps"] if "upload-artifact" in st.get("uses", "")]))
+		layer = yaml.dump(jobs["layer"])
+		self.assertIn("make rootfs-base", layer)
+		self.assertNotIn("secrets.", layer)
+		self.assertNotIn("build-release.sh", layer)
+		self.assertEqual(jobs["cache-save"]["needs"], ["cache-restore", "layer"])
 		for job in ("cache-restore", "cache-save"):
 			body = yaml.dump(jobs[job])
 			self.assertNotIn("build-release.sh", body)
+			self.assertNotIn("make ", body)
 			self.assertIn("secrets.WALNUT_CACHE_SALT", body)
+		saved = yaml.dump(jobs["cache-save"])
+		self.assertIn("release-base-new", saved)	# the layer job's artifact
+		self.assertNotIn("release-base-out", saved)
 
 
 class PcRule(unittest.TestCase):
