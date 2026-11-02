@@ -7,6 +7,7 @@
  */
 #include <linux/dma-fence.h>
 #include <linux/dma-resv.h>
+#include <linux/overflow.h>
 #include <linux/seq_file.h>
 #include <linux/slab.h>
 #include <linux/uaccess.h>
@@ -15,10 +16,13 @@
 #include <drm/nouveau_drm.h>
 
 #include "ps3rsx.h"
+#include "pushbuf.h"
 #include "wait.h"
 
+/* At load only: turned off under running clients, the GPU's binds would stop matching each
+ * channel's validator state */
 static bool ctxsw = true;
-module_param(ctxsw, bool, 0444);	/* at load only: turned off, the GPU's binds stop matching each channel's validator state */
+module_param(ctxsw, bool, 0444);
 MODULE_PARM_DESC(ctxsw, "Restore a channel's GPU state when switching between channels");
 
 static bool trace;
@@ -325,8 +329,6 @@ int ps3rsx_ioctl_gpuobj_free(struct drm_device *dev, void *data, struct drm_file
 /* --- GEM_PUSHBUF ------------------------------------------------------------------------- */
 
 
-#define MAX_SUBMIT	(512 * 1024 + 4096)
-
 static int apply_relocs(struct drm_nouveau_gem_pushbuf_reloc *r, u32 nr_relocs,
 			struct drm_nouveau_gem_pushbuf_bo *bos, struct drm_gem_object **objs,
 			u32 nr_buffers, u32 push_bo, u64 push_off, u32 *copy, u64 len)
@@ -375,7 +377,7 @@ int ps3rsx_ioctl_gem_pushbuf(struct drm_device *dev, void *data, struct drm_file
 	struct ps3rsx_vstate vs;
 	bool sync = req->vram_available & NOUVEAU_GEM_PUSHBUF_SYNC;
 	u64 total = 0;
-	u32 i, *ring, restore;
+	u32 i, *ring, restore, ring_len;
 	int ret;
 
 	req->suffix0 = 0;		/* pushes are copied: no RETURN needed after them */
@@ -436,20 +438,18 @@ int ps3rsx_ioctl_gem_pushbuf(struct drm_device *dev, void *data, struct drm_file
 		u64 len = push[i].length & ~(u64)NOUVEAU_GEM_PUSHBUF_NO_PREFETCH;
 		struct ps3rsx_bo *pb;
 
-		if (push[i].bo_index >= req->nr_buffers || (len & 3) || (push[i].offset & 3)) {
+		if (push[i].bo_index >= req->nr_buffers) {
 			ret = -EINVAL;
 			goto out;
 		}
 		pb = to_bo(objs[push[i].bo_index]);
-		if (pb->kind != BO_GART || push[i].offset + len > pb->base.size) {
+		if (pb->kind != BO_GART) {
 			ret = -EINVAL;	/* pushes must come from GART BOs we can read */
 			goto out;
 		}
-		total += len;
-	}
-	if (total > MAX_SUBMIT) {
-		ret = -E2BIG;
-		goto out;
+		ret = ps3rsx_pushbuf_args_check(push[i].offset, len, pb->base.size, &total);
+		if (ret)
+			goto out;
 	}
 
 	ret = ps3rsx_console_hold(rsx, ch, pf);	/* may wait while a text console has the GPU */
@@ -518,7 +518,12 @@ int ps3rsx_ioctl_gem_pushbuf(struct drm_device *dev, void *data, struct drm_file
 		}
 		restore = ret * 4;
 	}
-	ring = ps3rsx_ring_begin(rsx, restore + total, &ret);
+	ret = ps3rsx_pushbuf_ring_len(restore, total, &ring_len);
+	if (ret) {
+		mutex_unlock(&rsx->exec_lock);
+		goto out;
+	}
+	ring = ps3rsx_ring_begin(rsx, ring_len, &ret);
 	if (!ring) {
 		mutex_unlock(&rsx->exec_lock);
 		goto out;
@@ -553,7 +558,7 @@ int ps3rsx_ioctl_gem_pushbuf(struct drm_device *dev, void *data, struct drm_file
 	}
 	rsx->blame_chan = ch->id;	/* blame.h's record of this commit */
 	rsx->blame_serial = ch->serial;
-	fence = ps3rsx_ring_commit(rsx, restore + total, !dry_run);
+	fence = ps3rsx_ring_commit(rsx, ring_len, !dry_run);
 	rsx->blame_chan = -1;
 	rsx->blame_serial = 0;
 	if (!IS_ERR(fence)) {

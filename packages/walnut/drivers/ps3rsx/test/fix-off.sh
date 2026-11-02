@@ -2,7 +2,8 @@
 # validate-test with one stability rule turned off at a time: each build must fail, with the
 # FAIL line given for it, so the case shows the old behaviour. The rule is turned off in a copy
 # of src/validate.c under OUTDIR/fix-off (a literal edit, which must match exactly once), or for
-# the submit.c model in validate-test.c by a define (OLD_*). Nothing here touches src/.
+# the submit.c model in validate-test.c (or the test -T names) by a define (OLD_*). Nothing here
+# touches src/.
 #   fix-off.sh OUTDIR		(make fix-off; exits 0 only when every variant fails as expected)
 set -u
 [ $# -eq 1 ] || { echo "usage: $0 OUTDIR" >&2; exit 2; }
@@ -14,12 +15,13 @@ rm -f "$D"/*.built
 JOBS=${JOBS:-6}
 names=() expects=()
 
-# off NAME 'FAIL line it must print' [-DDEFINE | 'FROM' 'TO']...
+# off NAME 'FAIL line it must print' [-T TEST.c] [-DDEFINE | 'FROM' 'TO']...
 off() {
-	local name=$1 expect=$2 vc=../src/validate.c defs=()
+	local name=$1 expect=$2 vc=../src/validate.c defs=() t=validate-test.c
 	shift 2
 	while [ $# -gt 0 ]; do
 		case $1 in
+		-T)	t=$2; shift 2 ;;
 		-D*)	defs+=("$1"); shift ;;
 		*)	if [ "$vc" = ../src/validate.c ]; then cp ../src/validate.c "$D/$name.c"; vc=$D/$name.c; fi
 			FROM=$1 TO=$2 NAME=$name perl -0777 -i -pe \
@@ -31,7 +33,7 @@ off() {
 	done
 	while [ "$(jobs -rp | wc -l)" -ge "$JOBS" ]; do wait -n; done
 	( gcc -O1 -g -w -fno-strict-aliasing -Iinc -iquote ../src -DVALIDATE_C="\"$vc\"" "${defs[@]}" \
-		-o "$D/$name" validate-test.c && touch "$D/$name.built" ) &
+		-o "$D/$name" "$t" && touch "$D/$name.built" ) &
 	names+=("$name") expects+=("$expect")
 }
 
@@ -74,6 +76,9 @@ off no-switch-in-primitive "FAIL: 7: channel 1's submit reached the GPU inside c
 off submit-state "FAIL: 2: a copy through the bind of a cancelled submit's first push not cancelled" \
 	-DOLD_SUBMIT_STATE
 off rejected-submit-cancel "FAIL: 1: the X16 submit not cancelled" -DOLD_NO_RECOVER
+# GEM_PUSHBUF's argument checks (src/pushbuf.h), submit.c's sums as they were
+off push-overflow "FAIL: offset 2^64-4, 8 bytes: push 0 at fffffffffffffffc, 8 bytes accepted past its BO of 100000" \
+	-T pushbuf-test.c -DOLD_PUSH_CHECKS
 wait
 
 bad=0

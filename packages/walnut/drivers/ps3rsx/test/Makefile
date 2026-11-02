@@ -2,7 +2,8 @@
 # shadow-equiv, the equivalence fuzz of shadow.c's fast replay (shadow_fast) against the word-by-word
 # one, zero-test, ps3rsx_zero (src/zero.h, clear_dcbz) with the real dcbz loop on ppc64, and
 # validate-test, the validator against the streams that raised graph exceptions (validate.c;
-# fixtures/: mpv's first frame, captured with mesa-shim/), and validate-capture, a mesa-shim
+# fixtures/: mpv's first frame, captured with mesa-shim/), pushbuf-test, GEM_PUSHBUF's argument
+# checks at the u64 edge (src/pushbuf.h), and validate-capture, a mesa-shim
 # capture's pushes through the validator; fix-off, validate-test with one stability rule turned off
 # at a time (fix-off.sh: a copy of validate.c edited under O, or an OLD_* define for the submit.c
 # model), each build expected to fail with its own FAIL line.
@@ -19,7 +20,7 @@ PPCFLAGS := --sysroot=$(SYSROOT) -isystem $(SYSROOT)/usr/include/powerpc64-linux
 	-L$(SYSROOT)/usr/lib/powerpc64-linux-gnu -L$(SYSROOT)/lib/powerpc64-linux-gnu -static
 
 all: $(O)/shadow-equiv $(O)/shadow-equiv-fast $(O)/shadow-equiv-ppc64 $(O)/zero-test $(O)/zero-test-ppc64 \
-	$(O)/validate-test $(O)/validate-capture $(O)/blame-test
+	$(O)/validate-test $(O)/validate-capture $(O)/blame-test $(O)/pushbuf-test
 $(O)/shadow-equiv: $(SRC)
 	@mkdir -p $(O)
 	gcc $(CFLAGS) -fsanitize=address,undefined -fno-sanitize-recover=undefined -o $@ $<
@@ -49,12 +50,16 @@ $(O)/validate-test: validate-test.c ../src/validate.c ../src/shadow.c inc/shim.h
 $(O)/blame-test: blame-test.c ../src/blame.h
 	@mkdir -p $(O)
 	gcc $(CFLAGS) -I../src -fsanitize=address,undefined -fno-sanitize-recover=undefined -o $@ $<
+# GEM_PUSHBUF's argument checks (src/pushbuf.h): offsets, lengths and totals at the u64 edge
+$(O)/pushbuf-test: pushbuf-test.c ../src/pushbuf.h inc/shim.h
+	@mkdir -p $(O)
+	gcc $(CFLAGS) -Wno-unused-function -fsanitize=address,undefined -fno-sanitize-recover=undefined -o $@ $<
 # a mesa-shim capture's pushes through the validator: validate-capture PUSH.BIN...
 $(O)/validate-capture: validate-capture.c ../src/validate.c ../src/shadow.c inc/shim.h
 	@mkdir -p $(O)
 	gcc $(CFLAGS) -Wno-unused-function -fsanitize=address,undefined -fno-sanitize-recover=undefined -o $@ $<
 # the old behaviour of each stability rule fails its case (fix-off.sh)
-fix-off: fix-off.sh validate-test.c ../src/validate.c ../src/shadow.c inc/shim.h
+fix-off: fix-off.sh validate-test.c pushbuf-test.c ../src/validate.c ../src/shadow.c ../src/pushbuf.h inc/shim.h
 	./fix-off.sh $(O)
 $(O)/cnt-ppc64: $(SRC) $(O)/libatomic_asneeded.a
 	powerpc64-linux-gnu-gcc -O2 -mcpu=cell -mno-altivec -fno-strict-aliasing -w -Iinc \
@@ -66,6 +71,7 @@ run: all
 	$(O)/zero-test 20000 1
 	qemu-ppc64-static $(O)/zero-test-ppc64 20000 2
 	$(O)/validate-test
+	$(O)/pushbuf-test
 	./fix-off.sh $(O)
 clean:
 	rm -rf $(O)
