@@ -122,7 +122,12 @@ else
 fi
 aptf '^(Setting up|Unpacking|Removing|E:|W:)' \$O -q \$NOREMOVE install $*
 upgrade
-sudo apt-get check >/dev/null && echo '>> apt-get check: ok'
+if ! sudo apt-get check >/dev/null; then	# a broken package state is a failed deploy (a plain && echo would have let it pass)
+	echo '!! apt-get check failed'
+	[ -z \"\$stopped\" ] || sudo systemctl start getty@tty1
+	exit 1
+fi
+echo '>> apt-get check: ok'
 [ ! -x /usr/lib/ps3/sbin/ps3-migrate-home ] || sudo /usr/lib/ps3/sbin/ps3-migrate-home \$(id -un)
 [ -z \"\$stopped\" ] || { echo '>> starting the desktop again'; sudo systemctl start getty@tty1; }
 if [ '${AUTOREMOVE:-0}' = 1 ]; then

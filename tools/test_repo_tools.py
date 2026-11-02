@@ -336,5 +336,33 @@ class GenWorkflows(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stdout)
 
 
+class DeployAptCheck(unittest.TestCase):
+    """tools/deploy.sh: the remote script's `apt-get check` is fatal (run here with a stand-in sudo)"""
+
+    def snippet(self):
+        text = (HERE / "deploy.sh").read_text()
+        a = text.index("if ! sudo apt-get check")
+        b = text.index("echo '>> apt-get check: ok'", a)
+        # the script sits inside double quotes in deploy.sh: undo the escapes
+        return text[a:b + len("echo '>> apt-get check: ok'")].replace('\\"', '"').replace("\\$", "$")
+
+    def run_with(self, check_rc):
+        script = 'sudo() { case "$*" in "apt-get check") return %d;; *) echo "sudo $*";; esac; }\nstopped=1\n%s\n' % (
+            check_rc, self.snippet())
+        return subprocess.run(["bash", "-ec", script], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+
+    def test_clean(self):
+        r = self.run_with(0)
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertIn("apt-get check: ok", r.stdout)
+
+    def test_broken_state_fails_the_deploy_and_restarts_the_desktop(self):
+        r = self.run_with(100)
+        self.assertEqual(r.returncode, 1, r.stdout)
+        self.assertIn("!! apt-get check failed", r.stdout)
+        self.assertIn("sudo systemctl start getty@tty1", r.stdout)
+        self.assertNotIn("apt-get check: ok", r.stdout)
+
+
 if __name__ == "__main__":
     unittest.main()
