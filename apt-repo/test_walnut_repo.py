@@ -288,6 +288,11 @@ class Repo(unittest.TestCase):
 		os.unlink(f"{self.debs}/src/orig.tar.xz")
 		os.symlink(secret, f"{self.debs}/src/orig.tar.xz")
 		self.assertIn("regular file", self.add_fail([dsc]).stderr)
+		# a Package: field would replace the Source in the index
+		dsc = self.make_dsc("foo", "1.0", {"o.tar.xz": b"o"})
+		with open(dsc, "a") as f:
+			f.write("Package: libc6\n")
+		self.assertIn("Package:", self.add_fail([dsc]).stderr)
 		# a Source that is a path
 		dsc = self.make_dsc("foo", "1.0", {"o.tar.xz": b"o"}, source="x/../../y")
 		self.assertIn("bad Source", self.add_fail([dsc]).stderr)
@@ -342,6 +347,25 @@ class Repo(unittest.TestCase):
 		              self.keys["ci"][1], "--out", f"{self.root}/o", ok, ok=False)
 		self.assertNotEqual(r.returncode, 0)
 		self.assertTrue(self.publish(self.add([make_deb(f"{d}/m.deb", "badwolf", "1")])).startswith("ok"))
+
+
+	def test_names_and_copies(self):
+		"""File names are plain on every path, and a file copied into the pool is the one that was hashed."""
+		d = self.debs
+		odd = make_deb(f"{d}/we ird_1_ppc64.deb", "weird", "1")
+		r = self.repo("add", "--suite", "stable", "--keyring", self.keys["archive"][2], "--sign-key",
+		              self.keys["archive"][1], "--out", f"{self.root}/o", odd, who="archive", ok=False)
+		self.assertIn("not a plain file name", r.stderr)
+		import importlib.machinery, importlib.util
+		spec = importlib.util.spec_from_loader("wrmod", importlib.machinery.SourceFileLoader("wrmod", REPO))
+		m = importlib.util.module_from_spec(spec)
+		spec.loader.exec_module(m)
+		src = f"{self.root}/f"
+		open(src, "wb").write(b"abc")
+		m.copy_pool(f"{self.root}/pool", "a/f", src, hashlib.sha256(b"abc").hexdigest())
+		with self.assertRaises(m.Error):
+			m.copy_pool(f"{self.root}/pool", "a/g", src, hashlib.sha256(b"abd").hexdigest())
+		self.assertFalse(os.path.exists(f"{self.root}/pool/a/g"))
 
 
 if __name__ == "__main__":

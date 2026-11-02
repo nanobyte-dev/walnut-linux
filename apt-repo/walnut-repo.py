@@ -255,8 +255,8 @@ def dsc_stanza(path, suite):
 	src = fields.pop("Source")
 	if not SOURCE_RE.match(src) or not re.match(r"[0-9][A-Za-z0-9.+:~-]*\Z", fields.get("Version", "")):
 		raise Error(f"{path}: bad Source or Version")
-	if any(k in WRITTEN_BY_US for k in fields):
-		raise Error(f"{path}: the .dsc has a field the index writes itself")
+	if any(k in WRITTEN_BY_US for k in fields) or "Package" in fields:
+		raise Error(f"{path}: the .dsc has a field the index writes itself (or a Package: that would replace its Source)")
 	out = {"Package": src}
 	out.update(fields)
 	size, sums = file_sums(path)
@@ -288,12 +288,12 @@ def dsc_stanza(path, suite):
 		got, gsums = file_sums(fp)
 		if got != fsize or gsums["SHA256"] != fsha:
 			raise Error(f"{path}: {f} is not the size and sha256 the .dsc gives")
-		files.append(fp)
+		files.append((fp, fsha))
 	out["Files"] = out.get("Files", "") + f"\n {sums['MD5sum']} {size} {name}"
 	out["Checksums-Sha256"] = out.get("Checksums-Sha256", "") + f"\n {sums['SHA256']} {size} {name}"
 	out.pop("Checksums-Sha1", None)
 	out["Directory"] = pool_dir(suite, src)
-	return out, files + [path]
+	return out, files + [(path, sums["SHA256"])]
 
 
 def stanza_source(s):
@@ -455,10 +455,18 @@ def merge(existing, new, key, label, log, strict=False):
 	return list(have.values()), added
 
 
-def copy_pool(out, rel, src):
+def copy_pool(out, rel, src, sha256):
+	"""Copies src to out/rel from one open file, hashing what is copied: it must be the bytes the index names."""
 	dst = f"{out}/{rel}"
 	os.makedirs(os.path.dirname(dst), exist_ok=True)
-	shutil.copyfile(src, dst)
+	h = hashlib.sha256()
+	with open(src, "rb") as fi, open(dst, "wb") as fo:
+		while chunk := fi.read(1 << 20):
+			h.update(chunk)
+			fo.write(chunk)
+	if h.hexdigest() != sha256:
+		os.unlink(dst)
+		raise Error(f"{src}: changed after it was read")
 
 
 # --- commands --------------------------------------------------------------------------------
@@ -478,18 +486,21 @@ def add_suite(a, out, suite, debs, dscs, keep):
 	keep_bin = {id(s) for s in added_bin} & {id(s) for s in packages}
 	for s, f in new_bin:
 		if id(s) in keep_bin:
-			copy_pool(out, s["Filename"], f)
+			copy_pool(out, s["Filename"], f, s["SHA256"])
 	keep_src = {id(s) for s in added_src} & {id(s) for s in sources}
 	for (s, files) in new_src:
 		if id(s) in keep_src:
-			for f in files:
-				copy_pool(out, f"{s['Directory']}/{os.path.basename(f)}", f)
+			for f, sha in files:
+				copy_pool(out, f"{s['Directory']}/{os.path.basename(f)}", f, sha)
 	write_suite(out, suite, cur.base, packages, sources, a.sign_key)
 	print(f">> {suite}: +{len(added_bin)} debs, +{len(added_src)} sources on base {cur.base[:12]}; "
 	      f"{len(packages)} debs, {len(sources)} sources in the suite")
 
 
 def cmd_add(a):
+	for f in a.files:	# the name goes into the pool path and the index: plain, whatever the caller passed
+		if not PLAIN_NAME_RE.match(os.path.basename(f)):
+			raise Error(f"{os.path.basename(f)!r}: not a plain file name")
 	debs = [f for f in a.files if f.endswith(".deb")]
 	dscs = [f for f in a.files if f.endswith(".dsc")]
 	bad = [f for f in a.files if f not in debs and f not in dscs]
