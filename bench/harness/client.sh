@@ -24,7 +24,8 @@
 # perf_win (on off pairs), perf_cpu (perf's own CPU seconds in them), perf_ack; /proc/interrupts and
 # kernel local/0046's htab hcall stats at perf's on and off go to $D/irq/start.* and end.* (with
 # WIN_ON_RE: the last pair), for irqoff.py's rates over the window. BENCH_MEM=1 (run.sh
-# MEM=1): the game's smaps, smaps_rollup and status, ps3rsx's buffer census (debugfs ps3rsx_mm, once
+# MEM=1): the game's smaps, smaps_rollup and status, ps3rsx's buffer census (debugfs ps3rsx_mm, and
+# ps3rsx_bos, where every buffer lies, when the module has it; once
 # a snapshot) and glibc's malloc statistics (ps3-mallocstat.so preloaded: BENCH_MALLOCSTAT is its
 # path, "" turns it off) at the window's start, middle and end into $D/mem/ (memprof.py); bench.txt
 # gets mem_snaps (label:seconds:ms reading smaps). BENCH_MALLOC: glibc malloc presets (below,
@@ -970,6 +971,9 @@ mem_snap() {	# mem_snap LABEL: the game's memory now into $D/mem/LABEL.*
 	cat /proc/meminfo > "$D/mem/$1.meminfo"
 	# ps3rsx's buffers per client (takes mm_lock and walks them: once a snapshot)
 	[ "$MEM_SUDO" = 1 ] && sudo -n sh -c 'cat /sys/kernel/debug/dri/*/ps3rsx_mm' > "$D/mem/$1.gpu" 2>/dev/null
+	# where every GPU buffer lies (offsets, sizes, kinds, tgids), where the module has ps3rsx_bos
+	[ "$MEM_SUDO" = 1 ] && sudo -n sh -c 'cat /sys/kernel/debug/dri/*/ps3rsx_bos' > "$D/mem/$1.bos" 2>/dev/null
+	[ -s "$D/mem/$1.bos" ] || rm -f "$D/mem/$1.bos"
 	secs t $(( a - u0 )); m=$(( (b - a) / 1000 ))
 	printf 'label=%s pid=%s t=%s smaps_ms=%s exe=%s comm=%s\n' "$1" "$p" "$t" "$m" \
 		"$(readlink "/proc/$p/exe" 2>/dev/null)" "$COMM" > "$D/mem/$1.info"
