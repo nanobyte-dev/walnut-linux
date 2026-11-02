@@ -27,7 +27,7 @@ die() { echo "rsx-arm: $*" >&2; exit 1; }
 recovered() {
 	[ "$(cat $U/recoveries 2>/dev/null || echo 0)" != 0 ] || [ "$(cat $U/recovery_failed 2>/dev/null || echo 0)" != 0 ] ||
 		[ "$(cat $U/display_only 2>/dev/null || echo 0)" != 0 ] ||
-		sudo dmesg | grep -q -e 'graph exception' -e 'in-place recovery' -e 'GPU stopped'
+		grep -q -e 'graph exception' -e 'in-place recovery' -e 'GPU stopped' <<<"$(sudo dmesg)"
 }
 
 which_arm() {
@@ -49,7 +49,7 @@ unload() {
 		[ "$used" -lt $(( avail - 49152 )) ] || die "swapoff ps3vswap0: $used kB to bring back, $avail kB available"
 		sudo timeout -s INT 180 swapoff /dev/ps3vswap0 || die "swapoff /dev/ps3vswap0 failed"
 	fi
-	if lsmod | grep -q '^ps3rsx '; then
+	if [ -d /sys/module/ps3rsx ]; then
 		sudo rmmod ps3rsx || die "rmmod ps3rsx failed (something still has the device open: lsof /dev/dri/*)"
 	fi
 }
@@ -59,7 +59,7 @@ unload)
 	unload
 	;;
 status)
-	echo "arm: $(which_arm); loaded: $(lsmod | grep -q '^ps3rsx ' && echo yes || echo no)"
+	echo "arm: $(which_arm); loaded: $([ -d /sys/module/ps3rsx ] && echo yes || echo no)"
 	for f in /sys/module/ps3rsx/parameters/*; do [ -r "$f" ] && echo "  ${f##*/}=$(cat "$f")"; done 2>/dev/null | grep -E 'test_clear_off|vswap_vram_mb|ctxsw|dry_run' || true
 	;;
 A|B|C)

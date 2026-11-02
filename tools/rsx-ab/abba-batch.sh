@@ -24,7 +24,7 @@ n_arms=$(( $(wc -w <<<"$ARMS") + $(wc -w <<<"${EXTRA:-}") ))
 export BATCH_NAME=rsxab BATCH_TOTAL=$(( n_arms * $(wc -w <<<"$CASES") ))
 rm -f /dev/shm/ps3-bench.batchpos
 
-exception() { sudo dmesg | grep -q -e 'graph exception' -e 'GPU stopped'; }
+exception() { grep -q -e 'graph exception' -e 'GPU stopped' <<<"$(sudo dmesg)"; }
 
 one() {	# one CASE ARM
 	case $1 in
