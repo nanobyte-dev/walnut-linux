@@ -77,6 +77,8 @@ class TestChecksumVerification(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.fixtures = create_release_fixtures(self.tmp.name)
+        with open(self.fixtures["sha256sums"]) as f:
+            self.sums_all = f.readlines()
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -133,6 +135,58 @@ class TestChecksumVerification(unittest.TestCase):
         with self.assertRaises(ValueError) as ctx:
             walnut_install.verify_release_dir(self.tmp.name)
         self.assertIn("Missing file listed in SHA256SUMS", str(ctx.exception))
+
+    def test_empty_sha256sums_fails(self):
+        for text in ("", "\n", "# nothing\n"):
+            with open(self.fixtures["sha256sums"], "w") as f:
+                f.write(text)
+            with self.assertRaises(ValueError) as ctx:
+                walnut_install.verify_release_dir(self.tmp.name)
+            self.assertIn("lists no files", str(ctx.exception))
+
+    def test_garbled_sha256sums_fails(self):
+        good = "".join(self.read_sums())
+        for bad in ("garbage\n", "zz" * 32 + "  vmlinux-6.12.111+ps3.648\n", "abcd  rootfs.tar.xz\n",
+                    "0" * 64 + "  ../escape\n", "0" * 64 + "  /etc/passwd\n"):
+            with open(self.fixtures["sha256sums"], "w") as f:
+                f.write(good + bad)
+            with self.assertRaises(ValueError, msg=bad):
+                walnut_install.verify_release_dir(self.tmp.name)
+
+    def read_sums(self):
+        with open(self.fixtures["sha256sums"]) as f:
+            return f.readlines()
+
+    def test_files_come_from_the_verified_set(self):
+        """a kernel, initrd or args file that SHA256SUMS does not list is never picked"""
+        d = self.tmp.name
+        # SHA256SUMS lists only the rootfs and kernel; the initrd and args file sit next to them unlisted
+        lines = [l for l in self.read_sums() if "initrd" not in l and ".args" not in l]
+        with open(self.fixtures["sha256sums"], "w") as f:
+            f.writelines(lines)
+        with self.assertRaises(ValueError) as ctx:
+            walnut_install.verify_release_dir(d)
+        self.assertIn("No initrd", str(ctx.exception))
+        # an extra unlisted kernel next to the listed ones is ignored, not "multiple kernels"
+        with open(os.path.join(d, "vmlinux-9.9.9"), "wb") as f:
+            f.write(b"unlisted")
+        with open(self.fixtures["sha256sums"], "w") as f:
+            f.writelines(self.sums_all)
+        info = walnut_install.verify_release_dir(d)
+        self.assertEqual(info["kernel"], self.fixtures["kernel"])
+        self.assertEqual(info["release"], "6.12.111+ps3.648")
+
+    def test_unlisted_rootfs_is_not_used(self):
+        d = self.tmp.name
+        with open(os.path.join(d, "evil.tar.xz"), "wb") as f:
+            f.write(b"x")
+        os.remove(self.fixtures["rootfs"])
+        lines = [l for l in self.read_sums() if "tar.xz" not in l]
+        with open(self.fixtures["sha256sums"], "w") as f:
+            f.writelines(lines)
+        with self.assertRaises(ValueError) as ctx:
+            walnut_install.verify_release_dir(d)
+        self.assertIn("No rootfs", str(ctx.exception))
 
     def test_checksum_missing_sha256sums(self):
         os.remove(self.fixtures["sha256sums"])

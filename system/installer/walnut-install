@@ -19,6 +19,8 @@ import sys
 import tempfile
 import time
 
+SHA256_RE = re.compile(r"^[0-9A-Fa-f]{64}$")
+
 
 def generate_disk_id() -> str:
     """Generate a random 32-bit DOS disk ID (8 lowercase hex digits).
@@ -129,12 +131,14 @@ def verify_release_dir(release_dir: str, need_initrd: bool = True) -> dict:
         if not line or line.startswith("#"):
             continue
         parts = line.split(None, 1)
-        if len(parts) != 2:
-            continue
+        if len(parts) != 2 or not SHA256_RE.match(parts[0]):
+            raise ValueError(f"SHA256SUMS has a line that is not '<sha256>  <file>': {line[:80]!r}")
         expected_hash = parts[0]
         fname = parts[1].lstrip("*").strip()
         if fname.startswith("./"):
             fname = fname[2:]
+        if not fname or os.path.isabs(fname) or ".." in fname.split("/"):
+            raise ValueError(f"SHA256SUMS lists a path outside the release directory: {fname[:80]!r}")
         fpath = os.path.join(release_dir, fname)
         if not os.path.isfile(fpath):
             raise ValueError(f"Missing file listed in SHA256SUMS: {fname}")
@@ -148,13 +152,22 @@ def verify_release_dir(release_dir: str, need_initrd: bool = True) -> dict:
             raise ValueError(f"Checksum mismatch for {fname}: expected {expected_hash}, got {actual_hash}")
         verified_files.append(fname)
 
+    if not verified_files:
+        raise ValueError(f"SHA256SUMS lists no files: nothing in {release_dir} can be trusted")
+    verified = set(verified_files)
+
+    def listed(d):
+        """the names in directory d that SHA256SUMS lists (and so were checked above): the rootfs, kernel,
+        initrd and args file come from these and nothing else in the directory"""
+        return [f for f in sorted(os.listdir(d)) if os.path.relpath(os.path.join(d, f), release_dir) in verified]
+
     # The release archive is laid out like the two disks (stamp.py prepare): the system in
     # dev_hdd1/linux/install/, the boot files in dev_hdd1/linux/boot/. A flat directory works too.
     archive_install = os.path.join(release_dir, "dev_hdd1", "linux", "install")
     rootfs_dir = archive_install if os.path.isdir(archive_install) else release_dir
 
     # 1. rootfs .tar.xz
-    rootfs_candidates = [f for f in os.listdir(rootfs_dir) if f.endswith(".tar.xz")]
+    rootfs_candidates = [f for f in listed(rootfs_dir) if f.endswith(".tar.xz")]
     if "rootfs.tar.xz" in rootfs_candidates:
         rootfs_path = os.path.join(rootfs_dir, "rootfs.tar.xz")
     elif len(rootfs_candidates) == 1:
@@ -170,7 +183,7 @@ def verify_release_dir(release_dir: str, need_initrd: bool = True) -> dict:
 
     # 2. kernel vmlinux-<release>
     kernel_candidates = [
-        f for f in os.listdir(boot_dir)
+        f for f in listed(boot_dir)
         if f.startswith("vmlinux-") and not f.endswith((".args", ".manifest", ".sha256", ".tmp", ".dpkg-tmp", ".dpkg-new"))
     ]
     if len(kernel_candidates) == 1:
@@ -184,21 +197,22 @@ def verify_release_dir(release_dir: str, need_initrd: bool = True) -> dict:
 
     # 3. initrd
     initrd_path = None
-    if os.path.isfile(os.path.join(boot_dir, "initrd-walnut.img")):
+    boot_files = listed(boot_dir)
+    if "initrd-walnut.img" in boot_files:
         initrd_path = os.path.join(boot_dir, "initrd-walnut.img")
     else:
-        initrd_candidates = [f for f in os.listdir(boot_dir) if f.startswith("initrd") and f.endswith(".img")]
+        initrd_candidates = [f for f in boot_files if f.startswith("initrd") and f.endswith(".img")]
         if len(initrd_candidates) == 1:
             initrd_path = os.path.join(boot_dir, initrd_candidates[0])
         elif need_initrd:
             raise ValueError(f"No initrd-walnut.img found in {release_dir}")
 
     # 4. args file
-    args_candidates = [f for f in os.listdir(boot_dir) if f.endswith(".args")]
+    args_candidates = [f for f in boot_files if f.endswith(".args")]
     args_path = None
     specific_args = [f"{release}.args", f"vmlinux-{release}.args"]
     for s in specific_args:
-        if os.path.isfile(os.path.join(boot_dir, s)):
+        if s in boot_files:
             args_path = os.path.join(boot_dir, s)
             break
     if not args_path:
