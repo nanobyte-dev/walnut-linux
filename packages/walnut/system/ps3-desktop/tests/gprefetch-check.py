@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 """gprefetch-check.py [DIR]: ps3-game-prefetch's game prefetch (docs/STALLS.md "Game prefetch") on
-this host, with no PS3. DIR (default: a new directory under the repository's build/tmp, which is on
-a disk file system: FIEMAP has to work) is removed at the end unless KEEP=1.
+this host, with no PS3. DIR (default: a new hidden directory under the repository's build/tmp, which
+is on a disk file system: FIEMAP has to work) is removed at the end unless KEEP=1. Hidden, because a
+desktop's file indexer (GNOME's localsearch/Tracker) reads new image files under $HOME and drops
+them from the page cache again within seconds, which the residency checks would see; it skips
+hidden directories (and a checkout's whole tree when its root has a .git directory, which a linked
+worktree's .git file isn't).
   1. the pieces: mincore vectors to ranges (holes under GAP filled), range unions, the program
      behind env/stdbuf/nice wrappers, which paths are a game's data directories
   2. real files: resident ranges after POSIX_FADV_DONTNEED and partial reads, FIEMAP extents
@@ -358,7 +362,7 @@ def main():
     if base is None:
         b = HERE.parents[4] / "build" / "tmp"
         b.mkdir(parents=True, exist_ok=True)
-        base = Path(tempfile.mkdtemp(prefix="gprefetch-check-", dir=b))
+        base = Path(tempfile.mkdtemp(prefix=".gprefetch-check-", dir=b))
     base.mkdir(parents=True, exist_ok=True)
     home = os.environ.get("HOME")
     try:
