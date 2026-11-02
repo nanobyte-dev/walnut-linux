@@ -796,7 +796,8 @@ def client_procs(tmp):
     p, d, b = run(4, "quiet")
     check("procs: an unknown small, idle process passes", b.get("procs") == "ok", b)
     p, d, b = run(5, "pgrep")
-    check("procs: bench-cam's pgrep (short-lived, high lifetime pcpu) is allowed by exact name", b.get("procs") == "ok", b)
+    check("procs: a pgrep during a run is flagged (another session polling the PS3 is interference; bench-cam no longer starts one)",
+          b.get("procs") == "unexpected", b)
     p = subprocess.run(["python3", "-I", str(HARNESS / "proccheck.py"), str(HARNESS / "allowed-processes.txt"), "700",
                         str(tmp / "ps-clean.txt")], capture_output=True, text=True)
     check("procs: proccheck.py alone: clean list, empty first line", p.returncode == 0 and p.stdout == "\n", (p.stdout, p.stderr))
