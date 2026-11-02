@@ -902,6 +902,45 @@ static void case_reuse(long rounds, u64 seed)
 	printf("reuse: %ld rounds, %ld allocations reused a kept range\n", rounds, reused);
 }
 
+/*
+ * The GART reap's single read of the reference (vclear.h vclear_gart_reap_n): exactly the leading
+ * run that has passed goes back, never one that hasn't, across the u32 wrap; and the reuse walk
+ * reads the reference only for candidates of the right owner and size.
+ */
+static void case_cheap_reads(void)
+{
+	u32 seqs[64], ref, i, n, base;
+	u64 s = 7;
+	int reads = 0, cand = 0;
+
+	what = "the GART reap";
+	for (int round = 0; round < 2000; round++) {
+		base = (u32)rnd(&s);			/* anywhere, the wrap included */
+		n = 1 + rnd(&s) % 64;
+		for (i = 0; i < n; i++)
+			seqs[i] = base + i * (u32)(1 + rnd(&s) % 3);
+		ref = seqs[rnd(&s) % n] + (u32)(rnd(&s) % 3) - 1;
+		u32 got = vclear_gart_reap_n(seqs, n, ref), want = 0;
+
+		while (want < n && (int32_t)(ref - seqs[want]) >= 0)
+			want++;
+		CHECK(got == want, "%s: %u of %u back with ref %#x, want %u", what, got, n, ref, want);
+		for (i = 0; i < got; i++)
+			CHECK((int32_t)(ref - seqs[i]) >= 0, "%s: seq %#x back before ref %#x passed it",
+			      what, seqs[i], ref);
+	}
+	what = "the reuse walk";
+	for (i = 0; i < 64; i++) {		/* 64 kept: 8 of the right owner, 2 of them the right size */
+		bool own = i % 8 == 0, size = own && i % 32 == 0;
+
+		if (!vclear_reuse_candidate(own, size ? 8192 : 4096, 8192))
+			continue;
+		cand++;
+		reads++;			/* the kernel reads the reference only here */
+	}
+	CHECK(cand == 2 && reads == 2, "%s: %d reference reads for 64 kept entries (want 2)", what, reads);
+}
+
 /* many small frees by several owners: the total entry count stays bounded (the allocator's walk) */
 static void case_reuse_count(void)
 {
@@ -978,6 +1017,7 @@ int main(int argc, char **argv)
 	case_reuse(rounds * 5, seed);
 	case_reuse_pressure();
 	case_reuse_count();
+	case_cheap_reads();
 	case_random(rounds, seed);
 	printf("vclear-test: %d checks, %d failed\n", checks, fails);
 	return fails != 0;

@@ -47,12 +47,17 @@
 #define LOAD_PIECE	(64ULL * SZ_1M)	/* load-time zombies, so allocations start early */
 
 #ifdef PS3RSX_TEST_CLEAR
-/* boot 2's attribution arm only: frees as before, nothing cleared (never in a release build) */
+/* attribution arms only: frees as before, nothing cleared (never in a release build) */
 static bool test_clear_off;
 module_param(test_clear_off, bool, 0444);
 MODULE_PARM_DESC(test_clear_off, "TEST BUILD: don't clear freed VRAM (as before P3)");
+/* and a freed GART range back at once, as before P8 */
+static bool test_gart_p8_off;
+module_param(test_gart_p8_off, bool, 0444);
+MODULE_PARM_DESC(test_gart_p8_off, "TEST BUILD: a freed GART range goes back at once (as before P8)");
 #else
 #define test_clear_off false
+#define test_gart_p8_off false
 #endif
 
 static bool zombie_cpu(const struct ps3rsx_zombie *z)
@@ -177,13 +182,18 @@ void ps3rsx_vclear_reap_gart(struct ps3rsx_device *rsx)
 	unsigned long flags;
 	LIST_HEAD(done);
 	bool gone = gpu_gone(rsx), left;
+	u32 ref;
 
 	if (list_empty_careful(&vc->gart))
 		return;
+	ref = ps3rsx_ref_now(rsx);	/* one MMIO read for the whole reap */
 	spin_lock_irqsave(&vc->lock, flags);
-	list_for_each_entry_safe(z, tmp, &vc->gart, link)
-		if (gone || ps3rsx_seq_done(rsx, z->free_seq))
-			list_move_tail(&z->link, &done);
+	/* in free order: the leading run that has passed (vclear_gart_reap_n) */
+	list_for_each_entry_safe(z, tmp, &vc->gart, link) {
+		if (!gone && !vclear_seq_passed(ref, z->free_seq))
+			break;
+		list_move_tail(&z->link, &done);
+	}
 	left = !list_empty(&vc->gart);
 	spin_unlock_irqrestore(&vc->lock, flags);
 	zombies_release(rsx, &done);
@@ -200,7 +210,7 @@ bool ps3rsx_vclear_bo_free_locked(struct ps3rsx_device *rsx, struct ps3rsx_bo *b
 	struct ps3rsx_zombie *z = &bo->zombie;
 
 	if (!drm_mm_node_allocated(&bo->node) || bo->kind == BO_REPORTS ||
-	    (test_clear_off && bo->kind != BO_GART))
+	    (test_clear_off && bo->kind != BO_GART) || (test_gart_p8_off && bo->kind == BO_GART))
 		return false;
 	z->node = &bo->node;
 	z->bo = bo;

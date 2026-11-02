@@ -575,6 +575,68 @@ static int mm_show(struct seq_file *m, void *unused)
 	return 0;
 }
 
+static const char *bo_kind_name(const struct ps3rsx_bo *bo)
+{
+	switch (bo->kind) {
+	case BO_VRAM: return "vram";
+	case BO_VRAM_GPU_ONLY: return "vram-gpu";
+	case BO_GART: return "gart";
+	default: return "reports";
+	}
+}
+
+/*
+ * debugfs dri/N/ps3rsx_bos (root only, read only): where every buffer lies, for placement
+ * questions (lane-a's OpenArena modes): per open file its tgid, then each handle's GPU offset,
+ * size, kind and whether it is shared; then the kept buffers (owner's tgid) and the zombies
+ * waiting for their clear. Offsets and sizes only, no contents.
+ */
+static int bos_show(struct seq_file *m, void *unused)
+{
+	struct drm_debugfs_entry *entry = m->private;
+	struct ps3rsx_device *rsx = to_rsx(entry->dev);
+	struct drm_device *dev = &rsx->drm;
+	struct ps3rsx_zombie *z;
+	struct drm_file *file;
+	struct ps3rsx_bo *bo;
+	unsigned long flags;
+
+	mutex_lock(&dev->filelist_mutex);
+	list_for_each_entry(file, &dev->filelist, lhead) {
+		struct drm_gem_object *obj;
+		struct task_struct *task;
+		pid_t tgid = 0;
+		int id;
+
+		rcu_read_lock();
+		task = pid_task(rcu_dereference(file->pid), PIDTYPE_TGID);
+		if (task)
+			tgid = task_tgid_nr(task);
+		rcu_read_unlock();
+		spin_lock(&file->table_lock);
+		idr_for_each_entry(&file->object_idr, obj, id) {
+			bo = to_bo(obj);
+			seq_printf(m, "bo tgid %d handle %d %s %#010llx %#llx%s%s\n", tgid, id,
+				   bo_kind_name(bo), bo->offset, (u64)obj->size,
+				   READ_ONCE(bo->shared) ? " shared" : "", bo->dumb ? " dumb" : "");
+		}
+		spin_unlock(&file->table_lock);
+	}
+	mutex_unlock(&dev->filelist_mutex);
+	mutex_lock(&rsx->mm_lock);
+	list_for_each_entry(bo, &rsx->keep.kept, kept_link)
+		seq_printf(m, "kept tgid %d %s %#010llx %#llx\n", bo->owner ? bo->owner->tgid : 0,
+			   bo_kind_name(bo), bo->node.start, bo->node.size);
+	mutex_unlock(&rsx->mm_lock);
+	spin_lock_irqsave(&rsx->vc.lock, flags);
+	list_for_each_entry(z, &rsx->vc.vram, link)
+		seq_printf(m, "zombie vram %#010llx %#llx\n", z->start, z->size);
+	list_for_each_entry(z, &rsx->vc.gart, link)
+		seq_printf(m, "zombie gart %#010llx %#llx\n", z->start, z->size);
+	spin_unlock_irqrestore(&rsx->vc.lock, flags);
+	return 0;
+}
+
 int ps3rsx_mem_init(struct ps3rsx_device *rsx)
 {
 	u64 cpu_end = min_t(u64, CPU_VRAM_LIMIT, rsx->info.memory_size);
@@ -586,6 +648,7 @@ int ps3rsx_mem_init(struct ps3rsx_device *rsx)
 	drm_mm_init(&rsx->vram_cpu, rsx->info.reserved, cpu_end - rsx->info.reserved);
 	drm_mm_init(&rsx->vram_gpu, cpu_end, rsx->info.memory_size - cpu_end);
 	drm_debugfs_add_file(&rsx->drm, "ps3rsx_mm", mm_show, NULL);
+	drm_debugfs_add_file(&rsx->drm, "ps3rsx_bos", bos_show, NULL);
 
 	ret = ps3rsx_gart_init(rsx);
 	if (ret) {

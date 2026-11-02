@@ -93,6 +93,12 @@ static const struct dma_fence_ops ps3rsx_fence_ops = {
 	.signaled = fence_signaled,
 };
 
+/* The reference register now (one MMIO read; vclear.h's vclear_seq_passed compares) */
+u32 ps3rsx_ref_now(struct ps3rsx_device *rsx)
+{
+	return ref_read(rsx);
+}
+
 /* Has the GPU passed fence seq? */
 bool ps3rsx_seq_done(struct ps3rsx_device *rsx, u32 seq)
 {

@@ -163,6 +163,32 @@ static inline bool vclear_keep_over(u64 owner_bytes, u32 owner_n, u64 total, u32
 	       total > VCLEAR_KEEP_TOTAL || total_n > VCLEAR_KEEP_TOTAL_N;
 }
 
+/* Has the GPU passed seq, given a reference read once (wrap-safe, as exec.c's) */
+static inline bool vclear_seq_passed(u32 ref, u32 seq)
+{
+	return (int)(ref - seq) >= 0;
+}
+
+/* The cheap part of the reuse test, before the reference is read (an MMIO load per entry) */
+static inline bool vclear_reuse_candidate(bool same_owner, u64 kept_size, u64 size)
+{
+	return same_owner && kept_size == size;
+}
+
+/*
+ * The GART reap: how many of the zombies, in free order with free_seq[0..n), go back, given one
+ * read of the reference: the leading run that has passed. It stops at the first one that hasn't
+ * (one read per reap, not one per zombie); an out-of-order later one waits a little, never more.
+ */
+static inline unsigned int vclear_gart_reap_n(const u32 *free_seq, unsigned int n, u32 ref)
+{
+	unsigned int i;
+
+	for (i = 0; i < n && vclear_seq_passed(ref, free_seq[i]); i++)
+		;
+	return i;
+}
+
 /*
  * May owner take this kept range for a new BO of size bytes, aligned to align (a power of two),
  * CPU-mappable if mappable (cpu_limit: the end of the CPU-visible heap)? Only its own, whole,

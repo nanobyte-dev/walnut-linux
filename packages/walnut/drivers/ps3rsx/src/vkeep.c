@@ -188,13 +188,17 @@ struct ps3rsx_bo *ps3rsx_reuse(struct ps3rsx_device *rsx, struct ps3rsx_owner *o
 	if (!o || test_reuse_off)
 		return NULL;
 	mutex_lock(&rsx->mm_lock);
-	list_for_each_entry(bo, &k->kept, kept_link)
+	list_for_each_entry(bo, &k->kept, kept_link) {
+		/* owner and size first: the reference is an MMIO read, only for a candidate */
+		if (!vclear_reuse_candidate(bo->owner == o, bo->node.size, size))
+			continue;
 		if (vclear_reuse_fits(bo->owner == o, o->closed, ps3rsx_seq_done(rsx, bo->kept_seq),
 				      bo->node.start, bo->node.size, size, align, mappable,
 				      CPU_VRAM_LIMIT)) {
 			found = bo;
 			break;
 		}
+	}
 	if (found) {
 		list_del_init(&found->kept_link);
 		k->bytes -= size;

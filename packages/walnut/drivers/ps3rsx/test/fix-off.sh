@@ -105,6 +105,10 @@ off reuse-count-cap "FAIL: reuse: " -T vclear-test.c -E vclear.h VCLEAR_H \
 	       total > VCLEAR_KEEP_TOTAL || total_n > VCLEAR_KEEP_TOTAL_N;' ' ||
 	       total > VCLEAR_KEEP_TOTAL;'
 off reuse-miss-all "FAIL: a miss of 8 pages" -T vclear-test.c -DOLD_PRESSURE_ALL
+off gart-reap-one-read "FAIL: the GART reap: " -T vclear-test.c -E vclear.h VCLEAR_H \
+	'for (i = 0; i < n && vclear_seq_passed(ref, free_seq[i]); i++)' 'for (i = 0; i < n; i++)'
+off reuse-cheap-first "FAIL: the reuse walk: " -T vclear-test.c -E vclear.h VCLEAR_H \
+	'return same_owner && kept_size == size;' 'return true;'
 off clear-overrun "FAIL: random: launch " -T vclear-test.c -E vclear.h VCLEAR_H \
 	'u64 lines = (c->hi - at) / VCLEAR_LINE;' \
 	'u64 lines = (c->hi - at + VCLEAR_ZERO_SIZE - 1) / VCLEAR_ZERO_SIZE * VCLEAR_MAX_LINES;'

@@ -416,6 +416,7 @@ unsigned long ps3rsx_gart_pfn(struct ps3rsx_device *rsx, u64 io);
 void ps3rsx_gart_read(struct ps3rsx_device *rsx, void *dst, u64 io, size_t len);
 void ps3rsx_gart_clear(struct ps3rsx_device *rsx, u64 io, size_t len);
 bool ps3rsx_seq_done(struct ps3rsx_device *rsx, u32 seq);
+u32 ps3rsx_ref_now(struct ps3rsx_device *rsx);
 
 int ps3rsx_validate(struct ps3rsx_vstate *vs, const u32 *w, u32 nwords);
 void ps3rsx_shadow_write(struct ps3rsx_shadow *sh, u32 subch, u32 m, u32 v);
