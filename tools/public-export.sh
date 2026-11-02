@@ -11,7 +11,8 @@
 # of a licensed name: tools/licensed.py names) are left out of every commit, and so are the played sessions'
 # raw files (gamedb/**/raw/**: the harness's logs and samples, scrubbed but private; tools/gamedb/evidence.py),
 # whose Git LFS objects then never reach GitHub either (make public-push pushes what the export's commits
-# name). The rewrite is deterministic: running it again on a
+# name). A commit that only touched left-out paths stays as an empty commit (--prune-empty never): the public
+# history has exactly main's commits. The rewrite is deterministic: running it again on a
 # longer main gives the same commit IDs for the old commits, so the public repository fast-forwards.
 # Nothing is pushed: the push to github.com/nanobyte-dev is the user's step (printed at the end).
 # Needs git-filter-repo (pip install --user git-filter-repo).
@@ -39,7 +40,7 @@ licensed=$(python3 -I "$SRC/tools/licensed.py" names) && [ -n "$licensed" ] ||
 	{ echo "!! tools/licensed.py names failed: nothing exported" >&2; exit 2; }
 drop=(--path packages/licensed/ --path-glob 'gamedb/*/*/licensed/*' --path-regex '^gamedb/(.+/)?raw/')
 for n in $licensed; do drop+=(--path-glob "packages/*/$n/*" --path-glob "packages/*/*/$n/*"); done
-git filter-repo --quiet --force --invert-paths "${drop[@]}" --strip-blobs-with-ids "$DIR/.git/strip-blobs" \
+git filter-repo --quiet --force --prune-empty never --invert-paths "${drop[@]}" --strip-blobs-with-ids "$DIR/.git/strip-blobs" \
 	--replace-text "$REPL" --replace-message "$REPL" --message-callback '
 import re
 lines = message.split(b"\n")

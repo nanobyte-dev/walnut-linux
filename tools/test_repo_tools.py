@@ -336,6 +336,43 @@ class GenWorkflows(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stdout)
 
 
+class PublicExport(unittest.TestCase):
+    """tools/public-export.sh on a small repository: a commit that only touches left-out paths (a licensed
+    package's directory) stays in the public history as an empty commit, so public and private commit
+    counts match"""
+
+    def git(self, d, *a):
+        return subprocess.run(["git", "-C", d, "-c", "user.name=t", "-c", "user.email=t@example.org", *a],
+                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, check=True).stdout
+
+    def test_only_left_out_paths_commit_is_kept(self):
+        if not shutil.which("git-filter-repo") and not os.path.exists(os.path.expanduser("~/.local/bin/git-filter-repo")):
+            self.skipTest("no git-filter-repo")
+        with tempfile.TemporaryDirectory() as tmp:
+            src, out = os.path.join(tmp, "src"), os.path.join(tmp, "out")
+            os.makedirs(os.path.join(src, "tools"))
+            self.git(src, "init", "-q", "-b", "main")
+            for f in ("public-export.sh", "licensed.py", "licensed-files.txt"):
+                shutil.copy(HERE / f, os.path.join(src, "tools", f))
+            Path(src, "tools", "public-strip-blobs.txt").write_text("")
+            Path(src, "tools", "public-replace.local.txt").write_text("literal:NOT-IN-THIS-REPO\n")
+            self.git(src, "add", "-A")
+            self.git(src, "commit", "-qm", "tools")
+            os.makedirs(os.path.join(src, "packages", "licensed", "gamex"))
+            Path(src, "packages", "licensed", "gamex", "data.txt").write_text("x\n")
+            self.git(src, "add", "-A")
+            self.git(src, "commit", "-qm", "only a licensed directory")
+            Path(src, "a.txt").write_text("a\n")
+            self.git(src, "add", "-A")
+            self.git(src, "commit", "-qm", "a file")
+            env = dict(os.environ, PATH=os.path.expanduser("~/.local/bin") + ":" + os.environ["PATH"])
+            r = subprocess.run(["bash", os.path.join(src, "tools", "public-export.sh"), out], env=env, cwd=src,
+                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            self.assertEqual(r.returncode, 0, r.stdout)
+            self.assertEqual(self.git(out, "rev-list", "--count", "main").strip(), "3", r.stdout)
+            self.assertNotIn("packages/licensed", self.git(out, "log", "--name-only", "--format="))
+
+
 class DeployAptCheck(unittest.TestCase):
     """tools/deploy.sh: the remote script's `apt-get check` is fatal (run here with a stand-in sudo)"""
 
