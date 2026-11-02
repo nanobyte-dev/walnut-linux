@@ -95,5 +95,60 @@ class ImageCheck(unittest.TestCase):
         self.assertEqual(rc, 2, out)
 
 
+def raw_members(files):
+    """tar members without the end-of-archive block"""
+    buf = io.BytesIO()
+    t = tarfile.open(fileobj=buf, mode="w", format=tarfile.GNU_FORMAT)
+    for name, data in files.items():
+        ti = tarfile.TarInfo(name)
+        ti.size = len(data)
+        t.addfile(ti, io.BytesIO(data))
+    return buf.getvalue()
+
+
+EOA = b"\0" * 1024
+
+
+class BrokenStreams(unittest.TestCase):
+    """a tar that stops making sense after valid members: the guard fails instead of calling it clean"""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.path = os.path.join(self.tmp.name, "r.tar")
+        self.ok = raw_members({"./var/lib/dpkg/status": STATUS.encode()})
+        self.dev = raw_members({"./home/tibi/.ssh/id_rsa": b"x"})
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def check(self, data, want):
+        with open(self.path, "wb") as f:
+            f.write(data)
+        rc, out = run(self.path)
+        self.assertEqual(rc, want, out)
+        return out
+
+    def test_whole_stream_is_clean(self):
+        self.check(self.ok + EOA, 0)
+
+    def test_garbage_between_members(self):
+        self.check(self.ok + b"\x07garbage" * 64 + self.dev + EOA, 1)
+
+    def test_header_cut_short(self):
+        self.check(self.ok + self.dev[:300], 1)
+
+    def test_no_end_of_archive_block(self):
+        self.check(self.ok + self.dev, 1)
+        self.check(self.ok, 1)
+
+    def test_names_are_normalized(self):
+        for name in ("./home//tibi/x", "./home/./tibi/x", "./usr/../home/tibi/x", "home/tibi/../tibi/x", "/home/tibi/x"):
+            out = self.check(raw_members({"./var/lib/dpkg/status": STATUS.encode(), name: b"x"}) + EOA, 1)
+            self.assertIn("LEAK", out, name)
+
+    def test_empty_status_file(self):
+        self.check(raw_members({"./var/lib/dpkg/status": b""}) + EOA, 2)
+
+
 if __name__ == "__main__":
     unittest.main()

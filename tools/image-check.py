@@ -12,6 +12,7 @@ Run it as python3 -I tools/image-check.py TAR.
 """
 import importlib.util
 import os
+import posixpath
 import subprocess
 import sys
 import tarfile
@@ -26,6 +27,11 @@ def load(name, path):
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
+
+
+def normalize(name):
+    """the path a member lands at, root-relative: // and ./ collapsed, .. resolved, no leading /"""
+    return posixpath.normpath("/" + name).lstrip("/").rstrip("/") if name.strip("/.") else ""
 
 
 def dev_hit(rel):
@@ -44,12 +50,12 @@ def scan(tar_path, status_out):
     globs = lic.globs()
     found = 0
     have_status = False
-    with tarfile.open(tar_path, "r|*") as tf:
+    with tarfile.open(tar_path, "r:*") as tf:
         for m in tf:
-            rel = m.name
-            while rel.startswith("./"):
-                rel = rel[2:]
-            rel = rel.strip("/")
+            rel = normalize(m.name)
+            if ".." in m.name.split("/"):
+                print("LEAK: a '..' in a member name of the image: %s" % m.name[:80])
+                found += 1
             if not rel:
                 continue
             p = dev_hit(rel)
@@ -64,6 +70,12 @@ def scan(tar_path, status_out):
                 with open(status_out, "wb") as out:
                     out.write(tf.extractfile(m).read())
                 have_status = True
+        # tarfile ends its iteration quietly at a bad or cut-short header; the stream is only whole when the
+        # block where it stopped is tar's end-of-archive block (512 zero bytes), as GNU tar would end it
+        tf.fileobj.seek(tf.offset)
+        if tf.fileobj.read(512) != b"\0" * 512:
+            print("!! the tar stops at a bad or short header, or without its end-of-archive block")
+            found += 1
     if not have_status:
         print("!! no var/lib/dpkg/status in the image")
         found += 1
