@@ -109,6 +109,7 @@ bash
 sh
 dash
 sleep
+pgrep
 cat
 awk
 sed

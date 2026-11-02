@@ -23,7 +23,10 @@ ssh -i "$ps3_key" -o UserKnownHostsFile=build/ps3_known_hosts -o ConnectTimeout=
 			case "$seen" in *" $d "*) ;; *) echo "NEW $d"; seen="$seen$d ";; esac
 		done
 		for d in $seen; do [ -d "$d" ] || { echo "END $d"; seen=${seen/ $d / }; }; done
-		if pgrep -x run.sh >/dev/null; then idle=0; else idle=$((idle + 5)); [ $idle -ge 90 ] && exit 0; fi
+		# no pgrep: a short-lived process in a harness snapshot shows a huge lifetime pcpu and
+		# was flagged procs=unexpected (2026-11-02); /proc and builtins start nothing
+		run=0; for c in /proc/[0-9]*/comm; do read -r n < "$c" 2>/dev/null && [ "$n" = run.sh ] && { run=1; break; }; done
+		if [ $run = 1 ]; then idle=0; else idle=$((idle + 5)); [ $idle -ge 90 ] && exit 0; fi
 		sleep 5
 	done' 2>/dev/null |
 while read -r ev d; do

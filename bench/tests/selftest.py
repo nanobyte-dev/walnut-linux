@@ -757,6 +757,7 @@ def client_procs(tmp):
     extra = {"clean": "", "browser": "  900     1  3000  0.0 S    badwolf         badwolf https://example.org\n",
              "compiler": "  901   410 80000 95.0 R    cc1plus         /usr/lib/gcc/cc1plus big.cc\n",
              "unknown": "  902     1 52000  0.1 S    mystery         /opt/mystery --serve\n",
+             "pgrep": "  904     1  1000 90.0 R    pgrep           pgrep -x run.sh\n",
              "quiet": "  903     1  1000  0.2 S    mystery         /opt/mystery\n"}
     for k, v in extra.items():
         write(tmp / ("ps-" + k + ".txt"), base.replace("\\n", "\n") + v.replace("\\n", "\n"))
@@ -794,6 +795,8 @@ def client_procs(tmp):
           b.get("unexpected") == "mystery", b)
     p, d, b = run(4, "quiet")
     check("procs: an unknown small, idle process passes", b.get("procs") == "ok", b)
+    p, d, b = run(5, "pgrep")
+    check("procs: bench-cam's pgrep (short-lived, high lifetime pcpu) is allowed by exact name", b.get("procs") == "ok", b)
     p = subprocess.run(["python3", "-I", str(HARNESS / "proccheck.py"), str(HARNESS / "allowed-processes.txt"), "700",
                         str(tmp / "ps-clean.txt")], capture_output=True, text=True)
     check("procs: proccheck.py alone: clean list, empty first line", p.returncode == 0 and p.stdout == "\n", (p.stdout, p.stderr))
