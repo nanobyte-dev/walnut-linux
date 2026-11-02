@@ -719,5 +719,30 @@ class Runs(unittest.TestCase):
 		self.assertIn("Important field", out)
 		self.assertNotIn("Package: baz\n", self.packages())
 
+	def test_check_output_manifest_binds_the_key_job(self):
+		"""L-5: stable's check job (dpkg-deb, leak-check) writes a manifest; the key job checks the same bytes with python only."""
+		self.build("foo", "1")
+		d = f"{self.root}/build{self.n}"
+		man = f"{self.root}/stable-manifest.json"
+		env = dict(os.environ, WALNUT_GIT_DIR=self.repo, PATH=f"{self.fake_dpkg(honest=True)}:{os.environ['PATH']}")
+		run = lambda *args, e=env: subprocess.run([SCRIPT, "check-output", *args], env=e, capture_output=True, text=True)
+		# the fixture's versions aren't the commit's: stable would refuse; the manifest steps are checked on a non-strict run
+		r = run("--manifest-out", man, "foo", d)
+		self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+		self.assertTrue(json.load(open(man))["files"])
+		plain = dict(os.environ, WALNUT_GIT_DIR=self.repo)	# the key job: no dpkg-deb on its PATH is fine with a manifest
+		r = run("--manifest", man, "foo", d, e=plain)
+		self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+		with open(f"{d}/foo_1_ppc64.deb", "ab") as f:	# the bytes changed between the two jobs
+			f.write(b"\0")
+		r = run("--manifest", man, "foo", d, e=plain)
+		self.assertNotEqual(r.returncode, 0)
+		with open(f"{d}/foo_1_ppc64.deb", "r+b") as f:
+			f.truncate(os.path.getsize(f"{d}/foo_1_ppc64.deb") - 1)
+		self.assertEqual(run("--manifest", man, "foo", d, e=plain).returncode, 0)
+		# strict without a manifest wants dpkg-deb
+		r = run("--strict", "foo", d, e=plain)
+		self.assertIn("dpkg-deb is missing", r.stdout + r.stderr)
+
 if __name__ == "__main__":
 	unittest.main()

@@ -132,6 +132,16 @@ class Generated(unittest.TestCase):
 		self.assertIn("secrets.WALNUT_CACHE_SALT", trusted)
 		self.assertNotIn("restore-keys", t)
 		self.assertIn("refs/heads/main", t[t.index("\n  publish:\n"):])
+		# stable: the check job holds no key and no environment; the key job checks the same bytes by manifest
+		chk = t[t.index("\n  publish-check:\n"):t.index("\n  publish:\n")]
+		self.assertNotIn("secrets.", chk)
+		self.assertNotIn("environment:", chk)
+		self.assertIn("--strict", chk)
+		self.assertIn("--manifest-out", chk)
+		pub = t[t.index("\n  publish:\n"):]
+		self.assertIn("environment: walnut-stable", pub)
+		self.assertIn("--manifest ", pub)
+		self.assertIn("publish-check", pub[:300])
 		self.assertIsNone(re.search(r"key: (chroot|spu)-", t))	# no unsalted key
 
 	def test_no_salt_means_no_actions_cache(self):

@@ -812,6 +812,8 @@ def cmd_check_output(a):
 	"""The checks on a build's output directory, from the working tree's lists (build-package.sh: the
 	drift check; stable's publish job: with --strict, nothing only warns)."""
 	ctx = Ctx(a.suite, warn=set() if a.strict else None, dpkg="require" if a.strict else "auto", disk_lists=True)
+	if a.manifest:	# the key job: the check job ran dpkg-deb and leak-check on these bytes, the manifest binds them
+		ctx.dpkg, ctx.leak = "off", False
 	if a.suite_index:
 		keyring = f"{ROOT}/apt-repo/keyrings/{'archive' if a.suite == 'stable' else 'testing'}-keyring.gpg"
 		for st, attr in ((wr.Suite(a.url, a.suite, keyring), "index"), (wr.Suite(a.url, f"{a.suite}-debug", keyring), "debug_index")):
@@ -840,6 +842,17 @@ def cmd_check_output(a):
 			log("-- no usable list for this package yet: not a failure")
 			return 0
 		return 1
+	if a.manifest_out or a.manifest:
+		hashes = hash_dir(a.dir)
+		if a.manifest_out:
+			with open(a.manifest_out, "w") as f:
+				json.dump({"files": hashes}, f, separators=(",", ":"))
+		if a.manifest:
+			with open(a.manifest) as f:
+				want = json.load(f)["files"]
+			if want != hashes:
+				log("!! the files are not the ones the check job checked")
+				return 1
 	return 0
 
 
@@ -881,6 +894,8 @@ def main():
 	s.add_argument("--suite", default="testing", choices=("testing", "stable"))
 	s.add_argument("--strict", action="store_true", help="nothing only warns (stable)")
 	s.add_argument("--suite-index", action="store_true", help="also check names against the published suite")
+	s.add_argument("--manifest-out", help="write the hashes of the files that passed (the check job, no keys)")
+	s.add_argument("--manifest", help="the check job's manifest: these exact files, checked again with python only (the key job)")
 	s.add_argument("--url", default=os.environ.get("WALNUT_APT_URL", wr.URL))
 	a = p.parse_args()
 	try:

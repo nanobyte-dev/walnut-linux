@@ -263,11 +263,15 @@ PACKAGE_COMMON_2 = """      - name: Name the output
           compression-level: 0
 """
 PACKAGE_TAIL = """
-  publish:
+  publish-check:
+    # parses the build's bytes (dpkg-deb, tar, leak-check) where no key exists: no environment, no secret
     needs: [build, build-external]
     if: always() && inputs.target == 'stable' && (needs.build.result == 'success' || needs.build-external.result == 'success')
     runs-on: ubuntu-24.04
-    environment: walnut-stable
+    permissions:
+      contents: read
+    outputs:
+      manifest: ${{ steps.check.outputs.manifest }}
     steps:
       - name: Only from main
         run: |
@@ -281,9 +285,38 @@ PACKAGE_TAIL = """
           name: ${{ needs.build.outputs.artifact || needs.build-external.outputs.artifact }}
           path: out
       - name: What this package may publish
-        # no secrets in this step: names, Sources, versions and relations against github-ci/packages.toml at
-        # this commit, and the names against stable's index; nothing only warns on the way to stable
-        run: github-ci/batch-publish.py check-output --strict --suite stable --suite-index ${{ inputs.package }} out
+        id: check
+        # names, Sources, versions and relations against github-ci/packages.toml at this commit, and the names
+        # against stable's index; nothing only warns on the way to stable
+        run: |
+          github-ci/batch-publish.py check-output --strict --suite stable --suite-index --manifest-out "$RUNNER_TEMP/manifest.json" ${{ inputs.package }} out
+          echo "manifest=$(cat "$RUNNER_TEMP/manifest.json")" >> "$GITHUB_OUTPUT"
+
+  publish:
+    needs: [build, build-external, publish-check]
+    if: always() && inputs.target == 'stable' && needs.publish-check.result == 'success'
+    runs-on: ubuntu-24.04
+    environment: walnut-stable
+    steps:
+      - name: Only from main
+        run: |
+          [ "$GITHUB_REF" = refs/heads/main ] || { echo "::error::stable is published from refs/heads/main only"; exit 1; }
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/download-artifact@v8
+        with:
+          name: ${{ needs.build.outputs.artifact || needs.build-external.outputs.artifact }}
+          path: out
+      - name: The same bytes, checked again
+        # python only, no dpkg-deb or leak-check here (publish-check ran them where no key exists); the
+        # manifest binds the files
+        env:
+          WALNUT_MANIFEST: ${{ needs.publish-check.outputs.manifest }}
+        run: |
+          printf '%s' "$WALNUT_MANIFEST" > "$RUNNER_TEMP/manifest.json"
+          github-ci/batch-publish.py check-output --strict --suite stable --suite-index --manifest "$RUNNER_TEMP/manifest.json" ${{ inputs.package }} out
       - name: Publish to stable
         env:
           WALNUT_SIGN_KEY: ${{ secrets.WALNUT_ARCHIVE_SUBKEY }}
