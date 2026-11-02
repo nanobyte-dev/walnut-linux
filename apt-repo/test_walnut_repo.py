@@ -432,5 +432,33 @@ class Repo(unittest.TestCase):
 			self.assertTrue(self.publish(self.add([deb])).startswith("ok"))
 
 
+	def test_pool_copies_are_plain_files_written_once(self):
+		"""L-4: a link as an argument, and one pool path with two contents, are refused."""
+		d = self.debs
+		real = make_deb(f"{d}/real.deb", "linked", "1")
+		os.symlink(real, f"{d}/linked_1_ppc64.deb")
+		r = self.repo("add", "--suite", "testing", "--keyring", self.keys["ci"][2], "--sign-key",
+		              self.keys["ci"][1], "--out", f"{self.root}/o", f"{d}/linked_1_ppc64.deb", ok=False)
+		self.assertIn("not a regular file", r.stderr)
+		# two source packages of one name sharing an orig tarball name with different bytes
+		a = self.make_dsc("foo", "1.0", {"orig.tar.xz": b"one"})
+		os.rename(a, f"{d}/foo_1.0.dsc")
+		os.rename(f"{d}/src/orig.tar.xz", f"{d}/orig-one")
+		os.makedirs(f"{d}/two")
+		open(f"{d}/two/orig.tar.xz", "wb").write(b"two")
+		open(f"{d}/two/foo_1.1.dsc", "w").write(open(f"{d}/foo_1.0.dsc").read().replace("1.0", "1.1").replace(
+			hashlib.sha256(b"one").hexdigest(), hashlib.sha256(b"two").hexdigest()).replace(
+			hashlib.md5(b"one").hexdigest(), hashlib.md5(b"two").hexdigest()))
+		os.rename(f"{d}/orig-one", f"{d}/orig.tar.xz")
+		r = self.repo("add", "--suite", "testing", "--keyring", self.keys["ci"][2], "--sign-key",
+		              self.keys["ci"][1], "--out", f"{self.root}/o", f"{d}/foo_1.0.dsc", f"{d}/two/foo_1.1.dsc", ok=False)
+		self.assertIn("two different files for one pool path", r.stderr)
+		# the same orig shared by two versions is fine
+		open(f"{d}/two/orig.tar.xz", "wb").write(b"one")
+		open(f"{d}/two/foo_1.1.dsc", "w").write(open(f"{d}/foo_1.0.dsc").read().replace("1.0", "1.1"))
+		self.repo("add", "--suite", "testing", "--keyring", self.keys["ci"][2], "--sign-key",
+		          self.keys["ci"][1], "--out", f"{self.root}/o", f"{d}/foo_1.0.dsc", f"{d}/two/foo_1.1.dsc")
+
+
 if __name__ == "__main__":
 	unittest.main()

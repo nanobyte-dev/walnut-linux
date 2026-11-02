@@ -545,18 +545,33 @@ def merge(existing, new, key, label, log, strict=False):
 	return list(have.values()), added
 
 
+COPIED = {}	# (out, pool path) -> sha256 of what was copied there in this run
+
+
 def copy_pool(out, rel, src, sha256):
-	"""Copies src to out/rel from one open file, hashing what is copied: it must be the bytes the index names."""
+	"""Copies src to out/rel from one open file, hashing what is copied: it must be the bytes the index names.
+	src is opened without following a link and must be a regular file; a pool path written twice must get the
+	same bytes (two source packages share an orig tarball, never a name with two contents)."""
+	if COPIED.get((out, rel), sha256) != sha256:
+		raise Error(f"pool/{rel}: two different files for one pool path")
 	dst = f"{out}/{rel}"
 	os.makedirs(os.path.dirname(dst), exist_ok=True)
-	h = hashlib.sha256()
-	with open(src, "rb") as fi, open(dst, "wb") as fo:
-		while chunk := fi.read(1 << 20):
-			h.update(chunk)
-			fo.write(chunk)
+	try:
+		fd = os.open(src, os.O_RDONLY | os.O_NOFOLLOW)
+	except OSError as e:
+		raise Error(f"{src}: cannot be opened as a plain file ({e.strerror})") from None
+	with os.fdopen(fd, "rb") as fi:
+		if not stat.S_ISREG(os.fstat(fi.fileno()).st_mode):
+			raise Error(f"{src}: not a regular file")
+		h = hashlib.sha256()
+		with open(dst, "wb") as fo:
+			while chunk := fi.read(1 << 20):
+				h.update(chunk)
+				fo.write(chunk)
 	if h.hexdigest() != sha256:
 		os.unlink(dst)
 		raise Error(f"{src}: changed after it was read")
+	COPIED[(out, rel)] = sha256
 
 
 # --- commands --------------------------------------------------------------------------------
@@ -588,9 +603,12 @@ def add_suite(a, out, suite, debs, dscs, keep):
 
 
 def cmd_add(a):
+	COPIED.clear()
 	for f in a.files:	# the name goes into the pool path and the index: plain, whatever the caller passed
 		if not PLAIN_NAME_RE.match(os.path.basename(f)):
 			raise Error(f"{os.path.basename(f)!r}: not a plain file name")
+		if not os.path.lexists(f) or not stat.S_ISREG(os.lstat(f).st_mode):
+			raise Error(f"{os.path.basename(f)}: not a regular file (a link, or missing)")
 	debs = [f for f in a.files if f.endswith(".deb")]
 	dscs = [f for f in a.files if f.endswith(".dsc")]
 	bad = [f for f in a.files if f not in debs and f not in dscs]
