@@ -37,7 +37,7 @@
 #            entries and its /etc/kboot.d extras on a fake root), fix-ladder (tools/ladder.py --top: the fix ladder's top rung, every Mesa
 #            stability fix in, each test of the register must pass; make ladder FULL=1 is every rung, docs/VALIDATION.md),
 #            agent-guard (tools/hooks/agent-guard.py, the PreToolUse hook: refused and allowed commands), commit-tests (tools/commit_tests/tests: each commit check on good and bad cases, then the hooks end to end on a clone in build/tmp), commit-hooks (make hooks's stubs are installed in .git/hooks), ps3-lease (tools/ps3's lease, and deploy.sh and play-test.sh refusing under someone else's), leak-check (tools/leak-check.py on
-#            synthetic packages and sources), repo-tools (tools/test_repo_tools.py: pkg-dir.sh,
+#            synthetic packages and sources), image-check (tools/image-check.py on fabricated rootfs tars), repo-tools (tools/test_repo_tools.py: pkg-dir.sh,
 #            licensed.py, deb-version.sh's patterns, doclinks.py, blocks.py, image-packages.sh on small
 #            fake trees), licensed (tools/licensed.py check on this tree), workflows
 #            (github-ci/gen-workflows.py --check: .github/workflows is what it writes), blocks
@@ -173,6 +173,7 @@ run commit-tests bash -c "python3 -I tools/commit_tests/tests/test_checks.py && 
 run commit-hooks tools/hooks/install.sh --check
 run ps3-lease bash tools/test_ps3_lease.sh
 run leak-check python3 tools/test_leak_check.py
+run image-check python3 -I tools/test_image_check.py
 run repo-tools python3 -I tools/test_repo_tools.py
 run licensed python3 -I tools/licensed.py check
 run workflows python3 -I github-ci/gen-workflows.py --check

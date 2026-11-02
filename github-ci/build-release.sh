@@ -51,8 +51,7 @@ lic=$(python3 -I tools/licensed.py names) && [ -n "$lic" ] || { echo "!! tools/l
 if grep -qxF -f <(printf '%s\n' $lic) <(cut -d' ' -f1 "$x/MANIFEST"); then
 	echo "!! a licensed package in the image" >&2; exit 1
 fi
-tar -tf "$tar" | grep -q -e '^\./home/tibi' -e '^\./etc/sudoers\.d/tibi$' -e '^\./etc/apt/sources\.list\.d/ps3-lan' &&
-	{ echo "!! dev profile files in the public image" >&2; exit 1; }
+python3 -I tools/image-check.py "$tar" || { echo "!! the public image failed tools/image-check.py" >&2; exit 1; }
 
 echo "::group::xz"
 xz -T0 -9 -c "$tar" > "$x/rootfs.tar.xz"

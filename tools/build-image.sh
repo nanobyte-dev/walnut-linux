@@ -106,7 +106,9 @@ $APT --no-remove upgrade > /dev/null
 $APT --no-remove install $PKGS > /dev/null
 $APT autoremove --purge | grep "^Removing " | cut -d" " -f2 | paste -sd' ' | sed 's/^/>> autoremoved: /'
 chroot "$R" dpkg-query -W -f='${Package} ${Version}\n' mesa-libgallium libgbm1 | sed 's/^/>> /'
-if chroot "$R" dpkg-query -W -f='${Package}\n' 'libllvm*' 'libz3-*' 2>/dev/null | grep -q .; then
+# (the output goes to a variable: `cmd | grep -q` under pipefail fails open when grep stops reading early)
+llvm=$(chroot "$R" dpkg-query -W -f='${Package}\n' 'libllvm*' 'libz3-*' 2>/dev/null || true)
+if [ -n "$llvm" ]; then
 	echo "!! LLVM or z3 still installed"; exit 1
 fi
 # An image from testing (a nightly) follows testing: its source on, at stable's priority (the
@@ -115,8 +117,8 @@ fi
 # after it, left testing at 1 on the first nightly)
 if [ "${WALNUT_SUITE:-}" = testing ]; then
 	sed -i '/Suites: testing/,/^$/s/^Enabled: no$/Enabled: yes/' "$R/etc/apt/sources.list.d/walnut.sources"
-	grep -A3 'Suites: testing' "$R/etc/apt/sources.list.d/walnut.sources" | grep -qx 'Enabled: yes' ||
-		{ echo "!! testing not enabled in walnut.sources"; exit 1; }
+	testing_on=$(grep -A3 'Suites: testing' "$R/etc/apt/sources.list.d/walnut.sources" | grep -x 'Enabled: yes' || true)
+	[ -n "$testing_on" ] || { echo "!! testing not enabled in walnut.sources"; exit 1; }
 	printf '%s\n' '# a nightly image: testing as the default (ps3-system walnut.pref has it at 1 otherwise)' \
 		'Package: *' 'Pin: release o=Walnut, n=testing' 'Pin-Priority: 990' > "$R/etc/apt/preferences.d/00-walnut-nightly"
 fi
@@ -162,6 +164,11 @@ tar --sort=name --mtime="@$SOURCE_DATE_EPOCH" --clamp-mtime --numeric-owner --on
 	--format=pax --pax-option=exthdr.name=%d/PaxHeaders/%f,delete=atime,delete=ctime --xattrs \
 	--xattrs-exclude='security.selinux' \
 	-C "$R" -cf "$OUT/debian-ppc64.tar.tmp" .
+
+# The public image holds no dev account, no licensed content path and no licensed package
+if [ "$PROFILE" = "public" ]; then
+	python3 -I tools/image-check.py "$OUT/debian-ppc64.tar.tmp" || { rm -f "$OUT/debian-ppc64.tar.tmp"; echo "!! the public image failed tools/image-check.py"; exit 1; }
+fi
 
 # The previous image is kept as one backup (images are ephemeral: CLAUDE.md)
 [ ! -e "$OUT/debian-ppc64.tar" ] || mv "$OUT/debian-ppc64.tar" "$OUT/debian-ppc64.prev.tar"
