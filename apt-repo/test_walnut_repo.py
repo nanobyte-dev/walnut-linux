@@ -368,5 +368,27 @@ class Repo(unittest.TestCase):
 		self.assertFalse(os.path.exists(f"{self.root}/pool/a/g"))
 
 
+	def test_dependency_fields_apt_can_parse(self):
+		"""One value apt can't parse makes apt refuse the whole Packages file on every console (H-1)."""
+		d = self.debs
+		bad = {"Depends": ["foo bar", "foo (>= )", "foo (<< 1", "foo,, bar", "foo |", "Foo", "foo (~ 1)", "foo (>= 1 2)"],
+		       "Breaks": ["foo (<< 1", "foo | bar", "foo bar"], "Conflicts": ["foo | bar"], "Replaces": ["foo | bar"],
+		       "Provides": ["foo (>= 1)", "foo:any", "foo | bar", "foo bar"], "Built-Using": ["foo", "foo (>= 1)"],
+		       "Pre-Depends": ["libc6 (>=2.0)x"], "Recommends": ["a (= 1) b"], "Suggests": ["(>= 1)"], "Enhances": ["a b"]}
+		n = 0
+		for field, values in bad.items():
+			for v in values:
+				n += 1
+				deb = make_deb(f"{d}/r{n}.deb", "badwolf", "1", control_extra=f"{field}: {v}\n")
+				r = self.repo("add", "--suite", "testing", "--keyring", self.keys["ci"][2], "--sign-key",
+				              self.keys["ci"][1], "--out", f"{self.root}/o", deb, ok=False)
+				self.assertNotEqual(r.returncode, 0, (field, v))
+				self.assertIn("not a dependency apt can parse", r.stderr, (field, v))
+		good = ("Depends: libc6 (>= 2.34), foo:any | bar (<< 2:1.0~rc1-1+b1),\n baz\n", "Provides: foo (= 1.0), bar\n",
+		        "Breaks: old (<< 1.0), older\n", "Built-Using: gcc (= 14.2.0-1)\n", "Pre-Depends: x | y\n")
+		for i, extra in enumerate(good):
+			self.assertTrue(self.publish(self.add([make_deb(f"{d}/ok{i}.deb", f"okpkg{i}", "1", control_extra=extra)])).startswith("ok"), extra)
+
+
 if __name__ == "__main__":
 	unittest.main()

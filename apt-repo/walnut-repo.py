@@ -218,6 +218,28 @@ def pool_dir(suite, source):
 SOURCE_FIELD_RE = re.compile(r"([a-z0-9][a-z0-9+.-]*)(?: \(([A-Za-z0-9.+:~-]+)\))?\Z")	# name or name (version)
 
 
+# the dependency fields, in the grammar apt parses (one bad value makes apt refuse the whole Packages file)
+_NAME = r"[a-z0-9][a-z0-9+.-]*"
+_VER = r"[0-9A-Za-z][0-9A-Za-z.+~:-]*"
+_ITEM = rf"{_NAME}(?::[a-z0-9-]+)?(?: \((?:<<|<=|=|>=|>>|<|>) {_VER}\))?"
+_PROVIDES_ITEM = rf"{_NAME}(?: \(= {_VER}\))?"
+_BUILT_USING_ITEM = rf"{_NAME} \(= {_VER}\)"
+RELATION_GRAMMAR = {
+	**{f: re.compile(rf"{_ITEM}(?: \| {_ITEM})*\Z") for f in ("Depends", "Pre-Depends", "Recommends", "Suggests", "Enhances")},
+	**{f: re.compile(rf"{_ITEM}\Z") for f in ("Breaks", "Conflicts", "Replaces")},
+	"Provides": re.compile(rf"{_PROVIDES_ITEM}\Z"), "Built-Using": re.compile(rf"{_BUILT_USING_ITEM}\Z")}
+
+
+def check_relation_fields(path, fields):
+	for f, rx in RELATION_GRAMMAR.items():
+		if f not in fields:
+			continue
+		items = [" ".join(x.split()) for x in fields[f].replace("\n", " ").split(",")]
+		for it in items:
+			if not rx.match(it):
+				raise Error(f"{path}: {f}: {it[:80]!r} is not a dependency apt can parse")
+
+
 def deb_fields(path):
 	"""A .deb's control fields, strictly: one stanza, none of the fields the index writes itself, a
 	Package, Version and Source that are what dpkg and apt will read."""
@@ -232,6 +254,7 @@ def deb_fields(path):
 		raise Error(f"{path}: bad Package or Version")
 	if "Source" in fields and not SOURCE_FIELD_RE.match(fields["Source"]):
 		raise Error(f"{path}: bad Source {fields['Source']!r}")
+	check_relation_fields(path, fields)
 	return fields
 
 
