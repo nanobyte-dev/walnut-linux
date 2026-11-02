@@ -436,8 +436,19 @@ def carry_by_hash(old, new):
 				os.link(src, dst)
 
 
+def generation_suite(name):
+	"""The suite a hidden generation directory (.<suite>-<bid>) belongs to: the longest known suite name
+	that prefixes it (".testing-debug-X" is testing-debug's, not testing's), or None."""
+	known = {s for _, s in SUITE_KEYRING}
+	best = [s for s in known if name.startswith(f".{s}-")]
+	return max(best, key=len) if best else None
+
+
 def prune_generations(prefix, suite, current):
-	gens = sorted((g for g in os.listdir(f"{prefix}/dists") if g.startswith(f".{suite}-") and g != current),
+	live = {os.path.basename(os.path.realpath(f"{prefix}/dists/{d}")) for d in os.listdir(f"{prefix}/dists")
+	        if os.path.islink(f"{prefix}/dists/{d}")}
+	gens = sorted((g for g in os.listdir(f"{prefix}/dists")
+	               if generation_suite(g) == suite and g != current and g not in live),
 	              key=lambda g: os.lstat(f"{prefix}/dists/{g}").st_mtime)
 	for g in gens[:-KEEP_GENS] if len(gens) > KEEP_GENS else []:
 		shutil.rmtree(f"{prefix}/dists/{g}")
@@ -716,6 +727,13 @@ def run():
 					except (Refused, OSError, UnicodeDecodeError, ValueError, IndexError) as e:
 						res = f"refused\n{e}\n"
 						log(f"!! {kind}/{bid} refused: {e}")
+					except Exception as e:
+						# anything else (a truncated .xz or .gz index: EOFError, LZMAError; a KeyError): the bundle
+						# is refused and marked done, or every later run would stop on it again. The status file
+						# is public, so it gets the kind of error only; the journal gets the traceback
+						import traceback
+						res = f"refused\ninternal error while checking the bundle ({type(e).__name__})\n"
+						log(f"!! {kind}/{bid} refused: internal error\n{traceback.format_exc()}")
 					with open(done + ".new", "w") as f:
 						f.write(res)
 					os.replace(done + ".new", done)
@@ -747,7 +765,10 @@ def main():
 			sys.exit(__doc__)
 		else:
 			run()
-			sweep_pool("apt")
+			try:
+				sweep_pool("apt")
+			except Refused as e:	# an index already published that can't be read: nothing is swept
+				log(f"!! apt: the pool sweep stopped: {e}")
 			prune_status()
 			check_aptcache_cap()
 

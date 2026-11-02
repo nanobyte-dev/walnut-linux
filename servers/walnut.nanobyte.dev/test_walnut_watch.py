@@ -242,7 +242,7 @@ class Watch(unittest.TestCase):
 		p = f"{self.root}/www/{kind}/dists/{suite}/InRelease"
 		return sha(open(p, "rb").read()) if os.path.exists(p) else "none"
 
-	def apt_bundle(self, debs, suite="testing", who=None, base=None, bad_line=None):
+	def apt_bundle(self, debs, suite="testing", who=None, base=None, bad_line=None, bad_gz=False):
 		who = who or ("ci" if suite.startswith("testing") else "good")
 		base = base or self.base("licensed" if suite == "licensed" else "apt", suite)
 		files, paras = {}, []
@@ -253,9 +253,12 @@ class Watch(unittest.TestCase):
 		text = "\n".join(paras).encode()
 		gz = gzip.compress(text, mtime=0)
 		idx = {"main/binary-ppc64/Packages": text, "main/binary-ppc64/Packages.gz": gz}
+		if bad_gz:	# only a truncated gzip index, correctly named and signed
+			idx = {"main/binary-ppc64/Packages.gz": gz[:len(gz) // 2]}
 		for rel, d in idx.items():
 			files[f"dists/{suite}/{rel}"] = d
-		files[f"dists/{suite}/main/binary-ppc64/by-hash/SHA256/{sha(text)}"] = text
+		if not bad_gz:
+			files[f"dists/{suite}/main/binary-ppc64/by-hash/SHA256/{sha(text)}"] = text
 		rel_text = f"Origin: Walnut\nSuite: {suite}\nX-Walnut-Base: {base}\nSHA256:\n" + "".join(
 			f" {sha(d)} {len(d)} {rel}\n" for rel, d in idx.items()) + (bad_line or "")
 		files[f"dists/{suite}/InRelease"] = sign(rel_text.encode(), who, clear=True)
@@ -290,6 +293,16 @@ class Watch(unittest.TestCase):
 			self.assertIn("malformed SHA256 line", self.result("apt", f"bad{i}"))
 		self.assertTrue(self.result("apt", "good").startswith("ok"), self.result("apt", "good"))
 		self.assertEqual(os.readlink(f"{self.root}/www/apt/dists/testing"), ".testing-good")
+
+	def test_truncated_index_refuses_without_wedging(self):
+		self.drop("apt", "cut", self.apt_bundle({"foo_1_ppc64.deb": b"foo1" * 100}, bad_gz=True))
+		self.drop("apt", "good", self.apt_bundle({"foo_1_ppc64.deb": b"foo1"}))
+		self.run_watch()
+		self.assertTrue(self.result("apt", "cut").startswith("refused"), self.result("apt", "cut"))
+		self.assertNotIn("Traceback", self.result("apt", "cut"))	# the public status file has no traceback
+		self.assertTrue(self.result("apt", "good").startswith("ok"), self.result("apt", "good"))
+		self.run_watch()	# and a later run is not stopped by it
+		self.assertTrue(self.result("apt", "cut").startswith("refused"))
 
 	def test_apt_pool_never_changes(self):
 		self.drop("apt", "1", self.apt_bundle({"foo_1_ppc64.deb": b"foo1"}))
