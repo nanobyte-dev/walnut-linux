@@ -314,6 +314,37 @@ class Private(Base):
     def test_message_of_an_empty_commit(self):
         self.bad("private", "private pattern", message="about %s\n" % self.r.token)
 
+    def linked_worktree(self):
+        wt = self.r.dir.parent / (self.r.dir.name + "-wt")
+        self.r.git("worktree", "add", "-q", "-b", "other", str(wt))
+        self.addCleanup(shutil.rmtree, wt, True)
+        return wt
+
+    def worktree_errors(self, wt):
+        head, changes = runner.staged_changes(wt)
+        ctx = core.Ctx(wt, "hook", changes, base=head, message="a change\n")
+        core.run_checks(ctx, {"private"})
+        return [f for f in ctx.findings if f[1] == "error"]
+
+    def test_linked_worktree_reads_the_main_worktrees_list(self):
+        wt = self.linked_worktree()
+        self.assertFalse((wt / "tools/public-replace.local.txt").exists())   # untracked: only the main one has it
+        (wt / "doc.md").write_text("the console's id is %s\n" % self.r.token)
+        subprocess.run(["git", "-C", str(wt), "add", "doc.md"], check=True, env=ENV)
+        errs = self.worktree_errors(wt)
+        self.assertTrue(any("private pattern" in f[3] for f in errs), errs)
+        self.assertFalse(any("nothing can be checked" in f[3] for f in errs), errs)
+        (wt / "doc.md").write_text("fine\n")
+        subprocess.run(["git", "-C", str(wt), "add", "doc.md"], check=True, env=ENV)
+        self.assertEqual(self.worktree_errors(wt), [])
+
+    def test_linked_worktree_without_any_list_is_still_refused(self):
+        wt = self.linked_worktree()
+        (self.r.dir / "tools/public-replace.local.txt").unlink()
+        (wt / "doc.md").write_text("fine\n")
+        subprocess.run(["git", "-C", str(wt), "add", "doc.md"], check=True, env=ENV)
+        self.assertTrue(any("nothing can be checked" in f[3] for f in self.worktree_errors(wt)))
+
     def test_empty_replace_list(self):
         self.r.write("tools/public-replace.local.txt", "\n")
         self.bad("private", "has no pattern")

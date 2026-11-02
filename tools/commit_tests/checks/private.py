@@ -1,6 +1,7 @@
 """private: nothing private gets into a commit (it can't be skipped). It reads the added lines
 (`git diff --cached -U0`; --all: every tracked file) and the commit message, and refuses
-  - a match of the private patterns: tools/public-replace.local.txt (untracked: the text the public export
+  - a match of the private patterns: tools/public-replace.local.txt (untracked; a linked worktree reads the
+    main worktree's file when it has none of its own: the text the public export
     replaces, $WALNUT_PUBLIC_REPLACE as tools/public-export.sh reads it) plus, when it exists, the
     untracked tools/commit-private.local.txt; both in git filter-repo's --replace-text syntax (one per
     line: literal text, literal:TEXT, regex:RE or glob:G, each optionally followed by ==>REPLACEMENT).
@@ -17,7 +18,7 @@ import os
 import re
 import subprocess
 import sys
-from pathlib import PurePath
+from pathlib import Path, PurePath
 
 NAME = "private"
 TARGETS = ("**",)
@@ -79,8 +80,39 @@ def load_patterns(path, label):
     return out
 
 
+def main_worktree(ctx):
+    """the root of the main worktree when ctx.root is a linked one (git worktree add), else None: the
+    untracked pattern lists live in the main worktree only"""
+    try:
+        r = subprocess.run(["git", "-C", str(ctx.root), "rev-parse", "--path-format=absolute", "--git-common-dir"],
+                           capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    common = Path(r.stdout.strip()) if r.returncode == 0 and r.stdout.strip() else None
+    if common is None or common.name != ".git":
+        return None
+    main = common.parent
+    try:
+        if main.resolve() == Path(ctx.root).resolve():
+            return None
+    except OSError:
+        return None
+    return main
+
+
+def private_list(ctx, rel):
+    """the path of the untracked list REL: this worktree's, else the main worktree's (a linked worktree has
+    none of its own); None when neither has it"""
+    if ctx.exists(rel):
+        return str(ctx.path(rel))
+    main = main_worktree(ctx)
+    if main is not None and (main / rel).is_file():
+        return str(main / rel)
+    return None
+
+
 def patterns(ctx):
-    repl = os.environ.get("WALNUT_PUBLIC_REPLACE") or str(ctx.path(REPLACE))
+    repl = os.environ.get("WALNUT_PUBLIC_REPLACE") or private_list(ctx, REPLACE) or str(ctx.path(REPLACE))
     if not os.path.isfile(repl):
         ctx.error(None, "no %s (the private replace list, untracked): nothing can be checked for private text, so "
                   "nothing is committed. Copy it from your private notes (tools/public-export.sh reads it too)" % REPLACE)
@@ -89,8 +121,9 @@ def patterns(ctx):
     if not pats:
         ctx.error(None, "%s has no pattern: nothing can be checked for private text, so nothing is committed" % REPLACE)
         return None
-    if ctx.exists(LOCAL):
-        pats += load_patterns(ctx.path(LOCAL), LOCAL)
+    local = private_list(ctx, LOCAL)
+    if local:
+        pats += load_patterns(local, LOCAL)
     return pats
 
 
