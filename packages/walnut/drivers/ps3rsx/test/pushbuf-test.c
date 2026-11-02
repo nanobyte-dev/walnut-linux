@@ -2,10 +2,13 @@
 /*
  * Host test of src/pushbuf.h, GEM_PUSHBUF's argument checks (submit.c): pushes whose offset and
  * length reach the u64 edge, totals that would wrap, the state restore in front of them in the
- * ring. Whatever is accepted must lie inside its BO, the total must be at most MAX_SUBMIT and the
- * ring length exactly restore + total (all compared in 128 bits); what Mesa sends must still
- * pass. Table cases, then random submits built from edge values.
- * OLD_PUSH_CHECKS (fix-off.sh): submit.c's checks as they were, sums that could wrap.
+ * ring, and relocation offsets at the u32 edge. Whatever is accepted must lie inside its BO, the
+ * total must be at most MAX_SUBMIT and the ring length exactly restore + total (all compared in
+ * 128 bits); a relocation must patch the word it names, inside its push. What Mesa sends must
+ * still pass, relocations included (NV30_PS3_RELOCS=1, as Armagetron's variant_relocs runs it).
+ * Table cases, then random submits and relocations built from edge values.
+ * OLD_PUSH_CHECKS, OLD_RELOC_U32 (fix-off.sh): submit.c's checks as they were, sums that could
+ * wrap.
  *   make, then $(O)/pushbuf-test [ROUNDS] [SEED]
  */
 #include "shim.h"
@@ -176,13 +179,124 @@ static void random_cases(long rounds, u64 seed)
 	printf("random: %ld submits, %ld accepted\n", rounds, accepted);
 }
 
+/* apply_relocs()'s choice of the word a relocation patches in the push copied from push_off */
+static bool reloc_word(u32 off, u64 push_off, u64 len, u64 *at)
+{
+#ifndef OLD_RELOC_U32
+	return ps3rsx_reloc_word(off, push_off, len, at);
+#else
+	if (off < push_off || off + 4 > push_off + len)	/* off + 4: u32 */
+		return false;
+	*at = (off - push_off) / 4;
+	return true;
+#endif
+}
+
+/* A relocation that patches a word patches the one it names, inside the push */
+static void check_reloc(const char *what, u32 off, u64 push_off, u64 len)
+{
+	u64 at = ~0ULL;
+
+	if (!reloc_word(off, push_off, len, &at))
+		return;
+	CHECK(at < len / 4 && push_off + at * 4 == off,
+	      "%s: relocation at %x patches word %llx of a push of %llx bytes at %llx", what, off,
+	      (unsigned long long)at, (unsigned long long)len, (unsigned long long)push_off);
+}
+
+static void expect_reloc(const char *what, u32 off, u64 push_off, u64 len, bool want, u64 want_at)
+{
+	u64 at = ~0ULL;
+	bool got = reloc_word(off, push_off, len, &at);
+
+	CHECK(got == want && (!want || at == want_at), "%s: %s word %llx, expected %s word %llx", what,
+	      got ? "patches" : "skips", (unsigned long long)at, want ? "patches" : "skips",
+	      (unsigned long long)want_at);
+	check_reloc(what, off, push_off, len);
+}
+
+/*
+ * A Mesa submit with relocations (NV30_PS3_RELOCS=1): three pushes from one push BO, each with
+ * relocations of its own words (libdrm: reloc_bo_offset = the word's byte offset in the BO). Each
+ * is applied to its own push's copy and no other.
+ */
+static void mesa_relocs(void)
+{
+	static const struct { u64 off, len; } push[] = { { 0, 0x1000 }, { 0x1000, 0x40 }, { 0x2400, 0x800 } };
+	static const u32 rel[] = { 0x0, 0x8, 0xffc, 0x1000, 0x103c, 0x2400, 0x2bfc };
+	u32 copy[3][0x400];
+	int i, k, hits[N(rel)] = { 0 };
+
+	memset(copy, 0, sizeof(copy));
+	for (i = 0; i < N(push); i++)
+		for (k = 0; k < N(rel); k++) {
+			u64 at;
+
+			CHECK(ps3rsx_reloc_args_check(rel[k]) == 0, "Mesa relocation at %x refused", rel[k]);
+			if (!reloc_word(rel[k], push[i].off, push[i].len, &at))
+				continue;
+			CHECK(at < push[i].len / 4, "Mesa relocation at %x: word %llx past push %d", rel[k],
+			      (unsigned long long)at, i);
+			if (at < push[i].len / 4)
+				copy[i][at] = 0xfeed0000 + k;
+			hits[k]++;
+		}
+	for (k = 0; k < N(rel); k++) {
+		int p = rel[k] < 0x1000 ? 0 : rel[k] < 0x2400 ? 1 : 2;
+
+		CHECK(hits[k] == 1 && copy[p][(rel[k] - push[p].off) / 4] == 0xfeed0000u + k,
+		      "Mesa relocation at %x: applied %d times, push %d word %llx is %x", rel[k], hits[k], p,
+		      (unsigned long long)((rel[k] - push[p].off) / 4), copy[p][(rel[k] - push[p].off) / 4]);
+	}
+}
+
+static void reloc_cases(void)
+{
+	/* the u32 edge: offset + 4 wraps to 0..3 */
+	expect_reloc("relocation at 2^32-4, push at 0", 0xfffffffcu, 0, 0x1000, false, 0);
+	expect_reloc("relocation at 2^32-4, push at 0x100", 0xfffffffcu, 0x100, 0x1000, false, 0);
+	expect_reloc("relocation at 2^32-4 in a push ending at 2^32", 0xfffffffcu, 0xfffff000u, 0x1000,
+		     true, 0x3ff);
+	expect_reloc("relocation at 2^32-8 in a push ending at 2^32", 0xfffffff8u, 0xfffff000u, 0x1000,
+		     true, 0x3fe);
+	expect_reloc("relocation at 2^32-4, push at 2^32", 0xfffffffcu, 1ULL << 32, 0x1000, false, 0);
+	/* the push's own edges */
+	expect_reloc("relocation at the push's first word", 0x100, 0x100, 0x10, true, 0);
+	expect_reloc("relocation at the push's last word", 0x10c, 0x100, 0x10, true, 3);
+	expect_reloc("relocation just past the push", 0x110, 0x100, 0x10, false, 0);
+	expect_reloc("relocation just before the push", 0xfc, 0x100, 0x10, false, 0);
+	expect_reloc("relocation in an empty push", 0x100, 0x100, 0, false, 0);
+	/* not a whole word: refused up front, never applied */
+	CHECK(ps3rsx_reloc_args_check(0x102) == -EINVAL, "relocation at 0x102 accepted");
+	CHECK(ps3rsx_reloc_args_check(0xffffffffu) == -EINVAL, "relocation at 2^32-1 accepted");
+	CHECK(ps3rsx_reloc_args_check(0x104) == 0, "relocation at 0x104 refused");
+	expect_reloc("relocation at 0x102", 0x102, 0x100, 0x10, false, 0);
+	mesa_relocs();
+}
+
+static void random_relocs(long rounds, u64 seed)
+{
+	long r;
+	u64 s = seed * 0x2545f4914f6cdd1dULL + 7;
+
+	for (r = 0; r < rounds; r++) {
+		u64 push_off = rnd(&s) % 2 ? edge(&s, 1ULL << 32) : (rnd(&s) % (1ULL << 33)) & ~3ULL;
+		u64 len = rnd(&s) % 2 ? edge(&s, MAX_SUBMIT) & 0xfffffffcULL : (rnd(&s) % MAX_SUBMIT) & ~3ULL;
+		u32 off = rnd(&s) % 2 ? (u32)edge(&s, push_off) : (u32)(push_off + (rnd(&s) % (len + 64)));
+
+		check_reloc("random relocation", off, push_off, len);
+	}
+}
+
 int main(int argc, char **argv)
 {
 	long rounds = argc > 1 ? atol(argv[1]) : 1000000;
 	u64 seed = argc > 2 ? strtoull(argv[2], NULL, 0) : 1;
 
+	reloc_cases();
 	table_cases();
 	random_cases(rounds, seed);
+	random_relocs(rounds, seed);
 	printf("pushbuf-test: %d checks, %d failed\n", checks, fails);
 	return fails != 0;
 }

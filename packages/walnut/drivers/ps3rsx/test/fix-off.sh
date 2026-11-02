@@ -79,6 +79,8 @@ off rejected-submit-cancel "FAIL: 1: the X16 submit not cancelled" -DOLD_NO_RECO
 # GEM_PUSHBUF's argument checks (src/pushbuf.h), submit.c's sums as they were
 off push-overflow "FAIL: offset 2^64-4, 8 bytes: push 0 at fffffffffffffffc, 8 bytes accepted past its BO of 100000" \
 	-T pushbuf-test.c -DOLD_PUSH_CHECKS
+off reloc-u32 "FAIL: relocation at 2^32-4, push at 0: patches word 3fffffff, expected skips word 0" \
+	-T pushbuf-test.c -DOLD_RELOC_U32
 wait
 
 bad=0

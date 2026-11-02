@@ -344,9 +344,8 @@ static int apply_relocs(struct drm_nouveau_gem_pushbuf_reloc *r, u32 nr_relocs,
 			continue;
 		if (bos[r->bo_index].presumed.valid)
 			continue;
-		if (r->reloc_bo_offset < push_off || r->reloc_bo_offset + 4 > push_off + len)
-			continue;
-		at = (r->reloc_bo_offset - push_off) / 4;
+		if (!ps3rsx_reloc_word(r->reloc_bo_offset, push_off, len, &at))
+			continue;	/* not in this push */
 		bo = to_bo(objs[r->bo_index]);
 		if (r->flags & NOUVEAU_GEM_RELOC_LOW)
 			v = lower_32_bits(bo->offset + r->data);
@@ -420,6 +419,11 @@ int ps3rsx_ioctl_gem_pushbuf(struct drm_device *dev, void *data, struct drm_file
 			ret = PTR_ERR(relocs);
 			relocs = NULL;
 			goto out;
+		}
+		for (i = 0; i < req->nr_relocs; i++) {
+			ret = ps3rsx_reloc_args_check(relocs[i].reloc_bo_offset);
+			if (ret)
+				goto out;
 		}
 	}
 	objs = kcalloc(req->nr_buffers, sizeof(*objs), GFP_KERNEL);
