@@ -55,24 +55,40 @@ jobs:
           BASE: ${{ hashFiles('system/image/packages.txt', 'tools/build-rootfs.sh', 'config.mk', 'build-containers/Dockerfile') }}
         run: |
           [ -n "$SALT" ] || { echo "-- no WALNUT_CACHE_SALT: no Actions cache in this job"; exit 0; }
-          echo "base=rootfs-base-$(printf '%s' "$BASE" | openssl dgst -sha256 -hmac "$SALT" -r | cut -c1-40)" >> "$GITHUB_OUTPUT"
+          base="rootfs-base-$(printf '%s' "$BASE" | openssl dgst -sha256 -hmac "$SALT" -r | cut -c1-40)"
+          echo "::add-mask::$base"  # the key stays out of the public log
+          echo "base=$base" >> "$GITHUB_OUTPUT"
       - name: The package layer (Debian's packages, from the build snapshot)
         id: base
         if: steps.key.outputs.base != ''
         uses: actions/cache/restore@v6
         with:
-          path: build/rootfs/base.tar
+          path: |
+            build/rootfs/base.tar
+            build/rootfs/base.tar.mac
           key: ${{ steps.key.outputs.base }}
+      - name: Use the restored layer only when it is authentic (anyone can write a cache entry)
+        if: steps.key.outputs.base != ''
+        env:
+          SALT: ${{ secrets.WALNUT_CACHE_SALT }}
+        run: github-ci/cache-mac.sh verify build/rootfs/base.tar build/rootfs/base.tar.mac || [ $? = 3 ]
       - name: Build
         env:
           ID: ${{ steps.id.outputs.id }}
           CHANNEL: ${{ inputs.channel }}
         run: github-ci/build-release.sh "$ID" out "$CHANNEL"
+      - name: Record the layer's MAC
+        if: always() && steps.key.outputs.base != '' && steps.base.outputs.cache-hit != 'true' && hashFiles('build/rootfs/base.tar') != ''
+        env:
+          SALT: ${{ secrets.WALNUT_CACHE_SALT }}
+        run: github-ci/cache-mac.sh record build/rootfs/base.tar build/rootfs/base.tar.mac
       - name: Keep the package layer, even when a later step failed (it is written whole, by rename)
         if: always() && steps.key.outputs.base != '' && steps.base.outputs.cache-hit != 'true' && hashFiles('build/rootfs/base.tar') != ''
         uses: actions/cache/save@v6
         with:
-          path: build/rootfs/base.tar
+          path: |
+            build/rootfs/base.tar
+            build/rootfs/base.tar.mac
           key: ${{ steps.base.outputs.cache-primary-key }}
       - uses: actions/upload-artifact@v7
         with:

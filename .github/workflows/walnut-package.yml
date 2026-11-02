@@ -75,25 +75,46 @@ jobs:
         run: |
           [ -n "$SALT" ] || { echo "-- no WALNUT_CACHE_SALT: no Actions cache in this job"; exit 0; }
           key() { printf '%s' "$2" | openssl dgst -sha256 -hmac "$SALT" -r | cut -c1-40 | sed "s/^/$1-/"; }
-          echo "chroot=$(key chroot "$CHROOT")" >> "$GITHUB_OUTPUT"
-          echo "spu=$(key spu "$SPU")" >> "$GITHUB_OUTPUT"
+          chroot=$(key chroot "$CHROOT") spu=$(key spu "$SPU")
+          echo "::add-mask::$chroot"  # the keys stay out of the public log
+          echo "::add-mask::$spu"
+          echo "chroot=$chroot" >> "$GITHUB_OUTPUT"
+          echo "spu=$spu" >> "$GITHUB_OUTPUT"
       - name: The ppc64 base chroot
         if: steps.keys.outputs.chroot != ''
         uses: actions/cache@v6
         with:
-          path: build/chroot/sid-ppc64.tar
+          path: |
+            build/chroot/sid-ppc64.tar
+            build/chroot/sid-ppc64.tar.mac
           key: ${{ steps.keys.outputs.chroot }}
       - name: The spu-elf toolchain (ps3-spu)
         if: inputs.package == 'ps3-spu' && steps.keys.outputs.spu != ''
         uses: actions/cache@v6
         with:
-          path: build/spu/install
+          path: |
+            build/spu/install
+            build/spu/install.mac
           key: ${{ steps.keys.outputs.spu }}
+      - name: Use restored caches only when they are authentic (anyone can write a cache entry)
+        if: steps.keys.outputs.chroot != ''
+        env:
+          SALT: ${{ secrets.WALNUT_CACHE_SALT }}
+        run: |
+          github-ci/cache-mac.sh verify build/chroot/sid-ppc64.tar build/chroot/sid-ppc64.tar.mac || [ $? = 3 ]
+          github-ci/cache-mac.sh verify build/spu/install build/spu/install.mac || [ $? = 3 ]
       - name: Build
         env:
           # the shared ccache at walnut.nanobyte.dev/ccache (tools/ccache-remote.sh), read and written
           WALNUT_CCACHE_AUTH: ${{ secrets.WALNUT_CCACHE_AUTH }}
         run: github-ci/build-package.sh ${{ inputs.package }} out ${{ inputs.target }}
+      - name: Record the caches' MACs (the cache is saved after this step)
+        if: always() && steps.keys.outputs.chroot != ''
+        env:
+          SALT: ${{ secrets.WALNUT_CACHE_SALT }}
+        run: |
+          github-ci/cache-mac.sh record build/chroot/sid-ppc64.tar build/chroot/sid-ppc64.tar.mac
+          github-ci/cache-mac.sh record build/spu/install build/spu/install.mac
       - name: Name the output
         id: output
         run: echo "name=$(github-ci/batch-publish.py name ${{ inputs.target }} ${{ inputs.package }} out)" >> "$GITHUB_OUTPUT"

@@ -148,6 +148,48 @@ class Generated(unittest.TestCase):
 				self.assertRegex(st, r"key: \$\{\{ steps\.(keys|key|base)\.outputs", name)	# only the salted key, never a literal one
 
 
+class CacheMac(unittest.TestCase):
+	"""A cache entry anyone can create is used only when it matches a MAC made with the secret salt (C-1)."""
+
+	def run_mac(self, mode, path, mac, salt="s3cret"):
+		import subprocess
+		return subprocess.run([f"{HERE}/cache-mac.sh", mode, path, mac], env=dict(os.environ, SALT=salt), capture_output=True, text=True)
+
+	def test_poisoned_entries_are_ignored(self):
+		with tempfile.TemporaryDirectory() as t:
+			f, d = f"{t}/chroot.tar", f"{t}/install"
+			open(f, "w").write("good")
+			os.makedirs(d)
+			open(f"{d}/bin", "w").write("good")
+			for path in (f, d):
+				self.assertEqual(self.run_mac("record", path, path + ".mac").returncode, 0)
+				self.assertEqual(self.run_mac("verify", path, path + ".mac").returncode, 0)
+			# the entry was replaced by another job's: other content, the old MAC (or none, or one made without the salt)
+			open(f, "w").write("poisoned")
+			open(f"{d}/bin", "w").write("poisoned")
+			for path in (f, d):
+				r = self.run_mac("verify", path, path + ".mac")
+				self.assertEqual(r.returncode, 3, r.stderr)
+				self.assertFalse(os.path.exists(path))	# removed: the build starts fresh
+				self.assertFalse(os.path.exists(path + ".mac"))
+			open(f, "w").write("poisoned")
+			self.assertEqual(self.run_mac("verify", f, f + ".mac").returncode, 3)	# no MAC at all
+			open(f, "w").write("x")
+			self.assertEqual(self.run_mac("record", f, f + ".mac", salt="guess").returncode, 0)
+			self.assertEqual(self.run_mac("verify", f, f + ".mac").returncode, 3)	# a MAC with another salt
+			self.assertEqual(self.run_mac("verify", f"{t}/absent", f"{t}/absent.mac").returncode, 0)	# a cache miss
+
+	def test_workflows_use_it(self):
+		t = gw.generate()["walnut-package.yml"]
+		self.assertLess(t.index("cache-mac.sh verify"), t.index("github-ci/build-package.sh"))
+		self.assertGreater(t.index("cache-mac.sh record"), t.index("github-ci/build-package.sh"))
+		self.assertIn("::add-mask::", t)
+		r = open(f"{HERE}/../.github/workflows/release-image.yml").read()
+		self.assertLess(r.index("cache-mac.sh verify"), r.index("github-ci/build-release.sh"))
+		self.assertLess(r.index("cache-mac.sh record"), r.index("actions/cache/save"))
+		self.assertIn("::add-mask::", r)
+
+
 class PcRule(unittest.TestCase):
 	def test_ccache_remote_gives_externals_nothing(self):
 		import subprocess
