@@ -28,8 +28,13 @@ COMPACT=1
 KICK=on
 KICK_MS=10
 [ -r /etc/default/ps3-game-mode ] && . /etc/default/ps3-game-mode
-SELF=${PS3_GAME_MODE_SELF:-/usr/lib/ps3/sbin/ps3-game-mode}
-KICK_BIN=${PS3_KICK_BIN:-/usr/lib/ps3/sbin/ps3-kick}
+SELF=/usr/lib/ps3/sbin/ps3-game-mode
+KICK_BIN=/usr/lib/ps3/sbin/ps3-kick
+# the two paths can be overridden for the host tests only: never when sudo started this (SUDO_UID is set)
+if [ -z "${SUDO_UID:-}" ]; then
+	SELF=${PS3_GAME_MODE_SELF:-$SELF}
+	KICK_BIN=${PS3_KICK_BIN:-$KICK_BIN}
+fi
 R=/run/ps3-game-mode
 SYS=/sys/fs/cgroup/system.slice
 
