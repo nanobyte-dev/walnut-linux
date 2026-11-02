@@ -14,6 +14,7 @@
 # name). A commit that only touched left-out paths stays as an empty commit (--prune-empty never): the public
 # history has exactly main's commits. The rewrite is deterministic: running it again on a
 # longer main gives the same commit IDs for the old commits, so the public repository fast-forwards.
+# tools/public-scan.py then reads every object (warn-only; WALNUT_EXPORT_SCAN=enforce stops on a finding).
 # Nothing is pushed: the push to github.com/nanobyte-dev is the user's step (printed at the end).
 # Needs git-filter-repo (pip install --user git-filter-repo).
 set -euo pipefail
@@ -80,6 +81,10 @@ while IFS= read -r e || [ -n "$e" ]; do	# every replaced pattern must be gone, f
 done < "$REPL"
 keys=$(git log --all -p -G '^[+-]?-----BEGIN [A-Z ]*PRIVATE KEY-----' --format=%h | head -5 || true)
 [ -z "$keys" ] || { echo "!! private key text in commits: $keys"; bad=1; }
+# every object of every ref (binary blobs too) for the private replace list and secrets: warn-only until the
+# dry runs stay quiet; WALNUT_EXPORT_SCAN=enforce makes a finding stop the export
+scanmode=(); [ "${WALNUT_EXPORT_SCAN:-warn}" != enforce ] || scanmode=(--enforce)
+python3 -I "$SRC/tools/public-scan.py" "$DIR" --replace "$REPL" --allow "$SRC/tools/public-scan-allow.txt" "${scanmode[@]}" || bad=1
 n=$(git rev-list --count main)
 echo ">> $DIR: $n commits, $(git rev-parse --short main), attribution trailers removed"
 if [ $bad = 1 ]; then echo "!! not ready to publish (see above)"; exit 1; fi

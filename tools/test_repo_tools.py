@@ -373,6 +373,92 @@ class PublicExport(unittest.TestCase):
             self.assertNotIn("packages/licensed", self.git(out, "log", "--name-only", "--format="))
 
 
+class PublicScan(unittest.TestCase):
+    """tools/public-scan.py on a temporary repository: a key block, a token and a netrc line inside a binary
+    blob, a private pattern in another; warn-only by default, --enforce refuses, the allow file lets the
+    secret-like fixtures through but never a private pattern"""
+    SECRET_BLOB = (b"\0\1\2binary" + b"-" * 5 + b"BEGIN PGP PRIVATE KEY BLOCK" + b"-" * 5 + b"\0"
+                   + b"gh" + b"p_" + b"A" * 36 + b"\0machine example.org login me pass" + b"word hunter2x\0")
+    PRIVATE = b"some-private-" + b"token-xyz"
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.repo = os.path.join(self.tmp.name, "r")
+        os.makedirs(self.repo)
+        self.git("init", "-q", "-b", "main")
+        Path(self.repo, "clean.txt").write_text("nothing here\n")
+        self.repl = os.path.join(self.tmp.name, "repl.txt")
+        Path(self.repl).write_bytes(b"literal:" + self.PRIVATE + b"\n")
+        self.allow = os.path.join(self.tmp.name, "allow.txt")
+        Path(self.allow).write_text("# none\n")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def git(self, *a):
+        subprocess.run(["git", "-C", self.repo, "-c", "user.name=t", "-c", "user.email=t@example.org", *a],
+                       check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+    def commit(self, files):
+        for name, data in files.items():
+            p = Path(self.repo, name)
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_bytes(data)
+        self.git("add", "-A")
+        self.git("commit", "-qm", "c")
+
+    def scan(self, *extra):
+        r = subprocess.run([sys.executable, "-I", str(HERE / "public-scan.py"), self.repo, "--replace", self.repl,
+                            "--allow", self.allow, *extra], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        return r.returncode, r.stdout
+
+    def test_clean(self):
+        self.commit({})
+        rc, out = self.scan("--enforce")
+        self.assertEqual(rc, 0, out)
+
+    def test_secrets_in_a_binary_blob_warn_then_refuse(self):
+        self.commit({"data/blob.bin": self.SECRET_BLOB})
+        rc, out = self.scan()
+        self.assertEqual(rc, 0, out)
+        for what in ("a private key block", "a GitHub token", "a netrc or apt auth.conf login"):
+            self.assertIn("WARN data/blob.bin: looks like " + what, out)
+        self.assertNotIn("hunter2x", out)
+        rc, out = self.scan("--enforce")
+        self.assertEqual(rc, 1, out)
+        self.assertIn("FOUND data/blob.bin", out)
+
+    def test_secret_in_an_old_commit_only(self):
+        self.commit({"old.bin": self.SECRET_BLOB})
+        self.git("rm", "-q", "old.bin")
+        self.git("commit", "-qm", "gone")
+        rc, out = self.scan("--enforce")
+        self.assertEqual(rc, 1, out)
+
+    def test_allow_file_covers_secrets_not_private_patterns(self):
+        self.commit({"fixtures/k.bin": self.SECRET_BLOB, "fixtures/p.txt": b"x " + self.PRIVATE + b"\n"})
+        Path(self.allow).write_text("fixtures/*  # fake secrets\n")
+        rc, out = self.scan("--enforce")
+        self.assertEqual(rc, 1, out)
+        self.assertNotIn("k.bin", out)
+        self.assertIn("fixtures/p.txt: matches a private pattern", out)
+        self.assertNotIn("xyz", out)
+
+    def test_commit_message(self):
+        Path(self.repo, "a").write_text("a")
+        self.git("add", "-A")
+        self.git("commit", "-qm", "about " + self.PRIVATE.decode())
+        rc, out = self.scan("--enforce")
+        self.assertEqual(rc, 1, out)
+        self.assertIn("commit ", out)
+
+    def test_unreadable_list_fails_closed(self):
+        self.commit({})
+        os.remove(self.repl)
+        rc, _ = self.scan()
+        self.assertEqual(rc, 2)
+
+
 class DeployAptCheck(unittest.TestCase):
     """tools/deploy.sh: the remote script's `apt-get check` is fatal (run here with a stand-in sudo)"""
 

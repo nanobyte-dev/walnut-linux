@@ -1,0 +1,4 @@
+# tools/public-scan.py: paths (shell patterns, matched against the path inside the repository) whose
+# secret-like text is not a secret: files that hold the secret patterns themselves and fixtures that plant
+# fake secrets. The private replace list is never allowed. One pattern per line, with a reason.
+# (Today's history needs none: the dry run over it found nothing.)
