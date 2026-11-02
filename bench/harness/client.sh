@@ -972,7 +972,9 @@ mem_snap() {	# mem_snap LABEL: the game's memory now into $D/mem/LABEL.*
 	# ps3rsx's buffers per client (takes mm_lock and walks them: once a snapshot)
 	[ "$MEM_SUDO" = 1 ] && sudo -n sh -c 'cat /sys/kernel/debug/dri/*/ps3rsx_mm' > "$D/mem/$1.gpu" 2>/dev/null
 	# where every GPU buffer lies (offsets, sizes, kinds, tgids), where the module has ps3rsx_bos
-	[ "$MEM_SUDO" = 1 ] && sudo -n sh -c 'cat /sys/kernel/debug/dri/*/ps3rsx_bos' > "$D/mem/$1.bos" 2>/dev/null
+	# (once: the card and its render node are two dri/ entries of one device)
+	[ "$MEM_SUDO" = 1 ] && sudo -n sh -c 'for f in /sys/kernel/debug/dri/*/ps3rsx_bos; do cat "$f" && break; done' \
+		> "$D/mem/$1.bos" 2>/dev/null
 	[ -s "$D/mem/$1.bos" ] || rm -f "$D/mem/$1.bos"
 	secs t $(( a - u0 )); m=$(( (b - a) / 1000 ))
 	printf 'label=%s pid=%s t=%s smaps_ms=%s exe=%s comm=%s\n' "$1" "$p" "$t" "$m" \

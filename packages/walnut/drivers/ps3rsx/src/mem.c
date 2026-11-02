@@ -587,7 +587,7 @@ static const char *bo_kind_name(const struct ps3rsx_bo *bo)
 
 /*
  * debugfs dri/N/ps3rsx_bos (root only, read only): where every buffer lies, for placement
- * questions (lane-a's OpenArena modes): per open file its tgid, then each handle's GPU offset,
+ * questions (a game whose speed differs from one run to the next): per open file its tgid, then each handle's GPU offset,
  * size, kind and whether it is shared; then the kept buffers (owner's tgid) and the zombies
  * waiting for their clear. Offsets and sizes only, no contents.
  */

@@ -50,14 +50,14 @@
 /* attribution arms only: frees as before, nothing cleared (never in a release build) */
 static bool test_clear_off;
 module_param(test_clear_off, bool, 0444);
-MODULE_PARM_DESC(test_clear_off, "TEST BUILD: don't clear freed VRAM (as before P3)");
-/* and a freed GART range back at once, as before P8 */
-static bool test_gart_p8_off;
-module_param(test_gart_p8_off, bool, 0444);
-MODULE_PARM_DESC(test_gart_p8_off, "TEST BUILD: a freed GART range goes back at once (as before P8)");
+MODULE_PARM_DESC(test_clear_off, "TEST BUILD: don't clear freed VRAM (as before freed VRAM was cleared)");
+/* and a freed GART range back at once, without waiting for the GPU (as before it waited) */
+static bool test_gart_wait_off;
+module_param(test_gart_wait_off, bool, 0444);
+MODULE_PARM_DESC(test_gart_wait_off, "TEST BUILD: a freed GART range goes back at once, not after the GPU passed it");
 #else
 #define test_clear_off false
-#define test_gart_p8_off false
+#define test_gart_wait_off false
 #endif
 
 static bool zombie_cpu(const struct ps3rsx_zombie *z)
@@ -210,7 +210,7 @@ bool ps3rsx_vclear_bo_free_locked(struct ps3rsx_device *rsx, struct ps3rsx_bo *b
 	struct ps3rsx_zombie *z = &bo->zombie;
 
 	if (!drm_mm_node_allocated(&bo->node) || bo->kind == BO_REPORTS ||
-	    (test_clear_off && bo->kind != BO_GART) || (test_gart_p8_off && bo->kind == BO_GART))
+	    (test_clear_off && bo->kind != BO_GART) || (test_gart_wait_off && bo->kind == BO_GART))
 		return false;
 	z->node = &bo->node;
 	z->bo = bo;

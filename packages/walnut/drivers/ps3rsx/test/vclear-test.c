@@ -6,7 +6,7 @@
  * what the ring hadn't run and bump the generation, and the allocator's steps (mem.c). The
  * worker below does what vclear.c's gpu_batch() and reap_vram() do, through the same functions.
  * Checked throughout: a page handed out reads zero; a live BO's page never gets another owner's
- * data (a write queued before the free landing after the reuse, P8); no launch has 0 lines or
+ * data (a write queued before the free landing after the reuse); no launch has 0 lines or
  * more than 16, or writes outside its zombie. Cases:
  * - a fill that never runs (the GPU never gets there): the range is never handed out;
  * - a 64 MiB zombie with a recovery after its third batch: nothing of it handed out until all of
@@ -103,7 +103,7 @@ static unsigned int gpu_run(unsigned int n)
 				continue;
 			}
 			data[p] = o->tag;
-			/* the write lands on a page another BO owns now: a leak (P8) */
+			/* the write lands on a page another BO owns now: a leak */
 			CHECK(state[p] != LIVE || owner[p] == o->tag,
 			      "%s: page %llu of BO %d got BO %d's write (freed before it ran)", what,
 			      (unsigned long long)p, owner[p], o->tag);

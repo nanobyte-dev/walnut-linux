@@ -91,7 +91,7 @@ def main(argv):
         cols = [a for a in order if a in by_arm]
         print("\n%s" % case)
         print("  %-16s %s" % ("", "  ".join("%10s" % c for c in cols)))
-        # arms loaded with extra parameters (attribution, CR2) are shown, not judged
+        # arms loaded with extra parameters (attribution, a VRAM swap setting) are shown, not judged
         a_arms = [c for c in cols if c.startswith("A") and "(" not in c]
         b_arms = [c for c in cols if c.startswith("B") and "(" not in c]
         for key, label, higher_worse in metrics:
