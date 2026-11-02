@@ -181,8 +181,9 @@ class CacheMac(unittest.TestCase):
 
 	def test_workflows_use_it(self):
 		t = gw.generate()["walnut-package.yml"]
-		self.assertLess(t.index("cache-mac.sh verify"), t.index("github-ci/build-package.sh"))
-		self.assertGreater(t.index("cache-mac.sh record"), t.index("github-ci/build-package.sh"))
+		t = t[t.index("\n  build:\n"):t.index("\n  build-external:\n")]
+		self.assertLess(t.index("cache-mac.sh verify"), t.index("run: github-ci/build-package.sh"))
+		self.assertGreater(t.index("cache-mac.sh record"), t.index("run: github-ci/build-package.sh"))
 		self.assertIn("::add-mask::", t)
 		r = open(f"{HERE}/../.github/workflows/release-image.yml").read()
 		self.assertLess(r.index("cache-mac.sh verify"), r.index("github-ci/build-release.sh"))
