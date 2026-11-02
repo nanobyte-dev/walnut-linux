@@ -58,7 +58,4 @@ jobs:
       target: ${{ inputs.target || 'testing' }}
       tier: trusted
       dry_run: ${{ inputs.dry_run || false }}
-    secrets:
-      WALNUT_DEPLOY_KEY: ${{ secrets.WALNUT_DEPLOY_KEY }}
-      WALNUT_CCACHE_AUTH: ${{ secrets.WALNUT_CCACHE_AUTH }}
-      WALNUT_CACHE_SALT: ${{ secrets.WALNUT_CACHE_SALT }}
+    secrets: inherit  # the stable signing keys are environment secrets: they reach the called jobs this way only

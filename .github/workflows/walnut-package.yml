@@ -15,8 +15,10 @@
 #            stable-debug in the same upload; the archive key's signing subkey (environment
 #            walnut-stable, secrets WALNUT_ARCHIVE_SUBKEY and WALNUT_ARCHIVE_PASSPHRASE; the owner
 #            approves each run, after the build); from main only; dry_run stops after checking the keys
-# Repository secrets, passed by the caller one by one: WALNUT_DEPLOY_KEY (uploads), WALNUT_CCACHE_AUTH (the
-# shared ccache) and WALNUT_CACHE_SALT (Actions cache keys), the last two for trusted packages only.
+# Secrets come with `secrets: inherit` in the caller (environment secrets, the stable signing keys, reach a called
+# workflow's jobs no other way); a step sees only the ones it references. WALNUT_DEPLOY_KEY (uploads), WALNUT_CCACHE_AUTH
+# (the shared ccache) and WALNUT_CACHE_SALT (Actions cache keys) are referenced by trusted jobs only, never by
+# build-external (workflow_lint refuses it).
 # docs/release/ALPHA.md M6.
 name: "(shared) build one package"
 
@@ -35,13 +37,6 @@ on:
       dry_run:
         type: boolean
         default: false
-    secrets:
-      WALNUT_DEPLOY_KEY:
-        required: false
-      WALNUT_CCACHE_AUTH:
-        required: false
-      WALNUT_CACHE_SALT:
-        required: false
 
 permissions:
   contents: read

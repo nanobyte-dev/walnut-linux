@@ -30,5 +30,4 @@ jobs:
       target: ${{ inputs.target || 'testing' }}
       tier: external
       dry_run: ${{ inputs.dry_run || false }}
-    secrets:
-      WALNUT_DEPLOY_KEY: ${{ secrets.WALNUT_DEPLOY_KEY }}
+    secrets: inherit  # the stable signing keys are environment secrets: they reach the called jobs this way only

@@ -99,6 +99,26 @@ class Lint(unittest.TestCase):
 		self.assertTrue(self.lint({"a.yml": "name: x\n"}, yaml=True))	# not a workflow
 		self.assertEqual(self.lint({}), [])
 
+	def test_secrets_stay_out_of_package_code(self):
+		def wf(jobs, top=""):
+			return f"{top}on:\n  push:\njobs:\n{jobs}"
+		ok = wf("  build:\n    runs-on: x\n    steps:\n      - run: make all\n        env:\n          WALNUT_CCACHE_AUTH: ${{ secrets.WALNUT_CCACHE_AUTH }}\n"
+		        "      - run: cache-mac.sh verify a b\n        env:\n          SALT: ${{ secrets.WALNUT_CACHE_SALT }}\n")
+		self.assertEqual(self.lint({"a.yml": ok}, yaml=True), [])
+		# a step that runs package code names a secret other than the ccache login
+		bad = ok.replace("WALNUT_CCACHE_AUTH: ${{ secrets.WALNUT_CCACHE_AUTH }}", "SALT: ${{ secrets.WALNUT_CACHE_SALT }}")
+		self.assertIn("runs package code references", "\n".join(self.lint({"a.yml": bad}, yaml=True)))
+		# the external build, the release image's build and layer: no secret reference at all
+		ext = wf("  build-external:\n    runs-on: x\n    steps:\n      - run: echo hi\n        env:\n          X: ${{ secrets.WALNUT_DEPLOY_KEY }}\n")
+		self.assertIn("references a secret", "\n".join(self.lint({"walnut-package.yml": ext}, yaml=True)))
+		self.assertEqual(self.lint({"other.yml": ext}, yaml=True), [])	# the rule names these jobs
+		for job in ("build", "layer"):
+			t = wf(f"  {job}:\n    runs-on: x\n    steps:\n      - run: echo\n        env:\n          X: ${{{{ secrets.WALNUT_CACHE_SALT }}}}\n")
+			self.assertIn("references a secret", "\n".join(self.lint({"release-image.yml": t}, yaml=True)), job)
+		# a secret in an env block above the steps reaches every step of the job or workflow
+		self.assertIn("job-level env", "\n".join(self.lint({"a.yml": wf("  j:\n    runs-on: x\n    env:\n      K: ${{ secrets.X }}\n    steps:\n      - run: echo\n")}, yaml=True)))
+		self.assertIn("workflow-level env", "\n".join(self.lint({"a.yml": wf("  j:\n    runs-on: x\n    steps:\n      - run: echo\n", top="env:\n  K: ${{ secrets.X }}\n")}, yaml=True)))
+
 	def test_write_permissions_and_cache_steps(self):
 		self.assertTrue(self.lint({"a.yml": "    permissions:\n      contents: write\n"}))
 		self.assertEqual(self.lint({"release-image.yml": "    permissions:\n      contents: write\n"}), [])
@@ -116,7 +136,7 @@ class Lint(unittest.TestCase):
 		checkout = "      - uses: actions/checkout@v7\n        with:\n          persist-credentials: %s\n"
 		self.assertEqual(self.lint({"a.yml": checkout % "false"}), [])
 		self.assertEqual(self.lint({"a.yml": "# secrets: inherit and pull_request_target are words here\n" + checkout % "false"}), [])
-		self.assertTrue(self.lint({"a.yml": "    secrets: inherit\n"}))
+		self.assertEqual(self.lint({"a.yml": "    secrets: inherit\n"}), [])	# the callers of walnut-package.yml: the rules below keep it safe
 		self.assertTrue(self.lint({"a.yml": checkout % "true"}))
 		self.assertTrue(self.lint({"a.yml": "      - uses: actions/checkout@v7\n"}))
 		self.assertEqual(self.lint({"walnut-site.yml": checkout % "true"}), [])
@@ -137,10 +157,10 @@ class Generated(unittest.TestCase):
 			self.assertIn("tier: external", t, pkg)
 			self.assertNotIn("CCACHE", t, pkg)
 			self.assertNotIn("CACHE_SALT", t, pkg)
-			self.assertNotIn("inherit", t, pkg)
+			self.assertIn("secrets: inherit", t, pkg)	# environment secrets reach the called jobs only so
 		t = self.files["pkg-mesa.yml"]
 		self.assertIn("tier: trusted", t)
-		self.assertIn("WALNUT_CCACHE_AUTH", t)
+		self.assertIn("WALNUT_CCACHE_AUTH", self.files["walnut-package.yml"])	# referenced by the trusted build step only
 
 	def test_reusable_workflow(self):
 		t = self.files["walnut-package.yml"]
