@@ -599,7 +599,7 @@ ps3-games-src: gamedb-integration
 			-e XCC_TREE=/xcc/$(notdir $(XCC_TREE)) $(REPO_BUILDER_TAG) tools/xcc-build.sh $*; \
 	else \
 		echo "docker run ... tools/deb-build.sh $*"; \
-		tools/ccache-remote.sh docker run --rm --privileged -v $(CURDIR):/work -w /work $(DEB_ENV) -e JOBS=$(DEB_JOBS) -e KEEP_TREE=$(KEEP_TREE) \
+		tools/ccache-remote.sh --for $* docker run --rm --privileged -v $(CURDIR):/work -w /work $(DEB_ENV) -e JOBS=$(DEB_JOBS) -e KEEP_TREE=$(KEEP_TREE) \
 			$(REPO_BUILDER_TAG) tools/deb-build.sh $*; \
 	fi
 # BUILD=xcc packages (tools/xcc-build.sh: the ppc64 chroot with the x86-64 cross compiler run natively

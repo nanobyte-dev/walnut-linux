@@ -568,5 +568,35 @@ class Runs(unittest.TestCase):
 				gh.download({"id": 1, "name": "x"}, f"{t}/d")
 
 
+	def test_publish_sh_key_check_uploads_nothing(self):
+		"""publish.sh --no-upload (the stable dry run): the signing key must sign for the suite's keyring, the
+		upload key must parse; nothing is added or uploaded."""
+		key = f"{self.root}/deploy"
+		subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", key], check=True)
+		self.build("foo", "1")
+		d = f"{self.root}/build{self.n}"
+		env = dict(os.environ, WALNUT_SIGN_KEY=self.secret, WALNUT_DEPLOY_KEY_DATA=open(key).read(),
+		           WALNUT_KEYRING=self.ring, WALNUT_UPLOAD="/bin/false", WALNUT_ROOT=self.root)
+		pub = f"{ROOT}/github-ci/publish.sh"
+		r = subprocess.run([pub, "--no-upload", "testing", "foo", d], env=env, capture_output=True, text=True)
+		self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+		self.assertIn("nothing was uploaded", r.stdout)
+		self.assertEqual(self.uploads(), [])
+		# another keyring: the key does not sign for it
+		other = f"{self.root}/other-ring.gpg"
+		home = f"{self.root}/gpg-other"
+		os.makedirs(home, 0o700)
+		subprocess.run(["gpg", "--homedir", home, "--batch", "--passphrase", "", "--quick-gen-key", "o <o@o.invalid>",
+		                "ed25519", "sign", "never"], check=True, capture_output=True)
+		open(other, "wb").write(subprocess.run(["gpg", "--homedir", home, "--export"], capture_output=True).stdout)
+		r = subprocess.run([pub, "--no-upload", "testing", "foo", d], env=dict(env, WALNUT_KEYRING=other),
+		                   capture_output=True, text=True)
+		self.assertNotEqual(r.returncode, 0)
+		self.assertIn("does not sign for", r.stderr)
+		# an upload key that is not a key
+		r = subprocess.run([pub, "--no-upload", "testing", "foo", d], env=dict(env, WALNUT_DEPLOY_KEY_DATA="nonsense"),
+		                   capture_output=True, text=True)
+		self.assertNotEqual(r.returncode, 0)
+
 if __name__ == "__main__":
 	unittest.main()

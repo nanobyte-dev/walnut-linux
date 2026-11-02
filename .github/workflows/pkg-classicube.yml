@@ -13,6 +13,10 @@ on:
         type: choice
         options: [testing, stable]
         default: testing
+      dry_run:
+        description: "Stable only: build, then check the signing and upload keys without publishing"
+        type: boolean
+        default: false
 
 concurrency:
   group: pkg-classicube-${{ inputs.target || 'testing' }}
@@ -24,4 +28,7 @@ jobs:
     with:
       package: classicube
       target: ${{ inputs.target || 'testing' }}
-    secrets: inherit
+      tier: external
+      dry_run: ${{ inputs.dry_run || false }}
+    secrets:
+      WALNUT_DEPLOY_KEY: ${{ secrets.WALNUT_DEPLOY_KEY }}

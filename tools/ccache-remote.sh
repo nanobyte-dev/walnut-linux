@@ -5,11 +5,24 @@
 # bridge's address for the duration and exports CCACHE_REMOTE_STORAGE for the container
 # (Makefile DEB_ENV passes it on; tools/deb-build.sh hands it to ccache). Every build machine then
 # reuses what any other compiled from the same sources with the same compiler.
+# ccache-remote.sh --for PKG CMD...: the same rule as CI's: only a package whose tier in
+# github-ci/packages.toml is trusted gets the shared cache (it writes it); an external one (an upstream
+# tarball or repository), one with no entry or no readable list, builds without it.
 set -euo pipefail
+here=$(cd "$(dirname "$0")" && pwd)
+if [ "${1:-}" = --for ]; then
+	pkg=$2; shift 2
+	tier=$(python3 -I -c '
+import sys, tomllib
+try:
+	print(tomllib.load(open(sys.argv[1], "rb"))["package"][sys.argv[2]]["tier"])
+except Exception:
+	print("unknown")' "$here/../github-ci/packages.toml" "$pkg" 2>/dev/null || echo unknown)
+	[ "$tier" = trusted ] || { echo "-- ccache: $pkg is $tier, not trusted: no shared cache" >&2; exec "$@"; }
+fi
 [ -n "${WALNUT_CCACHE_AUTH:-}" ] || exec "$@"
 addr=$(ip -4 -o addr show docker0 2>/dev/null | awk '{print $4}' | cut -d/ -f1)
 [ -n "$addr" ] || { echo "-- ccache-remote: no docker0 address, building without the shared cache" >&2; exec "$@"; }
-here=$(cd "$(dirname "$0")" && pwd)
 portfile=$(mktemp)
 rm -f "$portfile"
 python3 "$here/ccache-relay.py" "$addr" "$portfile" &

@@ -190,6 +190,7 @@ run walnut-repo python3 apt-repo/test_walnut_repo.py
 run walnut-watch python3 servers/walnut.nanobyte.dev/test_walnut_watch.py
 run batch-publish python3 -I github-ci/test_batch_publish.py
 run walnut-lists python3 -I github-ci/test_walnut_lists.py
+run gen-workflows python3 -I github-ci/test_gen_workflows.py
 run gamedb python3 -I tools/gamedb/test_gamedb.py
 run gamedb-evidence bash -c "python3 -I tools/gamedb/test_evidence.py && python3 -I tools/gamedb/reimport.py --check"
 run gamedb-technical python3 -I tools/gamedb/test_technical.py

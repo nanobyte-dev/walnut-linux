@@ -6,7 +6,7 @@
 #            key (environment walnut-testing), published to download/nightly/<id>/ (the newest 3
 #            are kept), not on GitHub
 #   build    the public image from that suite, its kernel, the internal install's initramfs and
-#            the installer (github-ci/build-release.sh); no secrets
+#            the installer (github-ci/build-release.sh); its one secret is the salt of the Actions cache key
 # A published release never changes: a new build is a new id.
 name: "Walnut release"
 
@@ -39,6 +39,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0  # versions count commits (tools/deb-version.sh)
+          persist-credentials: false
       - name: Release id
         id: id
         env:
@@ -47,19 +48,28 @@ jobs:
           id=$(github-ci/release-id.sh "$CHANNEL")
           echo "id=$id" >> "$GITHUB_OUTPUT"
           echo "### Walnut $id ($CHANNEL)" >> "$GITHUB_STEP_SUMMARY"
+      - name: Cache key, salted (only a trusted job can compute it; exact key, no fallback)
+        id: key
+        env:
+          SALT: ${{ secrets.WALNUT_CACHE_SALT }}
+          BASE: ${{ hashFiles('system/image/packages.txt', 'tools/build-rootfs.sh', 'config.mk', 'build-containers/Dockerfile') }}
+        run: |
+          [ -n "$SALT" ] || { echo "-- no WALNUT_CACHE_SALT: no Actions cache in this job"; exit 0; }
+          echo "base=rootfs-base-$(printf '%s' "$BASE" | openssl dgst -sha256 -hmac "$SALT" -r | cut -c1-40)" >> "$GITHUB_OUTPUT"
       - name: The package layer (Debian's packages, from the build snapshot)
         id: base
+        if: steps.key.outputs.base != ''
         uses: actions/cache/restore@v6
         with:
           path: build/rootfs/base.tar
-          key: rootfs-base-${{ hashFiles('system/image/packages.txt', 'tools/build-rootfs.sh', 'config.mk', 'build-containers/Dockerfile') }}
+          key: ${{ steps.key.outputs.base }}
       - name: Build
         env:
           ID: ${{ steps.id.outputs.id }}
           CHANNEL: ${{ inputs.channel }}
         run: github-ci/build-release.sh "$ID" out "$CHANNEL"
       - name: Keep the package layer, even when a later step failed (it is written whole, by rename)
-        if: always() && steps.base.outputs.cache-hit != 'true' && hashFiles('build/rootfs/base.tar') != ''
+        if: always() && steps.key.outputs.base != '' && steps.base.outputs.cache-hit != 'true' && hashFiles('build/rootfs/base.tar') != ''
         uses: actions/cache/save@v6
         with:
           path: build/rootfs/base.tar
@@ -79,7 +89,13 @@ jobs:
     permissions:
       contents: write  # the GitHub release
     steps:
+      - name: Only from main
+        if: inputs.channel == 'stable'
+        run: |
+          [ "$GITHUB_REF" = refs/heads/main ] || { echo "::error::stable is published from refs/heads/main only"; exit 1; }
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: actions/download-artifact@v8
         with:
           name: release-${{ needs.build.outputs.id }}

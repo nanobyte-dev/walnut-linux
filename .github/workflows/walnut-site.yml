@@ -49,6 +49,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           lfs: false
+          persist-credentials: true  # git lfs pull below needs the token
       - name: The gallery's screenshots from Git LFS
         # only the screenshots the pages show, not every session's other shots and raw/ files (tools/gamedb/gallery.py)
         run: git lfs pull -I "$(python3 -I tools/gamedb/gallery.py --lfs-include)"

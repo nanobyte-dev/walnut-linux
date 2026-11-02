@@ -15,12 +15,17 @@
 # (walnut.nanobyte.dev/status/<id>) says ok, stale (another publish landed first: made again on the
 # new state, after a random pause, up to 8 times) or refused (why). Its verdict is awaited up to 30
 # minutes (walnut-watch takes uploads one at a time, a big one copies and hashes for minutes).
+# publish.sh --no-upload testing|stable LABEL DIR...: the keys only (the stable dry run): imports the signing key,
+# signs a test line with it and checks that against the suite's keyring, checks the upload key parses, and stops:
+# nothing is added, uploaded or published.
 # Exit 0 published, 3 refused, 1 anything else. Env for tests: WALNUT_UPLOAD (the upload command,
 # default servers/walnut.nanobyte.dev/walnut-upload.sh), WALNUT_STATUS_URL, WALNUT_KEYRING (the
 # keyring the published suite is checked against), WALNUT_APT_URL (walnut-repo.py's).
 set -euo pipefail
 cd "$(dirname "$0")/.."
-[ $# -ge 3 ] || { echo "usage: $0 testing|stable LABEL DIR..." >&2; exit 2; }
+no_upload=
+[ "${1:-}" != --no-upload ] || { no_upload=1; shift; }
+[ $# -ge 3 ] || { echo "usage: $0 [--no-upload] testing|stable LABEL DIR..." >&2; exit 2; }
 target=$1 label=$2
 shift 2
 case $target in
@@ -46,6 +51,20 @@ printf '%s\n' "$WALNUT_DEPLOY_KEY_DATA" > "$tmp/deploy"
 # the secrets are in files now: nothing started from here (walnut-repo.py reads .deb and .dsc files) inherits them
 unset WALNUT_SIGN_KEY WALNUT_DEPLOY_KEY_DATA WALNUT_SIGN_PASSPHRASE
 export WALNUT_DEPLOY_KEY=$tmp/deploy
+
+if [ -n "$no_upload" ]; then
+	# the signing key signs for the suite's keyring (a signature made now, checked with gpgv against that
+	# keyring only), and the upload key is a private key ssh can read
+	echo "walnut key check $(date -u +%FT%TZ)" > "$tmp/probe"
+	gpg_sign=(gpg --batch --quiet --pinentry-mode loopback --local-user "$fpr")
+	[ -z "${WALNUT_SIGN_PASSPHRASE_FILE:-}" ] || gpg_sign+=(--passphrase-file "$WALNUT_SIGN_PASSPHRASE_FILE")
+	"${gpg_sign[@]}" --clearsign -o "$tmp/probe.asc" "$tmp/probe"
+	gpgv --keyring "$ring" --status-fd 1 "$tmp/probe.asc" 2>/dev/null | grep -q '^\[GNUPG:\] VALIDSIG' ||
+		{ echo "!! the signing key does not sign for $ring" >&2; exit 1; }
+	ssh-keygen -y -f "$tmp/deploy" >/dev/null || { echo "!! the upload key is not a private key ssh can read" >&2; exit 1; }
+	echo ">> keys ok for $target: signing key $fpr signs for $(basename "$ring"); the upload key parses; nothing was uploaded"
+	exit 0
+fi
 
 files=()
 for d in "$@"; do

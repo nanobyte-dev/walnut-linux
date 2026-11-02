@@ -105,6 +105,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0  # the lists are read at each build's commit
+          persist-credentials: false
       - name: What testing lacks
         id: plan
         env:
@@ -129,6 +130,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          persist-credentials: false
       - name: Check what testing lacks
         id: verify
         env:
@@ -151,6 +153,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          persist-credentials: false
       - name: Publish every build verify passed
         env:
           GITHUB_TOKEN: ${{ github.token }}

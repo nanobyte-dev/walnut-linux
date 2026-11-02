@@ -13,6 +13,10 @@ on:
         type: choice
         options: [testing, stable]
         default: testing
+      dry_run:
+        description: "Stable only: build, then check the signing and upload keys without publishing"
+        type: boolean
+        default: false
 
 concurrency:
   group: pkg-endless-sky-${{ inputs.target || 'testing' }}
@@ -24,4 +28,9 @@ jobs:
     with:
       package: endless-sky
       target: ${{ inputs.target || 'testing' }}
-    secrets: inherit
+      tier: trusted
+      dry_run: ${{ inputs.dry_run || false }}
+    secrets:
+      WALNUT_DEPLOY_KEY: ${{ secrets.WALNUT_DEPLOY_KEY }}
+      WALNUT_CCACHE_AUTH: ${{ secrets.WALNUT_CCACHE_AUTH }}
+      WALNUT_CACHE_SALT: ${{ secrets.WALNUT_CACHE_SALT }}
