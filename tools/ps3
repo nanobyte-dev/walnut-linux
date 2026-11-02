@@ -1,8 +1,10 @@
 #!/bin/bash
 # tools/ps3: the PC-side lease on the PS3, so one agent or person drives it at a time.
 #   ps3 lock [--for MINUTES] [--owner LABEL] [--note TEXT]   take it (default 120 min); prints the token: export PS3_LEASE=<token>
-#   ps3 renew [--for MINUTES] [TOKEN]        extend it from now (holder only)
-#   ps3 unlock [--force] [TOKEN]             release it (token from the argument or $PS3_LEASE)
+#   ps3 renew [--for MINUTES] [TOKEN|--owner LABEL]   extend it from now (holder only)
+#   ps3 unlock [--force] [TOKEN|--owner LABEL]        release it (token from the argument or $PS3_LEASE)
+# For a shell that lost its token, renew and unlock also accept --owner LABEL when it equals the label the
+# lease was taken with (only with no token given; a wrong token is never rescued by it; --force is separate).
 #   ps3 status                               exit 0 free, 1 held, 2 expired
 #   ps3 check                                for scripts: exit 0 if free or ours ($PS3_LEASE), else 1 and who holds it
 # Staleness is by expiry only, never by a pid (an agent's shell pid is short-lived): a lease past its
@@ -41,6 +43,7 @@ fi
 who() { echo "held by $(get owner) (on $(get host), since $(when "$(get start)")${1:+, }${1:+$1}) until $(when "$(get expiry)")"; }
 desc() { n=$(get note); who "${n:+note: $n}"; }
 mine() { [ -n "$tok" ] && [ "$tok" = "$(get token)" ]; }
+mine_or_owner() { mine || { [ -z "$tok" ] && [ -n "$owner" ] && [ "$owner" = "$(get owner)" ]; }; }
 write() { # token note start expiry [owner]
 	tmp=$lease.$$
 	printf 'token=%s\nowner=%s\nnote=%s\npid=%s\nhost=%s\nstart=%s\nexpiry=%s\n' \
@@ -56,13 +59,13 @@ lock)
 	write "$t" "$note" "$now" $((now + minutes * 60))
 	echo "$t" ;;
 renew)
-	[ $state = held ] && mine || { echo "ps3: no live lease of yours to renew" >&2; exit 1; }
-	write "$tok" "$(get note)" "$(get start)" $((now + minutes * 60)) "$(get owner)"
+	[ $state = held ] && mine_or_owner || { echo "ps3: no live lease of yours to renew" >&2; exit 1; }
+	write "$(get token)" "$(get note)" "$(get start)" $((now + minutes * 60)) "$(get owner)"
 	echo "ps3: renewed until $(when $((now + minutes * 60)))" >&2 ;;
 unlock)
 	[ $state = free ] && { echo "ps3: already free"; exit 0; }
 	if [ $force = 1 ]; then echo "ps3: removed the lease, $(desc)"
-	elif mine; then echo "ps3: released"
+	elif mine_or_owner; then echo "ps3: released"
 	else echo "ps3: not yours, $(desc) (unlock --force removes it)" >&2; exit 1; fi
 	rm -f "$lease" ;;
 status)

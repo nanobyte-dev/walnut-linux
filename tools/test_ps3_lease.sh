@@ -29,6 +29,16 @@ no $ps3 renew bogus
 ok env PS3_LEASE=$A $ps3 renew --for 60
 ok test "$(sed -n s/^expiry=//p $XDG_RUNTIME_DIR/walnut-ps3.lease)" -gt $(( $(date +%s) + 3000 ))
 ok grep -q "^owner=agentA" "$XDG_RUNTIME_DIR/walnut-ps3.lease"
+# --owner: the label of the current owner stands in for a lost token; no other label does
+no $ps3 renew --owner agentB
+no $ps3 unlock --owner agentB
+no env PS3_LEASE=wrong $ps3 unlock --owner agentA
+ok $ps3 renew --owner agentA --for 60
+ok test "$(sed -n s/^expiry=//p $XDG_RUNTIME_DIR/walnut-ps3.lease)" -gt $(( $(date +%s) + 3000 ))
+ok grep -q "^token=$A" "$XDG_RUNTIME_DIR/walnut-ps3.lease"
+ok $ps3 unlock --owner agentA
+$ps3 status >/dev/null; ok test $? = 0
+A=$($ps3 lock --owner agentA --note "agent A" --for 30)
 # two concurrent locks: exactly one wins
 $ps3 unlock "$A" >/dev/null
 for i in 1 2 3 4 5 6; do ( $ps3 lock --note "r$i" >/dev/null 2>&1 && echo won >> "$T/wins" ) & done; wait
