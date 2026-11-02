@@ -21,7 +21,9 @@ taken from what Mesa's nv30 driver can emit
 which had run on the RSX. Anything else is logged and refused. The same commit made the image-from-CPU
 object refuse everything (Mesa doesn't use it), allowed only SET_REFERENCE and the semaphore release among
 the host methods (not the FIFO semaphore acquire, which can block for good), checked that SIFM's surface
-is a surface object, and kept a push's validator state only when the whole push passes.
+is a surface object, and kept a push's validator state only when the whole push passes. A later change
+refuses every host method: SET_REFERENCE and the FIFO semaphores are the kernel's own (its fences and
+copies wait on the reference), and Mesa sends none of them.
 
 The commit's subject leads with a kernel fix: the gelic netpoll change that became
 [kernel-gelic-netpoll](../kernel-gelic-netpoll/patch.md) (local/0006) went in with it; the ps3rsx part is
@@ -40,10 +42,10 @@ indexed ranges are expanded to every unit ([DRIVER.md](../../../docs/DRIVER.md#t
 - **Minimal repro:** `packages/walnut/drivers/ps3rsx/test/validate-test.c` sends M2MF methods to the
   surface-2D object and expects a refusal; `allowlist_cases()` there covers the rest of the commit and the
   first validator, each refusal next to an accepted word: JMP, CALL, RETURN and malformed headers, bursts
-  past the push, unknown object handles, host methods (the semaphore acquire), context DMA handles, every
+  past the push, unknown object handles, host methods (all of them), context DMA handles, every
   method on the image-from-CPU object, SIFM's surface (`tools/run-tests.sh --only ps3rsx-shadow`). With each
-  check off (`fix-off.sh`, variants `allowlist`, `header`, `object-bind`, `host-method`, `context-dma`,
-  `sifm-surface`, `make -C packages/walnut/drivers/ps3rsx/test fix-off`) the cases fail.
+  check off (`fix-off.sh`, variants `allowlist`, `header`, `object-bind`, `host-method`, `host-reference`,
+  `context-dma`, `sifm-surface`, `make -C packages/walnut/drivers/ps3rsx/test fix-off`) the cases fail.
 
 ## Validation
 

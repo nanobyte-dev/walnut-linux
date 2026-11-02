@@ -350,17 +350,14 @@ static void allowlist_cases(void)
 		      "bind of unknown object %08x accepted (%s)", bad_handles[i], last_warn);
 	}
 
-	/* host methods: SET_REFERENCE and the semaphore context, offset and release, not the
-	 * FIFO semaphore acquire (it can block forever) nor the rest below 0x100 */
+	/* host methods: none below 0x100 but the bind (0), not SET_REFERENCE (the kernel's
+	 * sequence number) nor the FIFO semaphore context, offset, acquire and release */
 	for (m = 0x04; m < 0x100; m += 4) {
-		const bool ok = m == 0x50 || m == 0x60 || m == 0x64 || m == 0x6c;
 		u32 w[2] = { HDRS(1, 0, m), 0x66616661 };
 
-		if (ok)
-			CHECK(run(w, 2) == 0, "host method %02x refused (%s)", m, last_warn);
-		else
-			CHECK(run(w, 2) != 0 && strstr(last_warn, "host method"),
-			      "host method %02x accepted%s", m, m == 0x68 ? " (semaphore acquire)" : "");
+		CHECK(run(w, 2) != 0 && strstr(last_warn, "host method"),
+		      "host method %02x accepted%s", m, m == 0x68 ? " (semaphore acquire)" :
+		      m == 0x50 ? " (SET_REFERENCE)" : "");
 	}
 
 	/* context DMA slots: the hypervisor's context DMAs only, on 3D and M2MF */

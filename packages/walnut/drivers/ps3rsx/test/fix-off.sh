@@ -61,7 +61,9 @@ off header "FAIL: header 20001000 accepted" \
 off object-bind "FAIL: bind of unknown object 31337001 accepted" \
 	'if (!ps3rsx_known_object(data)) {' 'if (0) {'
 off host-method "FAIL: host method 68 accepted (semaphore acquire)" \
-	'if (mthd == 0x50 || mthd == 0x60 || mthd == 0x64 || mthd == 0x6c)' 'if (1)'
+	'if (mthd < 0x100) {' 'if (mthd < 0x100) { return 0;'
+off host-reference "FAIL: host method 50 accepted (SET_REFERENCE)" \
+	'if (mthd < 0x100) {' 'if (mthd < 0x100) { if (mthd == 0x50 || mthd == 0x60 || mthd == 0x64 || mthd == 0x6c) return 0;'
 off context-dma "FAIL: 3D context DMA feed0002 accepted" \
 	'mthd <= 0x1bc && !known_dma(data)' 'mthd <= 0x1bc && 0'
 off sifm-surface "FAIL: SIFM surface feed0000 accepted" \
