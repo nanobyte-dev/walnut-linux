@@ -114,6 +114,11 @@ static void bo_free(struct drm_gem_object *obj)
 		list_del_init(&bo->reports_link);
 		mutex_unlock(&rsx->mm_lock);
 	}
+	drm_gem_object_release(obj);
+	/* its range stays allocated until it is cleared (VRAM) or the GPU passed every submit
+	 * before the free (GART): vclear.c, which then frees the struct */
+	if (ps3rsx_vclear_bo_free(rsx, bo))
+		return;
 	if (drm_mm_node_allocated(&bo->node)) {
 		mutex_lock(&rsx->mm_lock);
 		if (bo->kind == BO_GART)	/* fences up to the last submitted may still read it */
@@ -121,7 +126,6 @@ static void bo_free(struct drm_gem_object *obj)
 		drm_mm_remove_node(&bo->node);
 		mutex_unlock(&rsx->mm_lock);
 	}
-	drm_gem_object_release(obj);
 	kfree(bo);
 }
 
@@ -221,6 +225,59 @@ static int bo_place(struct ps3rsx_device *rsx, struct ps3rsx_bo *bo, struct drm_
 	return ret;
 }
 
+/* Place a VRAM BO: GPU-only VRAM first unless the CPU will map it; 0 or -ENOSPC */
+static int vram_place(struct ps3rsx_device *rsx, struct ps3rsx_bo *bo, bool mappable, u64 align)
+{
+	int ret = -ENOSPC;
+
+	if (!mappable)
+		ret = bo_place(rsx, bo, &rsx->vram_gpu, align);
+	if (ret)
+		ret = bo_place(rsx, bo, &rsx->vram_cpu, align);
+	return ret;
+}
+
+/*
+ * No room for a VRAM BO: wait for freed VRAM being cleared (bounded, in all VCLEAR_WAIT_MS),
+ * then take chunks from the VRAM swap (games first: its pages go to the disk), one at a time
+ * and each cleared before the next try, so one request never empties the whole pool. Returns 0
+ * once placed, -ENOSPC (Mesa 0055 then uses GART) or -EINTR (the caller was killed).
+ */
+static int vram_place_wait(struct ps3rsx_device *rsx, struct ps3rsx_bo *bo, bool mappable,
+			   u64 align)
+{
+	ktime_t t0 = ktime_get();
+	u32 shrinks = 0;
+	int ret;
+
+	for (;;) {
+		u64 cpu, gpu, shrunk, waited = ktime_ms_delta(ktime_get(), t0);
+		bool cpu_ok, gpu_ok;
+
+		ps3rsx_vclear_pending(rsx, &cpu, &cpu_ok, &gpu, &gpu_ok, &shrunk);
+		switch (vclear_alloc_next(cpu, cpu_ok, gpu, gpu_ok, shrunk, waited, shrinks,
+					  bo->base.size)) {
+		case VCLEAR_ALLOC_WAIT:
+			ret = ps3rsx_vclear_wait(rsx, min_t(u64, VCLEAR_WAIT_STEP_MS,
+							    VCLEAR_WAIT_MS - waited));
+			if (ret)
+				return ret;
+			break;
+		case VCLEAR_ALLOC_SHRINK:
+			shrinks++;
+			rsx->vc.alloc_shrinks++;
+			if (!ps3rsx_vswap_shrink(rsx, bo->base.size))
+				return -ENOSPC;
+			break;
+		case VCLEAR_ALLOC_FAIL:
+			return -ENOSPC;
+		}
+		ret = vram_place(rsx, bo, mappable, align);
+		if (!ret)
+			return 0;
+	}
+}
+
 /* Allocate a BO. domain: NOUVEAU_GEM_DOMAIN_* (0 = VRAM|GART). */
 struct ps3rsx_bo *ps3rsx_bo_new(struct ps3rsx_device *rsx, u32 domain, size_t size, u32 align)
 {
@@ -241,14 +298,13 @@ struct ps3rsx_bo *ps3rsx_bo_new(struct ps3rsx_device *rsx, u32 domain, size_t si
 		bo = bo_alloc(rsx, BO_VRAM, size);
 		if (IS_ERR(bo))
 			return bo;
-		/* GPU-only VRAM first, unless the CPU will map it */
-		if (!mappable)
-			ret = bo_place(rsx, bo, &rsx->vram_gpu, align);
+		ret = vram_place(rsx, bo, mappable, align);
 		if (ret)
-			ret = bo_place(rsx, bo, &rsx->vram_cpu, align);
-		/* games first: the swap device gives VRAM back (its pages go to the disk) */
-		while (ret && ps3rsx_vswap_shrink(rsx, size))
-			ret = bo_place(rsx, bo, &rsx->vram_cpu, align);
+			ret = vram_place_wait(rsx, bo, mappable, align);
+		if (ret == -EINTR) {
+			drm_gem_object_put(&bo->base);
+			return ERR_PTR(ret);
+		}
 		if (!ret) {
 			bo->domain = NOUVEAU_GEM_DOMAIN_VRAM;
 			if (bo->offset >= CPU_VRAM_LIMIT)
@@ -261,7 +317,17 @@ struct ps3rsx_bo *ps3rsx_bo_new(struct ps3rsx_device *rsx, u32 domain, size_t si
 		bo = bo_alloc(rsx, BO_GART, size);
 		if (IS_ERR(bo))
 			return bo;
+		ps3rsx_vclear_reap_gart(rsx);	/* ranges the GPU is done with, back first */
 		ret = bo_place(rsx, bo, &rsx->gart, align);
+		if (ret && ps3rsx_vclear_gart_pending(rsx)) {
+			/* freed GART ranges still behind the GPU: one bounded wait */
+			if (ps3rsx_vclear_wait(rsx, VCLEAR_WAIT_STEP_MS)) {
+				drm_gem_object_put(&bo->base);
+				return ERR_PTR(-EINTR);
+			}
+			ps3rsx_vclear_reap_gart(rsx);
+			ret = bo_place(rsx, bo, &rsx->gart, align);
+		}
 		if (!ret) {
 			/* memory behind the IO pages it takes (on demand from CMA) */
 			mutex_lock(&rsx->mm_lock);
@@ -452,6 +518,7 @@ static int mm_show(struct seq_file *m, void *unused)
 		   rsx->gart_dynamic ? "on demand" : "boot reservation");
 	ps3rsx_vswap_show(m, rsx);
 	mutex_unlock(&rsx->mm_lock);
+	ps3rsx_vclear_show(m, rsx);
 	/* display heads as lv1 reports them to our context (driver info head[n] at 0x10b8 + 64n) */
 	for (int h = 0; h < 2; h++) {
 		void __iomem *hd = rsx->dinfo + 0x10b8 + 64 * h;
@@ -483,13 +550,20 @@ int ps3rsx_mem_init(struct ps3rsx_device *rsx)
 		drm_mm_takedown(&rsx->vram_cpu);
 		return ret;
 	}
-	/* the first RING_RESERVE bytes hold the reset program and the ring (exec.c) */
+	/* the first RING_RESERVE bytes hold the reset program, the ring and the zero area */
 	drm_mm_init(&rsx->gart, RING_RESERVE, rsx->gart_size - RING_RESERVE);
+	/* every free VRAM range is cleared before its first use (vclear.c) */
+	ret = ps3rsx_vclear_init(rsx, rsx->info.reserved, cpu_end, rsx->info.memory_size);
+	if (ret) {
+		ps3rsx_mem_fini(rsx);
+		return ret;
+	}
 	return 0;
 }
 
 void ps3rsx_mem_fini(struct ps3rsx_device *rsx)
 {
+	ps3rsx_vclear_fini(rsx);	/* zombies' nodes back (the next load clears that VRAM) */
 	if (drm_mm_initialized(&rsx->gart))
 		drm_mm_takedown(&rsx->gart);
 	ps3rsx_gart_fini(rsx);

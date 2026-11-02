@@ -4,6 +4,9 @@ KREL := $(shell cat debian/kernel-release)
 KOBJ ?= /lib/modules/$(KREL)/build
 P := debian/ps3rsx-modules-$(KREL)
 KMAKE := $(MAKE) -C $(KOBJ)
+# a test build whose version says "testclear" (never published) gets the VRAM clear's off switch
+DEB_VERSION := $(shell dpkg-parsechangelog -S Version)
+TEST_CLEAR := $(if $(findstring testclear,$(DEB_VERSION)),PS3RSX_TEST_CLEAR=y)
 
 %:
 	dh $@
@@ -12,7 +15,7 @@ override_dh_auto_build:
 	mkdir -p b/ps3rsx b/probes
 	cp src/* b/ps3rsx/
 	cp probes/* b/probes/
-	$(KMAKE) M=$(CURDIR)/b/ps3rsx $(if $(findstring -debug,$(KREL)),PS3RSX_TEST_WEDGE=y) modules
+	$(KMAKE) M=$(CURDIR)/b/ps3rsx $(if $(findstring -debug,$(KREL)),PS3RSX_TEST_WEDGE=y) $(TEST_CLEAR) modules
 	$(KMAKE) M=$(CURDIR)/b/probes modules
 
 override_dh_auto_install:

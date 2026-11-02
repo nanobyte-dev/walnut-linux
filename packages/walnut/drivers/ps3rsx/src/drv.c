@@ -155,15 +155,19 @@ static int ps3rsx_probe(struct platform_device *pdev)
 		return ret;
 	}
 
+	/* the console and the VRAM clear before the device node exists: an ioctl may need both */
+	ps3rsx_console_init(rsx);	/* the console gets the GPU back until X or a client needs it */
+	ps3rsx_vclear_start(rsx);	/* the load-time clear of all free VRAM (vclear.c) */
 	ret = drm_dev_register(&rsx->drm, 0);
 	if (ret) {
+		ps3rsx_vclear_stop(rsx);
 		ps3rsx_kms_fini(rsx);
+		ps3rsx_console_fini(rsx);	/* as remove: own the GPU for the drain */
 		ps3rsx_vswap_fini(rsx);
 		ps3rsx_exec_fini(rsx);
 		ps3rsx_mem_fini(rsx);
 		return ret;
 	}
-	ps3rsx_console_init(rsx);	/* the console gets the GPU back until X or a client needs it */
 	drm_info(&rsx->drm, "VRAM %llu MiB (from %#llx), GART %llu MiB (%s), display %ux%u pitch %u\n",
 		 rsx->vram_size >> 20, rsx->info.reserved, rsx->gart_size >> 20,
 		 rsx->gart_dynamic ? "on demand" : "reserved",
@@ -178,6 +182,7 @@ static void ps3rsx_remove(struct platform_device *pdev)
 	ps3rsx_uw_quiesce(rsx);		/* no recovery work under the teardown below */
 	drm_dev_unregister(&rsx->drm);
 	drm_atomic_helper_shutdown(&rsx->drm);	/* flips back to ps3fb's frame */
+	ps3rsx_vclear_stop(rsx);	/* no clear runs under the teardown; zombies go at mem_fini */
 	ps3rsx_kms_fini(rsx);
 	ps3rsx_console_fini(rsx);	/* own the GPU again for the drain and release */
 	ps3rsx_vswap_fini(rsx);

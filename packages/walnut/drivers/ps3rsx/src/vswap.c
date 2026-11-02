@@ -9,7 +9,8 @@
  *    taken from its top end, at most vswap_vram_mb), else to the disk;
  *  - discards (swapon --discard=pages) free slots;
  *  - games come first: when a buffer object finds no VRAM, ps3rsx_vswap_shrink() writes the
- *    pages of the emptiest chunks back to the disk and hands the chunks over;
+ *    pages of the emptiest chunks back to the disk and hands the chunks over, each cleared
+ *    before a buffer object gets it (vclear.c: the pages written back are still in it);
  *  - the VRAM holds the recently swapped: when the pool is (nearly) full, a background job
  *    moves the pages of its oldest chunk to the disk (pages that sat in swap longest without
  *    being read back are the cold ones; reads free their slots through discards).
@@ -718,25 +719,40 @@ bool ps3rsx_vswap_shrink(struct ps3rsx_device *rsx, u64 bytes)
 	struct evict_buf eb;
 	u64 got = 0;
 	bool ok;
+	int ret;
 
 	if (!vs || !vs->map)
 		return false;
 	mutex_lock(&vs->shrink_lock);
 	ok = evict_buf_init(&eb, GFP_KERNEL);
 	while (ok && got < bytes + CHUNK) {
+		struct ps3rsx_zombie *z;
 		int best = -1;
 
+		/* the chunk goes back as a zombie, cleared before any BO lands on it (vclear.c);
+		 * its carrier first, so a failed allocation leaves the chunk in the pool */
+		z = ps3rsx_vclear_zombie_new();
+		if (!z)
+			break;
 		mutex_lock(&vs->lock);
 		for (i = 0; i < vs->nchunks; i++)
 			if (drm_mm_node_allocated(&vs->chunks[i].node) && vs->chunks[i].io &&
 			    (best < 0 || vs->chunks[i].nused < vs->chunks[best].nused))
 				best = i;
 		mutex_unlock(&vs->lock);
-		if (best < 0 || !chunk_evict(vs, best, &eb, true))
+		if (best < 0 || !chunk_evict(vs, best, &eb, true)) {
+			kfree(z);
 			break;
+		}
 		mutex_lock(&rsx->mm_lock);
-		drm_mm_remove_node(&vs->chunks[best].node);
+		ret = ps3rsx_vclear_take_node(rsx, z, &vs->chunks[best].node);
 		mutex_unlock(&rsx->mm_lock);
+		if (ret) {
+			pr_err("ps3vswap: a chunk went back to the heap uncleared (%d)\n", ret);
+			kfree(z);
+		} else {
+			ps3rsx_vclear_add(rsx, z);
+		}
 		got += CHUNK;
 		freed++;
 	}

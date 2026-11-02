@@ -897,6 +897,7 @@ static void recover_fn(struct work_struct *w)
 	UW("in-place recovery done: channel %u, context %#llx (%u so far)", chid, c.handle, recoveries);
 	WRITE_ONCE(rsx->recovering, false);
 	wake_up_all(&rsx->recover_wq);
+	ps3rsx_vclear_kick(rsx, 0);	/* VRAM clears queued before it run again */
 	rec_end(rsx, "recovered in place");
 	uevent(rsx, true);
 	return;
@@ -914,6 +915,7 @@ failed_nolock:
 	UW("in-place recovery FAILED: display-only mode (no 3D) until reboot");
 	WRITE_ONCE(rsx->recovering, false);
 	wake_up_all(&rsx->recover_wq);
+	ps3rsx_vclear_kick(rsx, 0);	/* the CPU clears what it can from now on */
 	rec_end(rsx, "recovery failed: display-only until reboot");
 	uevent(rsx, false);
 }

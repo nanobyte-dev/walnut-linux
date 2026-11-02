@@ -1,9 +1,9 @@
 #!/bin/bash
 # validate-test with one stability rule turned off at a time: each build must fail, with the
 # FAIL line given for it, so the case shows the old behaviour. The rule is turned off in a copy
-# of src/validate.c under OUTDIR/fix-off (a literal edit, which must match exactly once), or for
-# the submit.c model in validate-test.c (or the test -T names) by a define (OLD_*). Nothing here
-# touches src/.
+# of src/validate.c (or the source -E names, with the define its test includes it by) under
+# OUTDIR/fix-off (a literal edit, which must match exactly once), or for the submit.c model in
+# validate-test.c (or the test -T names) by a define (OLD_*). Nothing here touches src/.
 #   fix-off.sh OUTDIR		(make fix-off; exits 0 only when every variant fails as expected)
 set -u
 [ $# -eq 1 ] || { echo "usage: $0 OUTDIR" >&2; exit 2; }
@@ -15,24 +15,28 @@ rm -f "$D"/*.built
 JOBS=${JOBS:-6}
 names=() expects=()
 
-# off NAME 'FAIL line it must print' [-T TEST.c] [-DDEFINE | 'FROM' 'TO']...
+# off NAME 'FAIL line it must print' [-T TEST.c] [-E SRC MACRO] [-DDEFINE | 'FROM' 'TO']...
 off() {
-	local name=$1 expect=$2 vc=../src/validate.c defs=() t=validate-test.c
+	local name=$1 expect=$2 src=validate.c macro=VALIDATE_C vc=../src/validate.c defs=()
+	local t=validate-test.c
 	shift 2
 	while [ $# -gt 0 ]; do
 		case $1 in
 		-T)	t=$2; shift 2 ;;
+		-E)	src=$2 macro=$3 vc=../src/$2; shift 3 ;;
 		-D*)	defs+=("$1"); shift ;;
-		*)	if [ "$vc" = ../src/validate.c ]; then cp ../src/validate.c "$D/$name.c"; vc=$D/$name.c; fi
-			FROM=$1 TO=$2 NAME=$name perl -0777 -i -pe \
+		*)	if [ "$vc" = "../src/$src" ]; then
+				cp "../src/$src" "$D/$name.${src##*.}"; vc=$D/$name.${src##*.}
+			fi
+			FROM=$1 TO=$2 NAME=$name SRC=$src perl -0777 -i -pe \
 				'my $n = () = /\Q$ENV{FROM}\E/g;
-				 $n == 1 or die "fix-off.sh: $ENV{NAME}: found $n times in validate.c: $ENV{FROM}\n";
+				 $n == 1 or die "fix-off.sh: $ENV{NAME}: found $n times in $ENV{SRC}: $ENV{FROM}\n";
 				 s/\Q$ENV{FROM}\E/$ENV{TO}/' "$vc" || exit 1
 			shift 2 ;;
 		esac
 	done
 	while [ "$(jobs -rp | wc -l)" -ge "$JOBS" ]; do wait -n; done
-	( gcc -O1 -g -w -fno-strict-aliasing -Iinc -iquote ../src -DVALIDATE_C="\"$vc\"" "${defs[@]}" \
+	( gcc -O1 -g -w -fno-strict-aliasing -Iinc -iquote ../src -D"$macro"="\"$vc\"" "${defs[@]}" \
 		-o "$D/$name" "$t" && touch "$D/$name.built" ) &
 	names+=("$name") expects+=("$expect")
 }
@@ -81,6 +85,16 @@ off push-overflow "FAIL: offset 2^64-4, 8 bytes: push 0 at fffffffffffffffc, 8 b
 	-T pushbuf-test.c -DOLD_PUSH_CHECKS
 off reloc-u32 "FAIL: relocation at 2^32-4, push at 0: patches word 3fffffff, expected skips word 0" \
 	-T pushbuf-test.c -DOLD_RELOC_U32
+# the VRAM clear (src/vclear.h): a freed range back at once as before, a fill from before a
+# recovery trusted, a last launch rounded up past its zombie
+off clear-at-free "FAIL: a fill that never runs: BO 2 got page 0 uncleared (tag 1)" \
+	-T vclear-test.c -DOLD_FREE_AT_ONCE
+off clear-gen "FAIL: a zombie fully queued when the recovery comes: handed out unfilled" \
+	-T vclear-test.c -E vclear.h VCLEAR_H \
+	$'\tif (c->gen != gen_now)\n\t\treturn VCLEAR_REFILL;\n' ''
+off clear-overrun "FAIL: random: launch " -T vclear-test.c -E vclear.h VCLEAR_H \
+	'u64 lines = (c->hi - at) / VCLEAR_LINE;' \
+	'u64 lines = (c->hi - at + VCLEAR_ZERO_SIZE - 1) / VCLEAR_ZERO_SIZE * VCLEAR_MAX_LINES;'
 wait
 
 bad=0

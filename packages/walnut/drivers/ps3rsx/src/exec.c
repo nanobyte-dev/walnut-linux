@@ -4,7 +4,8 @@
  * hardware channels anyway, docs/RSX.md E5), per-submit fences from SET_REFERENCE (a real
  * completion fence, E11), and wedge detection (any graph exception stops the whole GPU).
  *
- * GART IO layout: [0, RING_START) reset program, [RING_START, RING_END) ring, then BOs.
+ * GART IO layout: [0, RING_START) reset program, [RING_START, RING_END) ring, [ZERO_START,
+ * ZERO_END) the VRAM clear's zero area (vclear.c), then BOs from RING_RESERVE.
  */
 #include <linux/delay.h>
 #include <linux/dma-fence.h>

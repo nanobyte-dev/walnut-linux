@@ -30,9 +30,15 @@ module_param(trace, bool, 0644);
 MODULE_PARM_DESC(trace, "Dump every submitted push to the kernel log (small tests only: "
 		 "a GL program's worth through netconsole has hung the console)");
 
+/* at load only: the VRAM clear relies on nothing having run when it is set (vclear.c) */
 static bool dry_run;
-module_param_named(dry_run, dry_run, bool, 0644);
+module_param_named(dry_run, dry_run, bool, 0444);
 MODULE_PARM_DESC(dry_run, "Validate submissions but send nothing to the GPU");
+
+bool ps3rsx_dry_run(void)
+{
+	return READ_ONCE(dry_run);
+}
 
 static bool refuse_rejected;
 module_param(refuse_rejected, bool, 0644);
@@ -45,6 +51,7 @@ MODULE_PARM_DESC(refuse_rejected, "A channel with a rejected push (or an open pr
 #define QUERY_SLICE(id)		(0x1400 + 0x1000 * (id))
 #define NTFY_OFFSET		0x1000
 
+/* pf->lock held; the channel stays valid while it is held */
 struct ps3rsx_chan *ps3rsx_chan_find(struct ps3rsx_file *pf, u32 id)
 {
 	struct ps3rsx_chan *ch;
@@ -53,6 +60,19 @@ struct ps3rsx_chan *ps3rsx_chan_find(struct ps3rsx_file *pf, u32 id)
 		if (ch->id == id)
 			return ch;
 	return NULL;
+}
+
+/* A reference for a submit, which can outlive CHANNEL_FREE (another thread of the client) */
+static struct ps3rsx_chan *chan_get(struct ps3rsx_file *pf, u32 id)
+{
+	struct ps3rsx_chan *ch;
+
+	mutex_lock(&pf->lock);
+	ch = ps3rsx_chan_find(pf, id);
+	if (ch)
+		kref_get(&ch->ref);
+	mutex_unlock(&pf->lock);
+	return ch;
 }
 
 /* Does the channel's client re-send its state after a cancelled submit (PS3_RECOVER)? */
@@ -88,6 +108,8 @@ static int end_primitive(struct ps3rsx_device *rsx)
 	owner->vstate.prim_open = false;
 	rsx->prim_owner = NULL;
 	wake_up_all(&rsx->prim_wq);
+	if (READ_ONCE(rsx->vc.wait_prim))
+		ps3rsx_vclear_kick(rsx, 0);	/* a VRAM clear waited for it */
 	return 0;
 }
 
@@ -105,6 +127,12 @@ static int close_stale_primitive(struct ps3rsx_device *rsx)
 	if (!chan_recovers(owner))
 		owner->broken = true;
 	return 0;
+}
+
+/* The VRAM clear's worker applies the submitters' rule (vclear.c): exec_lock held */
+int ps3rsx_close_stale_primitive(struct ps3rsx_device *rsx)
+{
+	return rsx->prim_owner ? close_stale_primitive(rsx) : 0;
 }
 
 /*
@@ -177,32 +205,65 @@ bool ps3rsx_kcopy_allowed(void)
 	return READ_ONCE(ctxsw) && !READ_ONCE(dry_run);
 }
 
-static void chan_free(struct ps3rsx_device *rsx, struct ps3rsx_chan *ch)
+/*
+ * The last reference is gone (kref_put_mutex: exec_lock held, unlocked here). Nothing of the
+ * channel may stay on the GPU side: its shadow, its last-channel mark, an open primitive. Its id
+ * (and so its fence label and query slice) is free only from here, so a new channel can't share
+ * them with a submit of this one still in the kernel.
+ */
+static void chan_release(struct kref *ref)
 {
-	mutex_lock(&rsx->chan_lock);
-	clear_bit(ch->id, rsx->chan_ids);
-	mutex_unlock(&rsx->chan_lock);
-	mutex_lock(&rsx->exec_lock);
+	struct ps3rsx_chan *ch = container_of(ref, struct ps3rsx_chan, ref);
+	struct ps3rsx_device *rsx = ch->rsx;
+
 	if (rsx->hw_behind == ch->shadow)
 		hw_shadow_sync(rsx);
 	if (rsx->last_chan == ch->id)
 		rsx->last_chan = -1;
-	if (rsx->prim_owner == ch && close_stale_primitive(rsx)) {
-		rsx->prim_owner = NULL;		/* couldn't end it (wedged): don't block the others */
-		wake_up_all(&rsx->prim_wq);
+	if (rsx->prim_owner == ch) {
+		/* display-only or wedged: no GPU writes, just let the others go */
+		if (ps3rsx_uw_display_only() || READ_ONCE(rsx->wedged) ||
+		    close_stale_primitive(rsx)) {
+			rsx->prim_owner = NULL;
+			wake_up_all(&rsx->prim_wq);
+		}
 	}
+	mutex_lock(&rsx->chan_lock);
+	clear_bit(ch->id, rsx->chan_ids);
+	mutex_unlock(&rsx->chan_lock);
 	mutex_unlock(&rsx->exec_lock);
-	list_del(&ch->head);
 	ps3rsx_shadow_free(ch->shadow);
 	kfree(ch);
+}
+
+/* Never with exec_lock held */
+static void chan_put(struct ps3rsx_chan *ch)
+{
+	kref_put_mutex(&ch->ref, chan_release, &ch->rsx->exec_lock);
+}
+
+/*
+ * CHANNEL_FREE and the file's close: no lookup finds the channel any more, a submit of it still
+ * in the kernel refuses to reach the ring (dead, checked under exec_lock), and the last
+ * reference cleans up. pf->lock held.
+ */
+static void chan_free(struct ps3rsx_device *rsx, struct ps3rsx_chan *ch)
+{
+	list_del(&ch->head);
+	mutex_lock(&rsx->exec_lock);
+	ch->dead = true;
+	mutex_unlock(&rsx->exec_lock);
+	chan_put(ch);
 }
 
 void ps3rsx_file_chans_free(struct ps3rsx_device *rsx, struct ps3rsx_file *pf)
 {
 	struct ps3rsx_chan *ch, *tmp;
 
+	mutex_lock(&pf->lock);
 	list_for_each_entry_safe(ch, tmp, &pf->chans, head)
 		chan_free(rsx, ch);
+	mutex_unlock(&pf->lock);
 }
 
 int ps3rsx_ioctl_channel_alloc(struct drm_device *dev, void *data, struct drm_file *file)
@@ -243,6 +304,8 @@ int ps3rsx_ioctl_channel_alloc(struct drm_device *dev, void *data, struct drm_fi
 	}
 	ch->id = id;
 	ch->pf = pf;
+	ch->rsx = rsx;
+	kref_init(&ch->ref);
 
 	/* the notifier memory is the context's reports area (labels at 0, reports at 0x1400) */
 	bo = ps3rsx_bo_new_reports(rsx);
@@ -282,7 +345,7 @@ int ps3rsx_ioctl_channel_free(struct drm_device *dev, void *data, struct drm_fil
 	mutex_lock(&pf->lock);
 	ch = ps3rsx_chan_find(pf, req->channel);
 	if (ch) {
-		chan_free(to_rsx(dev), ch);
+		chan_free(to_rsx(dev), ch);	/* pf->lock -> exec_lock, as the recovery takes them */
 		ret = 0;
 	}
 	mutex_unlock(&pf->lock);
@@ -384,25 +447,28 @@ int ps3rsx_ioctl_gem_pushbuf(struct drm_device *dev, void *data, struct drm_file
 	req->vram_available = rsx->vram_size;
 	req->gart_available = rsx->gart_size - RING_RESERVE;
 
-	mutex_lock(&pf->lock);
-	ch = ps3rsx_chan_find(pf, req->channel);
-	mutex_unlock(&pf->lock);
+	ch = chan_get(pf, req->channel);
 	if (!ch)
 		return -ENOENT;
+	ret = 0;
 	if (!req->nr_push)
-		return 0;		/* Mesa's first call only asks for the suffixes */
+		goto out;		/* Mesa's first call only asks for the suffixes */
+	ret = -ENODEV;
 	if (ps3rsx_uw_display_only())
-		return -ENODEV;		/* display-only: the GPU is gone, KMS stays */
+		goto out;		/* display-only: the GPU is gone, KMS stays */
 	/* an in-place recovery is running: wait for its outcome (10 s at most) */
+	ret = -EINTR;
 	if (READ_ONCE(rsx->recovering) &&
 	    wait_event_interruptible_timeout(rsx->recover_wq, !READ_ONCE(rsx->recovering),
 					     10 * HZ) < 0)
-		return -EINTR;
+		goto out;
+	ret = -EIO;
 	if (READ_ONCE(rsx->wedged))
-		return -EIO;
+		goto out;
+	ret = -EINVAL;
 	if (req->nr_push > NOUVEAU_GEM_MAX_PUSH || req->nr_buffers > NOUVEAU_GEM_MAX_BUFFERS ||
 	    req->nr_relocs > NOUVEAU_GEM_MAX_RELOCS || !req->nr_buffers)
-		return -EINVAL;
+		goto out;
 
 	push = memdup_array_user(u64_to_user_ptr(req->push), req->nr_push, sizeof(*push));
 	bos = memdup_array_user(u64_to_user_ptr(req->buffers), req->nr_buffers, sizeof(*bos));
@@ -461,6 +527,11 @@ int ps3rsx_ioctl_gem_pushbuf(struct drm_device *dev, void *data, struct drm_file
 		goto out;
 	held = true;
 	mutex_lock(&rsx->exec_lock);
+	if (ch->dead) {			/* freed by another thread meanwhile */
+		mutex_unlock(&rsx->exec_lock);
+		ret = -ENOENT;
+		goto out;
+	}
 	if (ch->fatal) {		/* this client's push trapped the GPU */
 		mutex_unlock(&rsx->exec_lock);
 		ret = -ENODEV;
@@ -508,6 +579,11 @@ int ps3rsx_ioctl_gem_pushbuf(struct drm_device *dev, void *data, struct drm_file
 				goto out;
 			}
 		}
+	}
+	if (ch->dead) {			/* freed while it waited above (exec_lock dropped) */
+		mutex_unlock(&rsx->exec_lock);
+		ret = -ENOENT;
+		goto out;
 	}
 	/* another channel ran last: put this channel's state back first */
 	restore = 0;
@@ -604,8 +680,14 @@ int ps3rsx_ioctl_gem_pushbuf(struct drm_device *dev, void *data, struct drm_file
 			h->last = total ? w[total / 4 - 1] : 0;
 		}
 		rsx->prim_owner = ch->vstate.prim_open ? ch : NULL;
-		if (!rsx->prim_owner)
+		rsx->last_submit = jiffies;
+		if (rsx->prim_owner) {
+			rsx->prim_since = jiffies;	/* its owner continues it, or after 1 s ends */
+		} else {
 			wake_up_all(&rsx->prim_wq);
+			if (READ_ONCE(rsx->vc.wait_prim))
+				ps3rsx_vclear_kick(rsx, 0);
+		}
 	}
 	mutex_unlock(&rsx->exec_lock);
 	if (IS_ERR(fence)) {
@@ -653,6 +735,7 @@ int ps3rsx_ioctl_gem_pushbuf(struct drm_device *dev, void *data, struct drm_file
 out:
 	if (held)
 		ps3rsx_console_unhold(rsx);
+	chan_put(ch);			/* exec_lock isn't held here */
 	if (fence)
 		dma_fence_put(fence);
 	if (objs)
