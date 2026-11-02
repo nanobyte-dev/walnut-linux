@@ -206,8 +206,7 @@ class CacheMac(unittest.TestCase):
 		self.assertNotIn("actions/cache", build)
 		for job, nxt in (("cache-restore", "build"), ("cache-save", None)):
 			body = r[r.index(f"\n  {job}:\n"):]
-			if nxt:
-				body = body[:body.index(f"\n  {nxt}:\n")]
+			body = body[:body.index(f"\n  {nxt or 'publish'}:\n")]
 			self.assertNotIn("build-release.sh", body)	# the salt jobs run no package code
 			self.assertIn("secrets.WALNUT_CACHE_SALT", body)
 
