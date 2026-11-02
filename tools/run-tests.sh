@@ -174,6 +174,7 @@ run commit-hooks tools/hooks/install.sh --check
 run ps3-lease bash tools/test_ps3_lease.sh
 run leak-check python3 tools/test_leak_check.py
 run image-check python3 -I tools/test_image_check.py
+run ps3-sudoers bash packages/walnut/system/ps3-desktop/tests/sudoers-check.sh
 run repo-tools python3 -I tools/test_repo_tools.py
 run licensed python3 -I tools/licensed.py check
 run workflows python3 -I github-ci/gen-workflows.py --check

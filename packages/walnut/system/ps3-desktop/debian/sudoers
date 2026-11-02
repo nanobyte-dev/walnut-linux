@@ -1,2 +1,5 @@
 # ps3-desktop: game mode (ps3-game) and the menu's shut down / reboot entries (ps3-power)
 %sudo ALL=(root) NOPASSWD: /usr/lib/ps3/sbin/ps3-game-mode, /usr/bin/systemctl poweroff, /usr/bin/systemctl reboot
+# ps3-game-mode reads PS3_GAME_MODE_SELF and PS3_KICK_BIN from its environment: it always runs with a
+# clean one, whatever the rest of sudo's settings say
+Defaults!/usr/lib/ps3/sbin/ps3-game-mode env_reset
