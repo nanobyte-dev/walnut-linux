@@ -588,7 +588,7 @@ with the stop file. What counts, each a `!` line in the run's `interference.log`
 Exempt, recorded as `-` lines: the bench's own evemu keyboards (uinput devices under
 `/devices/virtual/input/` whose `/dev/uinput` is held by `evemu-device`; they carry the real
 receiver's name "Logitech USB Receiver", so the name can't tell them apart), and
-`tools/bench-cam.sh`'s watcher (its command line has `pgrep -x run.sh` and `/dev/shm/ps3-bench-`; it
+`tools/bench-cam.sh`'s watcher (it runs as `exec -a bench-cam-loop bash -c ...`, so argv[0] is exactly `bench-cam-loop`; it
 and its session are exempt). XTEST (`xkeys.py`) makes no kernel input event at all, so nothing is
 seen. System services' and the user manager's new processes are listed under `info`.
 

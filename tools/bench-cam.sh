@@ -14,8 +14,10 @@ if [ $# -gt 0 ]; then offsets=("$@"); else offsets=(30 60); fi
 { read -r ps3_ip; read -r ps3_user; read -r ps3_key; } < <(tools/config-get.sh PS3_IP PS3_USER PS3_SSH_KEY)
 [ -n "$ps3_ip" ] && [ -n "$ps3_user" ] || { echo "bench-cam.sh: set PS3_IP and PS3_USER (config.local.mk)" >&2; exit 1; }
 out=build/bench-cam; mkdir -p "$out"; mark=$(mktemp -d); trap 'rm -rf "$mark"' EXIT
-ssh -i "$ps3_key" -o UserKnownHostsFile=build/ps3_known_hosts -o ConnectTimeout=20 \
-	-o ServerAliveInterval=30 "$ps3_user@$ps3_ip" '
+# The remote loop runs as `exec -a bench-cam-loop bash -c ...`: argv[0] is the marker the interference
+# detector (ps3-intfwatch -X built in) exempts, with its SSH session and children. Any other ssh
+# session during a run is still flagged. No quote characters inside the script.
+loop=$(cat <<'EOF'
 	seen=" "; idle=0
 	while :; do
 		for d in /dev/shm/ps3-bench-*; do
@@ -28,7 +30,11 @@ ssh -i "$ps3_key" -o UserKnownHostsFile=build/ps3_known_hosts -o ConnectTimeout=
 		run=0; for c in /proc/[0-9]*/comm; do read -r n < "$c" 2>/dev/null && [ "$n" = run.sh ] && { run=1; break; }; done
 		if [ $run = 1 ]; then idle=0; else idle=$((idle + 5)); [ $idle -ge 90 ] && exit 0; fi
 		sleep 5
-	done' 2>/dev/null |
+	done
+EOF
+)
+ssh -i "$ps3_key" -o UserKnownHostsFile=build/ps3_known_hosts -o ConnectTimeout=20 \
+	-o ServerAliveInterval=30 "$ps3_user@$ps3_ip" "exec -a bench-cam-loop bash -c $(printf %q "$loop")" 2>/dev/null |
 while read -r ev d; do
 	name=$(basename "$d")
 	case "$ev" in

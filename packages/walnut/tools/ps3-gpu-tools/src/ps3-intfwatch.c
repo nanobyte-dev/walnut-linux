@@ -24,8 +24,9 @@
  *   -H VT         the home VT: the bench console (ps3-bench.sh BENCH_VT, 8) where the X server
  *                 returns (default: the VT active at the start)
  *   -X CMDSUBSTR  a process whose command line holds this, and what it starts, is exempt (but
- *                 recorded). Built in: tools/bench-cam.sh's watcher loop (its command line has
- *                 "pgrep -x run.sh" and "/dev/shm/ps3-bench-"), and so is its SSH session
+ *                 recorded). Built in: tools/bench-cam.sh's watcher loop, which runs as
+ *                 `exec -a bench-cam-loop bash -c ...` (argv[0] exactly "bench-cam-loop", or
+ *                 the login shell that is about to exec it), and so is its SSH session
  *   -I NAME       an input device whose name holds NAME is not watched
  *   -q MS         the /proc scan period (default 250)
  *   -d, -L, -t, -k, -S  other places for the host tests: /dev/input, /run/systemd/sessions,
@@ -673,7 +674,11 @@ static int pcgroup(int pid, char *sess, size_t n)
 static int exempt_cmd(const char *c)
 {
 	int i;
-	if (strstr(c, "pgrep -x run.sh") && strstr(c, "/dev/shm/ps3-bench-"))	/* tools/bench-cam.sh */
+	/* tools/bench-cam.sh: argv[0] is exactly "bench-cam-loop" (cmdline NULs became spaces), or
+	 * the login shell before its exec: "<sh> -c exec -a bench-cam-loop ..." */
+	if (!strncmp(c, "bench-cam-loop ", 15) || !strcmp(c, "bench-cam-loop"))
+		return 1;
+	if (strstr(c, " -c exec -a bench-cam-loop "))
 		return 1;
 	for (i = 0; i < n_exempt; i++)
 		if (strstr(c, exempt_subs[i]))

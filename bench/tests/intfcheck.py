@@ -11,7 +11,7 @@ python3 bench/tests/intfcheck.py). docs/STALLS.md "Interference".
      wheel counted
   3. the live part on this machine (no root: an empty input directory, a fake VT file, sessions
      directory and kernel log): the harness's own processes (descendants, an orphan carrying
-     BENCH_DIR), bench-cam's watcher (exempt) and a foreign command; a new login session; the VT
+     BENCH_DIR), bench-cam-loop (argv[0] marker, exempt), lookalikes and a foreign command; a new login session; the VT
      rules of an x run (the X server's own switches expected, the others counted); a USB line;
      an older login process busy for more than 1 s
   4. report.py and matrix.py with interfered runs (bench.txt interfered=1, gamedb/benchmarks/interfered.txt):
@@ -215,7 +215,11 @@ def live_checks(exe, tmp):
     pidf.write_text("%d\n" % game.pid)
     foreign = subprocess.Popen(["sleep", "2.51"])     # a command typed in a login session
     orphan = subprocess.Popen(["sh", "-c", "sleep 2.52 & exit 0"], env=dict(os.environ, BENCH_DIR=str(d)))
-    cam = subprocess.Popen(["bash", "-c", 'x="pgrep -x run.sh; ls /dev/shm/ps3-bench-*"; sleep 2.53; true'])
+    # bench-cam's remote loop: argv[0] exactly bench-cam-loop; a lookalike (the old pgrep marker, or the name
+    # only in an argument) is another session's command and must be flagged
+    cam = subprocess.Popen(["bench-cam-loop", "-c", "sleep 2.53; true"], executable="/bin/bash")
+    old = subprocess.Popen(["bash", "-c", 'x="pgrep -x run.sh; ls /dev/shm/ps3-bench-*"; sleep 2.54; true'])
+    arg = subprocess.Popen(["bash", "-c", "sleep 2.55; true", "bench-cam-loop"])
 
     def setvt(n):
         vt.write_text("tty%d\n" % n)
@@ -237,7 +241,7 @@ def live_checks(exe, tmp):
     game.wait()
     time.sleep(0.3)
     setvt(8)    # the X server gives the VT back after the game: expected
-    for p in (foreign, orphan, cam, root):
+    for p in (foreign, orphan, cam, old, arg, root):
         p.wait()
     time.sleep(0.3)
     stop.touch()
@@ -258,6 +262,8 @@ def live_checks(exe, tmp):
     check("intfwatch live: an orphan with BENCH_DIR not counted", not any("sleep 2.52" in line for line in flagged), flagged)
     check("intfwatch live: bench-cam's watcher and its children exempt",
           not any("sleep 2.53" in line for line in flagged) and "exempt" in sm.get("info", ""), (flagged, sm))
+    check("intfwatch live: the old pgrep marker and the name in an argument are not exempt (another session is flagged)",
+          any("sleep 2.54" in line for line in flagged) and any("sleep 2.55" in line for line in flagged), flagged)
     vts = [line.split(" VT ", 1)[1] for line in t.splitlines() if " VT " in line]
     exp = [v for v in vts if "(the X server" in v]
     check("intfwatch live: VT 8->1 and 1->8 (after the game) expected, 4 others counted",
