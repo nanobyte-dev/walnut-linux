@@ -425,13 +425,25 @@ PACKAGE_CODE_RE = re.compile(r"build-package\.sh|build-release\.sh|\bmake\b|runn
 NO_SECRET_JOBS = {("walnut-package.yml", "build-external"), ("release-image.yml", "build"), ("release-image.yml", "layer")}
 
 
-def secret_rules(name, doc):
-	"""Secrets go to steps, and never to a job that runs code of the packages: no secret reference at all in
-	build-external, the release image's build and layer jobs; in any job a step that runs package code may name
-	only the shared ccache's login; no secret in an env block of the workflow or of a job."""
-	errs = []
-	ref = lambda x: re.findall(r"secrets\.(\w+)", yaml.dump(x))
+def secret_uses(x):
+	"""The uses of the secrets context in the `${{ }}` expressions of x: names (secrets.NAME), and "<dynamic>" for
+	any other form (toJSON(secrets), secrets['X'], secrets[format(...)], a bare secrets)."""
 	import yaml
+	out = []
+	for expr in re.findall(r"\$\{\{(.*?)\}\}", yaml.dump(x, width=10**9), re.S):
+		out += re.findall(r"\bsecrets\.(\w+)", expr)
+		if re.search(r"\bsecrets\b(?!\.\w)", expr):
+			out.append("<dynamic>")
+	return out
+
+
+def secret_rules(name, doc):
+	"""Secrets go to steps, and never to a job that runs code of the packages: no use of the secrets context at
+	all (any form) in build-external, the release image's build and layer jobs; in any job a step that runs
+	package code may name only the shared ccache's login; no secret in an env block of the workflow or of a job;
+	a job passing secrets on (uses + secrets) only where it calls walnut-package.yml."""
+	errs = []
+	ref = secret_uses
 	if ref(doc.get("env")):
 		errs.append(f"{name}: a secret in the workflow-level env")
 	for jname, job in (doc.get("jobs") or {}).items():
@@ -439,7 +451,9 @@ def secret_rules(name, doc):
 			continue
 		if ref(job.get("env")):
 			errs.append(f"{name}: job {jname}: a secret in the job-level env (steps only)")
-		if (name, jname) in NO_SECRET_JOBS and ref(job):
+		if "secrets" in job and job.get("uses") != "./.github/workflows/walnut-package.yml":
+			errs.append(f"{name}: job {jname}: passes secrets to something other than walnut-package.yml")
+		if (name, jname) in NO_SECRET_JOBS and (ref(job) or "secrets" in job):
 			errs.append(f"{name}: job {jname} runs package code and references a secret")
 		for st in job.get("steps") or []:
 			if isinstance(st, dict) and PACKAGE_CODE_RE.search(str(st.get("run", ""))):

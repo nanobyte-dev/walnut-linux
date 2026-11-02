@@ -115,6 +115,22 @@ class Lint(unittest.TestCase):
 		for job in ("build", "layer"):
 			t = wf(f"  {job}:\n    runs-on: x\n    steps:\n      - run: echo\n        env:\n          X: ${{{{ secrets.WALNUT_CACHE_SALT }}}}\n")
 			self.assertIn("references a secret", "\n".join(self.lint({"release-image.yml": t}, yaml=True)), job)
+		# every form of the secrets context, not only secrets.NAME
+		forms = ["toJSON(secrets)", "secrets['WALNUT_DEPLOY_KEY']", "secrets[format('WALNUT_{0}', 'DEPLOY_KEY')]",
+		         "format('{0}', secrets)", "secrets[ 'X' ]"]
+		for form in forms:
+			t = wf(f"  build-external:\n    runs-on: x\n    steps:\n      - run: echo\n        env:\n          X: ${{{{ {form} }}}}\n")
+			self.assertIn("references a secret", "\n".join(self.lint({"walnut-package.yml": t}, yaml=True)), form)
+			t = wf(f"  j:\n    runs-on: x\n    steps:\n      - run: make all\n        env:\n          X: ${{{{ {form} }}}}\n")
+			self.assertIn("runs package code references ['<dynamic>']", "\n".join(self.lint({"a.yml": t}, yaml=True)), form)
+		# a job that passes secrets on: only the callers of walnut-package.yml
+		call = "  j:\n    uses: ./.github/workflows/walnut-package.yml\n    secrets: inherit\n"
+		self.assertEqual(self.lint({"pkg-x.yml": wf(call)}, yaml=True), [])
+		for sec in ("secrets: inherit", "secrets:\n      X: ${{ secrets.Y }}"):
+			other = f"  j:\n    uses: ./.github/workflows/other.yml\n    {sec}\n"
+			self.assertIn("passes secrets to something other", "\n".join(self.lint({"a.yml": wf(other)}, yaml=True)), sec)
+		inherit_in_build = "  layer:\n    uses: ./.github/workflows/walnut-package.yml\n    secrets: inherit\n"
+		self.assertIn("references a secret", "\n".join(self.lint({"release-image.yml": wf(inherit_in_build)}, yaml=True)))
 		# a secret in an env block above the steps reaches every step of the job or workflow
 		self.assertIn("job-level env", "\n".join(self.lint({"a.yml": wf("  j:\n    runs-on: x\n    env:\n      K: ${{ secrets.X }}\n    steps:\n      - run: echo\n")}, yaml=True)))
 		self.assertIn("workflow-level env", "\n".join(self.lint({"a.yml": wf("  j:\n    runs-on: x\n    steps:\n      - run: echo\n", top="env:\n  K: ${{ secrets.X }}\n")}, yaml=True)))
