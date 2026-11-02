@@ -17,13 +17,13 @@ data_steps = [
 controller = "keyboard"
 designed_for = "keyboard-mouse"
 known_issues = [
-  "Nobody has played it through a session on Walnut yet, and it has not been tried with Doom's own WAD.",
-  "DSDA-Doom's MIDI music chops on the PS3: about 465 sound underruns a minute with the synthesizer on the SPEs (measured with Freedoom, not with this WAD).",
+  "One session so far (about 16 minutes of E1, from a DOOM.WAD): one frame took 412 ms, the only stutter that stood out; the sound was clean (no audible dropouts) with the music on.",
+  "The gamepad was not tried in the session (keyboard and mouse only).",
 ]
 +++
 
 Doom runs on DSDA-Doom, the Doom port Walnut packages and patches for the PS3 (big-endian sound
 lumps, textures in formats the RSX has, batched GL draws). The engine is free; the game's data is not, so
-Walnut doesn't offer it: Walnut Games makes a package of it from your own copy (the Overview's Installation, and the Guides). Nobody has played it on
-Walnut yet. DSDA-Doom with Freedoom runs at about 56 frames a second on its OpenGL renderer; with this
-game's WAD it has not been tried.
+Walnut doesn't offer it: Walnut Games makes a package of it from your own copy (the Overview's Installation, and the Guides). In a 16-minute session from DOOM.WAD
+(The Ultimate Doom, episode 1) it held about 59 frames a second at 1920x1080 on the OpenGL renderer, with clean
+sound and music, the right picture and no crash.

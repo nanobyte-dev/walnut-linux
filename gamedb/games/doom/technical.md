@@ -2,8 +2,8 @@
 
 ## Status
 
-Untested on the PS3: published so that Walnut Games can set up its data; nobody has played it on Walnut
-yet. Its launchers start DSDA-Doom 0.30.0 (Debian's package with Walnut's patches, gamedb:dsda-doom), which plays
+Played once on the PS3 (2026-11-02, 936 s of play from The Ultimate Doom's DOOM.WAD: median 59 fps, 1% low 40,
+no crash, no audible dropouts, nothing wrong in the picture; Platinum 95, provisional under an hour of play). Its launchers start DSDA-Doom 0.30.0 (Debian's package with Walnut's patches, gamedb:dsda-doom), which also plays
 Freedoom 2 at about 56 fps on its OpenGL renderer.
 
 - **Data**: game-data-packager's `doom-wad` (build.toml `[data_setup]`), made from the
