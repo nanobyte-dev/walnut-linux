@@ -199,14 +199,30 @@ jobs:
             build/rootfs/base.tar.mac
           key: ${{ steps.key.outputs.base }}
 
-  publish:
+  stable-gate:
+    # a stable release by someone not on the allowlist waits here for the reviewers of walnut-stable-review (no secrets)
     needs: build
-    if: inputs.publish
+    if: inputs.publish && inputs.channel == 'stable' && !contains(fromJSON(vars.WALNUT_STABLE_PUBLISHERS || '[]'), github.triggering_actor)
+    runs-on: ubuntu-24.04
+    environment: walnut-stable-review
+    steps:
+      - run: echo "approved by a reviewer of walnut-stable-review"
+
+  publish:
+    needs: [build, stable-gate]
+    if: always() && inputs.publish && needs.build.result == 'success' && (inputs.channel != 'stable' || needs.stable-gate.result == 'success' || (needs.stable-gate.result == 'skipped' && contains(fromJSON(vars.WALNUT_STABLE_PUBLISHERS || '[]'), github.triggering_actor)))
     runs-on: ubuntu-24.04
     environment: walnut-${{ inputs.channel }}
     permissions:
       contents: write  # the GitHub release
     steps:
+      - name: Approved, or on the allowlist (checked here again, a skipped gate is no approval)
+        if: inputs.channel == 'stable'
+        env:
+          GATE: ${{ needs.stable-gate.result }}
+          ALLOWED: ${{ contains(fromJSON(vars.WALNUT_STABLE_PUBLISHERS || '[]'), github.triggering_actor) }}
+        run: |
+          [ "$GATE" = success ] || { [ "$GATE" = skipped ] && [ "$ALLOWED" = true ]; } || { echo "::error::not approved, and not on the allowlist"; exit 1; }
       - name: Only from main
         if: inputs.channel == 'stable'
         run: |
