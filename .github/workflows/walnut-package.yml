@@ -4,7 +4,7 @@
 #                   make <pkg>-deb on a GitHub runner (ppc64 under qemu). Its secrets are the shared ccache's
 #                   login (the cache, nothing else) and the salt of the Actions cache keys.
 #   build-external  (tier external: an upstream tarball or repository, or a download at build time)
-#                   the same build with permissions: {}, no secret, no shared ccache and no Actions cache:
+#                   the same build with a contents: read token only (not kept on disk), no secret, no shared ccache and no Actions cache:
 #                   whatever its code does it has nothing to steal, and it writes nothing a trusted job reads.
 #                   Its debs still pass the publisher's name lists (github-ci/packages.toml).
 #   The output (debs, -dbgsym debs, the source package) is kept as the artifact
@@ -106,7 +106,8 @@ jobs:
 
   build-external:
     if: inputs.tier == 'external'
-    permissions: {}  # no token scopes at all
+    permissions:
+      contents: read  # the checkout only; the token is not kept on disk (persist-credentials: false)
     runs-on: ubuntu-24.04
     timeout-minutes: 360
     outputs:

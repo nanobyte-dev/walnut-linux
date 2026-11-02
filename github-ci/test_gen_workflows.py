@@ -123,7 +123,8 @@ class Generated(unittest.TestCase):
 	def test_reusable_workflow(self):
 		t = self.files["walnut-package.yml"]
 		ext = t[t.index("\n  build-external:\n"):t.index("\n  publish:\n")]
-		self.assertIn("permissions: {}", ext)
+		self.assertIn("permissions:\n      contents: read", ext)
+		self.assertNotIn("write", ext)
 		self.assertNotIn("secrets.", ext)
 		self.assertNotIn("actions/cache", ext)
 		self.assertNotIn("CCACHE", ext)
@@ -132,6 +133,19 @@ class Generated(unittest.TestCase):
 		self.assertNotIn("restore-keys", t)
 		self.assertIn("refs/heads/main", t[t.index("\n  publish:\n"):])
 		self.assertIsNone(re.search(r"key: (chroot|spu)-", t))	# no unsalted key
+
+	def test_no_salt_means_no_actions_cache(self):
+		"""Until WALNUT_CACHE_SALT exists the jobs build without any Actions cache: no restore, no save, no failure."""
+		for name, text in (("walnut-package.yml", self.files["walnut-package.yml"]),
+		                   ("release-image.yml", open(f"{HERE}/../.github/workflows/release-image.yml").read())):
+			self.assertIn('[ -n "$SALT" ] || { echo "-- no WALNUT_CACHE_SALT', text, name)	# the key step exits 0, sets nothing
+			steps = re.split(r"\n      - ", text)
+			caches = [st for st in steps if "actions/cache" in st]
+			self.assertTrue(caches, name)
+			for st in caches:
+				self.assertRegex(st, r"if: .*steps\.(keys|key)\.outputs\.\w+ != ''", f"{name}: {st[:60]}")
+				self.assertNotIn("restore-keys", st)
+				self.assertRegex(st, r"key: \$\{\{ steps\.(keys|key|base)\.outputs", name)	# only the salted key, never a literal one
 
 
 class PcRule(unittest.TestCase):
