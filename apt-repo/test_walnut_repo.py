@@ -250,6 +250,59 @@ class Repo(unittest.TestCase):
 		_, r = add([other], ok=False)
 		self.assertIn("already published with other bytes", r.stderr)
 
+	def make_dsc(self, name, version, files, source="foo", listed=None):
+		"""A .dsc in debs/src/ listing `files` ({name: bytes}); `listed` renames what the .dsc says."""
+		d = f"{self.debs}/src"
+		os.makedirs(d, exist_ok=True)
+		rows = []
+		for n, data in files.items():
+			if "/" not in n:
+				open(f"{d}/{n}", "wb").write(data)
+			rows.append((n if listed is None else listed.get(n, n), data))
+		path = f"{d}/{name}_{version}.dsc"
+		with open(path, "w") as f:
+			f.write(f"Format: 3.0 (native)\nSource: {source}\nVersion: {version}\nArchitecture: any\nFiles:\n")
+			f.write("".join(f" {hashlib.md5(b).hexdigest()} {len(b)} {n}\n" for n, b in rows))
+			f.write("Checksums-Sha256:\n" + "".join(f" {hashlib.sha256(b).hexdigest()} {len(b)} {n}\n" for n, b in rows))
+		return path
+
+	def test_dsc_names_are_plain_files(self):
+		"""A .dsc's file names are never paths: /proc/self/environ and ../x would be copied into the pool."""
+		secret = f"{self.root}/secret"
+		open(secret, "w").write("WALNUT_SIGN_KEY=hunter2\n")
+		for bad in (secret, "../x", "sub/x", "a\u00e9", "..", "x\0y"):
+			dsc = self.make_dsc("foo", "1.0", {"orig.tar.xz": b"orig"}, listed={"orig.tar.xz": bad})
+			r = self.add_fail([dsc])
+			self.assertIn("plain file name", r.stderr, bad)
+			for dp, _, fs in os.walk(f"{self.root}/bundle-out"):
+				self.assertEqual(fs, [] if "pool" in dp else fs, bad)	# no pool file at all
+		# the sha256 and the size are the .dsc's word
+		dsc = self.make_dsc("foo", "1.0", {"orig.tar.xz": b"orig"})
+		open(f"{self.debs}/src/orig.tar.xz", "wb").write(b"other")
+		self.assertIn("size and sha256", self.add_fail([dsc]).stderr)
+		# a symlink next to the .dsc is not a regular file
+		os.unlink(f"{self.debs}/src/orig.tar.xz")
+		os.symlink(secret, f"{self.debs}/src/orig.tar.xz")
+		self.assertIn("regular file", self.add_fail([dsc]).stderr)
+		# a Source that is a path
+		dsc = self.make_dsc("foo", "1.0", {"o.tar.xz": b"o"}, source="x/../../y")
+		self.assertIn("not a source package name", self.add_fail([dsc]).stderr)
+
+	def test_dropped_dsc_leaves_no_files(self):
+		"""A .dsc that prune drops from Sources gets no file in the pool (nothing unindexed is published)."""
+		new = [self.make_dsc("foo", f"1.0+ps3.{n}", {f"o{n}.tar.xz": f"o{n}".encode()}) for n in (5, 6, 7)]
+		old = self.make_dsc("foo", "0.1", {"old.tar.xz": b"old"})
+		out = self.add(new + [old], keep=2)
+		pool = os.path.join(out, "pool", "testing", "main", "f", "foo")
+		self.assertFalse(os.path.exists(f"{pool}/old.tar.xz"))
+		self.assertFalse(os.path.exists(f"{pool}/o5.tar.xz"))
+		self.assertTrue(os.path.exists(f"{pool}/o7.tar.xz"))
+
+	def add_fail(self, files, suite="testing"):
+		out = f"{self.root}/bundle-out"
+		return self.repo("add", "--suite", suite, "--keyring", self.keys["ci"][2], "--sign-key", self.keys["ci"][1],
+		                 "--out", out, "--keep", "2", *files, ok=False)
+
 
 if __name__ == "__main__":
 	unittest.main()

@@ -26,7 +26,7 @@ signatures. --url defaults to https://walnut.nanobyte.dev/apt; the password-prot
 is https://walnut.nanobyte.dev/licensed, its login (one line, user:password) in the file
 WALNUT_APT_AUTH_FILE names (apt-repo/licensed-auth.sh writes one), never on a command line.
 """
-import argparse, base64, gzip, hashlib, io, lzma, os, re, shutil, subprocess, sys, tarfile, tempfile, time
+import argparse, base64, gzip, hashlib, io, lzma, os, re, shutil, stat, subprocess, sys, tarfile, tempfile, time
 import urllib.error, urllib.request
 from email.utils import formatdate
 
@@ -153,7 +153,13 @@ def file_sums(path):
 	return size, {k: v.hexdigest() for k, v in h.items()}
 
 
+SOURCE_RE = re.compile(r"[a-z0-9][a-z0-9+.-]*\Z")	# Debian's syntax for a package name
+PLAIN_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._+~-]{0,200}\Z")	# a file next to the .dsc: ASCII, no path
+
+
 def pool_dir(suite, source):
+	if not SOURCE_RE.match(source):
+		raise Error(f"{source!r}: not a source package name")
 	return f"pool/{suite}/{COMP}/{source[:4] if source.startswith('lib') else source[0]}/{source}"
 
 
@@ -169,6 +175,9 @@ def deb_stanza(path, suite):
 
 
 def dsc_stanza(path, suite):
+	"""(index stanza, the files it names). Every name in Files / Checksums-Sha256 must be a plain file name
+	of a regular file next to the .dsc, with the size and sha256 the .dsc gives: a name is never a path
+	(an absolute one would copy any file the process can read into the public pool)."""
 	text = open(path, encoding="utf-8").read()
 	m = re.search(r"-----BEGIN PGP SIGNED MESSAGE-----\n(?:.+\n)*\n(.*?)\n-----BEGIN PGP SIGNATURE", text, re.S)
 	fields = parse_stanzas(m.group(1) if m else text)[0]
@@ -177,12 +186,39 @@ def dsc_stanza(path, suite):
 	out.update(fields)
 	size, sums = file_sums(path)
 	name = os.path.basename(path)
+	listed = {}	# file name -> (size, sha256)
+	for field in ("Checksums-Sha256", "Files"):
+		names = {}
+		for l in out.get(field, "").splitlines():
+			if not l.strip():
+				continue
+			parts = l.split()
+			if len(parts) != 3 or not parts[1].isdigit():
+				raise Error(f"{path}: bad {field} line {l!r}")
+			names[parts[2]] = (int(parts[1]), parts[0])
+		if field == "Checksums-Sha256":
+			listed = names
+		elif {n: v[0] for n, v in names.items()} != {n: v[0] for n, v in listed.items()}:
+			raise Error(f"{path}: Files and Checksums-Sha256 do not name the same files")
+	if not listed:
+		raise Error(f"{path}: no Checksums-Sha256")
+	d = os.path.dirname(path)
+	files = []
+	for f, (fsize, fsha) in listed.items():
+		if not PLAIN_NAME_RE.match(f):
+			raise Error(f"{path}: {f!r} is not a plain file name")
+		fp = os.path.join(d, f)
+		if not os.path.lexists(fp) or not stat.S_ISREG(os.lstat(fp).st_mode):
+			raise Error(f"{path}: {f} is not a regular file next to the .dsc")
+		got, gsums = file_sums(fp)
+		if got != fsize or gsums["SHA256"] != fsha:
+			raise Error(f"{path}: {f} is not the size and sha256 the .dsc gives")
+		files.append(fp)
 	out["Files"] = out.get("Files", "") + f"\n {sums['MD5sum']} {size} {name}"
 	out["Checksums-Sha256"] = out.get("Checksums-Sha256", "") + f"\n {sums['SHA256']} {size} {name}"
 	out.pop("Checksums-Sha1", None)
 	out["Directory"] = pool_dir(suite, src)
-	files = [l.split()[2] for l in out["Files"].splitlines() if l.strip()]
-	return out, [os.path.join(os.path.dirname(path), f) for f in files]
+	return out, files + [path]
 
 
 def stanza_source(s):
@@ -363,11 +399,12 @@ def add_suite(a, out, suite, debs, dscs, keep):
 	sources, added_src = merge(cur.sources, [s for s, _ in new_src], skey, "dsc", print, a.strict)
 	packages = prune(packages, keep, stanza_source, stanza_source_version)
 	sources = prune(sources, keep, lambda s: s["Package"], lambda s: s["Version"])
-	keep_bin = {id(s) for s in added_bin}
+	# files only for what the written indices hold: a stanza prune dropped gets none in the pool
+	keep_bin = {id(s) for s in added_bin} & {id(s) for s in packages}
 	for s, f in new_bin:
 		if id(s) in keep_bin:
 			copy_pool(out, s["Filename"], f)
-	keep_src = {id(s) for s in added_src}
+	keep_src = {id(s) for s in added_src} & {id(s) for s in sources}
 	for (s, files) in new_src:
 		if id(s) in keep_src:
 			for f in files:
