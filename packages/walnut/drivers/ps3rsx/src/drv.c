@@ -25,6 +25,11 @@ static int ps3rsx_open(struct drm_device *dev, struct drm_file *file)
 
 	if (!pf)
 		return -ENOMEM;
+	pf->owner = ps3rsx_owner_new();	/* of its BOs (vkeep.c) */
+	if (!pf->owner) {
+		kfree(pf);
+		return -ENOMEM;
+	}
 	mutex_init(&pf->lock);
 	INIT_LIST_HEAD(&pf->objects);
 	INIT_LIST_HEAD(&pf->chans);
@@ -39,6 +44,9 @@ static void ps3rsx_postclose(struct drm_device *dev, struct drm_file *file)
 	ps3rsx_file_chans_free(to_rsx(dev), pf);
 	ps3rsx_file_objects_free(pf);
 	ps3rsx_console_file_closed(to_rsx(dev), pf);
+	/* its BOs were released before this: what it kept goes to the clear, and a BO freed after
+	 * now (a framebuffer an atomic commit still holds) finds its owner closed */
+	ps3rsx_owner_close(to_rsx(dev), pf->owner);
 	kfree(pf);
 }
 

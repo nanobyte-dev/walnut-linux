@@ -576,6 +576,293 @@ static void case_close_primitive(void)
 	      what);
 }
 
+/*
+ * Same-owner reuse (vclear.h's keep rules, vkeep.c's paths) on a second model: owners (open files)
+ * with refcounted records, BOs that keep their owner's record, data tagged with the writer's owner
+ * id, kept ranges, zombies cleared by a GPU step, pressure, expiry, closes, shared BOs written by
+ * another owner. Checked: an allocation only ever sees zeros or its own owner's data; a zombie is
+ * cleared only where nothing lives; a kept range is never handed to another owner. The fix-off
+ * variants: OLD_OWNER_ALIAS (the owner a raw pointer: a closed file's record reused by the next
+ * open while its BOs live), OLD_PRESSURE_FREE (pressure gives kept ranges back to the free heap),
+ * OLD_SHARED_KEPT (the shared mark ignored), OLD_EXPIRY_NO_UNLIST (the expiry clears an entry that
+ * stays on the kept list: two claims).
+ */
+#define RP 4096			/* pages */
+#define RO 6			/* owner record slots */
+#define RB 256			/* BOs */
+enum { R_FREE, R_LIVE, R_KEPT, R_ZOMB };
+static u8 rst[RP];
+static int rdat[RP];		/* 0: zero, else the id of the owner that wrote it */
+struct rowner { bool used, closed; int id, refs, kept_n; u64 kept_bytes; };
+struct rbo { bool used, shared, kept, zomb; int start, n, slot, kept_t; };
+static struct rowner ow[RO];
+static struct rbo rb[RB];
+static int next_id = 1, now_t;
+static u64 kept_total;
+
+static int r_open(void)
+{
+	for (int i = 0; i < RO; i++)
+		if (!ow[i].used) {
+			ow[i] = (struct rowner){ true, false, next_id++, 1, 0, 0 };
+			return i;
+		}
+	return -1;
+}
+
+static void r_put(int slot)
+{
+	if (--ow[slot].refs == 0)
+		ow[slot].used = false;
+}
+
+static void r_zombie(int b)		/* a BO's range to the clear */
+{
+	for (int p = rb[b].start; p < rb[b].start + rb[b].n; p++)
+		rst[p] = R_ZOMB;
+	rb[b].zomb = true;
+}
+
+static void r_unkeep(int b)
+{
+	struct rowner *o = &ow[rb[b].slot];
+
+	rb[b].kept = false;
+	o->kept_n--;
+	o->kept_bytes -= (u64)rb[b].n * PAGE;
+	kept_total -= (u64)rb[b].n * PAGE;
+}
+
+static void r_convert(int b)		/* kept -> zombie, its owner reference dropped */
+{
+	int slot = rb[b].slot;
+
+	r_unkeep(b);
+	r_zombie(b);
+	r_put(slot);
+}
+
+static void r_gpu(void)			/* every zombie filled and its pages back */
+{
+	for (int b = 0; b < RB; b++) {
+		if (!rb[b].used || !rb[b].zomb)
+			continue;
+		for (int p = rb[b].start; p < rb[b].start + rb[b].n; p++) {
+			CHECK(rst[p] == R_ZOMB, "reuse: a zombie cleared over a live page %d (BO %d)", p, b);
+			rdat[p] = 0;
+			rst[p] = R_FREE;
+		}
+		rb[b].used = false;
+	}
+}
+
+static void r_write(int b, int writer_slot)
+{
+	for (int p = rb[b].start; p < rb[b].start + rb[b].n; p++)
+		rdat[p] = ow[writer_slot].id;
+}
+
+static void r_free(int b)
+{
+	int slot = rb[b].slot;
+	struct rowner *o = &ow[slot];
+	bool shared = rb[b].shared;
+
+#ifdef OLD_SHARED_KEPT
+	shared = false;
+#endif
+	if (vclear_may_keep(o->used, o->closed, shared, false, false)) {
+		rb[b].kept = true;
+		rb[b].kept_t = now_t;
+		o->kept_n++;
+		o->kept_bytes += (u64)rb[b].n * PAGE;
+		kept_total += (u64)rb[b].n * PAGE;
+		for (int p = rb[b].start; p < rb[b].start + rb[b].n; p++)
+			rst[p] = R_KEPT;
+		/* the bounds: the oldest go to the clear */
+		while (vclear_keep_over(o->kept_bytes, o->kept_n, kept_total)) {
+			int old = -1;
+
+			for (int k = 0; k < RB; k++)
+				if (rb[k].used && rb[k].kept && (old < 0 || rb[k].kept_t < rb[old].kept_t))
+					old = k;
+			CHECK(old >= 0, "reuse: over the bounds with nothing kept (the counts went wrong)");
+			if (old < 0)
+				break;
+			r_convert(old);
+		}
+		return;		/* the BO keeps its reference to the record */
+	}
+	r_zombie(b);
+	r_put(slot);
+}
+
+static void r_pressure(void)
+{
+	for (int b = 0; b < RB; b++)
+		if (rb[b].used && rb[b].kept) {
+#ifdef OLD_PRESSURE_FREE
+			r_unkeep(b);
+			for (int p = rb[b].start; p < rb[b].start + rb[b].n; p++)
+				rst[p] = R_FREE;
+			rb[b].used = false;
+			r_put(rb[b].slot);
+#else
+			r_convert(b);
+#endif
+		}
+}
+
+static void r_expire(void)
+{
+	for (int b = 0; b < RB; b++)
+		if (rb[b].used && rb[b].kept && now_t - rb[b].kept_t >= VCLEAR_KEEP_AGE_MS) {
+#ifdef OLD_EXPIRY_NO_UNLIST
+			r_zombie(b);	/* cleared, but still listed as kept */
+#else
+			r_convert(b);
+#endif
+		}
+}
+
+static void r_close(int slot)
+{
+	ow[slot].closed = true;
+	for (int b = 0; b < RB; b++)
+		if (rb[b].used && rb[b].kept && rb[b].slot == slot)
+			r_convert(b);
+#ifdef OLD_OWNER_ALIAS
+	ow[slot].used = false;		/* the record gone with the file, its BOs still pointing at it */
+#else
+	r_put(slot);
+#endif
+}
+
+/* an allocation of n pages by the owner in slot: its own kept range of that size, else free pages */
+static int r_alloc(int slot, int n)
+{
+	int b, p, run = 0;
+
+	for (b = 0; b < RB; b++)
+		if (rb[b].used && rb[b].kept &&
+		    vclear_reuse_fits(rb[b].slot == slot, ow[slot].closed, true, (u64)rb[b].start * PAGE,
+				      (u64)rb[b].n * PAGE, (u64)n * PAGE, PAGE, false, ~0ULL)) {
+			r_unkeep(b);
+			for (p = rb[b].start; p < rb[b].start + rb[b].n; p++) {
+				CHECK(rdat[p] == 0 || rdat[p] == ow[slot].id,
+				      "reuse: owner %d took back a range holding owner %d's data", ow[slot].id,
+				      rdat[p]);
+				CHECK(rst[p] == R_KEPT, "reuse: a reused range was also a zombie (page %d)", p);
+				rst[p] = R_LIVE;
+			}
+			rb[b].zomb = false;
+			rb[b].shared = false;
+			return b;	/* the same BO slot and owner reference, a new BO */
+		}
+	for (int tries = 0; tries < 2; tries++) {
+		for (p = 0, run = 0; p < RP; p++) {
+			run = rst[p] == R_FREE ? run + 1 : 0;
+			if (run == n)
+				break;
+		}
+		if (p < RP)
+			break;
+		r_pressure();		/* kept ranges to the clear, then the GPU fills */
+		r_gpu();
+	}
+	if (p == RP)
+		return -1;
+	for (b = 0; b < RB && rb[b].used; b++)
+		;
+	if (b == RB)
+		return -1;
+	rb[b] = (struct rbo){ true, false, false, false, p + 1 - n, n, slot, 0 };
+	ow[slot].refs++;
+	for (int q = rb[b].start; q < rb[b].start + n; q++) {
+		CHECK(rdat[q] == 0, "reuse: owner %d got page %d holding owner %d's data", ow[slot].id, q,
+		      rdat[q]);
+		rst[q] = R_LIVE;
+	}
+	return b;
+}
+
+static void case_reuse(long rounds, u64 seed)
+{
+	u64 s = seed * 0x9e3779b97f4a7c15ULL + 11;
+	int live[RB], nlive = 0;
+	long reused = 0, r;
+
+	memset(rst, 0, sizeof(rst));
+	memset(rdat, 0, sizeof(rdat));
+	memset(ow, 0, sizeof(ow));
+	memset(rb, 0, sizeof(rb));
+	kept_total = 0;
+	for (r = 0; r < rounds; r++) {
+		u64 x = rnd(&s);
+		int slot = (int)(x % RO);
+
+		now_t += 10;
+		switch ((x >> 8) % 10) {
+		case 0:			/* an open file closes, another opens */
+			if (ow[slot].used && !ow[slot].closed) {
+				for (int i = 0; i < nlive; i++)	/* most go before it, a few outlive it (a held FB) */
+					if (rb[live[i]].slot == slot && (rnd(&s) % 4)) {
+						r_free(live[i]);
+						live[i--] = live[--nlive];
+					}
+				r_close(slot);
+			}
+			r_open();
+			break;
+		case 1: case 2: case 3: {	/* an allocation, written by its owner */
+			int n = 1 << (rnd(&s) % 6);
+
+			if (!ow[slot].used || ow[slot].closed || nlive == RB)
+				break;
+			int b = r_alloc(slot, n);
+			if (b < 0)
+				break;
+			reused += !rb[b].kept && rb[b].kept_t;
+			rb[b].kept_t = 0;
+			r_write(b, slot);
+			live[nlive++] = b;
+			break;
+		}
+		case 4: {			/* shared with another owner, which writes it */
+			if (!nlive)
+				break;
+			int i = (int)(rnd(&s) % nlive), other = (int)(rnd(&s) % RO);
+
+			if (ow[other].used && other != rb[live[i]].slot) {
+				rb[live[i]].shared = true;
+				r_write(live[i], other);
+			}
+			break;
+		}
+		case 5: case 6: {		/* a free */
+			if (!nlive)
+				break;
+			int i = (int)(rnd(&s) % nlive);
+
+			r_free(live[i]);
+			live[i] = live[--nlive];
+			break;
+		}
+		case 7:
+			r_expire();
+			break;
+		case 8:
+			r_gpu();
+			break;
+		case 9:
+			if (rnd(&s) % 8 == 0)
+				r_pressure();
+			break;
+		}
+	}
+	printf("reuse: %ld rounds, %ld allocations reused a kept range\n", rounds, reused);
+}
+
 int main(int argc, char **argv)
 {
 	long rounds = argc > 1 ? atol(argv[1]) : 20000;
@@ -588,6 +875,7 @@ int main(int argc, char **argv)
 	case_vswap_chunk();
 	case_gart();
 	case_close_primitive();
+	case_reuse(rounds * 5, seed);
 	case_random(rounds, seed);
 	printf("vclear-test: %d checks, %d failed\n", checks, fails);
 	return fails != 0;

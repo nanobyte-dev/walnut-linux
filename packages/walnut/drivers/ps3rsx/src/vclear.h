@@ -135,6 +135,47 @@ static inline bool vclear_close_primitive(unsigned int open_ms, bool alloc_waiti
 	return open_ms >= 1000 && alloc_waiting;
 }
 
+/*
+ * Same-owner reuse (vkeep.c). A freed VRAM BO whose data only its own file could have written is
+ * kept for that file (still allocated in its heap, not cleared), and the file's next allocation of
+ * the same size may take it back as it is: nothing crosses from one owner to another. Everything
+ * else is cleared as before: a BO another file or a dma-buf holder could reach (shared, sticky),
+ * dumb buffers, BOs without an owner or whose owner has closed, and kept ranges that expire, go
+ * over the bounds, or meet memory pressure. A kept range never goes back to the free heap
+ * without a fill: it is either taken whole by its owner or becomes a zombie.
+ */
+#define VCLEAR_KEEP_OWNER_BYTES	(32ULL << 20)	/* kept per owner, at most */
+#define VCLEAR_KEEP_OWNER_N	32
+#define VCLEAR_KEEP_TOTAL	(64ULL << 20)	/* kept in all (VRAM the swap could use) */
+#define VCLEAR_KEEP_AGE_MS	1000		/* kept no longer than this, drawing or not */
+
+static inline bool vclear_may_keep(bool has_owner, bool owner_closed, bool shared, bool dumb,
+				   bool reuse_off)
+{
+	return has_owner && !owner_closed && !shared && !dumb && !reuse_off;
+}
+
+/* Over a bound once this entry is kept: the oldest goes to the clear */
+static inline bool vclear_keep_over(u64 owner_bytes, u32 owner_n, u64 total)
+{
+	return owner_bytes > VCLEAR_KEEP_OWNER_BYTES || owner_n > VCLEAR_KEEP_OWNER_N ||
+	       total > VCLEAR_KEEP_TOTAL;
+}
+
+/*
+ * May owner take this kept range for a new BO of size bytes, aligned to align (a power of two),
+ * CPU-mappable if mappable (cpu_limit: the end of the CPU-visible heap)? Only its own, whole,
+ * the same size, once the GPU has passed the free (queued work of the old BO doesn't land in the
+ * new one: a correctness rule here).
+ */
+static inline bool vclear_reuse_fits(bool same_owner, bool owner_closed, bool seq_passed,
+				     u64 kept_start, u64 kept_size, u64 size, u64 align,
+				     bool mappable, u64 cpu_limit)
+{
+	return same_owner && !owner_closed && seq_passed && kept_size == size &&
+	       !(kept_start & (align - 1)) && (!mappable || kept_start + size <= cpu_limit);
+}
+
 enum vclear_alloc_step {
 	VCLEAR_ALLOC_WAIT,	/* wait for zombies (bounded), then place again */
 	VCLEAR_ALLOC_SHRINK,	/* take VRAM from the swap pool */

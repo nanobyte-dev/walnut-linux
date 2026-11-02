@@ -547,6 +547,7 @@ static void vclear_work(struct work_struct *work)
 	int i, ret = 0;
 
 	trapped_check(rsx);
+	ps3rsx_keep_age(rsx);		/* aged kept BOs become zombies first (vkeep.c) */
 	ps3rsx_vclear_reap_gart(rsx);
 	if (list_empty_careful(&vc->vram))
 		return;
@@ -648,6 +649,8 @@ void ps3rsx_vclear_show(struct seq_file *m, struct ps3rsx_device *rsx)
 		   test_clear_off ? ", OFF (test switch)" : "");
 	seq_printf(m, "clear: allocations waited %llu times (longest %llu ms), %llu swap shrinks for them\n",
 		   vc->alloc_waits, vc->alloc_wait_max_ms, vc->alloc_shrinks);
+	seq_printf(m, "clear: GPU time spent filling, an estimate at 2 GB/s: %llu ms\n",
+		   vc->filled_bytes / 2000000);
 }
 
 /* --- load and unload ----------------------------------------------------------------------- */

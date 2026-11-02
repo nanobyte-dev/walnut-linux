@@ -610,10 +610,12 @@ int ps3rsx_dumb_create(struct drm_file *file, struct drm_device *dev,
 	args->pitch = args->width == rsx->info.xres ? rsx->info.line_length
 						      : ALIGN(args->width * 4, 64);
 	args->size = PAGE_ALIGN((u64)args->pitch * args->height);
+	/* no owner: dumb buffers are never kept for reuse, always cleared (vkeep.c) */
 	bo = ps3rsx_bo_new(rsx, NOUVEAU_GEM_DOMAIN_VRAM | NOUVEAU_GEM_DOMAIN_MAPPABLE,
-			   args->size, 0);
+			   args->size, 0, NULL);
 	if (IS_ERR(bo))
 		return PTR_ERR(bo);
+	bo->dumb = true;
 	ret = ps3rsx_bo_handle(file, bo, &info);
 	drm_gem_object_put(&bo->base);
 	if (!ret)

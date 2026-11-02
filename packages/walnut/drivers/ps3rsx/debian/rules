@@ -6,7 +6,7 @@ P := debian/ps3rsx-modules-$(KREL)
 KMAKE := $(MAKE) -C $(KOBJ)
 DEB_VERSION := $(shell dpkg-parsechangelog -S Version)
 # The test switches, only where asked for. The recovery's wedge generator (test_allow_rt_enable_12)
-# goes into the debug kernel's module; the VRAM clear's off switch (test_clear_off) into a build run
+# goes into the debug kernel's module; the VRAM clear's off switches (test_clear_off, test_reuse_off) into a build run
 # with DEB_BUILD_OPTIONS=ps3rsx-testclear, whose version must also say testclear (a ~dev test build:
 # tools/prebuilt-upload.sh refuses ~dev). Both reach Kbuild on its command line, set or empty, so a
 # variable of the same name in the build environment can't turn them on. After the build, each
@@ -30,6 +30,9 @@ override_dh_auto_build:
 	if $(call has_parm,b/ps3rsx/ps3rsx.ko,test_clear_off); then [ "$(TEST_CLEAR)" = y ]; \
 		else [ "$(TEST_CLEAR)" != y ]; fi || \
 		{ echo "!! test_clear_off in the module: $(if $(TEST_CLEAR),missing,not asked for)"; exit 1; }
+	if $(call has_parm,b/ps3rsx/ps3rsx.ko,test_reuse_off); then [ "$(TEST_CLEAR)" = y ]; \
+		else [ "$(TEST_CLEAR)" != y ]; fi || \
+		{ echo "!! test_reuse_off in the module: $(if $(TEST_CLEAR),missing,not asked for)"; exit 1; }
 	if $(call has_parm,b/ps3rsx/ps3rsx.ko,test_allow_rt_enable_12); then [ "$(TEST_WEDGE)" = y ]; \
 		else [ "$(TEST_WEDGE)" != y ]; fi || \
 		{ echo "!! test_allow_rt_enable_12 in the module: $(if $(TEST_WEDGE),missing,not asked for)"; exit 1; }

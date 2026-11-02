@@ -94,6 +94,12 @@ off clear-gen "FAIL: a zombie fully queued when the recovery comes: handed out u
 	$'\tif (c->gen != gen_now)\n\t\treturn VCLEAR_REFILL;\n' ''
 off clear-prim-close "FAIL: a primitive left open: ended with no allocation waiting" \
 	-T vclear-test.c -E vclear.h VCLEAR_H 'return open_ms >= 1000 && alloc_waiting;' 'return open_ms >= 1000;'
+# same-owner reuse (vclear-test's second model): the owner a raw pointer, pressure freeing kept
+# ranges, the shared mark ignored, an expired entry left on the kept list
+off reuse-owner-alias "FAIL: reuse: owner " -T vclear-test.c -DOLD_OWNER_ALIAS
+off reuse-pressure-free "FAIL: reuse: owner " -T vclear-test.c -DOLD_PRESSURE_FREE
+off reuse-shared "FAIL: reuse: owner " -T vclear-test.c -DOLD_SHARED_KEPT
+off reuse-double-claim "FAIL: reuse: a reused range was also a zombie" -T vclear-test.c -DOLD_EXPIRY_NO_UNLIST
 off clear-overrun "FAIL: random: launch " -T vclear-test.c -E vclear.h VCLEAR_H \
 	'u64 lines = (c->hi - at) / VCLEAR_LINE;' \
 	'u64 lines = (c->hi - at + VCLEAR_ZERO_SIZE - 1) / VCLEAR_ZERO_SIZE * VCLEAR_MAX_LINES;'

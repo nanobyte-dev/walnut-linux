@@ -101,7 +101,22 @@ static struct dma_buf *bo_export(struct drm_gem_object *obj, int flags)
 {
 	if (to_bo(obj)->kind == BO_REPORTS)
 		return ERR_PTR(-EPERM);
+	/* a dma-buf's holders can mmap and write it: never kept for reuse (vkeep.c), for good */
+	WRITE_ONCE(to_bo(obj)->shared, true);
 	return drm_gem_prime_export(obj, flags);
+}
+
+/* A handle in a file: one other than the creator's (GEM_OPEN of a flink name, a PRIME import,
+ * GETFB) makes the BO shared for good. The creator's own first handle is made after bo_new set
+ * the owner (vkeep.c). */
+static int bo_open(struct drm_gem_object *obj, struct drm_file *file)
+{
+	struct ps3rsx_bo *bo = to_bo(obj);
+	struct ps3rsx_file *pf = file->driver_priv;
+
+	if (!bo->owner || !pf || pf->owner != bo->owner)
+		WRITE_ONCE(bo->shared, true);
+	return 0;
 }
 
 static void bo_free(struct drm_gem_object *obj)
@@ -115,6 +130,11 @@ static void bo_free(struct drm_gem_object *obj)
 		mutex_unlock(&rsx->mm_lock);
 	}
 	drm_gem_object_release(obj);
+	/* kept for its owner's next allocation of the same size (vkeep.c), the struct with it */
+	if (ps3rsx_keep_bo(rsx, bo))
+		return;
+	ps3rsx_owner_put(bo->owner);
+	bo->owner = NULL;
 	/* its range stays allocated until it is cleared (VRAM) or the GPU passed every submit
 	 * before the free (GART): vclear.c, which then frees the struct */
 	if (ps3rsx_vclear_bo_free(rsx, bo))
@@ -190,12 +210,19 @@ static int bo_mmap(struct drm_gem_object *obj, struct vm_area_struct *vma)
 	return io_remap_pfn_range(vma, vma->vm_start, pfn + pgoff, len, vma->vm_page_prot);
 }
 
-static const struct drm_gem_object_funcs ps3rsx_bo_funcs = {
+static const struct drm_gem_object_funcs bo_funcs = {
 	.free = bo_free,
+	.open = bo_open,
 	.export = bo_export,
 	.mmap = bo_mmap,
 	.vm_ops = &ps3rsx_vm_ops,
 };
+
+/* vkeep.c makes a kept BO a new GEM object in place */
+const struct drm_gem_object_funcs *ps3rsx_bo_funcs(void)
+{
+	return &bo_funcs;
+}
 
 static struct ps3rsx_bo *bo_alloc(struct ps3rsx_device *rsx, enum bo_kind kind, size_t size)
 {
@@ -205,7 +232,8 @@ static struct ps3rsx_bo *bo_alloc(struct ps3rsx_device *rsx, enum bo_kind kind, 
 		return ERR_PTR(-ENOMEM);
 	bo->kind = kind;
 	INIT_LIST_HEAD(&bo->reports_link);
-	bo->base.funcs = &ps3rsx_bo_funcs;
+	INIT_LIST_HEAD(&bo->kept_link);
+	bo->base.funcs = &bo_funcs;
 	drm_gem_private_object_init(&rsx->drm, &bo->base, size);
 	return bo;
 }
@@ -250,6 +278,8 @@ static int vram_place_wait(struct ps3rsx_device *rsx, struct ps3rsx_bo *bo, bool
 	u32 shrinks = 0;
 	int ret;
 
+	/* what owners keep goes to the clear first (never back to the heap as it is) */
+	ps3rsx_keep_pressure(rsx);
 	for (;;) {
 		u64 cpu, gpu, shrunk, waited = ktime_ms_delta(ktime_get(), t0);
 		bool cpu_ok, gpu_ok;
@@ -280,8 +310,12 @@ static int vram_place_wait(struct ps3rsx_device *rsx, struct ps3rsx_bo *bo, bool
 	}
 }
 
-/* Allocate a BO. domain: NOUVEAU_GEM_DOMAIN_* (0 = VRAM|GART). */
-struct ps3rsx_bo *ps3rsx_bo_new(struct ps3rsx_device *rsx, u32 domain, size_t size, u32 align)
+/*
+ * Allocate a BO. domain: NOUVEAU_GEM_DOMAIN_* (0 = VRAM|GART). owner: the file it is for (its
+ * kept BOs may be reused, and it owns the new one), or NULL (dumb buffers, internal ones).
+ */
+struct ps3rsx_bo *ps3rsx_bo_new(struct ps3rsx_device *rsx, u32 domain, size_t size, u32 align,
+				 struct ps3rsx_owner *owner)
 {
 	bool vram = !domain || (domain & NOUVEAU_GEM_DOMAIN_VRAM);
 	bool gart = !domain || (domain & NOUVEAU_GEM_DOMAIN_GART);
@@ -297,9 +331,13 @@ struct ps3rsx_bo *ps3rsx_bo_new(struct ps3rsx_device *rsx, u32 domain, size_t si
 		return ERR_PTR(-EINVAL);
 
 	if (vram) {
+		bo = ps3rsx_reuse(rsx, owner, size, align, mappable);
+		if (bo)
+			return bo;	/* its own, the same size: no clear needed (vkeep.c) */
 		bo = bo_alloc(rsx, BO_VRAM, size);
 		if (IS_ERR(bo))
 			return bo;
+		bo->owner = ps3rsx_owner_get(owner);	/* before any handle (bo_open) */
 		ret = vram_place(rsx, bo, mappable, align);
 		if (ret)
 			ret = vram_place_wait(rsx, bo, mappable, align);
@@ -423,7 +461,8 @@ int ps3rsx_ioctl_gem_new(struct drm_device *dev, void *data, struct drm_file *fi
 		return -ENODEV;
 
 	/* tile_mode/tile_flags (NONCONTIG etc.) are ignored: no tiling yet, BOs are contiguous */
-	bo = ps3rsx_bo_new(to_rsx(dev), req->info.domain, req->info.size, req->align);
+	bo = ps3rsx_bo_new(to_rsx(dev), req->info.domain, req->info.size, req->align,
+			   ((struct ps3rsx_file *)file->driver_priv)->owner);
 	if (IS_ERR(bo))
 		return PTR_ERR(bo);
 	ret = ps3rsx_bo_handle(file, bo, &req->info);
@@ -521,6 +560,7 @@ static int mm_show(struct seq_file *m, void *unused)
 	ps3rsx_vswap_show(m, rsx);
 	mutex_unlock(&rsx->mm_lock);
 	ps3rsx_vclear_show(m, rsx);
+	ps3rsx_keep_show(m, rsx);
 	/* display heads as lv1 reports them to our context (driver info head[n] at 0x10b8 + 64n) */
 	for (int h = 0; h < 2; h++) {
 		void __iomem *hd = rsx->dinfo + 0x10b8 + 64 * h;
@@ -554,6 +594,7 @@ int ps3rsx_mem_init(struct ps3rsx_device *rsx)
 	}
 	/* the first RING_RESERVE bytes hold the reset program, the ring and the zero area */
 	drm_mm_init(&rsx->gart, RING_RESERVE, rsx->gart_size - RING_RESERVE);
+	ps3rsx_keep_init(rsx);
 	/* every free VRAM range is cleared before its first use (vclear.c) */
 	ret = ps3rsx_vclear_init(rsx, rsx->info.reserved, cpu_end, rsx->info.memory_size);
 	if (ret) {
@@ -565,7 +606,8 @@ int ps3rsx_mem_init(struct ps3rsx_device *rsx)
 
 void ps3rsx_mem_fini(struct ps3rsx_device *rsx)
 {
-	ps3rsx_vclear_fini(rsx);	/* zombies' nodes back (the next load clears that VRAM) */
+	ps3rsx_keep_fini(rsx);		/* kept and zombies' nodes back (the next load clears it) */
+	ps3rsx_vclear_fini(rsx);
 	if (drm_mm_initialized(&rsx->gart))
 		drm_mm_takedown(&rsx->gart);
 	ps3rsx_gart_fini(rsx);

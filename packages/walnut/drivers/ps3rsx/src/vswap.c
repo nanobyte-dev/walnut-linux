@@ -223,8 +223,10 @@ static int slot_alloc(struct ps3rsx_vswap *vs)
 	ret = drm_mm_insert_node_generic(&rsx->vram_cpu, &c->node, CHUNK, CHUNK, 0,
 					 DRM_MM_INSERT_HIGH);
 	mutex_unlock(&rsx->mm_lock);
-	if (ret)
+	if (ret) {
+		ps3rsx_keep_pressure_async(rsx);	/* VRAM kept for reuse goes to the clear */
 		return -1;
+	}
 	c->io = ioremap(rsx->info.ddr_lpar + c->node.start, CHUNK);
 	if (!c->io) {
 		mutex_lock(&rsx->mm_lock);	/* rare; nothing under mm_lock waits for us here */

@@ -128,6 +128,33 @@ struct ps3rsx_vclear {
 	u64 alloc_waits, alloc_wait_max_ms, alloc_shrinks;
 };
 
+/* vkeep.c: an open file as the owner of its BOs (refcounted: BOs can outlive the file) */
+struct ps3rsx_owner {
+	struct kref ref;		/* the file's, and each of its BOs' */
+	u64 id;				/* never reused (debugging) */
+	pid_t tgid;			/* the opener (debugfs only) */
+	bool closed;			/* postclose ran: frees are cleared (mm_lock) */
+	u64 kept_bytes;			/* kept for it now (mm_lock) */
+	u32 kept_n;
+};
+
+#define KEEP_HIST	15		/* VRAM frees by size: 4K .. 64M+ */
+#define KEEP_TG		8		/* tgids in the debugfs table */
+struct ps3rsx_keep_tg {
+	pid_t tgid;
+	u64 freed, reused, cleared;
+};
+
+struct ps3rsx_keep {
+	struct list_head kept;		/* kept BOs, oldest first (mm_lock) */
+	u64 bytes, peak;
+	atomic_t pressure;		/* the VRAM swap couldn't grow: convert all */
+	/* counters (mm_lock) */
+	u64 reused_n, reused_bytes, shared_bytes, noowner_bytes, conv[4];
+	u32 hist[KEEP_HIST], hist_reused[KEEP_HIST];
+	struct ps3rsx_keep_tg tg[KEEP_TG];
+};
+
 struct ps3rsx_device {
 	struct drm_device drm;
 	struct ps3fb_gpu_info info;
@@ -147,6 +174,7 @@ struct ps3rsx_device {
 	struct delayed_work gart_reclaim;
 	struct ps3rsx_vswap *vswap;	/* swap in spare VRAM (vswap.c), or NULL */
 	struct ps3rsx_vclear vc;	/* freed VRAM cleared before reuse (vclear.c) */
+	struct ps3rsx_keep keep;	/* and kept for its owner instead (vkeep.c) */
 
 	/* execution (exec.c) */
 	void __iomem *ctrl;		/* our context's FIFO control: put 0x40, get 0x44, ref 0x48 */
@@ -236,6 +264,12 @@ struct ps3rsx_bo {
 	u64 offset;			/* GPU offset in its domain's ctxdma */
 	struct drm_mm_node node;
 	struct ps3rsx_zombie zombie;	/* its range after the free, until cleared (vclear.c) */
+	struct ps3rsx_owner *owner;	/* the file that made it (a reference), or NULL */
+	bool shared;			/* another file or a dma-buf could reach it: always cleared */
+	bool dumb;			/* a dumb buffer: always cleared */
+	struct list_head kept_link;	/* on keep.kept while kept for its owner (mm_lock) */
+	unsigned long kept_at;		/* jiffies of the free */
+	u32 kept_seq;			/* the reference submitted at the free */
 };
 
 #define to_bo(o) container_of(o, struct ps3rsx_bo, base)
@@ -243,7 +277,23 @@ struct ps3rsx_bo {
 struct drm_nouveau_gem_info;
 int ps3rsx_mem_init(struct ps3rsx_device *rsx);
 void ps3rsx_mem_fini(struct ps3rsx_device *rsx);
-struct ps3rsx_bo *ps3rsx_bo_new(struct ps3rsx_device *rsx, u32 domain, size_t size, u32 align);
+struct ps3rsx_bo *ps3rsx_bo_new(struct ps3rsx_device *rsx, u32 domain, size_t size, u32 align,
+				 struct ps3rsx_owner *owner);
+const struct drm_gem_object_funcs *ps3rsx_bo_funcs(void);
+/* vkeep.c */
+struct ps3rsx_owner *ps3rsx_owner_new(void);
+struct ps3rsx_owner *ps3rsx_owner_get(struct ps3rsx_owner *o);
+void ps3rsx_owner_put(struct ps3rsx_owner *o);
+void ps3rsx_owner_close(struct ps3rsx_device *rsx, struct ps3rsx_owner *o);
+bool ps3rsx_keep_bo(struct ps3rsx_device *rsx, struct ps3rsx_bo *bo);
+struct ps3rsx_bo *ps3rsx_reuse(struct ps3rsx_device *rsx, struct ps3rsx_owner *o, u64 size,
+			       u64 align, bool mappable);
+void ps3rsx_keep_pressure(struct ps3rsx_device *rsx);
+void ps3rsx_keep_pressure_async(struct ps3rsx_device *rsx);
+void ps3rsx_keep_age(struct ps3rsx_device *rsx);
+void ps3rsx_keep_init(struct ps3rsx_device *rsx);
+void ps3rsx_keep_fini(struct ps3rsx_device *rsx);
+void ps3rsx_keep_show(struct seq_file *m, struct ps3rsx_device *rsx);
 struct ps3rsx_bo *ps3rsx_bo_new_reports(struct ps3rsx_device *rsx);
 void ps3rsx_reports_moved(struct ps3rsx_device *rsx, u64 lpar, u64 size);
 int ps3rsx_bo_handle(struct drm_file *file, struct ps3rsx_bo *bo,
@@ -431,6 +481,7 @@ struct ps3rsx_file {
 	struct list_head objects;	/* NVIF objects (device, engine objects) */
 	struct list_head chans;
 	bool was_master;		/* counted in masters_open */
+	struct ps3rsx_owner *owner;	/* of the BOs it makes (vkeep.c) */
 };
 
 int ps3rsx_ioctl_getparam(struct drm_device *dev, void *data, struct drm_file *file);
