@@ -2,7 +2,7 @@
 """Tests for walnut-watch: runs it against a temporary root (WALNUT_ROOT, no docker) with bundles
 dropped the way walnut-upload.sh drops them, good ones and hostile ones.
   python3 servers/walnut.nanobyte.dev/test_walnut_watch.py"""
-import gzip, hashlib, os, shutil, subprocess, tempfile, time, unittest
+import gzip, hashlib, os, re, shutil, subprocess, tempfile, time, unittest
 
 WATCH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "walnut-watch")
 GPG = {}	# good, other: GNUPGHOMEs; keyring: the good key exported
@@ -437,6 +437,40 @@ class Watch(unittest.TestCase):
 		for u in ("walnut-watch.path", "walnut-watch.service"):
 			with open(f"{here}/systemd/{u}") as f:
 				self.assertIn("StartLimitIntervalSec=0", f.read(), u)
+
+
+class SnapshotCache(unittest.TestCase):
+	"""V9, log-only: the snapshot cache's allowlist (repo.conf) flags other suites and architectures, and
+	walnut-watch says when the cache volume is over its cap; nothing is refused or removed"""
+	def flagged(self, uri):
+		conf = open(os.path.join(os.path.dirname(WATCH), "repo.conf")).read()
+		rules = re.findall(r"^\s+~(\S+) 1;$", conf, re.M)
+		self.assertEqual(len(rules), 2)
+		return any(re.search(r, uri) for r in rules)
+
+	def test_allowlist(self):
+		base = "/debian-snapshot/archive/debian-ports/20261013T000000Z/"
+		for ok in ("dists/unstable/InRelease", "dists/unstable/main/binary-ppc64/Packages.xz",
+		           "dists/sid/main/binary-all/Packages.xz", "dists/unstable/main/Contents-ppc64.gz",
+		           "dists/unstable/main/source/Sources.xz", "pool-ppc64/main/b/busybox/busybox_1_ppc64.deb",
+		           "pool/main/b/busybox/busybox_1_all.deb", "dists/unstable/main/i18n/Translation-en.xz"):
+			self.assertFalse(self.flagged(base + ok), ok)
+		for odd in ("dists/bookworm/InRelease", "dists/experimental/main/binary-ppc64/Packages.xz",
+		            "dists/unstable/main/binary-arm64/Packages.xz", "dists/unstable/main/Contents-s390x.gz"):
+			self.assertTrue(self.flagged(base + odd), odd)
+
+	def test_cap_is_log_only(self):
+		with tempfile.TemporaryDirectory() as root:
+			os.makedirs(f"{root}/aptcache-data/x")
+			with open(f"{root}/aptcache-data/x/big", "wb") as f:
+				f.write(b"\0" * (3 << 20))
+			env = dict(os.environ, WALNUT_ROOT=root, WALNUT_NO_DOCKER="1", WALNUT_APTCACHE_CAP_GB="0.001")
+			r = subprocess.run([WATCH], env=env, capture_output=True, text=True)
+			self.assertEqual(r.returncode, 0, r.stderr)
+			self.assertIn("over the 1 MiB cap (log-only", r.stdout)
+			self.assertTrue(os.path.exists(f"{root}/aptcache-data/x/big"))
+			r = subprocess.run([WATCH], env=env, capture_output=True, text=True)
+			self.assertNotIn("snapshot cache holds", r.stdout)	# checked once a day
 
 
 if __name__ == "__main__":

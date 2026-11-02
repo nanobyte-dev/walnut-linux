@@ -69,6 +69,8 @@ KEEP_GENS = 3			# old dists generations kept per suite
 BYHASH_DAYS = 14		# by-hash files carried over this long
 ORPHAN_DAYS = 2			# an upload without its manifest
 PRUNE_DAYS = float(os.environ.get("WALNUT_PRUNE_DAYS", "14"))	# a pool file no index names any more
+APTCACHE = f"{ROOT}/aptcache-data"	# walnut-aptcache's volume (docker-compose.yml)
+APTCACHE_CAP = float(os.environ.get("WALNUT_APTCACHE_CAP_GB", "30")) * (1 << 30)	# log-only for now
 NOF = os.O_NOFOLLOW | os.O_CLOEXEC
 
 
@@ -653,6 +655,33 @@ def write_status(kind, bid, res):
 	os.replace(f"{d}/.{kind}__{bid}.new", f"{d}/{kind}__{bid}")
 
 
+def check_aptcache_cap():
+	"""LOG-ONLY: the snapshot cache has no size limit of its own, so say when its volume passes
+	APTCACHE_CAP (at most once a day; the walk is long). Nothing is deleted or refused yet: the log
+	shows what normal builds need before a limit is enforced."""
+	stamp = f"{STATE}/aptcache-size-checked"
+	try:
+		if time.time() - os.stat(stamp).st_mtime < 86400:
+			return
+	except FileNotFoundError:
+		pass
+	if not os.path.isdir(APTCACHE):
+		return
+	total = 0
+	for d, _, fs in os.walk(APTCACHE):
+		for f in fs:
+			try:
+				total += os.lstat(os.path.join(d, f)).st_size
+			except OSError:
+				pass
+	with open(stamp, "w"):
+		pass
+	if total > APTCACHE_CAP:
+		log(f"!! the snapshot cache holds {total >> 20} MiB, over the {int(APTCACHE_CAP) >> 20} MiB cap (log-only: nothing is removed)")
+	else:
+		log(f"-- the snapshot cache holds {total >> 20} MiB (cap {int(APTCACHE_CAP) >> 20} MiB, log-only)")
+
+
 def prune_status():
 	d, cutoff = f"{WWW}/status", time.time() - STATUS_DAYS * 86400
 	for e in os.scandir(d) if os.path.isdir(d) else []:
@@ -720,6 +749,7 @@ def main():
 			run()
 			sweep_pool("apt")
 			prune_status()
+			check_aptcache_cap()
 
 
 if __name__ == "__main__":
