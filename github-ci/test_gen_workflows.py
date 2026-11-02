@@ -139,8 +139,8 @@ class Lint(unittest.TestCase):
 		A = gw.ALLOWED
 		gate = ("  stable-gate:\n    if: inputs.target == 'stable' && !" + A + "\n    runs-on: x\n    environment: walnut-stable-review\n"
 		        "    steps:\n      - run: echo ok\n")
-		recheck = ("      - env:\n          GATE: ${{ needs.stable-gate.result }}\n          ALLOWED: ${{ " + A + " }}\n"
-		           "        run: |\n          [ \"$GATE\" = success ] || { [ \"$GATE\" = skipped ] && [ \"$ALLOWED\" = true ]; } || exit 1\n")
+		recheck = ("      - env:\n          GATE: ${{ needs.stable-gate.result }}\n          PUBLISHERS: ${{ vars.WALNUT_STABLE_PUBLISHERS }}\n"
+		           "          ACTOR: ${{ github.triggering_actor }}\n        run: |\n" + gw.RECHECK_RUN)
 		pub = ("  publish:\n    needs: [stable-gate]\n    if: always() && (needs.stable-gate.result == 'success' || "
 		       "(needs.stable-gate.result == 'skipped' && " + A + "))\n    runs-on: x\n    environment: walnut-stable\n    steps:\n"
 		       + recheck + "      - run: test $GITHUB_REF = refs/heads/main && echo publish\n")
@@ -154,7 +154,8 @@ class Lint(unittest.TestCase):
 		self.assertIn("must accept the gate's success", errs(gate, pub.replace("needs.stable-gate.result == 'skipped'", "true")))
 		self.assertIn("must accept the gate's success", errs(gate, pub.replace(A, "true")))	# any skipped gate would do
 		self.assertIn("first step must check", errs(gate, pub.replace(recheck, "")))
-		self.assertIn("first step must check", errs(gate, pub.replace("[ \"$ALLOWED\" = true ]", "true")))
+		self.assertIn("first step must check", errs(gate, pub.replace("any(.[]; . == $a)", "any(.[]; contains($a))")))
+		self.assertIn("first step must check", errs(gate, pub.replace("PUBLISHERS: ${{ vars.WALNUT_STABLE_PUBLISHERS }}", "PUBLISHERS: x")))
 		self.assertIn("first step must check", errs(gate, pub.replace(recheck, "      - run: echo hi\n" + recheck)))	# not the first step
 		# the release image's channel-dependent environment counts as stable
 		self.assertIn("no stable-gate", errs(pub.replace("environment: walnut-stable\n", "environment: walnut-${{ inputs.channel }}\n")))
@@ -162,6 +163,25 @@ class Lint(unittest.TestCase):
 		self.assertIn("references secrets", errs(gate.replace("echo ok", "echo ${{ secrets.X }}"), pub))
 		self.assertIn("references secrets", errs(gate.replace("    runs-on: x\n", "    secrets: inherit\n    uses: ./x.yml\n"), pub))
 		self.assertIn("runs only for someone not on the allowlist", errs(gate.replace("!" + A, "true")))
+
+	def test_the_recheck_is_strict(self):
+		"""The step that decides: exact login in a JSON array of strings (contains() would match a substring of a string)."""
+		import subprocess
+		import yaml
+		for src in (gw.generate()["walnut-package.yml"], open(f"{HERE}/../.github/workflows/release-image.yml").read()):
+			jobs = yaml.safe_load(src)["jobs"]
+			step = jobs["publish"]["steps"][0]
+			run = lambda gate, publishers, actor: subprocess.run(["bash", "-c", step["run"]], capture_output=True, text=True, env={
+				"PATH": os.environ["PATH"], "GATE": gate, "PUBLISHERS": publishers, "ACTOR": actor}).returncode
+			self.assertEqual(run("success", "", "anyone"), 0)	# a reviewer approved
+			self.assertEqual(run("skipped", '["me"]', "me"), 0)
+			self.assertEqual(run("skipped", '["you", "me"]', "me"), 0)
+			for gate, pubs, actor in (("skipped", "", "me"), ("skipped", "[]", "me"), ("skipped", '"me"', "me"),	# a string, not a list
+			                          ("skipped", '"someone, me"', "me"), ("skipped", '["mee"]', "me"), ("skipped", '["me"]', "m"),
+			                          ("skipped", '["ME"]', "me"), ("skipped", '["me", 5]', "me"), ("skipped", "{\"me\": 1}", "me"),
+			                          ("skipped", "not json", "me"), ("skipped", '["me"]', ""), ("failure", '["me"]', "me"),
+			                          ("cancelled", '["me"]', "me"), ("", '["me"]', "me")):
+				self.assertNotEqual(run(gate, pubs, actor), 0, (gate, pubs, actor))
 
 	def test_the_generated_workflows_have_the_gate(self):
 		t = gw.generate()["walnut-package.yml"]

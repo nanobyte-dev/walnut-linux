@@ -199,9 +199,15 @@ jobs:
       - name: Approved, or on the allowlist (checked here again, a skipped gate is no approval)
         env:
           GATE: ${{ needs.stable-gate.result }}
-          ALLOWED: ${{ contains(fromJSON(vars.WALNUT_STABLE_PUBLISHERS || '[]'), github.triggering_actor) }}
+          PUBLISHERS: ${{ vars.WALNUT_STABLE_PUBLISHERS }}
+          ACTOR: ${{ github.triggering_actor }}
         run: |
-          [ "$GATE" = success ] || { [ "$GATE" = skipped ] && [ "$ALLOWED" = true ]; } || { echo "::error::not approved, and not on the allowlist"; exit 1; }
+          if [ "$GATE" = success ]; then exit 0; fi
+          fail() { echo "::error::not approved, and not on the allowlist"; exit 1; }
+          [ "$GATE" = skipped ] || fail
+          # the variable must be a JSON array of strings and hold exactly the actor's login (contains() in an `if`
+          # would also match a substring of a JSON string)
+          printf '%s' "${PUBLISHERS:-[]}" | jq -e --arg a "$ACTOR" 'type == "array" and all(.[]; type == "string") and any(.[]; . == $a)' >/dev/null || fail
       - name: Only from main
         run: |
           [ "$GITHUB_REF" = refs/heads/main ] || { echo "::error::stable is published from refs/heads/main only"; exit 1; }
