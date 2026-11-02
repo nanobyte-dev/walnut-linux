@@ -18,7 +18,7 @@
 #include "wait.h"
 
 static bool ctxsw = true;
-module_param(ctxsw, bool, 0644);
+module_param(ctxsw, bool, 0444);	/* at load only: turned off, the GPU's binds stop matching each channel's validator state */
 MODULE_PARM_DESC(ctxsw, "Restore a channel's GPU state when switching between channels");
 
 static bool trace;
