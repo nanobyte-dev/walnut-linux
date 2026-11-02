@@ -10,12 +10,24 @@ A pad check: fheroes2 has controller support (the cursor on the stick); with the
 (smoke.inc smoke_pad) or in a played session. The console defaults are done (0001, checked)."""
 
 [[item]]
+kind = "research"
+added = 2026-11-02
+source = "played session 2026-11-02 (the game hung); gamedb:heroes-of-might-and-magic-2/mid-game-hang"
+text = """\
+The mid-game "hang" was the modal "Hero Movement Points" box (the horse button clicked for a hero out of \
+movement points) waiting 201 s for OKAY; no thread was stuck and the frame with the box was presented. \
+Settle whether the TV showed the box: ask the player, or repeat it on the PS3 (move a hero until it stops \
+short of its path, click the horse button, then xwd -root and a webcam photo). Box on the TV: no bug. \
+Missing on the TV only: the display path (X or Mesa), to investigate there. The core, the backtrace and the \
+decoded frame are private, in ~/Documents/walnut/game-hangs/."""
+
+[[item]]
 kind = "session"
 order = 21
 launcher = "fheroes2"
 pc = "needs the data"
 added = 2026-10-29
-source = "games night 2026-10-28 (smoke)"
+source = "games night 2026-10-28 (smoke); the first session (2026-11-02) hung"
 text = """\
-First played session with the player's Heroes II data: a standard game, a few turns, a battle, a save \
-and a load; the music and effects by ear."""
+Play again once the hang is understood: a few turns, a battle, a save and a load; the music and effects \
+by ear."""
