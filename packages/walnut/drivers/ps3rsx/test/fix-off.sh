@@ -1,8 +1,9 @@
 #!/bin/bash
 # validate-test with one stability rule turned off at a time: each build must fail, with the
 # FAIL line given for it, so the case shows the old behaviour. The rule is turned off in a copy
-# of src/validate.c under OUTDIR/fix-off (a literal edit, which must match exactly once), or for
-# the submit.c model in validate-test.c by a define (OLD_*). Nothing here touches src/.
+# of src/validate.c (or the source -E names, with the define its test includes it by) under
+# OUTDIR/fix-off (a literal edit, which must match exactly once), or for the submit.c model in
+# validate-test.c (or the test -T names) by a define (OLD_*). Nothing here touches src/.
 #   fix-off.sh OUTDIR		(make fix-off; exits 0 only when every variant fails as expected)
 set -u
 [ $# -eq 1 ] || { echo "usage: $0 OUTDIR" >&2; exit 2; }
@@ -14,24 +15,29 @@ rm -f "$D"/*.built
 JOBS=${JOBS:-6}
 names=() expects=()
 
-# off NAME 'FAIL line it must print' [-DDEFINE | 'FROM' 'TO']...
+# off NAME 'FAIL line it must print' [-T TEST.c] [-E SRC MACRO] [-DDEFINE | 'FROM' 'TO']...
 off() {
-	local name=$1 expect=$2 vc=../src/validate.c defs=()
+	local name=$1 expect=$2 src=validate.c macro=VALIDATE_C vc=../src/validate.c defs=()
+	local t=validate-test.c
 	shift 2
 	while [ $# -gt 0 ]; do
 		case $1 in
+		-T)	t=$2; shift 2 ;;
+		-E)	src=$2 macro=$3 vc=../src/$2; shift 3 ;;
 		-D*)	defs+=("$1"); shift ;;
-		*)	if [ "$vc" = ../src/validate.c ]; then cp ../src/validate.c "$D/$name.c"; vc=$D/$name.c; fi
-			FROM=$1 TO=$2 NAME=$name perl -0777 -i -pe \
+		*)	if [ "$vc" = "../src/$src" ]; then
+				cp "../src/$src" "$D/$name.${src##*.}"; vc=$D/$name.${src##*.}
+			fi
+			FROM=$1 TO=$2 NAME=$name SRC=$src perl -0777 -i -pe \
 				'my $n = () = /\Q$ENV{FROM}\E/g;
-				 $n == 1 or die "fix-off.sh: $ENV{NAME}: found $n times in validate.c: $ENV{FROM}\n";
+				 $n == 1 or die "fix-off.sh: $ENV{NAME}: found $n times in $ENV{SRC}: $ENV{FROM}\n";
 				 s/\Q$ENV{FROM}\E/$ENV{TO}/' "$vc" || exit 1
 			shift 2 ;;
 		esac
 	done
 	while [ "$(jobs -rp | wc -l)" -ge "$JOBS" ]; do wait -n; done
-	( gcc -O1 -g -w -fno-strict-aliasing -Iinc -iquote ../src -DVALIDATE_C="\"$vc\"" "${defs[@]}" \
-		-o "$D/$name" validate-test.c && touch "$D/$name.built" ) &
+	( gcc -O1 -g -w -fno-strict-aliasing -Iinc -iquote ../src -D"$macro"="\"$vc\"" "${defs[@]}" \
+		-o "$D/$name" "$t" && touch "$D/$name.built" ) &
 	names+=("$name") expects+=("$expect")
 }
 
@@ -61,7 +67,9 @@ off header "FAIL: header 20001000 accepted" \
 off object-bind "FAIL: bind of unknown object 31337001 accepted" \
 	'if (!ps3rsx_known_object(data)) {' 'if (0) {'
 off host-method "FAIL: host method 68 accepted (semaphore acquire)" \
-	'if (mthd == 0x50 || mthd == 0x60 || mthd == 0x64 || mthd == 0x6c)' 'if (1)'
+	'if (mthd < 0x100) {' 'if (mthd < 0x100) { return 0;'
+off host-reference "FAIL: host method 50 accepted (SET_REFERENCE)" \
+	'if (mthd < 0x100) {' 'if (mthd < 0x100) { if (mthd == 0x50 || mthd == 0x60 || mthd == 0x64 || mthd == 0x6c) return 0;'
 off context-dma "FAIL: 3D context DMA feed0002 accepted" \
 	'mthd <= 0x1bc && !known_dma(data)' 'mthd <= 0x1bc && 0'
 off sifm-surface "FAIL: SIFM surface feed0000 accepted" \
@@ -72,6 +80,38 @@ off no-switch-in-primitive "FAIL: 7: channel 1's submit reached the GPU inside c
 off submit-state "FAIL: 2: a copy through the bind of a cancelled submit's first push not cancelled" \
 	-DOLD_SUBMIT_STATE
 off rejected-submit-cancel "FAIL: 1: the X16 submit not cancelled" -DOLD_NO_RECOVER
+# GEM_PUSHBUF's argument checks (src/pushbuf.h), submit.c's sums as they were
+off push-overflow "FAIL: offset 2^64-4, 8 bytes: push 0 at fffffffffffffffc, 8 bytes accepted past its BO of 100000" \
+	-T pushbuf-test.c -DOLD_PUSH_CHECKS
+off reloc-u32 "FAIL: relocation at 2^32-4, push at 0: patches word 3fffffff, expected skips word 0" \
+	-T pushbuf-test.c -DOLD_RELOC_U32
+# the VRAM clear (src/vclear.h): a freed range back at once as before, a fill from before a
+# recovery trusted, a last launch rounded up past its zombie
+off clear-at-free "FAIL: a fill that never runs: BO 2 got page 0 uncleared (tag 1)" \
+	-T vclear-test.c -DOLD_FREE_AT_ONCE
+off clear-gen "FAIL: a zombie fully queued when the recovery comes: handed out unfilled" \
+	-T vclear-test.c -E vclear.h VCLEAR_H \
+	$'\tif (c->gen != gen_now)\n\t\treturn VCLEAR_REFILL;\n' ''
+off clear-prim-close "FAIL: a primitive left open: ended with no allocation waiting" \
+	-T vclear-test.c -E vclear.h VCLEAR_H 'return open_ms >= 1000 && alloc_waiting;' 'return open_ms >= 1000;'
+# same-owner reuse (vclear-test's second model): the owner a raw pointer, pressure freeing kept
+# ranges, the shared mark ignored, an expired entry left on the kept list
+off reuse-owner-alias "FAIL: reuse: owner " -T vclear-test.c -DOLD_OWNER_ALIAS
+off reuse-pressure-free "FAIL: reuse: owner " -T vclear-test.c -DOLD_PRESSURE_FREE
+off reuse-shared "FAIL: reuse: owner " -T vclear-test.c -DOLD_SHARED_KEPT
+off reuse-double-claim "FAIL: reuse: a reused range was also a zombie" -T vclear-test.c -DOLD_EXPIRY_NO_UNLIST
+off reuse-count-cap "FAIL: reuse: " -T vclear-test.c -E vclear.h VCLEAR_H \
+	' ||
+	       total > VCLEAR_KEEP_TOTAL || total_n > VCLEAR_KEEP_TOTAL_N;' ' ||
+	       total > VCLEAR_KEEP_TOTAL;'
+off reuse-miss-all "FAIL: a miss of 8 pages" -T vclear-test.c -DOLD_PRESSURE_ALL
+off gart-reap-one-read "FAIL: the GART reap: " -T vclear-test.c -E vclear.h VCLEAR_H \
+	'for (i = 0; i < n && vclear_seq_passed(ref, free_seq[i]); i++)' 'for (i = 0; i < n; i++)'
+off reuse-cheap-first "FAIL: the reuse walk: " -T vclear-test.c -E vclear.h VCLEAR_H \
+	'return same_owner && kept_size == size;' 'return true;'
+off clear-overrun "FAIL: random: launch " -T vclear-test.c -E vclear.h VCLEAR_H \
+	'u64 lines = (c->hi - at) / VCLEAR_LINE;' \
+	'u64 lines = (c->hi - at + VCLEAR_ZERO_SIZE - 1) / VCLEAR_ZERO_SIZE * VCLEAR_MAX_LINES;'
 wait
 
 bad=0

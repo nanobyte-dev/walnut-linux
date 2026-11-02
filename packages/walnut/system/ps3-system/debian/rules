@@ -26,6 +26,8 @@ override_dh_auto_install:
 	# a GPU crash (ps3rsx's uevent) starts ps3-gpu-crash-report.service; display-only mode's X
 	# configuration (the desktop's session start passes -configdir ps3-display-only.d)
 	install -D -m 644 debian/72-ps3-gpu-crash.rules $(P)/usr/lib/udev/rules.d/72-ps3-gpu-crash.rules
+	# the RSX's render node for the render group only (after 50-udev-default's 0666)
+	install -D -m 644 debian/73-ps3-render-node.rules $(P)/usr/lib/udev/rules.d/73-ps3-render-node.rules
 	install -D -m 644 files/xorg/20-ps3rsx-display-only.conf $(P)/etc/X11/ps3-display-only.d/20-ps3rsx-display-only.conf
 	install -D -m 644 debian/sshd-ps3.conf $(P)/etc/ssh/sshd_config.d/ps3.conf
 	install -D -m 644 debian/kernel-img.conf $(P)/etc/kernel-img.conf

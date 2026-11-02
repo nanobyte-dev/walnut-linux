@@ -384,10 +384,10 @@ static int check_method(struct ps3rsx_vstate *vs, u32 subch, u32 mthd, u32 data,
 		return 0;
 	}
 	if (mthd < 0x100) {
-		/* host methods: SET_REFERENCE, semaphore context/offset/release. Not the FIFO
-		 * semaphore acquire (0x68): it can block forever (docs/RSX.md) */
-		if (mthd == 0x50 || mthd == 0x60 || mthd == 0x64 || mthd == 0x6c)
-			return 0;
+		/* host methods: none. SET_REFERENCE (0x50) is the kernel's sequence number, which
+		 * its fences and copies wait on, and the FIFO semaphores (0x60-0x6c) are the
+		 * kernel's too; Mesa sends neither (the acquire, 0x68, can also block forever:
+		 * docs/RSX.md) */
 		*why = "host method not allowed";
 		return -EINVAL;
 	}

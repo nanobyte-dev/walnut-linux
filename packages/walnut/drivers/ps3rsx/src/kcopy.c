@@ -89,9 +89,42 @@ int ps3rsx_kcopy_to_gart(struct ps3rsx_device *rsx, const struct kcopy_run *r, u
 		kput(rsx, &p, 0x30c, v, 8);
 	}
 	*seq = ps3rsx_ring_commit_seq(rsx, (p - start) * 4);
-	/* one field is enough: vswap queues and waits for each copy under vs->lock, so kernel
-	 * copies never overlap */
+	/* one field is enough: vswap queues and waits for each copy under vs->lock, so its copies
+	 * never overlap. The VRAM clear's fills (ps3rsx_kcopy_fill) never touch it: they keep
+	 * their own generation (vclear.c) */
 	rsx->kcopy_gen = READ_ONCE(rsx->recover_gen);
+	rsx->last_chan = -1;			/* the next client submit restores its own state */
+	return 0;
+}
+
+/*
+ * The VRAM clear's fill (vclear.c): n launches, each lines x 4 KiB from the zero area at GART IO
+ * zero_io to VRAM, the same M2MF forms as the copies above in the other direction (GART in,
+ * VRAM out; pitches and line length 4 KiB, at most 16 lines). exec_lock held, the GPU held
+ * (ps3rsx_console_hold_kernel), no primitive open. Returns the reference to wait for in *seq.
+ */
+int ps3rsx_kcopy_fill(struct ps3rsx_device *rsx, const struct vclear_launch *l, unsigned int n,
+		      u32 zero_io, u32 *seq)
+{
+	static const u32 obj = M2MF, dma[3] = { DMA_NOTIFY, DMA_GART, DMA_VRAM };
+	u32 len = 4 * (2 + 4 + 9 * n), *p, *start;
+	unsigned int i;
+	int err;
+
+	start = p = ps3rsx_ring_begin(rsx, len, &err);
+	if (!p)
+		return err;
+	ps3rsx_hw_shadow_sync(rsx);		/* hw_shadow = what the GPU holds before our words */
+	kput(rsx, &p, 0x000, &obj, 1);
+	kput(rsx, &p, 0x180, dma, 3);		/* notify, buffer in = GART, out = VRAM */
+	for (i = 0; i < n; i++) {
+		/* offset in/out, pitch in/out, line length, line count, format, notify (launch) */
+		u32 v[8] = { zero_io, (u32)l[i].dst, VCLEAR_LINE, VCLEAR_LINE, VCLEAR_LINE,
+			     l[i].lines, 0x101, 0 };
+
+		kput(rsx, &p, 0x30c, v, 8);
+	}
+	*seq = ps3rsx_ring_commit_seq(rsx, (p - start) * 4);
 	rsx->last_chan = -1;			/* the next client submit restores its own state */
 	return 0;
 }
@@ -108,9 +141,18 @@ int ps3rsx_kcopy_wait(struct ps3rsx_device *rsx, u32 seq, unsigned int timeout_u
 	ktime_t end = ktime_add_us(ktime_get(), timeout_us);
 	int spins = 50;
 
-	while (READ_ONCE(rsx->recover_gen) != rsx->kcopy_gen || !ps3rsx_seq_done(rsx, seq)) {
+	for (;;) {
+		/* the reference first, then the generation: a recovery between the two reads shows
+		 * as a new generation, never as the copy having run */
+		bool done = ps3rsx_seq_done(rsx, seq);
+
+		smp_rmb();
 		/* a recovery since the copy was queued: the new ring never ran it */
-		if (READ_ONCE(rsx->wedged) || READ_ONCE(rsx->recover_gen) != rsx->kcopy_gen)
+		if (READ_ONCE(rsx->recover_gen) != rsx->kcopy_gen)
+			return -EIO;
+		if (done)
+			break;
+		if (READ_ONCE(rsx->wedged))
 			return -EIO;
 		if (ktime_after(ktime_get(), end))
 			return -ETIMEDOUT;

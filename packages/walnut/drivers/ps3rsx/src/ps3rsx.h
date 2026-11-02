@@ -8,6 +8,7 @@
 #define PS3RSX_H
 
 #include "blame.h"
+#include <linux/kref.h>
 #include <linux/list.h>
 #include <linux/mutex.h>
 #include <drm/drm_device.h>
@@ -21,6 +22,7 @@
 #include <drm/drm.h>
 #include <drm/nouveau_drm.h>
 #include <asm/ps3gpu.h>
+#include "vclear.h"
 
 struct ps3rsx_vstate;
 struct ps3rsx_file;
@@ -58,10 +60,13 @@ struct drm_nouveau_grobj_alloc {
 
 #define CPU_VRAM_LIMIT		0xe000000ULL	/* ps3fb's VRAM mapping size: CPU access above it is unproven */
 
-/* GART IO layout: reset program, then the ring, then BOs (exec.c) */
+/* GART IO layout: reset program, then the ring, the VRAM clear's zero area (vclear.c), then
+ * BOs (exec.c). RING_RESERVE is backed for good in whole 1 MiB chunks (gart.c). */
 #define RING_START		0x1000
-#define RING_END		0x200000
-#define RING_RESERVE		RING_END
+#define RING_END		0x1f0000
+#define ZERO_START		RING_END
+#define ZERO_END		0x200000
+#define RING_RESERVE		0x200000
 #define PS3RSX_MAX_CHANNELS	14	/* one 4 KiB query slice each in the 64 KiB reports area */
 
 struct ps3rsx_fence {
@@ -75,6 +80,80 @@ struct ps3rsx_gart_chunk {
 	u32 free_seq;			/* the last fence that may have used it */
 	unsigned long idle_since;	/* jiffies when it became empty */
 	bool fixed;			/* backed for good (ring, boot reservation) */
+};
+
+/*
+ * Lock order: drm filelist_mutex -> pf->lock -> own_lock -> exec_lock -> chan_lock / mm_lock
+ * -> vc.lock (a spinlock). No path waits for the clear worker while holding exec_lock.
+ */
+
+/* vclear.c: a freed range waiting for its clear (a zombie) */
+enum zombie_kind { ZOMBIE_VRAM, ZOMBIE_GART };
+
+struct ps3rsx_zombie {
+	struct list_head link;		/* vc.vram or vc.gart (vc.lock) */
+	struct drm_mm_node *node;	/* allocated in its heap until reaped */
+	struct ps3rsx_bo *bo;		/* the freed BO it lives in, or NULL (then own) */
+	struct drm_mm_node own;		/* a swap chunk's or a load-time range's node */
+	u64 start, size;
+	u32 free_seq;			/* the last reference submitted when it was freed */
+	enum zombie_kind kind;
+	bool from_vswap;
+	bool at_load;			/* one of the load-time zombies */
+	struct vclear_cursor cur;	/* the fill's progress (VRAM; the worker's) */
+};
+
+struct batch;
+struct ps3rsx_vclear {
+	spinlock_t lock;
+	struct list_head vram, gart;	/* zombies */
+	u64 cpu_bytes, gpu_bytes, gart_bytes, vswap_bytes, peak_bytes;
+	u64 reaped;			/* bytes given back so far (waiters watch it) */
+	wait_queue_head_t reaped_wq;
+	atomic_t waiters;		/* allocations waiting */
+	bool started;			/* after console_init: the worker may run */
+	bool gpu_off;			/* a fill trapped the GPU: the PPE only, until unload */
+	bool wait_prim;			/* the worker waits for a primitive to close */
+	u32 batch_seq, batch_gen;	/* the last batch's reference and generation */
+	unsigned int load_pending;	/* load-time zombies not cleared yet (the dmesg line) */
+	unsigned int load_cpu_pending;	/* of them, CPU-visible (all the CPU path can clear) */
+	bool load_logged;
+	u64 load_bytes, load_cpu_bytes;
+	ktime_t load_t0;
+	struct workqueue_struct *wq;
+	struct delayed_work work;
+	struct batch *batch;
+	/* debugfs counters (ps3rsx_mm) */
+	u64 filled_bytes, batches, ppe_bytes, refills, dirty_zero;
+	u64 alloc_waits, alloc_wait_max_ms, alloc_shrinks;
+};
+
+/* vkeep.c: an open file as the owner of its BOs (refcounted: BOs can outlive the file) */
+struct ps3rsx_owner {
+	struct kref ref;		/* the file's, and each of its BOs' */
+	u64 id;				/* never reused (debugging) */
+	pid_t tgid;			/* the opener (debugfs only) */
+	bool closed;			/* postclose ran: frees are cleared (mm_lock) */
+	u64 kept_bytes;			/* kept for it now (mm_lock) */
+	u32 kept_n;
+};
+
+#define KEEP_HIST	15		/* VRAM frees by size: 4K .. 64M+ */
+#define KEEP_TG		8		/* tgids in the debugfs table */
+struct ps3rsx_keep_tg {
+	pid_t tgid;
+	u64 freed, reused, cleared;
+};
+
+struct ps3rsx_keep {
+	struct list_head kept;		/* kept BOs, oldest first (mm_lock) */
+	u64 bytes, peak;
+	u32 n;				/* entries kept (VCLEAR_KEEP_TOTAL_N at most) */
+	atomic_t pressure;		/* the VRAM swap couldn't grow: convert all */
+	/* counters (mm_lock) */
+	u64 reused_n, reused_bytes, shared_bytes, noowner_bytes, conv[4];
+	u32 hist[KEEP_HIST], hist_reused[KEEP_HIST];
+	struct ps3rsx_keep_tg tg[KEEP_TG];
 };
 
 struct ps3rsx_device {
@@ -95,6 +174,8 @@ struct ps3rsx_device {
 	u64 gart_backed;		/* bytes of the GART backed by memory now */
 	struct delayed_work gart_reclaim;
 	struct ps3rsx_vswap *vswap;	/* swap in spare VRAM (vswap.c), or NULL */
+	struct ps3rsx_vclear vc;	/* freed VRAM cleared before reuse (vclear.c) */
+	struct ps3rsx_keep keep;	/* and kept for its owner instead (vkeep.c) */
 
 	/* execution (exec.c) */
 	void __iomem *ctrl;		/* our context's FIFO control: put 0x40, get 0x44, ref 0x48 */
@@ -144,6 +225,8 @@ struct ps3rsx_device {
 	pid_t last_pid;				/* last submitter (for exception reports) */
 	char last_comm[TASK_COMM_LEN];
 	struct ps3rsx_chan *prim_owner;		/* channel with a primitive open on the GPU */
+	unsigned long prim_since;		/* jiffies of its submit that left it open */
+	unsigned long last_submit;		/* jiffies of the last client submit */
 	wait_queue_head_t prim_wq;
 	u32 *restore_buf;
 
@@ -181,6 +264,13 @@ struct ps3rsx_bo {
 	u32 domain;			/* NOUVEAU_GEM_DOMAIN_VRAM or _GART */
 	u64 offset;			/* GPU offset in its domain's ctxdma */
 	struct drm_mm_node node;
+	struct ps3rsx_zombie zombie;	/* its range after the free, until cleared (vclear.c) */
+	struct ps3rsx_owner *owner;	/* the file that made it (a reference), or NULL */
+	bool shared;			/* another file or a dma-buf could reach it: always cleared */
+	bool dumb;			/* a dumb buffer: always cleared */
+	struct list_head kept_link;	/* on keep.kept while kept for its owner (mm_lock) */
+	unsigned long kept_at;		/* jiffies of the free */
+	u32 kept_seq;			/* the reference submitted at the free */
 };
 
 #define to_bo(o) container_of(o, struct ps3rsx_bo, base)
@@ -188,7 +278,23 @@ struct ps3rsx_bo {
 struct drm_nouveau_gem_info;
 int ps3rsx_mem_init(struct ps3rsx_device *rsx);
 void ps3rsx_mem_fini(struct ps3rsx_device *rsx);
-struct ps3rsx_bo *ps3rsx_bo_new(struct ps3rsx_device *rsx, u32 domain, size_t size, u32 align);
+struct ps3rsx_bo *ps3rsx_bo_new(struct ps3rsx_device *rsx, u32 domain, size_t size, u32 align,
+				 struct ps3rsx_owner *owner);
+const struct drm_gem_object_funcs *ps3rsx_bo_funcs(void);
+/* vkeep.c */
+struct ps3rsx_owner *ps3rsx_owner_new(void);
+struct ps3rsx_owner *ps3rsx_owner_get(struct ps3rsx_owner *o);
+void ps3rsx_owner_put(struct ps3rsx_owner *o);
+void ps3rsx_owner_close(struct ps3rsx_device *rsx, struct ps3rsx_owner *o);
+bool ps3rsx_keep_bo(struct ps3rsx_device *rsx, struct ps3rsx_bo *bo);
+struct ps3rsx_bo *ps3rsx_reuse(struct ps3rsx_device *rsx, struct ps3rsx_owner *o, u64 size,
+			       u64 align, bool mappable);
+bool ps3rsx_keep_pressure(struct ps3rsx_device *rsx, struct ps3rsx_owner *o, u64 need);
+void ps3rsx_keep_pressure_async(struct ps3rsx_device *rsx);
+void ps3rsx_keep_age(struct ps3rsx_device *rsx);
+void ps3rsx_keep_init(struct ps3rsx_device *rsx);
+void ps3rsx_keep_fini(struct ps3rsx_device *rsx);
+void ps3rsx_keep_show(struct seq_file *m, struct ps3rsx_device *rsx);
 struct ps3rsx_bo *ps3rsx_bo_new_reports(struct ps3rsx_device *rsx);
 void ps3rsx_reports_moved(struct ps3rsx_device *rsx, u64 lpar, u64 size);
 int ps3rsx_bo_handle(struct drm_file *file, struct ps3rsx_bo *bo,
@@ -269,6 +375,31 @@ void ps3rsx_hw_shadow_sync(struct ps3rsx_device *rsx);
 bool ps3rsx_kcopy_allowed(void);
 int ps3rsx_gart_pin(struct ps3rsx_device *rsx, struct drm_mm_node *node, u32 *io);
 void ps3rsx_gart_unpin(struct ps3rsx_device *rsx, struct drm_mm_node *node);
+int ps3rsx_kcopy_fill(struct ps3rsx_device *rsx, const struct vclear_launch *l, unsigned int n,
+		      u32 zero_io, u32 *seq);
+int ps3rsx_console_hold_kernel(struct ps3rsx_device *rsx);
+bool ps3rsx_console_wanted(struct ps3rsx_device *rsx);
+int ps3rsx_close_stale_primitive(struct ps3rsx_device *rsx);
+bool ps3rsx_dry_run(void);
+/* vclear.c */
+int ps3rsx_vclear_init(struct ps3rsx_device *rsx, u64 cpu_start, u64 cpu_end, u64 gpu_end);
+void ps3rsx_vclear_start(struct ps3rsx_device *rsx);
+void ps3rsx_vclear_stop(struct ps3rsx_device *rsx);
+void ps3rsx_vclear_fini(struct ps3rsx_device *rsx);
+void ps3rsx_vclear_kick(struct ps3rsx_device *rsx, unsigned long delay);
+bool ps3rsx_vclear_bo_free(struct ps3rsx_device *rsx, struct ps3rsx_bo *bo);
+/* the same with mm_lock held by the caller: a GART zombie is then reaped later, not inline */
+bool ps3rsx_vclear_bo_free_locked(struct ps3rsx_device *rsx, struct ps3rsx_bo *bo, bool locked);
+void ps3rsx_vclear_reap_gart(struct ps3rsx_device *rsx);
+struct ps3rsx_zombie *ps3rsx_vclear_zombie_new(void);
+int ps3rsx_vclear_take_node(struct ps3rsx_device *rsx, struct ps3rsx_zombie *z,
+			    struct drm_mm_node *node);
+void ps3rsx_vclear_add(struct ps3rsx_device *rsx, struct ps3rsx_zombie *z);
+void ps3rsx_vclear_pending(struct ps3rsx_device *rsx, u64 *cpu, bool *cpu_ok, u64 *gpu,
+			   bool *gpu_ok, u64 *shrunk);
+bool ps3rsx_vclear_gart_pending(struct ps3rsx_device *rsx);
+int ps3rsx_vclear_wait(struct ps3rsx_device *rsx, unsigned int ms);
+void ps3rsx_vclear_show(struct seq_file *m, struct ps3rsx_device *rsx);
 /* vswap.c */
 struct ps3rsx_vswap;
 int ps3rsx_vswap_init(struct ps3rsx_device *rsx);
@@ -285,6 +416,7 @@ unsigned long ps3rsx_gart_pfn(struct ps3rsx_device *rsx, u64 io);
 void ps3rsx_gart_read(struct ps3rsx_device *rsx, void *dst, u64 io, size_t len);
 void ps3rsx_gart_clear(struct ps3rsx_device *rsx, u64 io, size_t len);
 bool ps3rsx_seq_done(struct ps3rsx_device *rsx, u32 seq);
+u32 ps3rsx_ref_now(struct ps3rsx_device *rsx);
 
 int ps3rsx_validate(struct ps3rsx_vstate *vs, const u32 *w, u32 nwords);
 void ps3rsx_shadow_write(struct ps3rsx_shadow *sh, u32 subch, u32 m, u32 v);
@@ -324,7 +456,10 @@ struct ps3rsx_subhist {
 };
 
 struct ps3rsx_chan {
-	struct list_head head;
+	struct list_head head;		/* pf->chans (pf->lock), until CHANNEL_FREE */
+	struct kref ref;		/* the file's, and each submit's in flight (submit.c) */
+	struct ps3rsx_device *rsx;
+	bool dead;			/* freed: its submits still in the kernel refuse (exec_lock) */
 	u32 id;
 	u64 serial;			/* unique per device, never reused (blame.h) */
 	struct ps3rsx_vstate vstate;
@@ -350,6 +485,7 @@ struct ps3rsx_file {
 	struct list_head objects;	/* NVIF objects (device, engine objects) */
 	struct list_head chans;
 	bool was_master;		/* counted in masters_open */
+	struct ps3rsx_owner *owner;	/* of the BOs it makes (vkeep.c) */
 };
 
 int ps3rsx_ioctl_getparam(struct drm_device *dev, void *data, struct drm_file *file);

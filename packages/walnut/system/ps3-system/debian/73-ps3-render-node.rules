@@ -1,0 +1,5 @@
+# The RSX's render node (ps3rsx's renderD128) for the render group only, not every local process
+# (udev's 50-udev-default.rules makes render nodes 0666). The desktop user is in render (walnut-
+# firstboot, the image's account); root services open it as root. Assigned with := so no later
+# rule widens it again. A mitigation: what a render client can reach is the validator's job.
+SUBSYSTEM=="drm", KERNEL=="renderD*", DRIVERS=="ps3rsx", GROUP:="render", MODE:="0660"

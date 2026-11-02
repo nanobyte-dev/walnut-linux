@@ -107,6 +107,39 @@ int ps3rsx_console_hold(struct ps3rsx_device *rsx, struct ps3rsx_chan *ch, struc
 	}
 }
 
+/*
+ * The kernel's own GPU work (the VRAM clear, vclear.c), like a client without X: it takes the
+ * GPU back from the console unless an X server is switched away, and hands it back as soon as
+ * it is done when it took it only for this. Returns 0 (call ps3rsx_console_unhold after) or
+ * -EBUSY. Never waits.
+ */
+int ps3rsx_console_hold_kernel(struct ps3rsx_device *rsx)
+{
+	int ret = -EBUSY;
+
+	mutex_lock(&rsx->own_lock);
+	if (rsx->gpu_owned && !rsx->console_pending) {
+		ret = 0;
+	} else if (!x_away(rsx)) {
+		bool took = !rsx->gpu_owned;
+
+		ret = retake(rsx);
+		if (!ret && took && !rsx->master_active)
+			rsx->console_pending = true;
+	}
+	if (!ret)
+		rsx->submitting++;
+	mutex_unlock(&rsx->own_lock);
+	return ret;
+}
+
+/* X was switched away meanwhile: the kernel's own GPU work stops early to let the console in */
+bool ps3rsx_console_wanted(struct ps3rsx_device *rsx)
+{
+	return READ_ONCE(rsx->console_pending) && READ_ONCE(rsx->masters_open) > 0 &&
+	       !READ_ONCE(rsx->master_active);
+}
+
 void ps3rsx_console_unhold(struct ps3rsx_device *rsx)
 {
 	mutex_lock(&rsx->own_lock);
@@ -134,6 +167,7 @@ void ps3rsx_master_set(struct drm_device *dev, struct drm_file *file, bool from_
 		ps3rsx_kms_reflip(rsx);	/* the master's frame, not ps3fb's console */
 	wake_up_all(&rsx->own_wq);
 	mutex_unlock(&rsx->own_lock);
+	ps3rsx_vclear_kick(rsx, 0);	/* clears that waited for X's return */
 }
 
 /* drm_driver.master_drop: VT switch away, or the master closing */

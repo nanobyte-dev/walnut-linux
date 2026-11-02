@@ -9,7 +9,8 @@
  *    taken from its top end, at most vswap_vram_mb), else to the disk;
  *  - discards (swapon --discard=pages) free slots;
  *  - games come first: when a buffer object finds no VRAM, ps3rsx_vswap_shrink() writes the
- *    pages of the emptiest chunks back to the disk and hands the chunks over;
+ *    pages of the emptiest chunks back to the disk and hands the chunks over, each cleared
+ *    before a buffer object gets it (vclear.c: the pages written back are still in it);
  *  - the VRAM holds the recently swapped: when the pool is (nearly) full, a background job
  *    moves the pages of its oldest chunk to the disk (pages that sat in swap longest without
  *    being read back are the cold ones; reads free their slots through discards).
@@ -222,8 +223,10 @@ static int slot_alloc(struct ps3rsx_vswap *vs)
 	ret = drm_mm_insert_node_generic(&rsx->vram_cpu, &c->node, CHUNK, CHUNK, 0,
 					 DRM_MM_INSERT_HIGH);
 	mutex_unlock(&rsx->mm_lock);
-	if (ret)
+	if (ret) {
+		ps3rsx_keep_pressure_async(rsx);	/* VRAM kept for reuse goes to the clear */
 		return -1;
+	}
 	c->io = ioremap(rsx->info.ddr_lpar + c->node.start, CHUNK);
 	if (!c->io) {
 		mutex_lock(&rsx->mm_lock);	/* rare; nothing under mm_lock waits for us here */
@@ -707,8 +710,9 @@ static bool chunk_evict(struct ps3rsx_vswap *vs, unsigned int i, struct evict_bu
 }
 
 /*
- * Free at least bytes of the pool's VRAM for a buffer object: empty chunks first, then the
- * emptiest, their pages written back to the disk. Returns true if any chunk was given back.
+ * Free bytes plus one chunk of the pool's VRAM for a buffer object (bytes 0: one chunk): empty
+ * chunks first, then the emptiest, their pages written back to the disk. Returns true if any
+ * chunk was given back.
  * Called without locks (from buffer allocation).
  */
 bool ps3rsx_vswap_shrink(struct ps3rsx_device *rsx, u64 bytes)
@@ -718,25 +722,43 @@ bool ps3rsx_vswap_shrink(struct ps3rsx_device *rsx, u64 bytes)
 	struct evict_buf eb;
 	u64 got = 0;
 	bool ok;
+	int ret;
 
 	if (!vs || !vs->map)
 		return false;
 	mutex_lock(&vs->shrink_lock);
 	ok = evict_buf_init(&eb, GFP_KERNEL);
 	while (ok && got < bytes + CHUNK) {
+		struct ps3rsx_zombie *z;
 		int best = -1;
 
+		/* the chunk goes back as a zombie, cleared before any BO lands on it (vclear.c);
+		 * its carrier first, so a failed allocation leaves the chunk in the pool */
+		z = ps3rsx_vclear_zombie_new();
+		if (!z)
+			break;
 		mutex_lock(&vs->lock);
 		for (i = 0; i < vs->nchunks; i++)
 			if (drm_mm_node_allocated(&vs->chunks[i].node) && vs->chunks[i].io &&
 			    (best < 0 || vs->chunks[i].nused < vs->chunks[best].nused))
 				best = i;
 		mutex_unlock(&vs->lock);
-		if (best < 0 || !chunk_evict(vs, best, &eb, true))
+		if (best < 0 || !chunk_evict(vs, best, &eb, true)) {
+			kfree(z);
 			break;
+		}
 		mutex_lock(&rsx->mm_lock);
-		drm_mm_remove_node(&vs->chunks[best].node);
+		ret = ps3rsx_vclear_take_node(rsx, z, &vs->chunks[best].node);
 		mutex_unlock(&rsx->mm_lock);
+		if (ret) {
+			if (ret == -ENOMEM)	/* its node holds the range: out of use until unload */
+				pr_err_once("ps3vswap: a chunk couldn't be cleared: kept out of use\n");
+			else
+				pr_err("ps3vswap: a chunk went back to the heap without its zombie, zeroed by the CPU\n");
+			kfree(z);
+		} else {
+			ps3rsx_vclear_add(rsx, z);
+		}
 		got += CHUNK;
 		freed++;
 	}
@@ -986,7 +1008,8 @@ void ps3rsx_vswap_fini(struct ps3rsx_device *rsx)
 
 		if (!drm_mm_node_allocated(&c->node))
 			continue;
-		iounmap(c->io);
+		if (c->io)		/* none: a chunk kept out of use (ps3rsx_vclear_take_node) */
+			iounmap(c->io);
 		drm_mm_remove_node(&c->node);
 	}
 	mutex_unlock(&rsx->mm_lock);

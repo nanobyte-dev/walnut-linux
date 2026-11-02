@@ -5,10 +5,14 @@
 #   default  quick suites: bench-selftest (bench/tests/selftest.py), bench-launcher (bench/tests/test_launcher.py:
 #            launcher.py and session.sh's choice of a menu launcher), gprefetch, rt-audio (ps3-rt-audio's choice of
 #            threads, a stand-in game: packages/walnut/system/ps3-desktop/tests/rt-audio-check.sh), ps3rsx-shadow (and ps3rsx's clear_dcbz zeroing,
-#            the validator's vertex format checks and blame-test: the recovery's choice of the trapping commit),
+#            the validator's vertex format checks, blame-test: the recovery's choice of the trapping commit,
+#            pushbuf-test: GEM_PUSHBUF's offset and length checks, vclear-test: freed VRAM cleared
+#            before reuse, on a model heap and GPU),
 #            gpu-recovered (ps3-desktop's recovery dialog: its stamp only after the window maps on a live X, a
 #            failed recovery's dialog only on the new X), gpu-crash-restart (ps3-system's crash report: the
 #            display-only desktop restart once per boot through logind, the old X waited for, the user's own X only),
+#            render-node (ps3-system's udev rule: the RSX's render node for the render group only),
+#            rsx-ab (tools/rsx-ab: the same-boot ps3rsx A/B batch against stubs, the mpv counter script),
 #            ps3-spu, xmoto-glbatch,
 #            mesa-forcedxt (Mesa 0038's NV30_FORCE_DXT decision; every mesa-* suite is packages/patched/graphics/mesa/tests/
 #            host-tests.sh against build/work/mesa, or MESA_WORK), mesa-staging-pool
@@ -117,12 +121,14 @@ t_ps3rsx() {
 	O=$PWD/build/tmp/ps3rsx-test
 	need gcc
 	make -C packages/walnut/drivers/ps3rsx/test O="$O" "$O/shadow-equiv" "$O/shadow-equiv-fast" "$O/zero-test" "$O/validate-test" \
-		"$O/blame-test" || exit 1
+		"$O/blame-test" "$O/pushbuf-test" "$O/vclear-test" || exit 1
 	"$O/shadow-equiv" 200000 20000 1 || exit 1
 	"$O/shadow-equiv-fast" 1000000 100000 2 || exit 1
 	"$O/zero-test" 20000 1 || exit 1
 	"$O/validate-test" || exit 1
 	"$O/blame-test" || exit 1
+	"$O/pushbuf-test" || exit 1
+	"$O/vclear-test" || exit 1
 	# each rule switched off in a copy of validate.c (or the submit model's old behaviour): its case must fail
 	make -C packages/walnut/drivers/ps3rsx/test O="$O" fix-off || exit 1
 	# big-endian run under qemu, when the cross compiler, the sysroot and qemu are there
@@ -152,6 +158,8 @@ run rt-audio sh packages/walnut/system/ps3-desktop/tests/rt-audio-check.sh
 run game-menu sh packages/walnut/system/ps3-desktop/tests/game-menu-check.sh
 run gpu-recovered python3 -I packages/walnut/system/ps3-desktop/tests/gpu-recovered-test.py
 run gpu-crash-restart bash packages/walnut/system/ps3-system/tests/gpu-crash-restart-test.sh
+run render-node bash packages/walnut/system/ps3-system/tests/render-node-test.sh
+run rsx-ab bash tools/rsx-ab/test_rsx_ab.sh
 run ps3rsx-shadow bash -c "$(declare -f need skip_part t_ps3rsx); t_ps3rsx"
 run ps3-spu make -C packages/walnut/tools/ps3-spu test
 run xmoto-glbatch bash -c "$(declare -f need t_xmoto); t_xmoto"

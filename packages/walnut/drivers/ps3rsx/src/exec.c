@@ -4,7 +4,8 @@
  * hardware channels anyway, docs/RSX.md E5), per-submit fences from SET_REFERENCE (a real
  * completion fence, E11), and wedge detection (any graph exception stops the whole GPU).
  *
- * GART IO layout: [0, RING_START) reset program, [RING_START, RING_END) ring, then BOs.
+ * GART IO layout: [0, RING_START) reset program, [RING_START, RING_END) ring, [ZERO_START,
+ * ZERO_END) the VRAM clear's zero area (vclear.c), then BOs from RING_RESERVE.
  */
 #include <linux/delay.h>
 #include <linux/dma-fence.h>
@@ -91,6 +92,12 @@ static const struct dma_fence_ops ps3rsx_fence_ops = {
 	.enable_signaling = fence_enable_signaling,
 	.signaled = fence_signaled,
 };
+
+/* The reference register now (one MMIO read; vclear.h's vclear_seq_passed compares) */
+u32 ps3rsx_ref_now(struct ps3rsx_device *rsx)
+{
+	return ref_read(rsx);
+}
 
 /* Has the GPU passed fence seq? */
 bool ps3rsx_seq_done(struct ps3rsx_device *rsx, u32 seq)
