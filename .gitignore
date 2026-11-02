@@ -12,3 +12,11 @@ tools/public-replace.local.txt
 tools/commit-private.local.txt
 # gh and other tools keep per-user state here (device ids): never committed
 /.local/
+
+# Editor swap, backup and autosave files
+*.kate-swp
+*.swp
+*.swo
+*~
+.#*
+\#*\#

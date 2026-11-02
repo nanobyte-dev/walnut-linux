@@ -313,5 +313,30 @@ class Tree(unittest.TestCase):
         self.assertEqual(schema.main(["gamedb/tags.toml"]), 0)
 
 
+class Ignored(unittest.TestCase):
+    """git-ignored files (editor swap files) are skipped; untracked, not ignored files still count"""
+
+    def test_ignored_swap_file_skipped_unknown_file_refused(self):
+        import subprocess
+        import gitfiles
+        with tempfile.TemporaryDirectory() as t:
+            root = Path(t)
+            subprocess.run(["git", "init", "-q", str(root)], check=True)
+            (root / ".gitignore").write_text("*.kate-swp\n")
+            d = root / "gamedb" / "patches"
+            d.mkdir(parents=True)
+            (d / "keep.md").write_text("x")
+            (d / ".keep.md.kate-swp").write_text("junk")
+            files = schema.gamedb_files(root)
+            self.assertIn("gamedb/patches/keep.md", files)
+            self.assertNotIn("gamedb/patches/.keep.md.kate-swp", files)
+            self.assertEqual([p.name for p in gitfiles.iterdir(d)], ["keep.md"])
+            (d / "unknown.bin").write_text("x")
+            files = schema.gamedb_files(root)
+            self.assertIn("gamedb/patches/unknown.bin", files)
+            self.assertTrue(schema.coverage(files, root))
+            self.assertIn("unknown.bin", [p.name for p in gitfiles.iterdir(d)])
+
+
 if __name__ == "__main__":
     unittest.main()

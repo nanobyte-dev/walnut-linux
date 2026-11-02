@@ -76,6 +76,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import score   # noqa: E402
+import gitfiles  # noqa: E402  (directory listings without git-ignored editor files)
 import evidence  # noqa: E402  (a session folder's evidence and its public-safe scan)
 import schema  # noqa: E402  (gamedb/schemas/: the one source of every key set, type, required key and enum below)
 # the tags (gamedb/tags.toml, taxonomy()); the automatic ones are derived by catalog.py (game_tags()) and never
@@ -296,7 +297,7 @@ def guide_errors(gdir):
     """the problems of a game's guides/: only <slug>.md files, each starting with a "# " heading, no front matter"""
     errs = []
     d = Path(gdir) / "guides"
-    for f in sorted(d.iterdir()) if d.is_dir() else []:
+    for f in sorted(gitfiles.iterdir(d)) if d.is_dir() else []:
         where = "guides/%s" % f.name
         if not f.is_file() or not GUIDE_FILE_RE.match(f.name):
             errs.append("%s: a guide is a file <slug>.md (lower case letters, digits, dashes)" % where)
@@ -597,7 +598,7 @@ def check_game(gdir, bad, repo, ctx=None):
                 errs.append(SESSIONS + "/%s: screenshot %s is listed but missing" % (t.name, f))
         # the evidence: form.toml, review.md, shots/, raw/; the public-safe scan (tools/gamedb/evidence.py)
         errs += [SESSIONS + "/%s: %s" % (t.name, e) for e in evidence.folder_errors(t, listed)]
-    for f in sorted(x.name for x in gdir.iterdir()):
+    for f in sorted(x.name for x in gitfiles.iterdir(gdir)):
         if f not in GAME_FILES:
             errs.append("unexpected file %s (a game folder holds %s)" % (f, ", ".join(GAME_FILES)))
         elif f in GAME_DIRS and not (gdir / f).is_dir():
@@ -605,7 +606,7 @@ def check_game(gdir, bad, repo, ctx=None):
     errs += benchmark_errors(gdir, build)
     errs += desktop_errors(gdir, build, ctx)
     rating = gdir / "rating"
-    for f in sorted(x.name for x in rating.iterdir()) if rating.is_dir() else []:
+    for f in sorted(x.name for x in gitfiles.iterdir(rating)) if rating.is_dir() else []:
         if f not in ("sessions", "test.toml"):
             errs.append("unexpected file rating/%s (rating/ holds sessions/ and test.toml)" % f)
     if (rating / "test.toml").is_file():
@@ -938,10 +939,10 @@ def desktop_errors(gdir, build=None, ctx=None):
     if not d.is_dir():
         return errs
     pi = pack_integration()
-    for f in sorted(x.name for x in d.iterdir()):
+    for f in sorted(x.name for x in gitfiles.iterdir(d)):
         if f not in DESKTOP_FILES:
             errs.append("unexpected file desktop/%s (desktop/ holds %s)" % (f, ", ".join(DESKTOP_FILES)))
-    for f in sorted((d / "launchers").iterdir()) if (d / "launchers").is_dir() else []:
+    for f in sorted(gitfiles.iterdir((d / "launchers"))) if (d / "launchers").is_dir() else []:
         try:
             if not f.name.endswith(".desktop") or not f.is_file():
                 raise pi.Error("desktop/launchers/%s is not a .desktop file" % f.name)
@@ -964,7 +965,7 @@ def benchmark_errors(gdir, build):
     if b.is_dir():
         if not (b / "recipe.sh").is_file():
             errs.append("benchmark/ has no recipe.sh")
-        for f in sorted(x.name for x in b.iterdir()):
+        for f in sorted(x.name for x in gitfiles.iterdir(b)):
             if f not in BENCH_FILES:
                 errs.append("unexpected file benchmark/%s (benchmark/ holds %s)" % (f, ", ".join(BENCH_FILES)))
         if (b / "analysis.toml").exists():
