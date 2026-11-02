@@ -83,7 +83,14 @@ for a in $(cat /proc/cmdline); do
 	init=*) INIT=${a#init=} ;;
 	ps3ssd.image=*) IMAGE=${a#ps3ssd.image=} ;;
 	ps3ssd.swap=*) SWAP=${a#ps3ssd.swap=} ;;
-	ps3ssd.timeout=*) TIMEOUT=${a#ps3ssd.timeout=} ;;
+	ps3ssd.timeout=*)	# seconds: a non-numeric (or absurd) value is ignored, it would kill PID 1 in the wait below
+		t=${a#ps3ssd.timeout=}
+		case $t in
+		''|*[!0-9]*) ;;
+		*)
+			while [ ${#t} -gt 1 ] && [ "${t#0}" != "$t" ]; do t=${t#0}; done	# 08 is not octal
+			if [ ${#t} -le 4 ]; then TIMEOUT=$t; fi ;;
+		esac ;;
 	ps3ssd.break=1) BREAK=1 ;;
 	esac
 done

@@ -1077,6 +1077,35 @@ class VswapScript(unittest.TestCase):
         self.assertEqual((self.rc, self.full_log()), (1, []))
 
 
+class InitCmdline(unittest.TestCase):
+    """the initrd's command line loop (tools/ssdimg/initrd/init) run on its own: ps3ssd.timeout= takes a
+    number of seconds and ignores anything else (a non-number once killed PID 1 in the wait for the disk)"""
+    INIT = Path(__file__).resolve().parent / "initrd" / "init"
+
+    def timeout(self, cmdline):
+        lines = self.INIT.read_text().split("\n")
+        a = next(i for i, l in enumerate(lines) if l.startswith("QUIET=0 ROOT="))
+        b = next(i for i, l in enumerate(lines) if i > a and l == "set +f")
+        body = "\n".join(lines[a:b + 1]).replace("/proc/cmdline", "$CMDLINE_FILE")
+        f = Path(SCRATCH) / "cmdline"
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text(cmdline + "\n")
+        r = subprocess.run(["sh", "-ec", body + '\necho "TIMEOUT=$TIMEOUT"'], env={"CMDLINE_FILE": str(f), "PATH": os.environ["PATH"]},
+                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        self.assertEqual(r.returncode, 0, r.stdout)
+        return r.stdout.strip().split("=")[-1]
+
+    def test_default_and_numbers(self):
+        self.assertEqual(self.timeout("quiet root=/dev/x"), "30")
+        self.assertEqual(self.timeout("ps3ssd.timeout=45"), "45")
+        self.assertEqual(self.timeout("ps3ssd.timeout=0"), "0")
+        self.assertEqual(self.timeout("ps3ssd.timeout=08"), "8")
+
+    def test_not_a_number_is_ignored(self):
+        for bad in ("abc", "", "5s", "-1", "1.5", "0x10", "$((1))", "99999"):
+            self.assertEqual(self.timeout("ps3ssd.timeout=" + bad + " quiet"), "30", msg=bad)
+
+
 if __name__ == "__main__":
     r = unittest.main(exit=False, verbosity=2).result
     shutil.rmtree(SCRATCH, ignore_errors=True)
