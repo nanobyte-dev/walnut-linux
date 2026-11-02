@@ -26,7 +26,7 @@ signatures. --url defaults to https://walnut.nanobyte.dev/apt; the password-prot
 is https://walnut.nanobyte.dev/licensed, its login (one line, user:password) in the file
 WALNUT_APT_AUTH_FILE names (apt-repo/licensed-auth.sh writes one), never on a command line.
 """
-import argparse, base64, gzip, hashlib, io, lzma, os, re, shutil, stat, subprocess, sys, tarfile, tempfile, time
+import argparse, base64, gzip, hashlib, io, lzma, os, re, shutil, stat, subprocess, sys, tarfile, tempfile, threading, time, zlib
 import urllib.error, urllib.request
 from email.utils import formatdate
 
@@ -138,15 +138,76 @@ def format_stanza(fields):
 
 CONTROL_MEMBERS = {"control", "md5sums", "conffiles", "preinst", "postinst", "prerm", "postrm", "triggers",
                    "shlibs", "symbols", "templates", "config"}
+MAX_CONTROL = 64 << 20	# a control.tar, packed and unpacked
+
+
+def decompress(kind, data, limit=MAX_CONTROL):
+	"""data unpacked, at most limit bytes (a bigger result is an error, never memory): kind xz, gz or zst."""
+	try:
+		if kind == "xz":
+			d = lzma.LZMADecompressor()
+			out = d.decompress(data, max_length=limit + 1)
+			if not d.eof and len(out) <= limit:
+				raise Error("truncated xz data")
+		elif kind == "gz":
+			d = zlib.decompressobj(31)
+			out = d.decompress(data, limit + 1)
+			if not d.eof and len(out) <= limit:
+				raise Error("truncated gzip data")
+		elif kind == "zst":
+			out = _zstd(data, limit)
+		else:
+			raise Error(f"unknown compression {kind!r}")
+	except (lzma.LZMAError, zlib.error, EOFError, ValueError) as e:
+		raise Error(f"corrupt {kind} data ({e})") from None
+	if len(out) > limit:
+		raise Error(f"{kind} data unpacks to more than {limit} bytes")
+	return out
+
+
+def _zstd(data, limit):
+	try:
+		from compression import zstd	# Python 3.14
+	except ImportError:
+		zstd = None
+	if zstd:
+		try:
+			d = zstd.ZstdDecompressor()
+			out = d.decompress(data, limit + 1)
+			if not d.eof and len(out) <= limit:
+				raise Error("truncated zstd data")
+			return out
+		except zstd.ZstdError as e:
+			raise Error(f"corrupt zst data ({e})") from None
+	exe = shutil.which("zstd")
+	if not exe:
+		raise Error("a .zst member and neither python's zstd module nor the zstd program")
+	p = subprocess.Popen([exe, "-dc", "-q"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+	try:
+		threading.Thread(target=lambda: (p.stdin.write(data), p.stdin.close()), daemon=True).start()
+	except OSError:
+		pass
+	out = p.stdout.read(limit + 1)
+	if len(out) <= limit:
+		if p.wait() != 0:
+			raise Error("corrupt zst data")
+	else:
+		p.kill()
+	p.stdout.close()
+	return out
 
 
 def deb_control(path):
 	"""The control file of a .deb: an ar archive of exactly debian-binary, one control.tar.{xz,gz,zst}
 	and one data.tar.*, in that order, and a control.tar of plain files with distinct, usual names (dpkg
-	takes the last of two same-named members, this code used to take the first)."""
+	takes the last of two same-named members, this code used to take the first). Only the control
+	member is read, and bounded."""
 	control = None
 	order = []
 	with open(path, "rb") as f:
+		f.seek(0, 2)
+		total = f.tell()
+		f.seek(0)
 		if f.read(8) != b"!<arch>\n":
 			raise Error(f"{path}: not a .deb")
 		while hdr := f.read(60):
@@ -157,41 +218,41 @@ def deb_control(path):
 				size = int(hdr[48:58])
 			except ValueError:
 				raise Error(f"{path}: bad ar header") from None
-			data = f.read(size)
-			if len(data) != size:
+			if f.tell() + size > total:
 				raise Error(f"{path}: truncated")
-			if size & 1 and f.read(1) != b"\n":
-				raise Error(f"{path}: bad ar padding")
 			order.append(name)
 			if name.startswith("control.tar"):
-				control = (name, data)
+				if size > MAX_CONTROL:
+					raise Error(f"{path}: control.tar is too big")
+				control = (name, f.read(size))
+			else:
+				f.seek(size, 1)
+			if size & 1:
+				if f.read(1) != b"\n":
+					raise Error(f"{path}: bad ar padding")
 	if len(order) != 3 or order[0] != "debian-binary" or not order[1].startswith("control.tar.") \
 			or not order[2].startswith("data.tar") or control is None:
 		raise Error(f"{path}: ar members {order}: want debian-binary, control.tar.*, data.tar.*")
 	name, data = control
-	if name.endswith(".xz"):
-		data = lzma.decompress(data)
-	elif name.endswith(".gz"):
-		data = gzip.decompress(data)
-	elif name.endswith(".zst"):
-		from compression import zstd	# Python 3.14
-		data = zstd.decompress(data)
-	else:
+	ext = name.rsplit(".", 1)[-1]
+	if ext not in ("xz", "gz", "zst"):
 		raise Error(f"{path}: {name}: not .xz, .gz or .zst")
-	if len(data) > 64 << 20:
-		raise Error(f"{path}: control.tar too big")
+	data = decompress(ext, data)
 	seen = {}
-	with tarfile.open(fileobj=io.BytesIO(data)) as t:
-		for m in t.getmembers():
-			n = m.name[2:] if m.name.startswith("./") else m.name
-			if n in ("", "."):
-				continue
-			if not m.isfile() or n not in CONTROL_MEMBERS or n in seen:
-				raise Error(f"{path}: control.tar member {m.name!r}: not a plain, single, usual control file")
-			seen[n] = m
-		if "control" not in seen:
-			raise Error(f"{path}: no control file")
-		return t.extractfile(seen["control"]).read().decode("utf-8")
+	try:
+		with tarfile.open(fileobj=io.BytesIO(data)) as t:
+			for m in t.getmembers():
+				n = m.name[2:] if m.name.startswith("./") else m.name
+				if n in ("", "."):
+					continue
+				if not m.isfile() or n not in CONTROL_MEMBERS or n in seen:
+					raise Error(f"{path}: control.tar member {m.name!r}: not a plain, single, usual control file")
+				seen[n] = m
+			if "control" not in seen:
+				raise Error(f"{path}: no control file")
+			return t.extractfile(seen["control"]).read().decode("utf-8")
+	except (tarfile.TarError, UnicodeDecodeError, EOFError) as e:
+		raise Error(f"{path}: control.tar unreadable ({e})") from None
 
 
 def file_sums(path):
@@ -272,9 +333,15 @@ def dsc_stanza(path, suite):
 	"""(index stanza, the files it names). Every name in Files / Checksums-Sha256 must be a plain file name
 	of a regular file next to the .dsc, with the size and sha256 the .dsc gives: a name is never a path
 	(an absolute one would copy any file the process can read into the public pool)."""
-	text = open(path, encoding="utf-8").read()
+	try:
+		text = open(path, encoding="utf-8").read(1 << 20)
+	except UnicodeDecodeError:
+		raise Error(f"{path}: not text") from None
 	m = re.search(r"-----BEGIN PGP SIGNED MESSAGE-----\n(?:.+\n)*\n(.*?)\n-----BEGIN PGP SIGNATURE", text, re.S)
-	fields = parse_stanzas(m.group(1) if m else text)[0]
+	stanzas = parse_stanzas(m.group(1) if m else text)
+	if len(stanzas) != 1 or "Source" not in stanzas[0]:
+		raise Error(f"{path}: not a .dsc (want one stanza with a Source)")
+	fields = stanzas[0]
 	src = fields.pop("Source")
 	if not SOURCE_RE.match(src) or not re.match(r"[0-9][A-Za-z0-9.+:~-]*\Z", fields.get("Version", "")):
 		raise Error(f"{path}: bad Source or Version")

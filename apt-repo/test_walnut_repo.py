@@ -10,10 +10,11 @@ UPLOAD_ID = iter(range(1, 1000))
 
 
 def make_deb(path, package, version, source=None, arch="ppc64", payload=b"", control_extra="", control=None,
-             control_tar=None, ar_extra=()):
+             control_tar=None, ar_extra=(), control_member=None):
 	"""A .deb. payload: more bytes in the data tar (other bytes, same version). control: the whole control text
 	(for crafted ones); control_tar: the control tar's members [(name, bytes)] instead of one ./control;
-	ar_extra: more ar members [(name, bytes)] after data.tar.xz."""
+	ar_extra: more ar members [(name, bytes)] after data.tar.xz; control_member: (name, bytes) in place of the
+	control.tar.xz member (corrupt, other compression, a bomb)."""
 	if control is None:
 		control = f"Package: {package}\nVersion: {version}\nArchitecture: {arch}\nMaintainer: T <t@t>\n"
 		if source:
@@ -30,7 +31,7 @@ def make_deb(path, package, version, source=None, arch="ppc64", payload=b"", con
 		return lzma.compress(b.getvalue())
 
 	members = [("debian-binary", b"2.0\n"),
-	           ("control.tar.xz", tar_xz(control_tar if control_tar is not None else [("./control", control.encode())])),
+	           control_member or ("control.tar.xz", tar_xz(control_tar if control_tar is not None else [("./control", control.encode())])),
 	           ("data.tar.xz", tar_xz([(f"./usr/share/doc/{package}/v", version.encode() + payload)])), *ar_extra]
 	with open(path, "wb") as f:
 		f.write(b"!<arch>\n")
@@ -388,6 +389,47 @@ class Repo(unittest.TestCase):
 		        "Breaks: old (<< 1.0), older\n", "Built-Using: gcc (= 14.2.0-1)\n", "Pre-Depends: x | y\n")
 		for i, extra in enumerate(good):
 			self.assertTrue(self.publish(self.add([make_deb(f"{d}/ok{i}.deb", f"okpkg{i}", "1", control_extra=extra)])).startswith("ok"), extra)
+
+
+	def test_malformed_input_is_refused_not_a_crash(self):
+		"""Empty or Source-less .dsc, corrupt or oversized control.tar, a .zst one: an error line, never a traceback (M-2)."""
+		d = self.debs
+		import gzip as gz
+		cases = {
+			"corrupt gzip": make_deb(f"{d}/a.deb", "badwolf", "1", control_member=("control.tar.gz", b"not gzip at all")),
+			"truncated xz": make_deb(f"{d}/b.deb", "badwolf", "1", control_member=("control.tar.xz", lzma.compress(b"x" * 5000)[:30])),
+			"xz bomb": make_deb(f"{d}/c.deb", "badwolf", "1", control_member=("control.tar.xz", lzma.compress(b"\0" * (80 << 20)))),
+			"gzip bomb": make_deb(f"{d}/e.deb", "badwolf", "1", control_member=("control.tar.gz", gz.compress(b"\0" * (80 << 20), 1))),
+			"corrupt zst": make_deb(f"{d}/f.deb", "badwolf", "1", control_member=("control.tar.zst", b"\x28\xb5\x2f\xfd garbage")),
+			"not a tar": make_deb(f"{d}/g.deb", "badwolf", "1", control_member=("control.tar.xz", lzma.compress(b"hello"))),
+			"unknown compression": make_deb(f"{d}/h.deb", "badwolf", "1", control_member=("control.tar.bz2", b"BZh")),
+		}
+		for why, deb in cases.items():
+			r = self.repo("add", "--suite", "testing", "--keyring", self.keys["ci"][2], "--sign-key",
+			              self.keys["ci"][1], "--out", f"{self.root}/o", deb, ok=False)
+			self.assertEqual(r.returncode, 1, why)
+			self.assertIn("!!", r.stderr, why)
+			self.assertNotIn("Traceback", r.stderr, why)
+		# a .dsc: empty, without Source, not text
+		os.makedirs(f"{d}/src", exist_ok=True)
+		for why, data in (("empty", b""), ("no Source", b"Version: 1\nFiles:\n"), ("binary", b"\xff\xfe\x00")):
+			path = f"{d}/src/x_1.dsc"
+			open(path, "wb").write(data)
+			r = self.repo("add", "--suite", "testing", "--keyring", self.keys["ci"][2], "--sign-key",
+			              self.keys["ci"][1], "--out", f"{self.root}/o", path, ok=False)
+			self.assertEqual(r.returncode, 1, why)
+			self.assertNotIn("Traceback", r.stderr, why)
+		# a good zst control.tar is read (python's module or the zstd program) or refused cleanly, never a crash
+		if shutil.which("zstd"):
+			b = io.BytesIO()
+			with tarfile.open(fileobj=b, mode="w") as t:
+				c = b"Package: zpkg\nVersion: 1\nArchitecture: ppc64\nMaintainer: T <t@t>\nDescription: x\n"
+				ti = tarfile.TarInfo("./control")
+				ti.size = len(c)
+				t.addfile(ti, io.BytesIO(c))
+			z = subprocess.run(["zstd", "-q", "-c"], input=b.getvalue(), capture_output=True, check=True).stdout
+			deb = make_deb(f"{d}/z.deb", "zpkg", "1", control_member=("control.tar.zst", z))
+			self.assertTrue(self.publish(self.add([deb])).startswith("ok"))
 
 
 if __name__ == "__main__":
