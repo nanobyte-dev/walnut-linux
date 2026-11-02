@@ -47,12 +47,12 @@ one() {	# one CASE ARM
 arm_run() {	# arm_run ARM [PARAM=VALUE...]
 	local a=$1; shift
 	"$RSX_ARM" "$a" "$@" || { echo "abba-batch: arm $a didn't load: stopping" >&2; exit 1; }
-	sudo cat /sys/kernel/debug/dri/0/ps3rsx_mm 2>/dev/null | grep '^clear:' | sed "s/^/arm $a before: /"
+	sudo cat /sys/kernel/debug/dri/0/ps3rsx_mm 2>/dev/null | grep -E '^(clear|reuse):' | sed "s/^/arm $a before: /"
 	for c in $CASES; do
 		one "$c" "$a"
 		if exception; then echo "abba-batch: graph exception: stopping (no desktop restart)" >&2; exit 1; fi
 	done
-	sudo cat /sys/kernel/debug/dri/0/ps3rsx_mm 2>/dev/null | grep '^clear:' | sed "s/^/arm $a after: /"
+	sudo cat /sys/kernel/debug/dri/0/ps3rsx_mm 2>/dev/null | grep -E '^(clear|reuse):' | sed "s/^/arm $a after: /"
 }
 
 for a in $ARMS; do arm_run "$a"; done
