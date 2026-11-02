@@ -109,7 +109,7 @@ jobs:
           ID: ${{ steps.id.outputs.id }}
           CHANNEL: ${{ inputs.channel }}
         run: github-ci/build-release.sh "$ID" out "$CHANNEL"
-      - name: The new package layer, for cache-save (even when a later step failed: it is written whole, by rename)
+      - name: The new package layer, for cache-save (also after a failed step; it is written whole, by rename)
         if: always() && needs.cache-restore.outputs.have != 'true' && hashFiles('build/rootfs/base.tar') != ''
         uses: actions/upload-artifact@v7
         with:
@@ -165,85 +165,6 @@ jobs:
             build/rootfs/base.tar
             build/rootfs/base.tar.mac
           key: ${{ steps.key.outputs.base }}
-
-  publish:
-        description: "Publish (off: build only, the files stay in the run's artifact for a look)"
-        type: boolean
-        default: true
-
-permissions:
-  contents: read
-
-concurrency:
-  group: release-${{ inputs.channel }}  # one at a time: the next A.B.C is counted from what's published
-
-jobs:
-  build:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 360
-    outputs:
-      id: ${{ steps.id.outputs.id }}
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0  # versions count commits (tools/deb-version.sh)
-          persist-credentials: false
-      - name: Release id
-        id: id
-        env:
-          CHANNEL: ${{ inputs.channel }}
-        run: |
-          id=$(github-ci/release-id.sh "$CHANNEL")
-          echo "id=$id" >> "$GITHUB_OUTPUT"
-          echo "### Walnut $id ($CHANNEL)" >> "$GITHUB_STEP_SUMMARY"
-      - name: Cache key, salted (only a trusted job can compute it; exact key, no fallback)
-        id: key
-        env:
-          SALT: ${{ secrets.WALNUT_CACHE_SALT }}
-          BASE: ${{ hashFiles('system/image/packages.txt', 'tools/build-rootfs.sh', 'config.mk', 'build-containers/Dockerfile') }}
-        run: |
-          [ -n "$SALT" ] || { echo "-- no WALNUT_CACHE_SALT: no Actions cache in this job"; exit 0; }
-          base="rootfs-base-$(printf '%s' "$BASE" | openssl dgst -sha256 -hmac "$SALT" -r | cut -c1-40)"
-          echo "::add-mask::$base"  # the key stays out of the public log
-          echo "base=$base" >> "$GITHUB_OUTPUT"
-      - name: The package layer (Debian's packages, from the build snapshot)
-        id: base
-        if: steps.key.outputs.base != ''
-        uses: actions/cache/restore@v6
-        with:
-          path: |
-            build/rootfs/base.tar
-            build/rootfs/base.tar.mac
-          key: ${{ steps.key.outputs.base }}
-      - name: Use the restored layer only when it is authentic (anyone can write a cache entry)
-        if: steps.key.outputs.base != ''
-        env:
-          SALT: ${{ secrets.WALNUT_CACHE_SALT }}
-        run: github-ci/cache-mac.sh verify build/rootfs/base.tar build/rootfs/base.tar.mac || [ $? = 3 ]
-      - name: Build
-        env:
-          ID: ${{ steps.id.outputs.id }}
-          CHANNEL: ${{ inputs.channel }}
-        run: github-ci/build-release.sh "$ID" out "$CHANNEL"
-      - name: Record the layer's MAC
-        if: always() && steps.key.outputs.base != '' && steps.base.outputs.cache-hit != 'true' && hashFiles('build/rootfs/base.tar') != ''
-        env:
-          SALT: ${{ secrets.WALNUT_CACHE_SALT }}
-        run: github-ci/cache-mac.sh record build/rootfs/base.tar build/rootfs/base.tar.mac
-      - name: Keep the package layer, even when a later step failed (it is written whole, by rename)
-        if: always() && steps.key.outputs.base != '' && steps.base.outputs.cache-hit != 'true' && hashFiles('build/rootfs/base.tar') != ''
-        uses: actions/cache/save@v6
-        with:
-          path: |
-            build/rootfs/base.tar
-            build/rootfs/base.tar.mac
-          key: ${{ steps.base.outputs.cache-primary-key }}
-      - uses: actions/upload-artifact@v7
-        with:
-          name: release-${{ steps.id.outputs.id }}
-          path: out/
-          retention-days: 7
-          compression-level: 0
 
   publish:
     needs: build

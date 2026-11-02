@@ -396,11 +396,42 @@ WORKFLOW_FILES = lambda: sorted(glob.glob(f"{WF}/*.yml"))
 STABLE_ENV_RE = re.compile(r"environment:\s*(?:walnut-stable|walnut-\$\{\{ inputs\.channel \}\})")
 
 
-def workflow_lint():
+def yaml_errors(name, text):
+	"""Whether the file is YAML GitHub will load: it parses (PyYAML, strictly: no duplicate key anywhere, which a
+	second `jobs:` or a repeated step key would be) and has the top-level keys of a workflow."""
+	try:
+		import yaml
+	except ImportError:
+		return [f"{name}: python3-yaml is needed to check that the workflow is valid YAML"]
+
+	class Strict(yaml.SafeLoader):
+		pass
+
+	def mapping(loader, node, deep=False):
+		seen = set()
+		for k, _ in node.value:
+			key = loader.construct_object(k, deep=True)
+			if key in seen:
+				raise yaml.constructor.ConstructorError(None, None, f"duplicate key {key!r}", k.start_mark)
+			seen.add(key)
+		return yaml.SafeLoader.construct_mapping(loader, node, deep)
+	Strict.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, mapping)
+	try:
+		doc = yaml.load(text, Strict)
+	except yaml.YAMLError as e:
+		return [f"{name}: not valid YAML: {str(e).splitlines()[0]} {str(e).splitlines()[-1] if len(str(e).splitlines()) > 1 else ''}".strip()]
+	if not isinstance(doc, dict) or "jobs" not in doc or (True not in doc and "on" not in doc):
+		return [f"{name}: no `on` and `jobs` at the top"]
+	return []
+
+
+def workflow_lint(check_yaml=True):
 	"""Rules over every file in .github/workflows/ (generated or not)."""
 	errs = []
 	for f in WORKFLOW_FILES():
 		name = os.path.basename(f)
+		if check_yaml:
+			errs += yaml_errors(name, open(f).read())
 		text = "\n".join(l for l in open(f).read().splitlines() if not l.lstrip().startswith("#")) + "\n"	# not comments
 		if re.search(r"^\s*secrets:\s*inherit\s*$", text, re.M):
 			errs.append(f"{name}: secrets: inherit (pass each secret by name)")

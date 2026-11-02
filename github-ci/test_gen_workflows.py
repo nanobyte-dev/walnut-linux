@@ -80,15 +80,27 @@ class Tiers(unittest.TestCase):
 
 
 class Lint(unittest.TestCase):
-	def lint(self, files):
+	def lint(self, files, yaml=False):
 		with tempfile.TemporaryDirectory() as t:
 			for n, text in files.items():
 				open(f"{t}/{n}", "w").write(text)
 			old, gw.WF = gw.WF, t
 			try:
-				return gw.workflow_lint()
+				return gw.workflow_lint(check_yaml=yaml)
 			finally:
 				gw.WF = old
+
+	def test_yaml_is_checked(self):
+		ok = "on:\n  push:\njobs:\n  a:\n    runs-on: x\n"
+		self.assertEqual(self.lint({"a.yml": ok}, yaml=True), [])
+		self.assertTrue(self.lint({"a.yml": ok + "jobs:\n  b:\n    runs-on: x\n"}, yaml=True))	# a second jobs:
+		self.assertTrue(self.lint({"a.yml": ok.replace("runs-on: x", "runs-on: x\n    runs-on: y")}, yaml=True))	# a repeated key
+		self.assertTrue(self.lint({"a.yml": ok + "      - name: Release: a colon\n"}, yaml=True))	# an unquoted ': '
+		self.assertTrue(self.lint({"a.yml": "name: x\n"}, yaml=True))	# not a workflow
+		self.assertEqual(self.lint({}), [])
+
+	def test_every_workflow_in_the_tree_parses(self):
+		self.assertEqual([e for e in gw.workflow_lint() if "YAML" in e or "duplicate" in e or "top" in e], [])
 
 	def test_rules(self):
 		checkout = "      - uses: actions/checkout@v7\n        with:\n          persist-credentials: %s\n"
@@ -199,15 +211,17 @@ class CacheMac(unittest.TestCase):
 		self.assertLess(r.index("cache-mac.sh verify"), r.index("run: github-ci/build-release.sh"))
 		self.assertLess(r.index("cache-mac.sh record"), r.index("actions/cache/save"))
 		self.assertIn("::add-mask::", r)
-		# C-2: the job that installs our testing packages never holds the salt
-		build = r[r.index("\n  build:\n"):r.index("\n  cache-save:\n")]
-		self.assertIn("github-ci/build-release.sh", build)
+		# C-2: the job that installs our testing packages never holds the salt; the salt jobs run no package code
+		import yaml
+		jobs = yaml.safe_load(r)["jobs"]
+		self.assertEqual(list(jobs), ["cache-restore", "build", "cache-save", "publish"])
+		build = yaml.dump(jobs["build"])
+		self.assertIn("build-release.sh", build)
 		self.assertNotIn("secrets.", build)
 		self.assertNotIn("actions/cache", build)
-		for job, nxt in (("cache-restore", "build"), ("cache-save", None)):
-			body = r[r.index(f"\n  {job}:\n"):]
-			body = body[:body.index(f"\n  {nxt or 'publish'}:\n")]
-			self.assertNotIn("build-release.sh", body)	# the salt jobs run no package code
+		for job in ("cache-restore", "cache-save"):
+			body = yaml.dump(jobs[job])
+			self.assertNotIn("build-release.sh", body)
 			self.assertIn("secrets.WALNUT_CACHE_SALT", body)
 
 
