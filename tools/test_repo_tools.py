@@ -352,8 +352,10 @@ class PublicExport(unittest.TestCase):
             src, out = os.path.join(tmp, "src"), os.path.join(tmp, "out")
             os.makedirs(os.path.join(src, "tools"))
             self.git(src, "init", "-q", "-b", "main")
-            for f in ("public-export.sh", "licensed.py", "licensed-files.txt"):
+            for f in ("public-export.sh", "licensed.py", "licensed-files.txt", "public-scan.py", "public-scan-allow.txt"):
                 shutil.copy(HERE / f, os.path.join(src, "tools", f))
+            os.makedirs(os.path.join(src, "tools", "commit_tests", "checks"))
+            shutil.copy(HERE / "commit_tests" / "checks" / "private.py", os.path.join(src, "tools", "commit_tests", "checks", "private.py"))
             Path(src, "tools", "public-strip-blobs.txt").write_text("")
             Path(src, "tools", "public-replace.local.txt").write_text("literal:NOT-IN-THIS-REPO\n")
             self.git(src, "add", "-A")
