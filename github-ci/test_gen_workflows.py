@@ -199,6 +199,17 @@ class CacheMac(unittest.TestCase):
 		self.assertLess(r.index("cache-mac.sh verify"), r.index("run: github-ci/build-release.sh"))
 		self.assertLess(r.index("cache-mac.sh record"), r.index("actions/cache/save"))
 		self.assertIn("::add-mask::", r)
+		# C-2: the job that installs our testing packages never holds the salt
+		build = r[r.index("\n  build:\n"):r.index("\n  cache-save:\n")]
+		self.assertIn("github-ci/build-release.sh", build)
+		self.assertNotIn("secrets.", build)
+		self.assertNotIn("actions/cache", build)
+		for job, nxt in (("cache-restore", "build"), ("cache-save", None)):
+			body = r[r.index(f"\n  {job}:\n"):]
+			if nxt:
+				body = body[:body.index(f"\n  {nxt}:\n")]
+			self.assertNotIn("build-release.sh", body)	# the salt jobs run no package code
+			self.assertIn("secrets.WALNUT_CACHE_SALT", body)
 
 
 class PcRule(unittest.TestCase):
