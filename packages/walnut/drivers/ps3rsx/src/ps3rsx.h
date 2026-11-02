@@ -99,6 +99,7 @@ struct ps3rsx_zombie {
 	u32 free_seq;			/* the last reference submitted when it was freed */
 	enum zombie_kind kind;
 	bool from_vswap;
+	bool at_load;			/* one of the load-time zombies */
 	struct vclear_cursor cur;	/* the fill's progress (VRAM; the worker's) */
 };
 
@@ -113,7 +114,10 @@ struct ps3rsx_vclear {
 	bool started;			/* after console_init: the worker may run */
 	bool gpu_off;			/* a fill trapped the GPU: the PPE only, until unload */
 	bool wait_prim;			/* the worker waits for a primitive to close */
-	u32 batch_seq;			/* the last batch's reference */
+	u32 batch_seq, batch_gen;	/* the last batch's reference and generation */
+	unsigned int load_pending;	/* load-time zombies not cleared yet (the dmesg line) */
+	u64 load_bytes;
+	ktime_t load_t0;
 	struct workqueue_struct *wq;
 	struct delayed_work work;
 	struct batch *batch;

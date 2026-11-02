@@ -124,6 +124,17 @@ static inline enum vclear_state vclear_state(const struct vclear_cursor *c, bool
 	return passed ? VCLEAR_DONE : VCLEAR_WAIT;
 }
 
+/*
+ * A primitive a client left open blocks the fill (nothing may go between BEGIN and END). The
+ * worker ends it as a waiting submitter would only when it has been open a second and an
+ * allocation is waiting for the clear; otherwise it waits for its owner (a game stalled at
+ * that moment would lose its draw for nothing).
+ */
+static inline bool vclear_close_primitive(unsigned int open_ms, bool alloc_waiting)
+{
+	return open_ms >= 1000 && alloc_waiting;
+}
+
 enum vclear_alloc_step {
 	VCLEAR_ALLOC_WAIT,	/* wait for zombies (bounded), then place again */
 	VCLEAR_ALLOC_SHRINK,	/* take VRAM from the swap pool */

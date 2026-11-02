@@ -266,7 +266,9 @@ static int vram_place_wait(struct ps3rsx_device *rsx, struct ps3rsx_bo *bo, bool
 		case VCLEAR_ALLOC_SHRINK:
 			shrinks++;
 			rsx->vc.alloc_shrinks++;
-			if (!ps3rsx_vswap_shrink(rsx, bo->base.size))
+			/* one chunk per step (0: the shrink's extra chunk only), cleared before the
+			 * next try: the steps' bound caps what one allocation writes to the disk */
+			if (!ps3rsx_vswap_shrink(rsx, 0))
 				return -ENOSPC;
 			break;
 		case VCLEAR_ALLOC_FAIL:

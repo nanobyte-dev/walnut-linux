@@ -479,6 +479,8 @@ static void case_vswap_chunk(void)
 	at = alloc(8 * 256, 2, true, 8);
 	CHECK(at >= 0, "%s: an 8 MiB BO didn't get swap chunks", what);
 	CHECK(shrinks <= 9, "%s: %d shrinks for one 8 MiB request", what, shrinks);
+	CHECK(shrinks * 256 <= 8 * 256 + 256, "%s: %d MiB of the pool evicted for one 8 MiB request",
+	      what, shrinks);
 }
 
 static void case_gart(void)
@@ -564,6 +566,16 @@ static void case_random(long rounds, u64 seed)
 	printf("random: %ld rounds, %ld BOs placed, %u ops queued\n", rounds, got, ring_tail);
 }
 
+/* the worker's forced end of an open primitive (vclear.h) */
+static void case_close_primitive(void)
+{
+	what = "a primitive left open";
+	CHECK(!vclear_close_primitive(5000, false), "%s: ended with no allocation waiting", what);
+	CHECK(!vclear_close_primitive(999, true), "%s: ended before a second", what);
+	CHECK(vclear_close_primitive(1000, true), "%s: not ended after a second with an allocation waiting",
+	      what);
+}
+
 int main(int argc, char **argv)
 {
 	long rounds = argc > 1 ? atol(argv[1]) : 20000;
@@ -575,6 +587,7 @@ int main(int argc, char **argv)
 	case_alloc_waits();
 	case_vswap_chunk();
 	case_gart();
+	case_close_primitive();
 	case_random(rounds, seed);
 	printf("vclear-test: %d checks, %d failed\n", checks, fails);
 	return fails != 0;

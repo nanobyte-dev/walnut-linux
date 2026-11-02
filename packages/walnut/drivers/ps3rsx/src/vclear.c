@@ -43,6 +43,7 @@
 #define RETRY		msecs_to_jiffies(20)	/* a fill that couldn't run looks again */
 #define GART_RETRY	msecs_to_jiffies(100)	/* GART zombies nobody reaps inline */
 #define AWAY_RETRY	msecs_to_jiffies(500)	/* X switched away (master_set kicks too) */
+#define STUCK_RETRY	msecs_to_jiffies(5000)	/* a batch that didn't pass */
 #define LOAD_PIECE	(64ULL * SZ_1M)	/* load-time zombies, so allocations start early */
 
 #ifdef PS3RSX_TEST_CLEAR
@@ -125,9 +126,17 @@ static void zombies_release(struct ps3rsx_device *rsx, struct list_head *done)
 	}
 	mutex_unlock(&rsx->mm_lock);
 	list_for_each_entry_safe(z, tmp, done, link) {
+		bool load_done = false;
+
 		spin_lock_irqsave(&vc->lock, flags);
 		count(vc, z, -1);
+		if (z->at_load)
+			load_done = !--vc->load_pending;
 		spin_unlock_irqrestore(&vc->lock, flags);
+		/* the boot log says when every free range of the load was cleared */
+		if (load_done)
+			drm_info(&rsx->drm, "free VRAM cleared at load: %llu MiB in %lld ms\n",
+				 vc->load_bytes >> 20, ktime_ms_delta(ktime_get(), vc->load_t0));
 		list_del(&z->link);
 		zombie_free(z);
 	}
@@ -190,6 +199,28 @@ bool ps3rsx_vclear_bo_free(struct ps3rsx_device *rsx, struct ps3rsx_bo *bo)
 	return true;
 }
 
+/* CPU-visible VRAM [lo, hi) zeroed by the PPE: guarded stores, never dcbz (cache-inhibited
+ * memory); false if it can't be mapped. may_sleep: cond_resched between megabytes. */
+static bool zero_range(struct ps3rsx_device *rsx, u64 lo, u64 hi, bool may_sleep)
+{
+	u64 at;
+
+	for (at = lo; at < hi; at += SZ_1M) {
+		u64 n = min_t(u64, SZ_1M, hi - at), i;
+		void __iomem *p = ioremap(rsx->info.ddr_lpar + at, n);
+
+		if (!p)
+			return false;
+		for (i = 0; i < n; i += 8)
+			__raw_writeq(0, p + i);
+		iounmap(p);
+		if (may_sleep)
+			cond_resched();
+	}
+	mb();				/* the stores before the range goes back */
+	return true;
+}
+
 /* vswap: a zombie for a chunk about to be given back, allocated before the eviction */
 struct ps3rsx_zombie *ps3rsx_vclear_zombie_new(void)
 {
@@ -198,9 +229,10 @@ struct ps3rsx_zombie *ps3rsx_vclear_zombie_new(void)
 
 /*
  * vswap: the chunk's range moves into the zombie's own node, under the caller's mm_lock so no
- * allocation sees it free in between (the chunk's node is reused by the pool later). The
- * reserve can't fail (the range was just freed, nothing else ran meanwhile); if it ever did, the
- * range would be free uncleared: -EBUSY, and the caller logs it.
+ * allocation sees it free in between (the chunk's node is reused by the pool later; this kernel
+ * has no drm_mm_replace_node). The reserve can't fail: the range was just freed and nothing else
+ * ran meanwhile. If it ever did, the PPE zeroes the range before mm_lock is dropped, so it never
+ * goes back uncleared, and the caller gets -EBUSY (no zombie).
  */
 int ps3rsx_vclear_take_node(struct ps3rsx_device *rsx, struct ps3rsx_zombie *z,
 			    struct drm_mm_node *node)
@@ -210,8 +242,10 @@ int ps3rsx_vclear_take_node(struct ps3rsx_device *rsx, struct ps3rsx_zombie *z,
 	z->own.start = node->start;
 	z->own.size = node->size;
 	drm_mm_remove_node(node);
-	if (WARN_ON(drm_mm_reserve_node(mm, &z->own)))
+	if (WARN_ON(drm_mm_reserve_node(mm, &z->own))) {
+		zero_range(rsx, z->own.start, z->own.start + z->own.size, false);
 		return -EBUSY;
+	}
 	z->node = &z->own;
 	z->start = z->own.start;
 	z->size = z->own.size;
@@ -264,20 +298,8 @@ static bool ppe_may(struct ps3rsx_device *rsx, const struct ps3rsx_zombie *z)
 /* The PPE clears a CPU-visible zombie: guarded stores, never dcbz (cache-inhibited memory) */
 static bool ppe_clear(struct ps3rsx_device *rsx, struct ps3rsx_zombie *z)
 {
-	u64 at;
-
-	for (at = z->cur.lo; at < z->cur.hi; at += SZ_1M) {
-		u64 n = min_t(u64, SZ_1M, z->cur.hi - at), i;
-		void __iomem *p = ioremap(rsx->info.ddr_lpar + at, n);
-
-		if (!p)
-			return false;		/* stays a zombie */
-		for (i = 0; i < n; i += 8)
-			__raw_writeq(0, p + i);
-		iounmap(p);
-		cond_resched();
-	}
-	mb();				/* the stores before the range goes back */
+	if (!zero_range(rsx, z->cur.lo, z->cur.hi, true))
+		return false;		/* stays a zombie */
 	rsx->vc.ppe_bytes += z->cur.hi - z->cur.lo;
 	return true;
 }
@@ -302,7 +324,8 @@ static void ppe_pass(struct ps3rsx_device *rsx)
 			waiting = true;
 			continue;
 		}
-		if (vclear_state(&z->cur, true, 0) == VCLEAR_DONE || ppe_clear(rsx, z))
+		/* every claimed zombie is cleared here, whatever fills were queued for it */
+		if (z->cur.lo == z->cur.hi || ppe_clear(rsx, z))
 			list_move_tail(&z->link, &done);
 	}
 	spin_lock_irqsave(&vc->lock, flags);
@@ -366,7 +389,7 @@ static int gpu_batch(struct ps3rsx_device *rsx, struct batch *b)
 	unsigned long flags, budget;
 	unsigned int i, waited;
 	u32 seq = 0, gen;
-	int ret;
+	int ret = 0;
 
 	b->nl = b->nz = 0;
 	mutex_lock(&rsx->exec_lock);
@@ -375,9 +398,10 @@ static int gpu_batch(struct ps3rsx_device *rsx, struct batch *b)
 		goto unlock;
 	}
 	if (rsx->prim_owner) {
-		/* nothing may go between BEGIN and END: wait for its owner, and after a second
-		 * end it, as a waiting submitter would (submit.c) */
-		if (time_before(jiffies, rsx->prim_since + HZ) ||
+		/* nothing may go between BEGIN and END: wait for its owner; end it as a waiting
+		 * submitter would (submit.c) only when an allocation waits (vclear.h) */
+		if (!vclear_close_primitive(jiffies_to_msecs(jiffies - rsx->prim_since),
+					    atomic_read(&vc->waiters) > 0) ||
 		    ps3rsx_close_stale_primitive(rsx)) {
 			WRITE_ONCE(vc->wait_prim, true);
 			ret = -EAGAIN;
@@ -422,6 +446,7 @@ static int gpu_batch(struct ps3rsx_device *rsx, struct batch *b)
 		for (i = 0; i < b->nz; i++)
 			vclear_queued(&b->z[i]->cur, b->to[i], gen, seq);
 		vc->batch_seq = seq;
+		vc->batch_gen = gen;
 		vc->batches++;
 		vc->filled_bytes += b->bytes;
 	}
@@ -441,22 +466,46 @@ unlock:
 			break;
 		usleep_range(100, 200);
 	}
-	/* a stray write into the zero area since the memset, or a batch not seen to pass (the
-	 * area can't be checked then): this batch's zombies again, from their start */
-	if (!ps3rsx_seq_done(rsx, seq) ||
-	    memchr_inv(ps3rsx_gart_ptr(rsx, ZERO_START), 0, VCLEAR_ZERO_SIZE)) {
-		if (ps3rsx_seq_done(rsx, seq))
-			vc->dirty_zero++;
+	/* a batch not seen to pass (a stuck GPU, or a recovery under it): its zombies again from
+	 * their start, and the run ends (the recovery's end kicks; a stuck GPU gets no more ring
+	 * words behind it) */
+	if (!ps3rsx_seq_done(rsx, seq)) {
+		for (i = 0; i < b->nz; i++)
+			vclear_cursor_restart(&b->z[i]->cur);
+		if (!READ_ONCE(rsx->wedged) && READ_ONCE(rsx->recover_gen) == gen)
+			drm_warn_once(&rsx->drm, "a VRAM clear batch didn't finish in 2 s: retrying later\n");
+		return -ETIMEDOUT;
+	}
+	/* a stray write into the zero area since the memset: this batch's zombies again */
+	if (memchr_inv(ps3rsx_gart_ptr(rsx, ZERO_START), 0, VCLEAR_ZERO_SIZE)) {
+		vc->dirty_zero++;
 		for (i = 0; i < b->nz; i++)
 			vclear_cursor_restart(&b->z[i]->cur);
 	}
-	/* a fill the recovery blamed would trap again: GPU fills off for this load */
-	if (READ_ONCE(rsx->recover_gen) != gen && rsx->fault_known && rsx->fault_chan < 0 &&
-	    rsx->fault_seq == seq && !vc->gpu_off) {
-		WRITE_ONCE(vc->gpu_off, true);
-		drm_err(&rsx->drm, "a VRAM clear trapped the GPU: GPU clears off until unload\n");
-	}
 	return reap_vram(rsx);
+}
+
+/*
+ * Did the last batch trap the GPU? Known only once the recovery has found the trapping commit
+ * (find_fault, under exec_lock, before it moves the generation on), so it is checked here, at the
+ * worker's next run (the recovery's end kicks it), before anything is queued again: the same
+ * words would trap again and spend the boot's GPU (a second exception means display-only).
+ */
+static void trapped_check(struct ps3rsx_device *rsx)
+{
+	struct ps3rsx_vclear *vc = &rsx->vc;
+
+	if (!vc->batch_seq || READ_ONCE(rsx->recover_gen) == vc->batch_gen)
+		return;
+	mutex_lock(&rsx->exec_lock);
+	if (rsx->fault_known && rsx->fault_chan < 0 && rsx->fault_seq == vc->batch_seq &&
+	    !vc->gpu_off) {
+		WRITE_ONCE(vc->gpu_off, true);
+		drm_err(&rsx->drm, "a VRAM clear (commit %#x) trapped the GPU: GPU clears off until unload, the CPU clears what it can\n",
+			vc->batch_seq);
+	}
+	vc->batch_seq = 0;		/* that batch is accounted for */
+	mutex_unlock(&rsx->exec_lock);
 }
 
 static void vclear_work(struct work_struct *work)
@@ -465,6 +514,7 @@ static void vclear_work(struct work_struct *work)
 	struct ps3rsx_device *rsx = container_of(vc, struct ps3rsx_device, vc);
 	int i, ret = 0;
 
+	trapped_check(rsx);
 	ps3rsx_vclear_reap_gart(rsx);
 	if (list_empty_careful(&vc->vram))
 		return;
@@ -493,7 +543,9 @@ static void vclear_work(struct work_struct *work)
 			break;
 	}
 	ps3rsx_console_unhold(rsx);	/* exec_lock isn't held here */
-	if (ret > 0)
+	if (ret == -ETIMEDOUT)
+		ps3rsx_vclear_kick(rsx, STUCK_RETRY);
+	else if (ret > 0)
 		ps3rsx_vclear_kick(rsx, 1);
 	else if (!list_empty_careful(&vc->vram))
 		ps3rsx_vclear_kick(rsx, RETRY);
@@ -580,6 +632,9 @@ static int heap_zombies(struct ps3rsx_device *rsx, struct drm_mm *mm, u64 start,
 		z->start = start;
 		z->size = n;
 		z->kind = ZOMBIE_VRAM;
+		z->at_load = true;
+		rsx->vc.load_pending++;
+		rsx->vc.load_bytes += n;
 		zombie_add(rsx, z);
 		start += n;
 	}
@@ -629,6 +684,7 @@ void ps3rsx_vclear_stop(struct ps3rsx_device *rsx)
 /* After console_init (own_lock exists): the worker may run; the load-time fill starts */
 void ps3rsx_vclear_start(struct ps3rsx_device *rsx)
 {
+	rsx->vc.load_t0 = ktime_get();
 	WRITE_ONCE(rsx->vc.started, true);
 	ps3rsx_vclear_kick(rsx, 0);
 }

@@ -92,6 +92,8 @@ off clear-at-free "FAIL: a fill that never runs: BO 2 got page 0 uncleared (tag 
 off clear-gen "FAIL: a zombie fully queued when the recovery comes: handed out unfilled" \
 	-T vclear-test.c -E vclear.h VCLEAR_H \
 	$'\tif (c->gen != gen_now)\n\t\treturn VCLEAR_REFILL;\n' ''
+off clear-prim-close "FAIL: a primitive left open: ended with no allocation waiting" \
+	-T vclear-test.c -E vclear.h VCLEAR_H 'return open_ms >= 1000 && alloc_waiting;' 'return open_ms >= 1000;'
 off clear-overrun "FAIL: random: launch " -T vclear-test.c -E vclear.h VCLEAR_H \
 	'u64 lines = (c->hi - at) / VCLEAR_LINE;' \
 	'u64 lines = (c->hi - at + VCLEAR_ZERO_SIZE - 1) / VCLEAR_ZERO_SIZE * VCLEAR_MAX_LINES;'

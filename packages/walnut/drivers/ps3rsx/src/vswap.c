@@ -708,8 +708,9 @@ static bool chunk_evict(struct ps3rsx_vswap *vs, unsigned int i, struct evict_bu
 }
 
 /*
- * Free at least bytes of the pool's VRAM for a buffer object: empty chunks first, then the
- * emptiest, their pages written back to the disk. Returns true if any chunk was given back.
+ * Free bytes plus one chunk of the pool's VRAM for a buffer object (bytes 0: one chunk): empty
+ * chunks first, then the emptiest, their pages written back to the disk. Returns true if any
+ * chunk was given back.
  * Called without locks (from buffer allocation).
  */
 bool ps3rsx_vswap_shrink(struct ps3rsx_device *rsx, u64 bytes)
@@ -748,7 +749,7 @@ bool ps3rsx_vswap_shrink(struct ps3rsx_device *rsx, u64 bytes)
 		ret = ps3rsx_vclear_take_node(rsx, z, &vs->chunks[best].node);
 		mutex_unlock(&rsx->mm_lock);
 		if (ret) {
-			pr_err("ps3vswap: a chunk went back to the heap uncleared (%d)\n", ret);
+			pr_err("ps3vswap: a chunk went back to the heap without its zombie, zeroed by the CPU (%d)\n", ret);
 			kfree(z);
 		} else {
 			ps3rsx_vclear_add(rsx, z);
