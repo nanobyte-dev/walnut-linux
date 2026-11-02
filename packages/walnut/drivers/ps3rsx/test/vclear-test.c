@@ -599,6 +599,7 @@ static struct rowner ow[RO];
 static struct rbo rb[RB];
 static int next_id = 1, now_t;
 static u64 kept_total;
+static u32 kept_count;
 
 static int r_open(void)
 {
@@ -631,6 +632,7 @@ static void r_unkeep(int b)
 	o->kept_n--;
 	o->kept_bytes -= (u64)rb[b].n * PAGE;
 	kept_total -= (u64)rb[b].n * PAGE;
+	kept_count--;
 }
 
 static void r_convert(int b)		/* kept -> zombie, its owner reference dropped */
@@ -677,10 +679,11 @@ static void r_free(int b)
 		o->kept_n++;
 		o->kept_bytes += (u64)rb[b].n * PAGE;
 		kept_total += (u64)rb[b].n * PAGE;
+		kept_count++;
 		for (int p = rb[b].start; p < rb[b].start + rb[b].n; p++)
 			rst[p] = R_KEPT;
 		/* the bounds: the oldest go to the clear */
-		while (vclear_keep_over(o->kept_bytes, o->kept_n, kept_total)) {
+		while (vclear_keep_over(o->kept_bytes, o->kept_n, kept_total, kept_count)) {
 			int old = -1;
 
 			for (int k = 0; k < RB; k++)
@@ -691,10 +694,46 @@ static void r_free(int b)
 				break;
 			r_convert(old);
 		}
+		CHECK(kept_count <= VCLEAR_KEEP_TOTAL_N && kept_total <= VCLEAR_KEEP_TOTAL,
+		      "reuse: %u entries, %llu bytes kept, over the bounds", kept_count,
+		      (unsigned long long)kept_total);
 		return;		/* the BO keeps its reference to the record */
 	}
 	r_zombie(b);
 	r_put(slot);
+}
+
+/* a miss of n pages by owner slot (-1: everyone, the swap): its own oldest first, then
+ * everyone's oldest, until n pages are on their way to the clear (vkeep.c) */
+static int r_pressure_for(int slot, int n)
+{
+	int got = 0;
+
+#ifdef OLD_PRESSURE_ALL
+	n = RP;				/* every kept range, whatever the miss needs */
+#endif
+	for (int pass = 0; pass < 2 && got < n; pass++)
+		for (;;) {
+			int old = -1;
+
+			for (int b = 0; b < RB; b++)
+				if (rb[b].used && rb[b].kept && (pass || rb[b].slot == slot) &&
+				    (old < 0 || rb[b].kept_t < rb[old].kept_t))
+					old = b;
+			if (old < 0 || got >= n)
+				break;
+			got += rb[old].n;
+#ifdef OLD_PRESSURE_FREE
+			r_unkeep(old);
+			for (int p = rb[old].start; p < rb[old].start + rb[old].n; p++)
+				rst[p] = R_FREE;
+			rb[old].used = false;
+			r_put(rb[old].slot);
+#else
+			r_convert(old);
+#endif
+		}
+	return got;
 }
 
 static void r_pressure(void)
@@ -759,7 +798,7 @@ static int r_alloc(int slot, int n)
 			rb[b].shared = false;
 			return b;	/* the same BO slot and owner reference, a new BO */
 		}
-	for (int tries = 0; tries < 2; tries++) {
+	for (int tries = 0; tries < 8; tries++) {
 		for (p = 0, run = 0; p < RP; p++) {
 			run = rst[p] == R_FREE ? run + 1 : 0;
 			if (run == n)
@@ -767,7 +806,7 @@ static int r_alloc(int slot, int n)
 		}
 		if (p < RP)
 			break;
-		r_pressure();		/* kept ranges to the clear, then the GPU fills */
+		r_pressure_for(slot, n);	/* what this miss needs to the clear, then the fill */
 		r_gpu();
 	}
 	if (p == RP)
@@ -863,6 +902,67 @@ static void case_reuse(long rounds, u64 seed)
 	printf("reuse: %ld rounds, %ld allocations reused a kept range\n", rounds, reused);
 }
 
+/* many small frees by several owners: the total entry count stays bounded (the allocator's walk) */
+static void case_reuse_count(void)
+{
+	int o[3], xs[90], i;
+
+	memset(rst, 0, sizeof(rst));
+	memset(rdat, 0, sizeof(rdat));
+	memset(ow, 0, sizeof(ow));
+	memset(rb, 0, sizeof(rb));
+	kept_total = 0;
+	kept_count = 0;
+	for (i = 0; i < 3; i++)
+		o[i] = r_open();
+	for (i = 0; i < 90; i++)
+		xs[i] = r_alloc(o[i % 3], 1);
+	for (i = 0; i < 90; i++) {
+		r_free(xs[i]);
+		now_t += 1;
+	}
+	CHECK(kept_count <= VCLEAR_KEEP_TOTAL_N, "reuse: %u small entries kept in all", kept_count);
+}
+
+/* a miss converts what it needs, its owner's own first (vkeep.c ps3rsx_keep_pressure) */
+static void case_reuse_pressure(void)
+{
+	int a, b, i, n = 0, other = 0;
+
+	what = "a miss";
+	memset(rst, 0, sizeof(rst));
+	memset(rdat, 0, sizeof(rdat));
+	memset(ow, 0, sizeof(ow));
+	memset(rb, 0, sizeof(rb));
+	kept_total = 0;
+	kept_count = 0;
+	a = r_open();
+	b = r_open();
+	int xs[16];
+
+	for (i = 0; i < 16; i++) {	/* each keeps 8 BOs of 4 pages, B's freed first (older) */
+		xs[i] = r_alloc(i < 8 ? b : a, 4);
+		r_write(xs[i], i < 8 ? b : a);
+	}
+	for (i = 0; i < 16; i++) {
+		r_free(xs[i]);
+		now_t += 10;
+	}
+	r_pressure_for(a, 8);		/* A needs 8 pages */
+	for (i = 0; i < RB; i++) {
+		n += rb[i].used && rb[i].kept && rb[i].slot == a;
+		other += rb[i].used && rb[i].kept && rb[i].slot == b;
+	}
+	CHECK(n == 6 && other == 8, "%s of 8 pages: A keeps %d of 8 (want 6), B %d of 8 (want 8: A's own first)",
+	      what, n, other);
+	r_pressure_for(a, 40);		/* more than A has: B's oldest next */
+	for (i = 0, n = 0, other = 0; i < RB; i++) {
+		n += rb[i].used && rb[i].kept && rb[i].slot == a;
+		other += rb[i].used && rb[i].kept && rb[i].slot == b;
+	}
+	CHECK(n == 0 && other == 4, "%s of 40 more pages: A keeps %d (want 0), B %d (want 4)", what, n, other);
+}
+
 int main(int argc, char **argv)
 {
 	long rounds = argc > 1 ? atol(argv[1]) : 20000;
@@ -876,6 +976,8 @@ int main(int argc, char **argv)
 	case_gart();
 	case_close_primitive();
 	case_reuse(rounds * 5, seed);
+	case_reuse_pressure();
+	case_reuse_count();
 	case_random(rounds, seed);
 	printf("vclear-test: %d checks, %d failed\n", checks, fails);
 	return fails != 0;

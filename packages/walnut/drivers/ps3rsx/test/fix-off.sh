@@ -100,6 +100,11 @@ off reuse-owner-alias "FAIL: reuse: owner " -T vclear-test.c -DOLD_OWNER_ALIAS
 off reuse-pressure-free "FAIL: reuse: owner " -T vclear-test.c -DOLD_PRESSURE_FREE
 off reuse-shared "FAIL: reuse: owner " -T vclear-test.c -DOLD_SHARED_KEPT
 off reuse-double-claim "FAIL: reuse: a reused range was also a zombie" -T vclear-test.c -DOLD_EXPIRY_NO_UNLIST
+off reuse-count-cap "FAIL: reuse: " -T vclear-test.c -E vclear.h VCLEAR_H \
+	' ||
+	       total > VCLEAR_KEEP_TOTAL || total_n > VCLEAR_KEEP_TOTAL_N;' ' ||
+	       total > VCLEAR_KEEP_TOTAL;'
+off reuse-miss-all "FAIL: a miss of 8 pages" -T vclear-test.c -DOLD_PRESSURE_ALL
 off clear-overrun "FAIL: random: launch " -T vclear-test.c -E vclear.h VCLEAR_H \
 	'u64 lines = (c->hi - at) / VCLEAR_LINE;' \
 	'u64 lines = (c->hi - at + VCLEAR_ZERO_SIZE - 1) / VCLEAR_ZERO_SIZE * VCLEAR_MAX_LINES;'

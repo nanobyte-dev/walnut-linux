@@ -278,12 +278,13 @@ static int vram_place_wait(struct ps3rsx_device *rsx, struct ps3rsx_bo *bo, bool
 	u32 shrinks = 0;
 	int ret;
 
-	/* what owners keep goes to the clear first (never back to the heap as it is) */
-	ps3rsx_keep_pressure(rsx);
 	for (;;) {
 		u64 cpu, gpu, shrunk, waited = ktime_ms_delta(ktime_get(), t0);
 		bool cpu_ok, gpu_ok;
 
+		/* kept BOs to the clear for this request (never back to the heap as they are), the
+		 * allocating owner's own and the oldest first, before the wait */
+		ps3rsx_keep_pressure(rsx, bo->owner, bo->base.size);
 		ps3rsx_vclear_pending(rsx, &cpu, &cpu_ok, &gpu, &gpu_ok, &shrunk);
 		switch (vclear_alloc_next(cpu, cpu_ok, gpu, gpu_ok, shrunk, waited, shrinks,
 					  bo->base.size)) {

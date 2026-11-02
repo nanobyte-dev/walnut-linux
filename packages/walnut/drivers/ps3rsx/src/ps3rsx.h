@@ -148,6 +148,7 @@ struct ps3rsx_keep_tg {
 struct ps3rsx_keep {
 	struct list_head kept;		/* kept BOs, oldest first (mm_lock) */
 	u64 bytes, peak;
+	u32 n;				/* entries kept (VCLEAR_KEEP_TOTAL_N at most) */
 	atomic_t pressure;		/* the VRAM swap couldn't grow: convert all */
 	/* counters (mm_lock) */
 	u64 reused_n, reused_bytes, shared_bytes, noowner_bytes, conv[4];
@@ -288,7 +289,7 @@ void ps3rsx_owner_close(struct ps3rsx_device *rsx, struct ps3rsx_owner *o);
 bool ps3rsx_keep_bo(struct ps3rsx_device *rsx, struct ps3rsx_bo *bo);
 struct ps3rsx_bo *ps3rsx_reuse(struct ps3rsx_device *rsx, struct ps3rsx_owner *o, u64 size,
 			       u64 align, bool mappable);
-void ps3rsx_keep_pressure(struct ps3rsx_device *rsx);
+bool ps3rsx_keep_pressure(struct ps3rsx_device *rsx, struct ps3rsx_owner *o, u64 need);
 void ps3rsx_keep_pressure_async(struct ps3rsx_device *rsx);
 void ps3rsx_keep_age(struct ps3rsx_device *rsx);
 void ps3rsx_keep_init(struct ps3rsx_device *rsx);
@@ -387,6 +388,8 @@ void ps3rsx_vclear_stop(struct ps3rsx_device *rsx);
 void ps3rsx_vclear_fini(struct ps3rsx_device *rsx);
 void ps3rsx_vclear_kick(struct ps3rsx_device *rsx, unsigned long delay);
 bool ps3rsx_vclear_bo_free(struct ps3rsx_device *rsx, struct ps3rsx_bo *bo);
+/* the same with mm_lock held by the caller: a GART zombie is then reaped later, not inline */
+bool ps3rsx_vclear_bo_free_locked(struct ps3rsx_device *rsx, struct ps3rsx_bo *bo, bool locked);
 void ps3rsx_vclear_reap_gart(struct ps3rsx_device *rsx);
 struct ps3rsx_zombie *ps3rsx_vclear_zombie_new(void);
 int ps3rsx_vclear_take_node(struct ps3rsx_device *rsx, struct ps3rsx_zombie *z,

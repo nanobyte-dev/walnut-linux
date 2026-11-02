@@ -195,7 +195,7 @@ void ps3rsx_vclear_reap_gart(struct ps3rsx_device *rsx)
  * bo_free: the BO's range becomes a zombie, the BO struct its carrier (no allocation here).
  * Returns false when the range may go back at once (no node, a reports BO, the test switch).
  */
-bool ps3rsx_vclear_bo_free(struct ps3rsx_device *rsx, struct ps3rsx_bo *bo)
+bool ps3rsx_vclear_bo_free_locked(struct ps3rsx_device *rsx, struct ps3rsx_bo *bo, bool locked)
 {
 	struct ps3rsx_zombie *z = &bo->zombie;
 
@@ -209,10 +209,10 @@ bool ps3rsx_vclear_bo_free(struct ps3rsx_device *rsx, struct ps3rsx_bo *bo)
 	z->kind = bo->kind == BO_GART ? ZOMBIE_GART : ZOMBIE_VRAM;
 	z->from_vswap = false;
 	zombie_add(rsx, z);
-	if (z->kind == ZOMBIE_GART)
-		ps3rsx_vclear_reap_gart(rsx);
+	if (z->kind == ZOMBIE_GART && !locked)
+		ps3rsx_vclear_reap_gart(rsx);	/* takes mm_lock */
 	else
-		ps3rsx_vclear_kick(rsx, FREE_DELAY);
+		ps3rsx_vclear_kick(rsx, z->kind == ZOMBIE_GART ? GART_RETRY : FREE_DELAY);
 	return true;
 }
 
@@ -236,6 +236,11 @@ static bool zero_range(struct ps3rsx_device *rsx, u64 lo, u64 hi, bool may_sleep
 	}
 	mb();				/* the stores before the range goes back */
 	return true;
+}
+
+bool ps3rsx_vclear_bo_free(struct ps3rsx_device *rsx, struct ps3rsx_bo *bo)
+{
+	return ps3rsx_vclear_bo_free_locked(rsx, bo, false);
 }
 
 /* vswap: a zombie for a chunk about to be given back, allocated before the eviction */

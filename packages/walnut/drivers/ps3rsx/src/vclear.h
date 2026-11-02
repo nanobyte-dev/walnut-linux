@@ -147,6 +147,7 @@ static inline bool vclear_close_primitive(unsigned int open_ms, bool alloc_waiti
 #define VCLEAR_KEEP_OWNER_BYTES	(32ULL << 20)	/* kept per owner, at most */
 #define VCLEAR_KEEP_OWNER_N	32
 #define VCLEAR_KEEP_TOTAL	(64ULL << 20)	/* kept in all (VRAM the swap could use) */
+#define VCLEAR_KEEP_TOTAL_N	64		/* entries in all: the allocator's walk stays short */
 #define VCLEAR_KEEP_AGE_MS	1000		/* kept no longer than this, drawing or not */
 
 static inline bool vclear_may_keep(bool has_owner, bool owner_closed, bool shared, bool dumb,
@@ -156,10 +157,10 @@ static inline bool vclear_may_keep(bool has_owner, bool owner_closed, bool share
 }
 
 /* Over a bound once this entry is kept: the oldest goes to the clear */
-static inline bool vclear_keep_over(u64 owner_bytes, u32 owner_n, u64 total)
+static inline bool vclear_keep_over(u64 owner_bytes, u32 owner_n, u64 total, u32 total_n)
 {
 	return owner_bytes > VCLEAR_KEEP_OWNER_BYTES || owner_n > VCLEAR_KEEP_OWNER_N ||
-	       total > VCLEAR_KEEP_TOTAL;
+	       total > VCLEAR_KEEP_TOTAL || total_n > VCLEAR_KEEP_TOTAL_N;
 }
 
 /*

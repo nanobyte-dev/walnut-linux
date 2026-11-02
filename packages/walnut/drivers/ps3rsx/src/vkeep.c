@@ -101,13 +101,17 @@ static void convert(struct ps3rsx_device *rsx, struct ps3rsx_bo *bo, int why)
 	struct ps3rsx_owner *o = bo->owner;
 
 	k->bytes -= bo->base.size;
+	k->n--;
 	o->kept_bytes -= bo->base.size;
 	o->kept_n--;
 	k->conv[why] += bo->base.size;
 	tg_slot(k, o->tgid)->cleared += bo->base.size;
 	bo->owner = NULL;
 	ps3rsx_owner_put(o);
-	if (!ps3rsx_vclear_bo_free(rsx, bo)) {	/* test_clear_off: freed at once, as before P3 */
+	/* only VRAM is ever kept; a GART BO here would be a bug: cleared through the GART path all
+	 * the same, its reap left to the worker (it takes mm_lock, held here) */
+	WARN_ON_ONCE(bo->kind != BO_VRAM && bo->kind != BO_VRAM_GPU_ONLY);
+	if (!ps3rsx_vclear_bo_free_locked(rsx, bo, true)) {	/* test_clear_off: freed at once */
 		drm_mm_remove_node(&bo->node);
 		kfree(bo);
 	}
@@ -120,7 +124,7 @@ static void enforce_bounds(struct ps3rsx_device *rsx, struct ps3rsx_owner *o)
 	struct ps3rsx_bo *bo, *tmp;
 
 	list_for_each_entry_safe(bo, tmp, &k->kept, kept_link) {
-		if (!vclear_keep_over(o->kept_bytes, o->kept_n, k->bytes))
+		if (!vclear_keep_over(o->kept_bytes, o->kept_n, k->bytes, k->n))
 			break;
 		/* the owner's own oldest first while it is over its own bound */
 		if (bo->owner != o && (o->kept_bytes > VCLEAR_KEEP_OWNER_BYTES ||
@@ -157,6 +161,7 @@ bool ps3rsx_keep_bo(struct ps3rsx_device *rsx, struct ps3rsx_bo *bo)
 		bo->kept_seq = READ_ONCE(rsx->seqno);
 		list_add_tail(&bo->kept_link, &k->kept);
 		k->bytes += bo->base.size;
+		k->n++;
 		o->kept_bytes += bo->base.size;
 		o->kept_n++;
 		if (k->bytes > k->peak)
@@ -193,6 +198,7 @@ struct ps3rsx_bo *ps3rsx_reuse(struct ps3rsx_device *rsx, struct ps3rsx_owner *o
 	if (found) {
 		list_del_init(&found->kept_link);
 		k->bytes -= size;
+		k->n--;
 		o->kept_bytes -= size;
 		o->kept_n--;
 		k->reused_n++;
@@ -248,11 +254,33 @@ void ps3rsx_owner_close(struct ps3rsx_device *rsx, struct ps3rsx_owner *o)
 	ps3rsx_owner_put(o);
 }
 
-/* An allocation found no room: everything kept to the clear (then the allocator's wait) */
-void ps3rsx_keep_pressure(struct ps3rsx_device *rsx)
+/*
+ * An allocation by o found no room for need bytes: kept BOs to the clear, o's own first, then
+ * everyone's, the oldest first in each, until need bytes are on their way (then the allocator
+ * waits for their fill). Returns true if anything was converted.
+ */
+bool ps3rsx_keep_pressure(struct ps3rsx_device *rsx, struct ps3rsx_owner *o, u64 need)
 {
-	if (!list_empty_careful(&rsx->keep.kept))
-		convert_where(rsx, NULL, 0, CONV_PRESSURE);
+	struct ps3rsx_keep *k = &rsx->keep;
+	struct ps3rsx_bo *bo, *tmp;
+	u64 got = 0;
+	int pass;
+
+	if (list_empty_careful(&k->kept))
+		return false;
+	mutex_lock(&rsx->mm_lock);
+	for (pass = 0; pass < 2 && got < need; pass++)
+		list_for_each_entry_safe(bo, tmp, &k->kept, kept_link) {
+			if (got >= need)
+				break;
+			if (pass == 0 && (!o || bo->owner != o))
+				continue;
+			got += bo->base.size;
+			list_del_init(&bo->kept_link);
+			convert(rsx, bo, CONV_PRESSURE);
+		}
+	mutex_unlock(&rsx->mm_lock);
+	return got > 0;
 }
 
 /* The VRAM swap couldn't grow (its I/O path: no lock taken here): the worker converts */
