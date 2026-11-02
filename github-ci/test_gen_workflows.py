@@ -186,7 +186,7 @@ class CacheMac(unittest.TestCase):
 		self.assertGreater(t.index("cache-mac.sh record"), t.index("run: github-ci/build-package.sh"))
 		self.assertIn("::add-mask::", t)
 		r = open(f"{HERE}/../.github/workflows/release-image.yml").read()
-		self.assertLess(r.index("cache-mac.sh verify"), r.index("github-ci/build-release.sh"))
+		self.assertLess(r.index("cache-mac.sh verify"), r.index("run: github-ci/build-release.sh"))
 		self.assertLess(r.index("cache-mac.sh record"), r.index("actions/cache/save"))
 		self.assertIn("::add-mask::", r)
 
