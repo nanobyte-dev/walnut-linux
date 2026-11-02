@@ -10,6 +10,9 @@ directory: the debs, the -dbgsym debs, the source package) as a GitHub artifact 
 artifact name may hold). The name says what the build would add, so the publisher decides from the
 artifact listing and the published index alone, without downloading anything it doesn't publish:
 
+  - only a build of this repository's main counts: the artifact's run is a push or a dispatch on main, of
+    this repository's own code (head_repository is this repository: a fork's pull request runs here too,
+    and its branch may be called main), at a commit main contains (trusted(); the rest is refused);
   - per package, the newest build (highest version, then the newest artifact) supersedes the older ones;
   - it is skipped when testing already has every one of its sources at that version or a newer one
     (published before, or superseded by a newer published build); a version published with other
@@ -46,6 +49,8 @@ NAME_RE = re.compile(r"walnut-(testing|stable)@([a-z0-9][a-z0-9.+-]*)@([a-z0-9][
 FILE_RE = re.compile(r"(?:src/)?[A-Za-z0-9_+~-][A-Za-z0-9._+~-]{0,200}\Z")	# what an artifact may hold
 REBUILD_AFTER = {"linux": ["ps3rsx"]}	# published package -> workflows built for testing after it
 BRANCH = "main"
+EVENTS = ("push", "workflow_dispatch")	# a build of main: pushed to it, or started on it (REBUILD_AFTER, by hand)
+SHA_RE = re.compile(r"[0-9a-f]{40}\Z")
 
 
 def log(msg):
@@ -138,6 +143,20 @@ class GitHub:
 		finally:
 			os.unlink(z)
 
+	@functools.cached_property
+	def repo_id(self):
+		with self.request(f"{self.api}/repos/{self.repo}") as r:
+			return json.load(r)["id"]
+
+	def run(self, run_id):
+		with self.request(f"actions/runs/{int(run_id)}") as r:
+			return json.load(r)
+
+	def on_main(self, sha):
+		"""Whether main contains commit sha (compare sha...main: main identical to it or ahead of it)."""
+		with self.request(f"compare/{sha}...{BRANCH}") as r:
+			return json.load(r).get("status") in ("identical", "ahead")
+
 	def dispatch(self, workflow, inputs):
 		with self.request(f"actions/workflows/{workflow}/dispatches", {"ref": BRANCH, "inputs": inputs}):
 			pass
@@ -150,8 +169,10 @@ def newest_builds(artifacts, suite):
 	best = {}
 	for a in artifacts:
 		p = parse_name(a["name"])
-		if not p or p[0] != suite or a.get("expired") or (a.get("workflow_run") or {}).get("head_branch") != BRANCH:
-			continue
+		run = a.get("workflow_run") or {}
+		if (not p or p[0] != suite or a.get("expired") or run.get("head_branch") != BRANCH
+				or not run.get("repository_id") or run.get("head_repository_id") != run.get("repository_id")):
+			continue	# not a build of main, or of a fork's code (a pull request from a fork runs here too)
 		_, pkg, srcs = p
 		cur = best.get(pkg)
 		if cur is None or later(srcs, a, cur[0], cur[1]):
@@ -164,6 +185,34 @@ def later(srcs, a, srcs2, a2):
 	c = wr.vercmp(max(srcs.values(), key=functools.cmp_to_key(wr.vercmp)),
 	              max(srcs2.values(), key=functools.cmp_to_key(wr.vercmp)))
 	return c > 0 or c == 0 and (a["created_at"], a["id"]) > (a2["created_at"], a2["id"])
+
+
+def run_refusal(run, repo_id):
+	"""Why a workflow run is not a build of this repository's main (None when it is), from the run's own
+	record (actions/runs/N); trusted() also asks whether main contains its commit."""
+	if run.get("event") not in EVENTS:
+		return f"its run is a {run.get('event')!s:.40} event, not a push or dispatch"
+	if run.get("head_branch") != BRANCH:
+		return f"its run is not on {BRANCH}"
+	if not repo_id or (run.get("head_repository") or {}).get("id") != repo_id \
+			or (run.get("repository") or {}).get("id") != repo_id:
+		return "its run built another repository's code"
+	if not SHA_RE.match(run.get("head_sha") or ""):
+		return "its run names no commit"
+	return None
+
+
+def trusted(gh, a):
+	"""Why artifact a is refused (None: a build of this repository's main): its run is checked against GitHub
+	(the event, the repository its code came from) and its commit must be on main. Any error refuses."""
+	try:
+		run = gh.run(a["workflow_run"]["id"])
+		why = run_refusal(run, gh.repo_id)
+		if why is None and not gh.on_main(run["head_sha"]):
+			why = f"its commit {run['head_sha'][:12]} is not on {BRANCH}"
+		return why
+	except (urllib.error.URLError, OSError, ValueError, KeyError, TypeError) as e:
+		return f"its run could not be checked ({e})"
 
 
 def published_versions(suite_state):
@@ -214,9 +263,15 @@ def current_plan(gh, a):
 	todo, skipped = plan(gh.artifacts(), a.suite, published_versions(state))
 	for pkg, why in skipped:
 		log(f"-- {pkg}: {why}")
+	ok = []
 	for t in todo:
+		why = trusted(gh, t[2])
+		if why:
+			log(f"!! {t[0]}: artifact {t[2]['id']} refused, not a build of {BRANCH}: {why}")
+			continue
 		log(f".. {describe(t)}")
-	return todo
+		ok.append(t)
+	return ok
 
 
 def summary(lines):

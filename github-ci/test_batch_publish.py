@@ -1,7 +1,9 @@
 #!/usr/bin/python3 -I
 """github-ci/batch-publish.py, testing's one publisher: its plan (what supersedes what, what is
 published) and whole runs against a fake GitHub API, github-ci/publish.sh and the real walnut-watch
-(the bundle dropped into incoming/ the way walnut-upload.sh drops it). Throwaway CI key.
+(the bundle dropped into incoming/ the way walnut-upload.sh drops it). Throwaway CI key. Only this
+repository's main runs count: a fork's pull request whose branch is called main, a pull_request run, a
+commit main doesn't contain are refused.
   python3 github-ci/test_batch_publish.py"""
 import functools, hashlib, http.server, importlib.machinery, importlib.util, io, json, os, shutil, subprocess
 import sys, tempfile, threading, unittest, urllib.parse, zipfile
@@ -18,9 +20,21 @@ bp = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(bp)
 
 
-def art(aid, name, created="2026-10-26T10:00:00Z", size=1000, branch="main", expired=False):
+REPO_ID, FORK_ID = 42, 77
+MAIN_SHA, OTHER_SHA = "a" * 40, "b" * 40
+
+
+def art(aid, name, created="2026-10-26T10:00:00Z", size=1000, branch="main", expired=False, head_repo=REPO_ID):
 	return {"id": aid, "name": name, "created_at": created, "size_in_bytes": size, "expired": expired,
-	        "workflow_run": {"id": 9000 + aid, "head_branch": branch}}
+	        "workflow_run": {"id": 9000 + aid, "head_branch": branch, "repository_id": REPO_ID,
+	                         "head_repository_id": head_repo, "head_sha": MAIN_SHA}}
+
+
+def run_record(run_id, event="push", branch="main", head_repo=REPO_ID, sha=MAIN_SHA):
+	"""actions/runs/N as GitHub has it (the fields the publisher reads)"""
+	return {"id": run_id, "event": event, "head_branch": branch, "head_sha": sha,
+	        "repository": {"id": REPO_ID, "full_name": "o/r"},
+	        "head_repository": {"id": head_repo, "full_name": "o/r" if head_repo == REPO_ID else "someone/r"}}
 
 
 class Plan(unittest.TestCase):
@@ -45,10 +59,24 @@ class Plan(unittest.TestCase):
 		        art(7, "walnut-testing@br@br=1", branch="topic"),	# not main
 		        art(8, "walnut-testing@ex@ex=1", expired=True),
 		        art(9, "walnut-stable@st@st=1"),	# stable publishes from its own run
-		        art(10, "debs-foo-testing")]
+		        art(10, "debs-foo-testing"),
+		        art(11, "walnut-testing@fork@fork=9", head_repo=FORK_ID),	# a fork's pull request, its branch "main"
+		        dict(art(12, "walnut-testing@norepo@norepo=1"), workflow_run={"id": 9012, "head_branch": "main"})]
 		todo, skipped = bp.plan(arts, "testing", {"pub": "3", "old": "2", "foo": "1.0+ps3.9"})
 		self.assertEqual([(p, a["id"]) for p, _, a in todo], [("bar", 4), ("foo", 2)])
 		self.assertEqual(dict(skipped), {"pub": "published", "old": "superseded by old 2"})
+
+	def test_accept_only_this_repositorys_main_runs(self):
+		self.assertIsNone(bp.run_refusal(run_record(1), REPO_ID))
+		self.assertIsNone(bp.run_refusal(run_record(1, event="workflow_dispatch"), REPO_ID))
+		for run, why in ((run_record(1, event="pull_request"), "not a push"),
+		                 (run_record(1, event="pull_request", head_repo=FORK_ID), "not a push"),
+		                 (run_record(1, event="push", head_repo=FORK_ID), "another repository"),
+		                 (run_record(1, branch="topic"), "not on main"),
+		                 (run_record(1, sha="main"), "no commit"),
+		                 (dict(run_record(1), head_repository=None), "another repository")):
+			self.assertIn(why, bp.run_refusal(run, REPO_ID) or "", run)
+		self.assertIn("another repository", bp.run_refusal(run_record(1), None))
 
 	def test_chunks(self):
 		todo = [(p, {}, art(i, f"walnut-testing@{p}@{p}=1", size=s))
@@ -58,8 +86,9 @@ class Plan(unittest.TestCase):
 
 class FakeGitHub(http.server.BaseHTTPRequestHandler):
 	"""/repos/o/r/actions/artifacts (paged), .../artifacts/N/zip (a redirect to the blob store, which
-	refuses the token, as GitHub's does) and workflow dispatches (recorded)."""
-	artifacts, blobs, dispatched = [], {}, []
+	refuses the token, as GitHub's does), the repository, its runs (runs: a push on main unless set),
+	compare (main contains a commit unless compare says otherwise) and workflow dispatches (recorded)."""
+	artifacts, blobs, dispatched, runs, compare = [], {}, [], {}, {}
 
 	def log_message(self, *a):
 		pass
@@ -84,6 +113,14 @@ class FakeGitHub(http.server.BaseHTTPRequestHandler):
 		if p.startswith("/repos/o/r/actions/artifacts?"):
 			page = int(urllib.parse.parse_qs(p.split("?", 1)[1])["page"][0])
 			return self.reply(200, json.dumps({"artifacts": self.artifacts[(page - 1) * 100:page * 100]}).encode())
+		if p == "/repos/o/r":
+			return self.reply(200, json.dumps({"id": REPO_ID, "full_name": "o/r"}).encode())
+		if p.startswith("/repos/o/r/actions/runs/"):
+			n = int(p.split("/")[6])
+			return self.reply(200, json.dumps(self.runs.get(n) or run_record(n)).encode())
+		if p.startswith("/repos/o/r/compare/"):
+			sha = p.split("/")[5].split("...")[0]
+			return self.reply(200, json.dumps({"status": self.compare.get(sha, "ahead")}).encode())
 		if p.startswith("/repos/o/r/actions/artifacts/") and p.endswith("/zip"):
 			return self.reply(302, headers=[("Location", f"http://{self.headers['Host']}/blob/{p.split('/')[6]}")])
 		self.reply(404)
@@ -153,10 +190,11 @@ class Runs(unittest.TestCase):
 		self.addCleanup(self.www.server_close)
 		self.addCleanup(self.www.shutdown)
 		self.url = f"http://127.0.0.1:{self.www.server_port}"
-		FakeGitHub.artifacts, FakeGitHub.blobs, FakeGitHub.dispatched = [], {}, []
+		FakeGitHub.artifacts, FakeGitHub.blobs, FakeGitHub.dispatched, FakeGitHub.runs, FakeGitHub.compare = \
+			[], {}, [], {}, {}
 		self.n = 0
 
-	def build(self, pkg, version, debs=None, created=None, size=None):
+	def build(self, pkg, version, debs=None, created=None, size=None, run=None, sha=MAIN_SHA):
 		"""A package build's artifact: its debs (name, package, source) and a source package."""
 		self.n += 1
 		d = f"{self.root}/build{self.n}"
@@ -182,6 +220,7 @@ class Runs(unittest.TestCase):
 		FakeGitHub.blobs[aid] = z.getvalue()
 		FakeGitHub.artifacts.insert(0, art(aid, name, created=created or f"2026-10-26T10:{self.n:02d}:00Z",
 		                                   size=size or len(z.getvalue())))
+		FakeGitHub.runs[9000 + aid] = run_record(9000 + aid, sha=sha, **(run or {}))
 		return name
 
 	def run_publisher(self, *args, ok=True):
@@ -247,6 +286,21 @@ class Runs(unittest.TestCase):
 		self.assertIn("Package: baz\n", self.packages())
 		self.assertIn("Package: qux\n", self.packages())
 		self.assertIn("batch2", self.uploads()[-1])
+
+	def test_accept_only_this_repositorys_main_runs(self):
+		self.build("foo", "1")
+		self.build("pr", "1", run={"event": "pull_request"})	# the artifact listing alone can't tell
+		self.build("fork", "1", run={"event": "pull_request", "head_repo": FORK_ID})
+		self.build("side", "1", sha=OTHER_SHA)
+		FakeGitHub.compare[OTHER_SHA] = "diverged"	# a commit main doesn't contain
+		self.build("ahead", "1", sha="c" * 40)
+		FakeGitHub.compare["c" * 40] = "behind"
+		out = self.run_publisher()
+		for pkg in ("pr", "fork", "side", "ahead"):
+			self.assertIn(f"!! {pkg}: artifact", out)
+			self.assertNotIn(f"Package: {pkg}\n", self.packages())
+		self.assertIn("Package: foo\n", self.packages())
+		self.assertEqual(len(self.uploads()), 1)
 
 	def test_size_bound(self):
 		self.build("big", "1", size=5 << 30)
