@@ -91,18 +91,38 @@ def newest_first(items, key):
 
 # --- deb822 ----------------------------------------------------------------------------------
 
+FIELD_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]*\Z")
+# fields whose spelling matters to apt, dpkg or the checks: written exactly so (apt and dpkg read field
+# names case-insensitively, the checks here do not)
+CANON = {n.lower(): n for n in (
+	"Package", "Version", "Source", "Architecture", "Maintainer", "Description", "Depends", "Pre-Depends",
+	"Recommends", "Suggests", "Enhances", "Provides", "Replaces", "Conflicts", "Breaks", "Essential",
+	"Protected", "Priority", "Section", "Multi-Arch", "Installed-Size", "Homepage", "Built-Using",
+	"Files", "Checksums-Sha256", "Checksums-Sha1", "Binary", "Format", "Directory", "Filename", "Size",
+	"MD5sum", "SHA1", "SHA256", "SHA512")}
+WRITTEN_BY_US = ("Filename", "Size", "MD5sum", "SHA1", "SHA256", "SHA512", "Directory")
+
+
 def parse_stanzas(text):
-	"""[(fields dict, ordered keys)] of a Packages/Sources/control text."""
+	"""[fields dict] of a Packages/Sources/control text. A field name twice in one stanza (apt and dpkg
+	compare names case-insensitively, and disagree about which one wins) or an odd name is an error."""
 	out = []
 	for para in re.split(r"\n\s*\n", text.strip()):
 		if not para.strip():
 			continue
-		fields, key = {}, None
+		fields, key, seen = {}, None, set()
 		for line in para.splitlines():
 			if line[:1] in (" ", "\t") and key:
 				fields[key] += "\n" + line
 			elif ":" in line:
 				key, _, val = line.partition(":")
+				if not FIELD_RE.match(key):
+					raise Error(f"bad field name {key!r}")
+				if key.lower() in seen:
+					raise Error(f"field {key!r} twice in one stanza")
+				if key.lower() in CANON and key != CANON[key.lower()]:
+					raise Error(f"field {key!r} must be written {CANON[key.lower()]!r}")
+				seen.add(key.lower())
 				fields[key] = val.strip()
 			else:
 				raise Error(f"bad deb822 line {line!r}")
@@ -116,30 +136,62 @@ def format_stanza(fields):
 
 # --- .deb and .dsc ---------------------------------------------------------------------------
 
+CONTROL_MEMBERS = {"control", "md5sums", "conffiles", "preinst", "postinst", "prerm", "postrm", "triggers",
+                   "shlibs", "symbols", "templates", "config"}
+
+
 def deb_control(path):
-	"""The control file of a .deb (ar archive, control.tar.{xz,gz,zst})."""
+	"""The control file of a .deb: an ar archive of exactly debian-binary, one control.tar.{xz,gz,zst}
+	and one data.tar.*, in that order, and a control.tar of plain files with distinct, usual names (dpkg
+	takes the last of two same-named members, this code used to take the first)."""
+	control = None
+	order = []
 	with open(path, "rb") as f:
 		if f.read(8) != b"!<arch>\n":
 			raise Error(f"{path}: not a .deb")
 		while hdr := f.read(60):
-			name = hdr[:16].decode().strip().rstrip("/")
-			size = int(hdr[48:58])
+			if len(hdr) != 60 or hdr[58:60] != b"`\n":
+				raise Error(f"{path}: bad ar header")
+			try:
+				name = hdr[:16].decode("ascii").strip().rstrip("/")
+				size = int(hdr[48:58])
+			except ValueError:
+				raise Error(f"{path}: bad ar header") from None
 			data = f.read(size)
-			if size & 1:
-				f.read(1)
+			if len(data) != size:
+				raise Error(f"{path}: truncated")
+			if size & 1 and f.read(1) != b"\n":
+				raise Error(f"{path}: bad ar padding")
+			order.append(name)
 			if name.startswith("control.tar"):
-				if name.endswith(".xz"):
-					data = lzma.decompress(data)
-				elif name.endswith(".gz"):
-					data = gzip.decompress(data)
-				elif name.endswith(".zst"):
-					from compression import zstd	# Python 3.14
-					data = zstd.decompress(data)
-				with tarfile.open(fileobj=io.BytesIO(data)) as t:
-					for m in t.getmembers():
-						if m.name in ("./control", "control"):
-							return t.extractfile(m).read().decode()
-	raise Error(f"{path}: no control file")
+				control = (name, data)
+	if len(order) != 3 or order[0] != "debian-binary" or not order[1].startswith("control.tar.") \
+			or not order[2].startswith("data.tar") or control is None:
+		raise Error(f"{path}: ar members {order}: want debian-binary, control.tar.*, data.tar.*")
+	name, data = control
+	if name.endswith(".xz"):
+		data = lzma.decompress(data)
+	elif name.endswith(".gz"):
+		data = gzip.decompress(data)
+	elif name.endswith(".zst"):
+		from compression import zstd	# Python 3.14
+		data = zstd.decompress(data)
+	else:
+		raise Error(f"{path}: {name}: not .xz, .gz or .zst")
+	if len(data) > 64 << 20:
+		raise Error(f"{path}: control.tar too big")
+	seen = {}
+	with tarfile.open(fileobj=io.BytesIO(data)) as t:
+		for m in t.getmembers():
+			n = m.name[2:] if m.name.startswith("./") else m.name
+			if n in ("", "."):
+				continue
+			if not m.isfile() or n not in CONTROL_MEMBERS or n in seen:
+				raise Error(f"{path}: control.tar member {m.name!r}: not a plain, single, usual control file")
+			seen[n] = m
+		if "control" not in seen:
+			raise Error(f"{path}: no control file")
+		return t.extractfile(seen["control"]).read().decode("utf-8")
 
 
 def file_sums(path):
@@ -163,11 +215,30 @@ def pool_dir(suite, source):
 	return f"pool/{suite}/{COMP}/{source[:4] if source.startswith('lib') else source[0]}/{source}"
 
 
+SOURCE_FIELD_RE = re.compile(r"([a-z0-9][a-z0-9+.-]*)(?: \(([A-Za-z0-9.+:~-]+)\))?\Z")	# name or name (version)
+
+
+def deb_fields(path):
+	"""A .deb's control fields, strictly: one stanza, none of the fields the index writes itself, a
+	Package, Version and Source that are what dpkg and apt will read."""
+	stanzas = parse_stanzas(deb_control(path))
+	if len(stanzas) != 1:
+		raise Error(f"{path}: control holds {len(stanzas)} stanzas")
+	fields = stanzas[0]
+	for k in fields:
+		if k.lower() in {w.lower() for w in WRITTEN_BY_US}:
+			raise Error(f"{path}: control has a {k} field")
+	if not SOURCE_RE.match(fields.get("Package", "")) or not re.match(r"[0-9][A-Za-z0-9.+:~-]*\Z", fields.get("Version", "")):
+		raise Error(f"{path}: bad Package or Version")
+	if "Source" in fields and not SOURCE_FIELD_RE.match(fields["Source"]):
+		raise Error(f"{path}: bad Source {fields['Source']!r}")
+	return fields
+
+
 def deb_stanza(path, suite):
-	fields = parse_stanzas(deb_control(path))[0]
+	fields = deb_fields(path)
 	source = fields.get("Source", fields["Package"]).split()[0]
 	size, sums = file_sums(path)
-	fields.pop("Filename", None)
 	fields["Filename"] = f"{pool_dir(suite, source)}/{os.path.basename(path)}"
 	fields["Size"] = str(size)
 	fields.update(sums)
@@ -182,6 +253,10 @@ def dsc_stanza(path, suite):
 	m = re.search(r"-----BEGIN PGP SIGNED MESSAGE-----\n(?:.+\n)*\n(.*?)\n-----BEGIN PGP SIGNATURE", text, re.S)
 	fields = parse_stanzas(m.group(1) if m else text)[0]
 	src = fields.pop("Source")
+	if not SOURCE_RE.match(src) or not re.match(r"[0-9][A-Za-z0-9.+:~-]*\Z", fields.get("Version", "")):
+		raise Error(f"{path}: bad Source or Version")
+	if any(k in WRITTEN_BY_US for k in fields):
+		raise Error(f"{path}: the .dsc has a field the index writes itself")
 	out = {"Package": src}
 	out.update(fields)
 	size, sums = file_sums(path)
@@ -420,7 +495,7 @@ def cmd_add(a):
 	bad = [f for f in a.files if f not in debs and f not in dscs]
 	if bad:
 		raise Error(f"not a .deb or .dsc: {bad}")
-	names = {f: parse_stanzas(deb_control(f))[0]["Package"] for f in debs}
+	names = {f: deb_fields(f)["Package"] for f in debs}
 	if a.release_only:
 		left = [f for f in debs if DEBUG_BUILD_RE.search(names[f].removesuffix("-dbgsym"))]
 		for f in left:

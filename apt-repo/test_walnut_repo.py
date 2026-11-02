@@ -9,23 +9,29 @@ WATCH = f"{HERE}/../servers/walnut.nanobyte.dev/walnut-watch"
 UPLOAD_ID = iter(range(1, 1000))
 
 
-def make_deb(path, package, version, source=None, arch="ppc64"):
-	control = f"Package: {package}\nVersion: {version}\nArchitecture: {arch}\nMaintainer: T <t@t>\n"
-	if source:
-		control += f"Source: {source}\n"
-	control += "Description: test\n a test package\n"
+def make_deb(path, package, version, source=None, arch="ppc64", payload=b"", control_extra="", control=None,
+             control_tar=None, ar_extra=()):
+	"""A .deb. payload: more bytes in the data tar (other bytes, same version). control: the whole control text
+	(for crafted ones); control_tar: the control tar's members [(name, bytes)] instead of one ./control;
+	ar_extra: more ar members [(name, bytes)] after data.tar.xz."""
+	if control is None:
+		control = f"Package: {package}\nVersion: {version}\nArchitecture: {arch}\nMaintainer: T <t@t>\n"
+		if source:
+			control += f"Source: {source}\n"
+		control += control_extra + "Description: test\n a test package\n"
 
 	def tar_xz(files):
 		b = io.BytesIO()
 		with tarfile.open(fileobj=b, mode="w") as t:
-			for name, data in files.items():
+			for name, data in files:
 				ti = tarfile.TarInfo(name)
 				ti.size = len(data)
 				t.addfile(ti, io.BytesIO(data))
 		return lzma.compress(b.getvalue())
 
-	members = [("debian-binary", b"2.0\n"), ("control.tar.xz", tar_xz({"./control": control.encode()})),
-	           ("data.tar.xz", tar_xz({f"./usr/share/doc/{package}/v": version.encode()}))]
+	members = [("debian-binary", b"2.0\n"),
+	           ("control.tar.xz", tar_xz(control_tar if control_tar is not None else [("./control", control.encode())])),
+	           ("data.tar.xz", tar_xz([(f"./usr/share/doc/{package}/v", version.encode() + payload)])), *ar_extra]
 	with open(path, "wb") as f:
 		f.write(b"!<arch>\n")
 		for name, data in members:
@@ -244,9 +250,7 @@ class Repo(unittest.TestCase):
 		_, r = add([f"{d}/data_2_all.deb"], with_auth=False, ok=False)	# the suite needs its login
 		self.assertNotEqual(r.returncode, 0)
 		self.assertIn("401", r.stderr)
-		other = make_deb(f"{d}/x/data_2_all.deb", "data", "2", arch="all")
-		with open(other, "ab") as f:	# the same version, other bytes
-			f.write(b"\n")
+		other = make_deb(f"{d}/x/data_2_all.deb", "data", "2", arch="all", payload=b"x")	# same version, other bytes
 		_, r = add([other], ok=False)
 		self.assertIn("already published with other bytes", r.stderr)
 
@@ -286,7 +290,7 @@ class Repo(unittest.TestCase):
 		self.assertIn("regular file", self.add_fail([dsc]).stderr)
 		# a Source that is a path
 		dsc = self.make_dsc("foo", "1.0", {"o.tar.xz": b"o"}, source="x/../../y")
-		self.assertIn("not a source package name", self.add_fail([dsc]).stderr)
+		self.assertIn("bad Source", self.add_fail([dsc]).stderr)
 
 	def test_dropped_dsc_leaves_no_files(self):
 		"""A .dsc that prune drops from Sources gets no file in the pool (nothing unindexed is published)."""
@@ -302,6 +306,42 @@ class Repo(unittest.TestCase):
 		out = f"{self.root}/bundle-out"
 		return self.repo("add", "--suite", suite, "--keyring", self.keys["ci"][2], "--sign-key", self.keys["ci"][1],
 		                 "--out", out, "--keep", "2", *files, ok=False)
+
+
+	def test_strict_debs(self):
+		"""What apt, dpkg and the checks see is one thing: crafted debs are refused (K2)."""
+		d = self.debs
+		base = "Package: badwolf\nVersion: 1\nArchitecture: ppc64\nMaintainer: T <t@t>\nDescription: x\n"
+		clean = base.replace("badwolf", "libc6").replace("Version: 1", "Version: 99")
+		crafted = {
+			"dup field, other case": make_deb(f"{d}/a.deb", "badwolf", "1", control=base + "package: libc6\nversion: 99\n"),
+			"dup field": make_deb(f"{d}/b.deb", "badwolf", "1", control=base + "Version: 99\n"),
+			"two control members": make_deb(f"{d}/c.deb", "badwolf", "1", control_tar=[
+				("./control", base.encode()), ("./control", clean.encode())]),
+			"control and control": make_deb(f"{d}/c2.deb", "badwolf", "1", control_tar=[
+				("./control", base.encode()), ("control", clean.encode())]),
+			"unusual member": make_deb(f"{d}/d.deb", "badwolf", "1", control_tar=[
+				("./control", base.encode()), ("./evil", b"x")]),
+			"extra ar member": make_deb(f"{d}/e.deb", "badwolf", "1", ar_extra=[("control.tar.xz", b"x" * 4)]),
+			"two stanzas": make_deb(f"{d}/f.deb", "badwolf", "1", control=base + "\n" + clean),
+			"Filename field": make_deb(f"{d}/g.deb", "badwolf", "1", control_extra="Filename: pool/x\n"),
+			"lower-case sha": make_deb(f"{d}/h.deb", "badwolf", "1", control_extra="sha256: 0\n"),
+			"odd Source": make_deb(f"{d}/i.deb", "badwolf", "1", source="../../x"),
+			"Source with junk": make_deb(f"{d}/j.deb", "badwolf", "1", source="mesa (99999) x"),
+			"lower-case field name": make_deb(f"{d}/k.deb", "badwolf", "1", control=base.replace("Package:", "package:")),
+		}
+		for why, deb in crafted.items():
+			r = self.repo("add", "--suite", "testing", "--keyring", self.keys["ci"][2], "--sign-key",
+			              self.keys["ci"][1], "--out", f"{self.root}/o", deb, ok=False)
+			self.assertNotEqual(r.returncode, 0, why)
+			self.assertIn("!!", r.stderr, why)
+		ok = make_deb(f"{d}/l.deb", "badwolf", "1")	# bytes after the last ar member
+		with open(ok, "ab") as f:
+			f.write(b"\n")
+		r = self.repo("add", "--suite", "testing", "--keyring", self.keys["ci"][2], "--sign-key",
+		              self.keys["ci"][1], "--out", f"{self.root}/o", ok, ok=False)
+		self.assertNotEqual(r.returncode, 0)
+		self.assertTrue(self.publish(self.add([make_deb(f"{d}/m.deb", "badwolf", "1")])).startswith("ok"))
 
 
 if __name__ == "__main__":
