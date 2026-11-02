@@ -308,6 +308,32 @@ def index_files(text, sources):
 	return out
 
 
+def index_hashes(text, sources):
+	"""{pool path: sha256 or None} for what an index names (Packages: SHA256; Sources: Checksums-Sha256)."""
+	out = {}
+	for para in text.split("\n\n"):
+		if sources:
+			d = re.search(r"^Directory: (\S+)", para, re.M)
+			sums = re.search(r"^Checksums-Sha256:\n((?: .*\n?)+)", para, re.M)
+			files = re.search(r"^Files:\n((?: .*\n?)+)", para, re.M)
+			if d and files:
+				by_name = {}
+				for l in (sums.group(1).splitlines() if sums else []):
+					f = l.split()
+					if len(f) == 3:
+						by_name[f[2]] = f[0]
+				for l in files.group(1).splitlines():
+					if l.strip():
+						name = l.split()[2]
+						out[f"{d.group(1)}/{name}"] = by_name.get(name)
+		else:
+			m = re.search(r"^Filename: (\S+)", para, re.M)
+			if m:
+				h = re.search(r"^SHA256: ([0-9a-f]{64})\s*$", para, re.M)
+				out[m.group(1)] = h.group(1) if h else None
+	return out
+
+
 def check_release_hashes(suite, sdir, signed):
 	"""Every index file in the suite must be the one the signed Release text names (its SHA256
 	section), so the indices read below, and served, are the signed ones."""
@@ -381,15 +407,25 @@ def publish_repo(kind, bid, staging):
 		else:
 			new_pool.append((p, dest))
 	# every file the new indices name must be there once the pool is in
+	named = {}
 	for s in suites:
 		for d, _, fs in os.walk(f"{staging}/dists/{s}"):
 			for name in {f.split(".")[0] for f in fs} & {"Packages", "Sources"}:
 				text = read_index(f"{d}/{name}")
-				for ref in index_files(text or "", name == "Sources"):
+				for ref, h in index_hashes(text or "", name == "Sources").items():
+					if named.setdefault(ref, h) != h:
+						raise Refused(f"dists/{s}: {ref} has two different hashes in the indices")
 					if not ref.startswith("pool/") or ".." in ref.split("/"):
 						raise Refused(f"dists/{s}: index names {ref!r} outside pool/")
 					if not os.path.isfile(f"{staging}/{ref}") and not os.path.isfile(f"{prefix}/{ref}"):
 						raise Refused(f"dists/{s}: {ref} is in an index but not in the pool")
+	# a bundle's pool files are only ones a signed index names, with the bytes it names
+	for rel, p in (files_under(f"{staging}/pool") if "pool" in top else ()):
+		want = named.get(f"pool/{rel}", "unindexed")
+		if want == "unindexed":
+			raise Refused(f"pool/{rel}: no signed index of the bundle names it")
+		if want is None or sha256_file(p) != want:
+			raise Refused(f"pool/{rel}: not the sha256 the signed index gives")
 	for p, dest in new_pool:	# new files only: nothing an index names yet
 		os.makedirs(os.path.dirname(dest), 0o755, exist_ok=True)
 		os.rename(p, dest)

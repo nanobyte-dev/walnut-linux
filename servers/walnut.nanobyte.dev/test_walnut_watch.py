@@ -412,6 +412,53 @@ class Watch(unittest.TestCase):
 		self.assertTrue(os.path.exists(f"{self.root}/www/apt/pool/main/f/foo/foo_2_ppc64.deb"))
 		self.assertTrue(os.path.exists(f"{self.root}/www/apt/pool/main/b/bar/bar_1_ppc64.deb"))
 
+	def test_pool_files_must_be_indexed_with_their_hash(self):
+		b = self.apt_bundle({"foo_1_ppc64.deb": b"foo1"})
+		b["pool/main/f/foo/environ"] = b"WALNUT_SIGN_KEY=secret"	# not named by any index
+		self.drop("apt", "1", b)
+		b2 = self.apt_bundle({"foo_1_ppc64.deb": b"foo1"})
+		b2["pool/main/f/foo/foo_1_ppc64.deb"] = b"EVIL"	# not the bytes the index gives
+		self.drop("apt", "2", b2)
+		self.run_watch()
+		self.assertIn("no signed index of the bundle names it", self.result("apt", "1"))
+		self.assertIn("not the sha256 the signed index gives", self.result("apt", "2"))
+		self.assertFalse(os.path.exists(f"{self.root}/www/apt/pool/main/f/foo/environ"))
+		self.assertFalse(os.path.exists(f"{self.root}/www/apt/pool/main/f/foo/foo_1_ppc64.deb"))
+
+	def test_pruning_generations_keeps_the_other_suite(self):
+		"""testing's prune matched ".testing-" against testing-debug's generations and deleted the live one."""
+		b = self.apt_bundle({"foo_0_ppc64.deb": b"foo0"})
+		b.update(self.apt_bundle({"foo-dbgsym_0_ppc64.deb": b"dbg0"}, suite="testing-debug"))
+		self.drop("apt", "g0", b)
+		self.run_watch()
+		self.assertTrue(self.result("apt", "g0").startswith("ok"), self.result("apt", "g0"))
+		for i in range(1, 7):	# testing alone, more often than KEEP_GENS
+			self.drop("apt", f"g{i}", self.apt_bundle({f"foo_{i}_ppc64.deb": b"foo%d" % i}))
+			self.run_watch()
+			self.assertTrue(self.result("apt", f"g{i}").startswith("ok"), self.result("apt", f"g{i}"))
+			for suite in ("testing", "testing-debug"):
+				self.assertTrue(os.path.isfile(f"{self.root}/www/apt/dists/{suite}/InRelease"), (i, suite))
+		gens = [g for g in os.listdir(f"{self.root}/www/apt/dists") if g.startswith(".testing-g")]
+		self.assertLessEqual(len(gens), 4)	# testing's own are still pruned
+
+	def test_generation_names_belong_to_one_suite(self):
+		import importlib.machinery, importlib.util
+		os.environ["WALNUT_ROOT"] = self.root
+		spec = importlib.util.spec_from_loader("ww", importlib.machinery.SourceFileLoader("ww", WATCH))
+		ww = importlib.util.module_from_spec(spec)
+		spec.loader.exec_module(ww)
+		self.assertEqual(ww.generation_suite(".testing-debug-20261102-x"), "testing-debug")
+		self.assertEqual(ww.generation_suite(".testing-20261102-x"), "testing")
+		self.assertEqual(ww.generation_suite(".stable-debug-1"), "stable-debug")
+		self.assertIsNone(ww.generation_suite(".unknown-1"))
+		os.makedirs(f"{self.root}/www/apt/dists/.testing-debug-live")
+		os.symlink(".testing-debug-live", f"{self.root}/www/apt/dists/testing-debug")
+		for i in range(6):
+			os.makedirs(f"{self.root}/www/apt/dists/.testing-old{i}")
+		ww.prune_generations(f"{self.root}/www/apt", "testing", ".testing-new")
+		self.assertTrue(os.path.isdir(f"{self.root}/www/apt/dists/.testing-debug-live"))
+		self.assertEqual(len([g for g in os.listdir(f"{self.root}/www/apt/dists") if g.startswith(".testing-old")]), 3)
+
 	def test_apt_index_needs_pool(self):
 		b = self.apt_bundle({"foo_1_ppc64.deb": b"foo1"})
 		del b["pool/main/f/foo/foo_1_ppc64.deb"]
