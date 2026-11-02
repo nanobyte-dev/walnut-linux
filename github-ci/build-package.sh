@@ -41,6 +41,7 @@ if [ "$(conf BUILD)" = xcc ]; then
 	done
 	tools/leak-check.py debs "$out"/*.deb
 	tools/leak-check.py sources "$out"/src/*.dsc
+	github-ci/batch-publish.py check-output "$pkg" "$out" --suite "$target"
 	echo ">> $(ls "$out"/*.deb | wc -l) debs, $(ls "$out"/src/*.dsc | wc -l) source packages (prebuilt $ver)"
 	exit 0
 fi
@@ -97,5 +98,8 @@ done
 # nothing licensed leaves this job: no licensed binary, no licensed file in the sources
 tools/leak-check.py debs "$out"/*.deb
 ls "$out"/src/*.dsc >/dev/null 2>&1 && tools/leak-check.py sources "$out"/src/*.dsc
+# the drift check: the output is what github-ci/packages.toml says this package makes (the publisher checks the
+# same from a trusted checkout; this fails the build that caused a drift, it proves nothing against a hostile build)
+github-ci/batch-publish.py check-output "$pkg" "$out" --suite "$target"
 echo ">> $(ls "$out"/*.deb | wc -l) debs, $(ls "$out"/src/*.dsc 2>/dev/null | wc -l) source packages"
 ls -la "$out" | tail -n +2

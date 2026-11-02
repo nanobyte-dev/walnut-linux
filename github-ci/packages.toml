@@ -1,0 +1,455 @@
+# github-ci/packages.toml: which binary packages each package may publish, and its trust tier.
+# Read by the publisher (github-ci/batch-publish.py) from a trusted checkout at the run's head_sha,
+# by the build's drift check (github-ci/build-package.sh) and by gen-workflows.py. Generated from the
+# live indices and package.conf / debian/control on 2026-11-02; edited by hand from here on, in the
+# commit that adds a name (see docs/PACKAGING.md).
+#
+#   dir       the package's directory (checked against tools/pkg-dir.sh)
+#   source    the Source: field of every deb the build makes
+#   tier      trusted | external | licensed (licensed: never built or published by CI)
+#   binaries  Package: names the build may publish: literal, or with @RELEASE@ (6.12.111+ps3.N) and
+#             @STAMP@ (12 digits) for kernel-versioned names; <name>-dbgsym is implied for each
+#   retired   names the package no longer builds; still reserved for it, never published again
+#   relations foreign names its debs may name in Replaces, Breaks, Conflicts, Provides (generated from the
+#             indices; protected names such as libc6 or sudo can never be named, see protected-names.txt)
+#   moved_from  Sources the entry's names may currently sit under in the suite (a listed move)
+# Prefixes in [reserved] may only be published by their owner.
+version = 1
+
+[reserved]
+"linux-image-" = "linux"
+"linux-headers-" = "linux"
+"linux-kbuild-" = "linux"
+"ps3rsx-modules-" = "ps3rsx"
+
+[package.armagetronad]
+dir = "gamedb/games/armagetronad/packages/armagetronad"
+source = "armagetronad"
+tier = "trusted"
+binaries = ["armagetronad", "armagetronad-common", "armagetronad-dedicated"]
+
+[package.badwolf]
+dir = "packages/patched/desktop/badwolf"
+source = "badwolf"
+tier = "external"
+binaries = ["badwolf"]
+
+[package.bomberclone]
+dir = "gamedb/games/bomberclone/packages/bomberclone"
+source = "bomberclone"
+tier = "trusted"
+binaries = ["bomberclone", "bomberclone-data"]
+
+[package.boost-context]
+dir = "packages/patched/libs/boost-context"
+source = "boost1.92"
+tier = "trusted"
+binaries = ["libboost-context1.92-dev", "libboost-context1.92.0", "libboost-coroutine1.92-dev", "libboost-coroutine1.92.0", "libboost-fiber1.92-dev", "libboost-fiber1.92.0"]
+relations = ["libboost-context1.83-dev", "libboost-context1.88-dev", "libboost-context1.90-dev", "libboost-coroutine1.83-dev", "libboost-coroutine1.88-dev", "libboost-coroutine1.90-dev", "libboost-fiber1.83-dev", "libboost-fiber1.88-dev", "libboost-fiber1.90-dev"]
+
+[package.bzflag]
+dir = "gamedb/games/bzflag/packages/bzflag"
+source = "bzflag"
+tier = "trusted"
+binaries = ["bzflag", "bzflag-client", "bzflag-data", "bzflag-server"]
+
+[package.chromium-bsu]
+dir = "gamedb/games/chromium-bsu/packages/chromium-bsu"
+source = "chromium-bsu"
+tier = "trusted"
+binaries = ["chromium-bsu", "chromium-bsu-data"]
+relations = ["chromium", "chromium-data"]
+
+[package.classicube]
+dir = "gamedb/games/classicube/packages/classicube"
+source = "classicube"
+tier = "external"
+binaries = ["classicube"]
+
+[package.classicube-data]
+dir = "gamedb/games/classicube/licensed/classicube-data"
+source = "classicube-data"
+tier = "licensed"
+binaries = ["classicube-data"]
+
+[package.colobot]
+dir = "gamedb/games/colobot/packages/colobot"
+source = "colobot"
+tier = "trusted"
+binaries = ["colobot"]
+
+[package.crawl-walnut]
+dir = "gamedb/games/crawl-tiles/packages/crawl-walnut"
+source = "crawl-walnut"
+tier = "trusted"
+binaries = ["crawl-walnut"]
+
+[package.cube2]
+dir = "gamedb/engines/cube2/packages/cube2"
+source = "cube2"
+tier = "trusted"
+binaries = ["cube2", "cube2-server"]
+
+[package.darkplaces-gl2]
+dir = "gamedb/engines/darkplaces/packages/darkplaces-gl2"
+source = "darkplaces-gl2"
+tier = "external"
+binaries = ["darkplaces-gl2"]
+
+[package.ddnet]
+dir = "gamedb/games/ddnet/packages/ddnet"
+source = "ddnet"
+tier = "trusted"
+binaries = ["ddnet", "ddnet-data", "ddnet-server", "ddnet-tools"]
+
+[package.devilutionx]
+dir = "gamedb/games/diablo/packages/devilutionx"
+source = "devilutionx"
+tier = "external"
+binaries = ["devilutionx"]
+
+[package.dsda-doom]
+dir = "gamedb/games/dsda-doom/packages/dsda-doom"
+source = "dsda-doom"
+tier = "trusted"
+binaries = ["dsda-doom"]
+relations = ["boom-engine", "doom-engine", "heretic-engine", "hexen-engine"]
+
+[package.endless-sky]
+dir = "gamedb/games/endless-sky/packages/endless-sky"
+source = "endless-sky"
+tier = "trusted"
+binaries = ["endless-sky", "endless-sky-data"]
+
+[package.etr]
+dir = "gamedb/games/etr/packages/etr"
+source = "extremetuxracer"
+tier = "trusted"
+binaries = ["extremetuxracer", "extremetuxracer-data"]
+
+[package.fheroes2]
+dir = "gamedb/games/heroes-of-might-and-magic-2/packages/fheroes2"
+source = "fheroes2"
+tier = "trusted"
+binaries = ["fheroes2"]
+
+[package.fluidsynth]
+dir = "packages/patched/audio/fluidsynth"
+source = "fluidsynth"
+tier = "trusted"
+binaries = ["fluidsynth", "libfluidsynth-dev", "libfluidsynth3"]
+relations = ["iiwusynth"]
+
+[package.game-data-packager]
+dir = "packages/patched/tools/game-data-packager"
+source = "game-data-packager"
+tier = "trusted"
+binaries = ["game-data-packager", "game-data-packager-runtime"]
+
+[package.hedgewars]
+dir = "gamedb/games/hedgewars/packages/hedgewars"
+source = "hedgewars"
+tier = "trusted"
+binaries = ["hedgewars", "hedgewars-data", "hedgewars-engine"]
+
+[package.ioquake3]
+dir = "gamedb/engines/ioquake3/packages/ioquake3"
+source = "ioquake3"
+tier = "trusted"
+binaries = ["ioquake3", "ioquake3-server"]
+relations = ["openarena", "openarena-server", "quake3", "quake3-server"]
+
+[package."libpng1.6"]
+dir = "packages/patched/graphics/libpng1.6"
+source = "libpng1.6"
+tier = "trusted"
+binaries = ["libpng-dev", "libpng-tools", "libpng16-16t64"]
+relations = ["libpng12-0-dev", "libpng12-dev", "libpng16-16", "libpng16-dev", "libpng16-devtools", "libpng16-tools", "libpng2-dev", "libpng3-dev"]
+
+[package.libsdl3]
+dir = "packages/patched/graphics/libsdl3"
+source = "libsdl3"
+tier = "trusted"
+binaries = ["libsdl3-0", "libsdl3-dev", "libsdl3-tests"]
+
+[package.libsfml]
+dir = "packages/patched/audio/libsfml"
+source = "libsfml"
+tier = "trusted"
+binaries = ["libsfml-audio3.1", "libsfml-dev", "libsfml-graphics3.1", "libsfml-network3.1", "libsfml-system3.1", "libsfml-window3.1"]
+
+[package.libvorbis]
+dir = "packages/patched/audio/libvorbis"
+source = "libvorbis"
+tier = "trusted"
+binaries = ["libvorbis-dev", "libvorbis0a", "libvorbisenc2", "libvorbisfile3"]
+
+[package.linux]
+dir = "packages/patched/kernel/linux"
+source = "linux"
+tier = "trusted"
+binaries = ["linux-headers-@RELEASE@", "linux-headers-@RELEASE@-common", "linux-headers-@RELEASE@-debug@STAMP@", "linux-headers-ps3", "linux-headers-ps3-debug", "linux-image-@RELEASE@", "linux-image-@RELEASE@-debug@STAMP@", "linux-image-ps3", "linux-image-ps3-debug", "linux-kbuild-@RELEASE@"]
+relations = ["fwupdate", "linux-latest-modules-@RELEASE@", "linux-latest-modules-@RELEASE@-debug@STAMP@", "wireguard-modules", "wireless-regdb"]
+
+[package.luajit]
+dir = "packages/patched/libs/luajit"
+source = "luajit"
+tier = "trusted"
+binaries = ["libluajit-5.1-2", "libluajit-5.1-common", "libluajit-5.1-dev", "luajit"]
+relations = ["libluajit-5.1.so", "libluajit-5.1.so.2", "libluajit2-5.1-2", "libluajit2-5.1-common", "libluajit2-5.1-dev", "luajit2"]
+
+[package.luanti]
+dir = "gamedb/games/luanti/packages/luanti"
+source = "luanti"
+tier = "trusted"
+binaries = ["luanti", "luanti-data", "luanti-server"]
+
+[package.megaglest]
+dir = "gamedb/games/megaglest/packages/megaglest"
+source = "megaglest"
+tier = "trusted"
+binaries = ["megaglest"]
+relations = ["megaglest-data"]
+
+[package.mesa]
+dir = "packages/patched/graphics/mesa"
+source = "mesa"
+tier = "trusted"
+binaries = ["libegl-mesa0", "libegl1-mesa-dev", "libgbm-dev", "libgbm1", "libgl1-mesa-dev", "libgl1-mesa-dri", "libgles2-mesa-dev", "libglx-mesa0", "mesa-common-dev", "mesa-drm-shim", "mesa-libgallium", "mesa-va-drivers", "mesa-vdpau-drivers"]
+relations = ["glx-diversions", "libegl-vendor", "libglapi-mesa", "libglx-vendor", "libopengl-perl", "ps3-mesa", "va-driver"]
+
+[package.mrboom]
+dir = "gamedb/games/mrboom/packages/mrboom"
+source = "mrboom"
+tier = "trusted"
+binaries = ["mrboom"]
+
+[package.neverball]
+dir = "gamedb/games/neverball/packages/neverball"
+source = "neverball"
+tier = "trusted"
+binaries = ["neverball", "neverball-common", "neverball-data", "neverputt", "neverputt-data"]
+
+[package.openal-soft]
+dir = "packages/patched/audio/openal-soft"
+source = "openal-soft"
+tier = "trusted"
+binaries = ["libopenal-data", "libopenal-dev", "libopenal1", "openal-tools"]
+relations = ["libopenal-dev-bin", "makemhr", "openal-info"]
+
+[package.openrct2]
+dir = "gamedb/games/openrct2/packages/openrct2"
+source = "openrct2"
+tier = "external"
+binaries = ["openrct2", "openrct2-data", "openrct2-music"]
+
+[package.openttd]
+dir = "gamedb/games/openttd/packages/openttd"
+source = "openttd"
+tier = "trusted"
+binaries = ["openttd", "openttd-data"]
+
+[package.opentyrian]
+dir = "gamedb/games/opentyrian/packages/opentyrian"
+source = "opentyrian"
+tier = "trusted"
+binaries = ["opentyrian"]
+
+[package.plymouth]
+dir = "packages/patched/desktop/plymouth"
+source = "plymouth"
+tier = "trusted"
+binaries = ["libplymouth-dev", "libplymouth5", "plymouth", "plymouth-label", "plymouth-themes", "plymouth-x11"]
+relations = ["console-common", "libfontconfig1", "mawk", "plymouth-dev", "plymouth-drm", "plymouth-theme", "plymouth-themes-all", "plymouth-themes-fade-in", "plymouth-themes-glow", "plymouth-themes-script", "plymouth-themes-solar", "plymouth-themes-spinfinity", "plymouth-themes-spinner"]
+
+[package.pnmixer]
+dir = "packages/patched/desktop/pnmixer"
+source = "pnmixer"
+tier = "trusted"
+binaries = ["pnmixer"]
+
+[package.ps3-boot]
+dir = "packages/walnut/system/ps3-boot"
+source = "ps3-boot"
+tier = "trusted"
+binaries = ["ps3-boot"]
+
+[package.ps3-desktop]
+dir = "packages/walnut/system/ps3-desktop"
+source = "ps3-desktop"
+tier = "trusted"
+binaries = ["ps3-apps", "ps3-desktop"]
+retired = ["ps3-games", "ps3-games-free"]
+
+[package.ps3-games]
+dir = "packages/walnut/system/ps3-games"
+source = "ps3-games"
+tier = "trusted"
+binaries = ["ps3-games-integration"]
+relations = ["ps3-desktop"]
+
+[package.ps3-gpu-tools]
+dir = "packages/walnut/tools/ps3-gpu-tools"
+source = "ps3-gpu-tools"
+tier = "trusted"
+binaries = ["ps3-gpu-tools"]
+
+[package.ps3-splash]
+dir = "packages/walnut/system/ps3-splash"
+source = "ps3-splash"
+tier = "trusted"
+binaries = ["ps3-no-initramfs", "ps3-splash"]
+relations = ["initramfs-tools"]
+
+[package.ps3-spu]
+dir = "packages/walnut/tools/ps3-spu"
+source = "ps3-spu"
+tier = "trusted"
+binaries = ["libspeq-dev", "libspeq0", "ps3-spu", "ps3-spu-programs"]
+
+[package.ps3-system]
+dir = "packages/walnut/system/ps3-system"
+source = "ps3-system"
+tier = "trusted"
+binaries = ["ps3-system"]
+
+[package.ps3rsx]
+dir = "packages/walnut/drivers/ps3rsx"
+source = "ps3rsx"
+tier = "trusted"
+binaries = ["ps3rsx-modules-@RELEASE@", "ps3rsx-modules-@RELEASE@-debug@STAMP@", "ps3rsx-modules-ps3", "ps3rsx-modules-ps3-debug"]
+relations = ["ps3rsx-@RELEASE@", "ps3rsx-@RELEASE@-debug@STAMP@", "ps3rsx-modules"]
+
+[package.sauerbraten-data]
+dir = "gamedb/games/sauerbraten/licensed/sauerbraten-data"
+source = "sauerbraten-data"
+tier = "licensed"
+binaries = ["sauerbraten-data"]
+
+[package.sauerbraten-nonfree-data]
+dir = "gamedb/games/bananabread/licensed/sauerbraten-nonfree-data"
+source = "sauerbraten-nonfree-data"
+tier = "licensed"
+binaries = ["sauerbraten-nonfree-data"]
+
+[package.sauerbraten-walnut]
+dir = "gamedb/games/sauerbraten/packages/sauerbraten-walnut"
+source = "sauerbraten-walnut"
+tier = "trusted"
+binaries = ["sauerbraten-walnut"]
+retired = ["sauerbraten"]
+
+[package.scorched3d]
+dir = "gamedb/games/scorched3d/packages/scorched3d"
+source = "scorched3d"
+tier = "trusted"
+binaries = ["scorched3d", "scorched3d-data"]
+
+[package.sdl12-compat]
+dir = "packages/patched/graphics/sdl12-compat"
+source = "sdl12-compat"
+tier = "trusted"
+binaries = ["libsdl1.2-compat-tests", "libsdl1.2-dev", "libsdl1.2debian"]
+relations = ["libsdl-1.2-0", "libsdl-dev", "libsdl1.2-compat", "libsdl1.2-compat-dev", "libsdl1.2-compat-shim", "libsdl2-compat"]
+
+[package.sdl2-compat]
+dir = "packages/patched/graphics/sdl2-compat"
+source = "sdl2-compat"
+tier = "trusted"
+binaries = ["libsdl2-2.0-0", "libsdl2-compat", "libsdl2-compat-dev", "libsdl2-compat-shim", "libsdl2-compat-tests", "libsdl2-dev"]
+relations = ["libsdl-1.3-0", "libsdl-1.3-dev"]
+
+[package.supertuxkart]
+dir = "gamedb/games/supertuxkart/packages/supertuxkart"
+source = "supertuxkart"
+tier = "trusted"
+binaries = ["supertuxkart", "supertuxkart-data"]
+
+[package.teeworlds]
+dir = "gamedb/games/teeworlds/packages/teeworlds"
+source = "teeworlds"
+tier = "trusted"
+binaries = ["teeworlds", "teeworlds-data", "teeworlds-server"]
+
+[package.tk-html3]
+dir = "packages/repackaged/tk-html3"
+source = "tk-html3"
+tier = "external"
+binaries = ["tk-html3"]
+
+[package.tkinterweb]
+dir = "packages/repackaged/tkinterweb"
+source = "tkinterweb"
+tier = "external"
+binaries = ["python3-tkinterweb"]
+
+[package.trigger-rally]
+dir = "gamedb/games/trigger-rally/packages/trigger-rally"
+source = "trigger-rally"
+tier = "trusted"
+binaries = ["trigger-rally", "trigger-rally-data"]
+relations = ["trigger-really-data"]
+
+[package.uqm]
+dir = "gamedb/games/uqm/packages/uqm"
+source = "uqm"
+tier = "trusted"
+binaries = ["uqm"]
+relations = ["uqm-content"]
+
+[package.walnut-games]
+dir = "packages/walnut/apps/walnut-games"
+source = "walnut-games"
+tier = "trusted"
+binaries = ["walnut-games"]
+
+[package.walnut-rate]
+dir = "packages/walnut/apps/walnut-rate"
+source = "walnut-rate"
+tier = "trusted"
+binaries = ["walnut-rate"]
+
+[package.warmux]
+dir = "gamedb/games/warmux/packages/warmux"
+source = "warmux"
+tier = "trusted"
+binaries = ["warmux", "warmux-data", "warmux-servers"]
+
+[package.warzone2100]
+dir = "gamedb/games/warzone2100/packages/warzone2100"
+source = "warzone2100"
+tier = "external"
+binaries = ["warzone2100", "warzone2100-data", "warzone2100-music"]
+
+[package.webkit2gtk]
+dir = "packages/patched/desktop/webkit2gtk"
+source = "webkit2gtk"
+tier = "trusted"
+binaries = ["libjavascriptcoregtk-4.1-0", "libjavascriptcoregtk-4.1-dev", "libjavascriptcoregtk-bin", "libwebkit2gtk-4.1-0", "libwebkit2gtk-4.1-dev"]
+relations = ["libjavascriptcoregtk-4.0-bin"]
+
+[package.wesnoth]
+dir = "gamedb/games/wesnoth/packages/wesnoth"
+source = "wesnoth-1.18"
+tier = "trusted"
+binaries = ["wesnoth-1.18", "wesnoth-1.18-server"]
+relations = ["wesnoth-1.18-core"]
+
+[package.xmoto]
+dir = "gamedb/games/xmoto/packages/xmoto"
+source = "xmoto"
+tier = "trusted"
+binaries = ["xmoto", "xmoto-data"]
+
+[package.yquake2]
+dir = "gamedb/games/yquake2/packages/yquake2"
+source = "yquake2"
+tier = "trusted"
+binaries = ["yamagi-quake2", "yamagi-quake2-core"]
+relations = ["quake2-engine", "quake2-engine-server"]
+
+[package.zlib-ng]
+dir = "packages/repackaged/zlib-ng"
+source = "zlib-ng"
+tier = "external"
+binaries = ["libz-ng-compat"]

@@ -1,0 +1,54 @@
+# Package names no build of ours may Replace, Conflict with or Provide, and may Break only when the
+# package's own packages.toml entry lists the name in `relations` (plymouth breaks mawk, for example).
+# Names or shell globs, one per line. The first block is Essential, Protected or Priority: required
+# in the pinned Debian snapshot (sid-ppc64 chroot's dpkg status, 2026-11-02); the rest by hand.
+apt
+base-files
+base-passwd
+bash
+coreutils
+dash
+debianutils
+diffutils
+dpkg
+findutils
+grep
+gzip
+hostname
+init-system-helpers
+libc-bin
+libgcc-s1
+libpam-modules
+libpam-modules-bin
+libpam-runtime
+mawk
+ncurses-base
+ncurses-bin
+perl-base
+sed
+sysvinit-utils
+tar
+util-linux
+zlib1g
+# by hand
+sudo
+libc6
+libc6-dev
+polkitd
+openssh-server
+openssh-client
+openssh-sftp-server
+ca-certificates
+systemd
+systemd-sysv
+udev
+dbus
+login
+passwd
+libssl3t64
+linux-base
+initramfs-tools-core
+*-keyring
+gnupg
+gpgv
+libapt-pkg*

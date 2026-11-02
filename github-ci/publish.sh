@@ -43,6 +43,8 @@ if [ -n "${WALNUT_SIGN_PASSPHRASE:-}" ]; then	# the archive key has one
 fi
 install -m 600 /dev/null "$tmp/deploy"
 printf '%s\n' "$WALNUT_DEPLOY_KEY_DATA" > "$tmp/deploy"
+# the secrets are in files now: nothing started from here (walnut-repo.py reads .deb and .dsc files) inherits them
+unset WALNUT_SIGN_KEY WALNUT_DEPLOY_KEY_DATA WALNUT_SIGN_PASSPHRASE
 export WALNUT_DEPLOY_KEY=$tmp/deploy
 
 files=()

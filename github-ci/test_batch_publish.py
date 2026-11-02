@@ -6,7 +6,7 @@ repository's main runs count: a fork's pull request whose branch is called main,
 commit main doesn't contain are refused.
   python3 github-ci/test_batch_publish.py"""
 import functools, hashlib, http.server, importlib.machinery, importlib.util, io, json, os, shutil, subprocess
-import sys, tempfile, threading, unittest, urllib.parse, zipfile
+import sys, tarfile, tempfile, threading, unittest, urllib.parse, zipfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -21,18 +21,52 @@ _spec.loader.exec_module(bp)
 
 
 REPO_ID, FORK_ID = 42, 77
-MAIN_SHA, OTHER_SHA = "a" * 40, "b" * 40
+MAIN_SHA, OTHER_SHA, OLD_SHA = "a" * 40, "b" * 40, "d" * 40	# MAIN_SHA: replaced by the fixture repository's commit (setUpClass)
+PKGS = ("foo", "bar", "baz", "qux", "big", "small", "tiny", "pr", "fork", "side", "ahead", "badwolf", "evil")
 
 
-def art(aid, name, created="2026-10-26T10:00:00Z", size=1000, branch="main", expired=False, head_repo=REPO_ID):
+def fixture_repo(root, extra=""):
+	"""A git repository the publisher reads packages.toml from: packages for the names the tests build, linux
+	(owner of linux-image-@RELEASE@), badwolf (external), the real tools/deb-version.sh. Returns the commit."""
+	os.makedirs(root, exist_ok=True)
+	if not os.path.exists(f"{root}/.git"):	# a first commit with no list at all
+		open(f"{root}/README", "w").write("x\n")
+		fixture_repo.old = commit_all(root, "no list yet", init=True)
+	os.makedirs(f"{root}/tools")
+	for f in ("deb-version.sh", "pkg-dir.sh"):
+		shutil.copy(f"{ROOT}/tools/{f}", f"{root}/tools/{f}")
+	toml = 'version = 1\n[reserved]\n"linux-image-" = "linux"\n'
+	for n in PKGS + ("linux",):
+		d = f"packages/walnut/{n}"
+		os.makedirs(f"{root}/{d}")
+		open(f"{root}/{d}/package.conf", "w").write("TYPE=native\nBUILD=native\n")
+		binaries = ["linux-image-@RELEASE@"] if n == "linux" else [n]
+		tier = "external" if n == "badwolf" else "trusted"
+		toml += f'\n[package.{n}]\ndir = "{d}"\nsource = "{n}"\ntier = "{tier}"\nbinaries = {json.dumps(binaries)}\n'
+	os.makedirs(f"{root}/github-ci")
+	open(f"{root}/github-ci/packages.toml", "w").write(toml + extra)
+	open(f"{root}/github-ci/protected-names.txt", "w").write("libc6\nsudo\nmawk\n*-keyring\n")
+	return commit_all(root, "fixture")
+
+
+def commit_all(root, msg, init=False):
+	g = ["git", "-C", root, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"]
+	if init:
+		subprocess.run(["git", "-C", root, "init", "-q", "-b", "main"], check=True)
+	subprocess.run(g + ["add", "-A"], check=True)
+	subprocess.run(g + ["commit", "-q", "-m", msg], check=True)
+	return subprocess.run(["git", "-C", root, "rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()
+
+
+def art(aid, name, created="2026-10-26T10:00:00Z", size=1000, branch="main", expired=False, head_repo=REPO_ID, sha=None):
 	return {"id": aid, "name": name, "created_at": created, "size_in_bytes": size, "expired": expired,
 	        "workflow_run": {"id": 9000 + aid, "head_branch": branch, "repository_id": REPO_ID,
-	                         "head_repository_id": head_repo, "head_sha": MAIN_SHA}}
+	                         "head_repository_id": head_repo, "head_sha": sha or MAIN_SHA}}
 
 
-def run_record(run_id, event="push", branch="main", head_repo=REPO_ID, sha=MAIN_SHA):
+def run_record(run_id, event="push", branch="main", head_repo=REPO_ID, sha=None, path=".github/workflows/pkg-foo.yml"):
 	"""actions/runs/N as GitHub has it (the fields the publisher reads)"""
-	return {"id": run_id, "event": event, "head_branch": branch, "head_sha": sha,
+	return {"id": run_id, "event": event, "head_branch": branch, "head_sha": sha or MAIN_SHA, "path": path,
 	        "repository": {"id": REPO_ID, "full_name": "o/r"},
 	        "head_repository": {"id": head_repo, "full_name": "o/r" if head_repo == REPO_ID else "someone/r"}}
 
@@ -88,7 +122,7 @@ class FakeGitHub(http.server.BaseHTTPRequestHandler):
 	"""/repos/o/r/actions/artifacts (paged), .../artifacts/N/zip (a redirect to the blob store, which
 	refuses the token, as GitHub's does), the repository, its runs (runs: a push on main unless set),
 	compare (main contains a commit unless compare says otherwise) and workflow dispatches (recorded)."""
-	artifacts, blobs, dispatched, runs, compare = [], {}, [], {}, {}
+	artifacts, blobs, dispatched, runs, compare, deleted = [], {}, [], {}, {}, []
 
 	def log_message(self, *a):
 		pass
@@ -124,6 +158,12 @@ class FakeGitHub(http.server.BaseHTTPRequestHandler):
 		if p.startswith("/repos/o/r/actions/artifacts/") and p.endswith("/zip"):
 			return self.reply(302, headers=[("Location", f"http://{self.headers['Host']}/blob/{p.split('/')[6]}")])
 		self.reply(404)
+
+	def do_DELETE(self):
+		aid = int(self.path.split("/")[6])
+		self.deleted.append(aid)
+		FakeGitHub.artifacts = [a for a in self.artifacts if a["id"] != aid]
+		self.reply(204)
 
 	def do_POST(self):
 		body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
@@ -167,6 +207,10 @@ class Runs(unittest.TestCase):
 		with open(cls.upload, "w") as f:
 			f.write(UPLOAD)
 		os.chmod(cls.upload, 0o755)
+		global MAIN_SHA, OLD_SHA
+		cls.repo = f"{t}/repo"
+		MAIN_SHA = fixture_repo(cls.repo)
+		OLD_SHA = fixture_repo.old
 		cls.gh = http.server.ThreadingHTTPServer(("127.0.0.1", 0), FakeGitHub)
 		threading.Thread(target=cls.gh.serve_forever, daemon=True).start()
 
@@ -192,25 +236,35 @@ class Runs(unittest.TestCase):
 		self.url = f"http://127.0.0.1:{self.www.server_port}"
 		FakeGitHub.artifacts, FakeGitHub.blobs, FakeGitHub.dispatched, FakeGitHub.runs, FakeGitHub.compare = \
 			[], {}, [], {}, {}
+		FakeGitHub.deleted = []
 		self.n = 0
 
-	def build(self, pkg, version, debs=None, created=None, size=None, run=None, sha=MAIN_SHA):
+	def build(self, pkg, version, debs=None, created=None, size=None, run=None, sha=None, src_extra=None, dsc_lists=None,
+	          as_name=None):
 		"""A package build's artifact: its debs (name, package, source) and a source package."""
 		self.n += 1
 		d = f"{self.root}/build{self.n}"
 		os.makedirs(f"{d}/src")
-		for fname, package, source in debs or [(f"{pkg}_{version}_ppc64.deb", pkg, None),
-		                                         (f"{pkg}-dbgsym_{version}_ppc64.deb", f"{pkg}-dbgsym", pkg)]:
-			make_deb(f"{d}/{fname}", package, version, source=source)
+		for fname, package, source, *kw in debs or [(f"{pkg}_{version}_ppc64.deb", pkg, None),
+		                                              (f"{pkg}-dbgsym_{version}_ppc64.deb", f"{pkg}-dbgsym", pkg)]:
+			make_deb(f"{d}/{fname}", package, version, source=source, **(kw[0] if kw else {}))
+		for fname, data in (src_extra or {}).items():
+			with open(f"{d}/{fname}", "wb") as f:
+				f.write(data)
 		orig = f"{d}/src/{pkg}_{version}.tar.xz"
 		data = f"{pkg} {version}".encode()
-		with open(orig, "wb") as f:
-			f.write(data)
+		with tarfile.open(orig, "w:xz") as t:	# a real tarball: leak-check reads it
+			ti = tarfile.TarInfo(f"{pkg}/README")
+			ti.size = len(data)
+			t.addfile(ti, io.BytesIO(data))
+		with open(orig, "rb") as f:
+			data = f.read()
 		h, md5, size_o = hashlib.sha256(data).hexdigest(), hashlib.md5(data).hexdigest(), len(data)
+		listed = dsc_lists or os.path.basename(orig)
 		with open(f"{d}/src/{pkg}_{version}.dsc", "w") as f:
 			f.write(f"Format: 3.0 (native)\nSource: {pkg}\nVersion: {version}\nArchitecture: any\n"
-			        f"Files:\n {md5} {size_o} {os.path.basename(orig)}\nChecksums-Sha256:\n {h} {size_o} {os.path.basename(orig)}\n")
-		name = bp.output_name("testing", pkg, d)
+			        f"Files:\n {md5} {size_o} {listed}\nChecksums-Sha256:\n {h} {size_o} {listed}\n")
+		name = as_name or bp.output_name("testing", pkg, d)
 		z = io.BytesIO()
 		with zipfile.ZipFile(z, "w") as zf:
 			for dirpath, _, files in os.walk(d):
@@ -220,17 +274,19 @@ class Runs(unittest.TestCase):
 		FakeGitHub.blobs[aid] = z.getvalue()
 		FakeGitHub.artifacts.insert(0, art(aid, name, created=created or f"2026-10-26T10:{self.n:02d}:00Z",
 		                                   size=size or len(z.getvalue())))
-		FakeGitHub.runs[9000 + aid] = run_record(9000 + aid, sha=sha, **(run or {}))
+		FakeGitHub.runs[9000 + aid] = run_record(9000 + aid, sha=sha, **{"path": f".github/workflows/pkg-{pkg}.yml", **(run or {})})
 		return name
 
-	def run_publisher(self, *args, ok=True):
+	def run_publisher(self, *args, ok=True, cmd="publish", env=None):
 		env = dict(os.environ, GITHUB_TOKEN="t0ken", GITHUB_REPOSITORY="o/r",
 		           GITHUB_API_URL=f"http://127.0.0.1:{self.gh.server_port}", GITHUB_SHA="abcdef0123456789",
 		           WALNUT_APT_URL=f"{self.url}/apt", WALNUT_STATUS_URL=f"{self.url}/status",
 		           WALNUT_SIGN_KEY=self.secret, WALNUT_DEPLOY_KEY_DATA="unused", WALNUT_UPLOAD=self.upload,
-		           WALNUT_ROOT=self.root, WATCH=WATCH, WALNUT_KEYRING=self.ring)
-		r = subprocess.run([SCRIPT, "publish", "--work", f"{self.root}/work", *args], env=env,
+		           WALNUT_ROOT=self.root, WATCH=WATCH, WALNUT_KEYRING=self.ring, WALNUT_GIT_DIR=self.repo, **(env or {}))
+		r = subprocess.run([SCRIPT, cmd, "--work", f"{self.root}/work", *args], env=env,
 		                   capture_output=True, text=True)
+		if os.environ.get("TDEBUG"):
+			print(r.stdout + r.stderr)
 		if ok is not None:
 			self.assertEqual(r.returncode == 0, ok, r.stdout + r.stderr)
 		return r.stdout + r.stderr
@@ -249,12 +305,12 @@ class Runs(unittest.TestCase):
 	def test_runs(self):
 		self.build("foo", "1.0+ps3.9")
 		self.build("bar", "2")
-		self.build("linux", "6.12-1+ps3.9", debs=[("k_1_ppc64.deb", "linux-image-6.12+ps3.9", "linux")])
+		self.build("linux", "6.12-1+ps3.9", debs=[("k_1_ppc64.deb", "linux-image-6.12.1+ps3.9", "linux")])
 		self.run_publisher()
 		self.assertEqual(len(self.uploads()), 1)	# all three in one upload
 		self.assertIn("batch3", self.uploads()[0])
 		pk = self.packages()
-		for p in ("Package: foo\n", "Package: bar\n", "Package: linux-image-6.12+ps3.9\n"):
+		for p in ("Package: foo\n", "Package: bar\n", "Package: linux-image-6.12.1+ps3.9\n"):
 			self.assertIn(p, pk)
 		self.assertIn("Package: foo-dbgsym", self.packages("testing-debug"))
 		self.assertTrue(os.path.exists(f"{self.root}/www/apt/pool/testing/main/f/foo/foo_1.0+ps3.9.dsc"))
@@ -311,6 +367,205 @@ class Runs(unittest.TestCase):
 		self.assertIn("-big-", self.uploads()[0])
 		self.assertIn("batch2", self.uploads()[1])
 		self.assertIn("Package: tiny\n", self.packages())
+
+
+	# --- CR1 + C3: a build publishes only what its package owns -------------------------------------
+
+	def refused(self, pkg, out, text=None):
+		self.assertIn(f"!! {pkg}: artifact", out)
+		self.assertIn("refused", out)
+		if text:
+			self.assertIn(text, out)
+		self.assertNotIn(f"Package: {pkg}\n", self.packages() if os.path.exists(
+			f"{self.root}/www/apt/dists/testing/main/binary-ppc64/Packages") else "")
+
+	def test_foreign_names_are_refused_the_rest_publishes(self):
+		self.build("foo", "1.0")
+		# a name another package owns, one in nobody's list, a reserved kernel name, a name under another Source
+		cases = {"evil": [("linux-image-ps3_1_ppc64.deb", "linux-image-ps3", "evil")],
+		         "badwolf": [("libc6_1_ppc64.deb", "libc6", "badwolf")],
+		         "baz": [("bar_1_ppc64.deb", "bar", "baz")],
+		         "qux": [("qux_1_ppc64.deb", "qux", "mesa")]}
+		for pkg, debs in cases.items():
+			self.build(pkg, "1", debs=debs)
+		out = self.run_publisher("--delete-refused")
+		for pkg, why in (("evil", "belongs to linux"), ("badwolf", "is in no package's list"),
+		                 ("baz", "belongs to bar"), ("qux", "Source 'mesa'")):
+			self.assertIn(f"!! {pkg}: artifact", out)
+			self.assertIn(why, out)
+		pk = self.packages()
+		self.assertIn("Package: foo\n", pk)
+		for n in ("linux-image-ps3", "libc6", "Package: bar\n"):
+			self.assertNotIn(n, pk)
+		self.assertEqual(len(FakeGitHub.deleted), 4)	# refused for what they hold: gone, not met again
+		self.assertIn("nothing to publish", self.run_publisher("--delete-refused"))
+
+	def test_a_name_in_the_suite_under_another_source(self):
+		self.build("foo", "1.0")
+		self.run_publisher()
+		# bar's build now makes a deb named foo with Source bar: the name is foo's, and also in the suite as foo's
+		self.build("bar", "1", debs=[("foo_9_ppc64.deb", "foo", "bar")])
+		out = self.run_publisher()
+		self.assertIn("!! bar: artifact", out)
+		self.assertIn("belongs to foo", out)
+
+	def test_wrong_workflow_and_no_list_and_claims(self):
+		self.build("foo", "1")
+		self.build("bar", "1", run={"path": ".github/workflows/pkg-foo.yml"})	# bar's artifact from foo's workflow
+		self.build("baz", "1", run={"path": ".github/workflows/evil.yml"})
+		self.build("qux", "1", sha=OLD_SHA)	# a commit with no packages.toml
+		self.build("tiny", "1", as_name="walnut-testing@tiny@tiny=999")	# the name claims another version
+		out = self.run_publisher("--delete-refused")
+		self.assertIn("not pkg-bar.yml", out)
+		self.assertIn("not pkg-baz.yml", out)
+		self.assertIn("no github-ci/packages.toml at", out)
+		self.assertIn("the name says", out)
+		self.assertIn("Package: foo\n", self.packages())
+		for n in ("bar", "baz", "qux", "tiny"):
+			self.assertNotIn(f"Package: {n}\n", self.packages())
+		# deleted: bar, baz (their names lie) and tiny (the claim); not qux (a missing list says nothing about the contents)
+		self.assertEqual(sorted(FakeGitHub.deleted), sorted([102, 103, 105]))
+
+	def test_strict_debs_and_dsc_and_unlisted_files(self):
+		base = "Package: evil\nVersion: 1\nArchitecture: ppc64\nMaintainer: T <t@t>\nDescription: x\n"
+		clean = base.replace("evil", "libc6")
+		self.build("evil", "1", debs=[("e_1_ppc64.deb", "evil", None, {"control_tar": [
+			("./control", base.encode()), ("./control", clean.encode())]})], as_name="walnut-testing@evil@evil=1")
+		self.build("badwolf", "1", dsc_lists="/etc/passwd")	# a .dsc naming a path
+		self.build("baz", "1", src_extra={"src/extra.sh": b"echo"})	# a file no .dsc lists
+		self.build("qux", "1", debs=[("q_1_ppc64.deb", "qux", None, {"control_extra": "Filename: pool/x\n"})],
+		           as_name="walnut-testing@qux@qux=1")
+		self.build("foo", "1")
+		out = self.run_publisher("--delete-refused")
+		for pkg in ("evil", "badwolf", "baz", "qux"):
+			self.assertIn(f"!! {pkg}: artifact", out)
+		self.assertIn("not a plain, single, usual control file", out)
+		self.assertIn("is not a plain file name", out)
+		self.assertIn("files no .dsc lists", out)
+		self.assertEqual(len(FakeGitHub.deleted), 4)
+		self.assertIn("Package: foo\n", self.packages())
+
+	def test_relations(self):
+		def rel(pkg, **kw):
+			self.build(pkg, "1", debs=[(f"{pkg}_1_ppc64.deb", pkg, None, {"control_extra": "".join(
+				f"{k}: {v}\n" for k, v in kw.items())})])
+		rel("badwolf", Replaces="libc6")	# an external package names a protected name
+		rel("foo", Provides="sudo")	# so does a trusted one
+		rel("bar", Breaks="foo")	# another package of ours
+		rel("baz", Replaces="something-foreign")	# trusted, foreign, not listed: a warning for now
+		rel("qux", Essential="yes")
+		rel("tiny", Depends="libc6 (>= 2)")	# a Depends is no relation of the kind checked
+		rel("small", Breaks="mawk")	# a protected name, but only Breaks: refused unless listed (not listed)
+		out = self.run_publisher()
+		for pkg in ("badwolf", "foo", "bar", "qux", "small"):
+			self.assertIn(f"!! {pkg}: artifact", out)
+		self.assertIn("is a protected name", out)
+		self.assertIn("belongs to package foo", out)
+		self.assertIn("warning (relations)", out)
+		pk = self.packages()
+		self.assertIn("Package: baz\n", pk)
+		self.assertIn("Package: tiny\n", pk)
+		for n in ("badwolf", "foo", "bar", "qux", "small"):
+			self.assertNotIn(f"Package: {n}\n", pk)
+		self.assertEqual(FakeGitHub.deleted, [])	# no --delete-refused
+
+	def test_lists_at_both_commits(self):
+		"""A name must be the package's at the run's commit and at HEAD; one owner per name."""
+		repo = f"{self.tmp.name}/repo2-{self.n}"
+		old = fixture_repo(repo)
+		# HEAD: baz gives its name up (retired); foo is untouched
+		toml = open(f"{repo}/github-ci/packages.toml").read()
+		toml = toml.replace(f'binaries = ["baz"]', 'binaries = []\nretired = ["baz"]')
+		open(f"{repo}/github-ci/packages.toml", "w").write(toml)
+		commit_all(repo, "baz retires its name")
+		self.repo = repo
+		self.build("baz", "1", sha=old)
+		self.build("foo", "1", sha=old)
+		out = self.run_publisher()
+		self.assertIn("is no longer baz's at HEAD", out)
+		self.assertIn("Package: foo\n", self.packages())
+		self.assertNotIn("Package: baz\n", self.packages())
+
+	def test_toml_errors(self):
+		bad = {"two owners": '[package.a]\ndir="x"\nsource="a"\ntier="trusted"\nbinaries=["n"]\n'
+		                      '[package.b]\ndir="y"\nsource="b"\ntier="trusted"\nbinaries=["n"]\n',
+		       "unknown key": '[package.a]\ndir="x"\nsource="a"\ntier="trusted"\nbinaries=[]\nbogus=1\n',
+		       "bad tier": '[package.a]\ndir="x"\nsource="a"\ntier="great"\nbinaries=[]\n',
+		       "pattern outside reserved": '[package.a]\ndir="x"\nsource="a"\ntier="trusted"\nbinaries=["n-@RELEASE@"]\n',
+		       "unknown token": '[reserved]\n"n-" = "a"\n[package.a]\ndir="x"\nsource="a"\ntier="trusted"\nbinaries=["n-@ANY@"]\n',
+		       "same source": '[package.a]\ndir="x"\nsource="s"\ntier="trusted"\nbinaries=["a"]\n'
+		                      '[package.b]\ndir="y"\nsource="s"\ntier="trusted"\nbinaries=["b"]\n',
+		       "reserved name elsewhere": '[reserved]\n"k-" = "a"\n[package.a]\ndir="x"\nsource="a"\ntier="trusted"\nbinaries=[]\n'
+		                                  '[package.b]\ndir="y"\nsource="b"\ntier="trusted"\nbinaries=["k-x"]\n',
+		       "overlapping patterns": '[reserved]\n"k-" = "a"\n"k-i-" = "b"\n[package.a]\ndir="x"\nsource="a"\ntier="trusted"\nbinaries=["k-@RELEASE@"]\n'
+		                               '[package.b]\ndir="y"\nsource="b"\ntier="trusted"\nbinaries=["k-i-@RELEASE@"]\n',
+		       "dbgsym listed": '[package.a]\ndir="x"\nsource="a"\ntier="trusted"\nbinaries=["a-dbgsym"]\n',
+		       "not toml": "[[["}
+		for why, text in bad.items():
+			with self.assertRaises(bp.wl.ListError, msg=why):
+				bp.wl.Lists(text if why == "not toml" else "version = 1\n" + text)
+
+	def test_verify_then_publish_with_a_manifest(self):
+		self.build("foo", "1")
+		self.build("bar", "1")
+		man = f"{self.root}/manifest.json"
+		out = self.run_publisher("--manifest-out", man, cmd="verify")
+		self.assertIn("verified: ", out)
+		self.assertEqual(self.uploads(), [])	# verify publishes nothing
+		ok = json.load(open(man))["ok"]
+		self.assertEqual(len(ok), 2)
+		# a manifest that doesn't match the bytes: nothing goes out for that artifact
+		first = next(iter(ok.values()))
+		first["files"][next(iter(first["files"]))] = "0" * 64
+		json.dump({"ok": ok}, open(man, "w"))
+		out = self.run_publisher("--manifest", man, ok=False)
+		self.assertIn("not the ones the verify job checked", out)
+		self.assertEqual(len(self.uploads()), 1)	# the other one went out
+		published = self.packages()
+		self.assertEqual(sum(f"Package: {n}\n" in published for n in ("foo", "bar")), 1)
+		# an artifact the manifest doesn't know is left for the next run
+		json.dump({"ok": {}}, open(man, "w"))
+		out = self.run_publisher("--manifest", man)
+		self.assertIn("was not verified", out)
+		self.assertEqual(len(self.uploads()), 1)
+		# the honest manifest publishes it
+		self.run_publisher("--manifest-out", man, cmd="verify")
+		self.run_publisher("--manifest", man)
+		self.assertEqual(len(self.uploads()), 2)
+		self.assertIn("Package: foo\n", self.packages())
+		self.assertIn("Package: bar\n", self.packages())
+
+	def test_check_output(self):
+		"""build-package.sh's drift check and stable's strict check, on a directory."""
+		self.build("foo", "1")
+		d = f"{self.root}/build{self.n}"
+		env = dict(os.environ, WALNUT_GIT_DIR=self.repo)
+		r = subprocess.run([SCRIPT, "check-output", "foo", d], env=env, capture_output=True, text=True)
+		self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+		r = subprocess.run([SCRIPT, "check-output", "--strict", "foo", d], env=env, capture_output=True, text=True)
+		self.assertNotEqual(r.returncode, 0)	# strict: the fixture's versions are not what the commit gives
+		self.assertIn("(version)", r.stdout + r.stderr)
+		make_deb(f"{d}/libc6_1_ppc64.deb", "libc6", "1")
+		r = subprocess.run([SCRIPT, "check-output", "foo", d], env=env, capture_output=True, text=True)
+		self.assertNotEqual(r.returncode, 0)
+
+	def test_escaping_and_zip_bounds(self):
+		self.assertNotIn("\n", bp.esc("a\n::stop-commands::x"))
+		self.assertNotIn("\x1b", bp.esc("\x1b[31m"))
+		gh = bp.GitHub.__new__(bp.GitHub)
+		z = io.BytesIO()
+		with zipfile.ZipFile(z, "w") as zf:
+			for i in range(bp.MAX_ZIP_FILES + 1):
+				zf.writestr(f"f{i}.deb", b"")
+		import contextlib
+
+		@contextlib.contextmanager
+		def fake(path, **kw):
+			yield io.BytesIO(z.getvalue())
+		gh.request = fake
+		with tempfile.TemporaryDirectory() as t:
+			with self.assertRaises(bp.wr.Error):
+				gh.download({"id": 1, "name": "x"}, f"{t}/d")
 
 
 if __name__ == "__main__":

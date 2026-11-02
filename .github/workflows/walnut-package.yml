@@ -75,10 +75,16 @@ jobs:
     environment: walnut-stable
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0  # the expected version counts commits (tools/deb-version.sh)
       - uses: actions/download-artifact@v8
         with:
           name: ${{ needs.build.outputs.artifact }}
           path: out
+      - name: What this package may publish
+        # no secrets in this step: names, Sources, versions and relations against github-ci/packages.toml at
+        # this commit, and the names against stable's index; nothing only warns on the way to stable
+        run: github-ci/batch-publish.py check-output --strict --suite stable --suite-index ${{ inputs.package }} out
       - name: Publish to stable
         env:
           WALNUT_SIGN_KEY: ${{ secrets.WALNUT_ARCHIVE_SUBKEY }}
