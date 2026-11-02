@@ -1,0 +1,25 @@
+# Half-Life (Xash3D FWGS): the backlog (gamedb/README.md, "games/<id>/todo.toml").
+
+[[item]]
+kind = "package"
+added = 2026-11-02
+source = "the user's request 2026-11-02"
+text = """\
+Package xash3d-fwgs and hlsdk-portable for ppc64 (neither is in Debian; both our own, version 0.N). Engine: waf, \
+SDL2, GPL-3.0-or-later; big-endian client support merged upstream 2026-04 (PRs 2562, 2566, tested on PPC32 only), so \
+expect BE bugs to fix and send upstream. Off x86 the game's client and server libraries come from hlsdk-portable \
+(CMake, -D64BIT=ON; Valve's HL1 SDK licence: free distribution only, to be read by the user first). Renderers: \
+GL 1.x, GLESv1 or software; start with the GL one on nv30. Data comes from the player's own Half-Life (the valve/ \
+folder from Steam or the CD, copied by hand until Walnut Games can import it); no free data found (Uplink and \
+Day One demos unverified). Feasibility: M effort, RAM about 150-300 MB (estimate), worth a build; see \
+gamedb/research/game-reeval.md "Half-Life (Xash3D FWGS + hlsdk-portable)"."""
+
+[[item]]
+kind = "research"
+added = 2026-11-02
+source = "the user's request 2026-11-02"
+text = """\
+After the first build: Opposing Force and Blue Shift (hlsdk-portable branches opfor, bshift; the player's gearbox/ \
+and bshift/ folders) and the free mods (poke646, They Hunger, Spirit of Half-Life) reuse the engine. Counter-Strike \
+1.6 needs FWGS/cs16-client plus ReGameDLL_CS (MIT; x86 build targets only), a separate later job. \
+Condition Zero, Day of Defeat and Team Fortress Classic stay closed (vgui2 or closed libraries)."""
