@@ -529,6 +529,47 @@ class Versions(Base):
         self.good("versions")
 
 
+class KeyExpiry(Base):
+    """keyrings are made here with gpg at run time (a fixture file would be a real key in the tree)"""
+
+    def keyring(self, expiry):
+        home = tempfile.mkdtemp(prefix="gnupg-")
+        try:
+            def gpg(*a):
+                return subprocess.run(["gpg", "--homedir", home, "--batch", "--passphrase", "", "--pinentry-mode", "loopback", *a],
+                                      capture_output=True, check=True)
+            gpg("--quick-gen-key", "fixture <f@example.invalid>", "ed25519", "cert", "never")
+            fpr = gpg("--list-keys", "--with-colons").stdout.decode().split("fpr:::::::::")[1].split(":")[0]
+            gpg("--quick-add-key", fpr, "ed25519", "sign", expiry)
+            return gpg("--export").stdout
+        finally:
+            shutil.rmtree(home, ignore_errors=True)
+
+    def check(self, today):
+        self.r.write("apt-repo/keyrings/archive-keyring.gpg", self.keyring("2027-10-21"))
+        self.r.add("apt-repo")
+        old = os.environ.get("WALNUT_TODAY")
+        os.environ["WALNUT_TODAY"] = today
+        try:
+            return [f for f in self.r.run(["keyexpiry"]) if f[0] == "keyexpiry"]
+        finally:
+            if old is None:
+                del os.environ["WALNUT_TODAY"]
+            else:
+                os.environ["WALNUT_TODAY"] = old
+
+    def test_far_off(self):
+        self.assertEqual(self.check("2026-11-02"), [])
+
+    def test_warns_inside_120_days(self):
+        f = self.check("2027-07-01")
+        self.assertEqual([x[1] for x in f], ["warning"])
+        self.assertIn("2027-10-21", f[0][3])
+
+    def test_errors_inside_30_days(self):
+        self.assertEqual([x[1] for x in self.check("2027-10-01")], ["error"])
+
+
 class Palette(Base):
     def test_bad(self):
         self.r.write("packages/walnut/apps/a/files/lib/a.py", 'BG = "#1a2b3c"\n')

@@ -100,6 +100,10 @@ Everything is served from walnut.nanobyte.dev (servers/walnut.nanobyte.dev/, doc
 
 The old LAN repository on tibi-server (`http://10.0.0.10:8070`: suites `ps3`, `ps3-dev`, `ps3-dbgsym`, `ps3-licensed` and the `img-*` snapshots, published with aptly from `build/aptly`) was retired and deleted on 2026-10-26. Its whole tree and `build/aptly` are kept in `/mnt/data_linux/Temp/ps3/retired-tibi-server-20261026/` (tarballs with SHA256SUMS; `ps3-licensed-debs/` holds the ten licensed packages it published, ready for `make publish` if they should go to the licensed suite unchanged).
 
+### The signing subkey
+
+`stable` and `licensed` are signed by a signing subkey of the archive key; it expires on 2027-10-21, and clients refuse a Release signed after that. The commit check `keyexpiry` reads the expiry from the keyrings in the tree (`apt-repo/keyrings/`, and the copies in `packages/walnut/system/ps3-system/files/apt/`), warns from 120 days before and refuses the commit from 30 days before. To extend it: import the archive key from pass (`Projects/Walnut/ArchiveKey`) into a throwaway `GNUPGHOME`, run `gpg --quick-set-expire <primary fingerprint> <new date> <subkey fingerprint>`, export the public key (`gpg --export`) over `apt-repo/keyrings/archive-keyring.gpg` and copy it to `packages/walnut/system/ps3-system/files/apt/walnut-archive-keyring.gpg`, then republish ps3-system (a new `+ps3.N`) so installed systems get the keyring. Put the extended secret key back in pass. The check goes quiet once the new keyring is committed.
+
 ### Walnut's suites on GitHub Actions
 
 - Every package except the licensed ones has `.github/workflows/pkg-<name>.yml` (from `github-ci/gen-workflows.py`; run it after adding, moving or removing a package). A push touching what a package's version counts builds it for testing. "Run workflow" builds it fresh for the suite picked there, testing or stable. Package runs never publish to testing themselves: a build stores its output (debs, `-dbgsym` debs, the source package) as a GitHub artifact kept 14 days, named `walnut-<suite>@<package>@<source>=<version>`, so the name alone says what it would add.

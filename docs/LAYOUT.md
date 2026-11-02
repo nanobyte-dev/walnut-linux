@@ -283,7 +283,7 @@ pinned ruff's F401/F811/F821/F841), shell (bash -n, ShellCheck, `|| true` after 
 build output, `pkill -f`, `find /`), private (the untracked `tools/public-replace.local.txt` and
 `tools/commit-private.local.txt` against the added lines and the message, secrets, `backups/`, rating images
 outside LFS, licensed paths; can't be skipped), deletions, gamedb (check.py and the published-entry rules),
-schema (tools/gamedb/schema.py), batches, desktop, versions, palette, patch-register (tools/gamedb/patches.py),
+schema (tools/gamedb/schema.py), batches, desktop, versions, keyexpiry (the archive signing subkey: warns 120 days before it expires, errors 30 days before), palette, patch-register (tools/gamedb/patches.py),
 licensed, generated (workflows, doc blocks, gdp-manifest against its series) and docs (doclinks). An error
 refuses the commit; a deliberate exception is a line `Commit-Tests-Skip: <check>: <reason>` in the message.
 Their tests: `tools/commit_tests/tests/` (suite `commit-tests`, with an end-to-end run on a clone).
