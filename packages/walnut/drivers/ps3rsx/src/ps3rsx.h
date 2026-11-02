@@ -116,7 +116,9 @@ struct ps3rsx_vclear {
 	bool wait_prim;			/* the worker waits for a primitive to close */
 	u32 batch_seq, batch_gen;	/* the last batch's reference and generation */
 	unsigned int load_pending;	/* load-time zombies not cleared yet (the dmesg line) */
-	u64 load_bytes;
+	unsigned int load_cpu_pending;	/* of them, CPU-visible (all the CPU path can clear) */
+	bool load_logged;
+	u64 load_bytes, load_cpu_bytes;
 	ktime_t load_t0;
 	struct workqueue_struct *wq;
 	struct delayed_work work;

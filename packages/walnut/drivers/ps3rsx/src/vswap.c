@@ -749,7 +749,10 @@ bool ps3rsx_vswap_shrink(struct ps3rsx_device *rsx, u64 bytes)
 		ret = ps3rsx_vclear_take_node(rsx, z, &vs->chunks[best].node);
 		mutex_unlock(&rsx->mm_lock);
 		if (ret) {
-			pr_err("ps3vswap: a chunk went back to the heap without its zombie, zeroed by the CPU (%d)\n", ret);
+			if (ret == -ENOMEM)	/* its node holds the range: out of use until unload */
+				pr_err_once("ps3vswap: a chunk couldn't be cleared: kept out of use\n");
+			else
+				pr_err("ps3vswap: a chunk went back to the heap without its zombie, zeroed by the CPU\n");
 			kfree(z);
 		} else {
 			ps3rsx_vclear_add(rsx, z);
@@ -1003,7 +1006,8 @@ void ps3rsx_vswap_fini(struct ps3rsx_device *rsx)
 
 		if (!drm_mm_node_allocated(&c->node))
 			continue;
-		iounmap(c->io);
+		if (c->io)		/* none: a chunk kept out of use (ps3rsx_vclear_take_node) */
+			iounmap(c->io);
 		drm_mm_remove_node(&c->node);
 	}
 	mutex_unlock(&rsx->mm_lock);

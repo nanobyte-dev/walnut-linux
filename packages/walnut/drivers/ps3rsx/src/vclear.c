@@ -107,6 +107,10 @@ static void zombie_free(struct ps3rsx_zombie *z)
 		kfree(z);
 }
 
+enum fill_mode { FILL_GPU, FILL_PPE, FILL_LATER, FILL_STUCK };
+static enum fill_mode fill_mode(struct ps3rsx_device *rsx);
+static const char *ppe_why(struct ps3rsx_device *rsx);
+
 /* Done zombies back to their heaps (process context, no lock held) */
 static void zombies_release(struct ps3rsx_device *rsx, struct list_head *done)
 {
@@ -126,17 +130,30 @@ static void zombies_release(struct ps3rsx_device *rsx, struct list_head *done)
 	}
 	mutex_unlock(&rsx->mm_lock);
 	list_for_each_entry_safe(z, tmp, done, link) {
-		bool load_done = false;
+		bool all = false, cpu = false;
 
 		spin_lock_irqsave(&vc->lock, flags);
 		count(vc, z, -1);
-		if (z->at_load)
-			load_done = !--vc->load_pending;
+		if (z->at_load) {
+			all = !--vc->load_pending;
+			if (zombie_cpu(z))
+				cpu = !--vc->load_cpu_pending;
+		}
 		spin_unlock_irqrestore(&vc->lock, flags);
-		/* the boot log says when every free range of the load was cleared */
-		if (load_done)
-			drm_info(&rsx->drm, "free VRAM cleared at load: %llu MiB in %lld ms\n",
-				 vc->load_bytes >> 20, ktime_ms_delta(ktime_get(), vc->load_t0));
+		/* the boot log says when the free ranges of the load were cleared, and how: all of
+		 * it by the GPU, or the CPU-visible part by the CPU (GPU-only VRAM then stays) */
+		if (all && !vc->load_logged) {
+			vc->load_logged = true;
+			drm_info(&rsx->drm, "free VRAM cleared at load: %llu MiB in %lld ms (%s)\n",
+				 vc->load_bytes >> 20, ktime_ms_delta(ktime_get(), vc->load_t0),
+				 vc->ppe_bytes ? "GPU and CPU" : "GPU");
+		} else if (cpu && !vc->load_logged && fill_mode(rsx) == FILL_PPE) {
+			vc->load_logged = true;
+			drm_info(&rsx->drm, "free VRAM cleared at load by the CPU (%s): %llu MiB in %lld ms, %llu MiB of GPU-only VRAM left unused\n",
+				 ppe_why(rsx), vc->load_cpu_bytes >> 20,
+				 ktime_ms_delta(ktime_get(), vc->load_t0),
+				 (vc->load_bytes - vc->load_cpu_bytes) >> 20);
+		}
 		list_del(&z->link);
 		zombie_free(z);
 	}
@@ -232,7 +249,8 @@ struct ps3rsx_zombie *ps3rsx_vclear_zombie_new(void)
  * allocation sees it free in between (the chunk's node is reused by the pool later; this kernel
  * has no drm_mm_replace_node). The reserve can't fail: the range was just freed and nothing else
  * ran meanwhile. If it ever did, the PPE zeroes the range before mm_lock is dropped, so it never
- * goes back uncleared, and the caller gets -EBUSY (no zombie).
+ * goes back uncleared, and the caller gets -EBUSY (no zombie); if the PPE can't map it either,
+ * the chunk's own node takes the range back and it stays out of use until unload (-ENOMEM).
  */
 int ps3rsx_vclear_take_node(struct ps3rsx_device *rsx, struct ps3rsx_zombie *z,
 			    struct drm_mm_node *node)
@@ -243,7 +261,11 @@ int ps3rsx_vclear_take_node(struct ps3rsx_device *rsx, struct ps3rsx_zombie *z,
 	z->own.size = node->size;
 	drm_mm_remove_node(node);
 	if (WARN_ON(drm_mm_reserve_node(mm, &z->own))) {
-		zero_range(rsx, z->own.start, z->own.start + z->own.size, false);
+		if (zero_range(rsx, z->own.start, z->own.start + z->own.size, false))
+			return -EBUSY;		/* free and zeroed */
+		/* not even that: the range stays the pool's, out of use until unload */
+		if (!WARN_ON_ONCE(drm_mm_reserve_node(mm, node)))
+			return -ENOMEM;
 		return -EBUSY;
 	}
 	z->node = &z->own;
@@ -270,7 +292,17 @@ void ps3rsx_vclear_add(struct ps3rsx_device *rsx, struct ps3rsx_zombie *z)
 
 /* --- the fill ------------------------------------------------------------------------------ */
 
-enum fill_mode { FILL_GPU, FILL_PPE, FILL_LATER, FILL_STUCK };
+/* Why the CPU path runs (the boot log) */
+static const char *ppe_why(struct ps3rsx_device *rsx)
+{
+	if (ps3rsx_dry_run())
+		return "dry_run";
+	if (!ps3rsx_kcopy_allowed())
+		return "ctxsw=0";
+	if (READ_ONCE(rsx->vc.gpu_off))
+		return "GPU clears off";
+	return "display-only";
+}
 
 /* How the zombies can be cleared now (worker and allocator) */
 static enum fill_mode fill_mode(struct ps3rsx_device *rsx)
@@ -532,6 +564,13 @@ static void vclear_work(struct work_struct *work)
 		ps3rsx_vclear_kick(rsx, RETRY);
 		return;
 	}
+	/* the last batch never passed and no recovery moved on (a GPU stuck without a wedge): no
+	 * run, so the console isn't held for another batch's wait */
+	if (vc->batch_seq && READ_ONCE(rsx->recover_gen) == vc->batch_gen &&
+	    !ps3rsx_seq_done(rsx, vc->batch_seq)) {
+		ps3rsx_vclear_kick(rsx, STUCK_RETRY);
+		return;
+	}
 	/* the GPU held across this run's batches: taken from the console once, not per batch */
 	if (ps3rsx_console_hold_kernel(rsx)) {
 		ps3rsx_vclear_kick(rsx, AWAY_RETRY);	/* X is switched away: master_set kicks */
@@ -635,6 +674,10 @@ static int heap_zombies(struct ps3rsx_device *rsx, struct drm_mm *mm, u64 start,
 		z->at_load = true;
 		rsx->vc.load_pending++;
 		rsx->vc.load_bytes += n;
+		if (zombie_cpu(z)) {
+			rsx->vc.load_cpu_pending++;
+			rsx->vc.load_cpu_bytes += n;
+		}
 		zombie_add(rsx, z);
 		start += n;
 	}
