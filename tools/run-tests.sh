@@ -12,6 +12,7 @@
 #            failed recovery's dialog only on the new X), gpu-crash-restart (ps3-system's crash report: the
 #            display-only desktop restart once per boot through logind, the old X waited for, the user's own X only),
 #            render-node (ps3-system's udev rule: the RSX's render node for the render group only),
+#            rsx-ab (tools/rsx-ab: the same-boot ps3rsx A/B batch against stubs, the mpv counter script),
 #            ps3-spu, xmoto-glbatch,
 #            mesa-forcedxt (Mesa 0038's NV30_FORCE_DXT decision; every mesa-* suite is packages/patched/graphics/mesa/tests/
 #            host-tests.sh against build/work/mesa, or MESA_WORK), mesa-staging-pool
@@ -158,6 +159,7 @@ run game-menu sh packages/walnut/system/ps3-desktop/tests/game-menu-check.sh
 run gpu-recovered python3 -I packages/walnut/system/ps3-desktop/tests/gpu-recovered-test.py
 run gpu-crash-restart bash packages/walnut/system/ps3-system/tests/gpu-crash-restart-test.sh
 run render-node bash packages/walnut/system/ps3-system/tests/render-node-test.sh
+run rsx-ab bash tools/rsx-ab/test_rsx_ab.sh
 run ps3rsx-shadow bash -c "$(declare -f need skip_part t_ps3rsx); t_ps3rsx"
 run ps3-spu make -C packages/walnut/tools/ps3-spu test
 run xmoto-glbatch bash -c "$(declare -f need t_xmoto); t_xmoto"
