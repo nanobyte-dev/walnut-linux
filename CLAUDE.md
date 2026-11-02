@@ -4,8 +4,10 @@ The docs are indexed in docs/README.md. The plan is in docs/PLAN.md, the PS3 tes
 
 ## Project hygiene
 - Keep the layout in docs/LAYOUT.md. Sources/config are tracked; anything generated goes under build/.
-- Never delete what we publish: package versions in the public repositories on walnut.nanobyte.dev
-  (`walnut-stable`, `walnut-testing`, and the password-protected `licensed` suite) are kept forever. The old
+- Published package versions on walnut.nanobyte.dev (`walnut-stable`, `walnut-testing`, and the
+  password-protected `licensed` suite): while the user is Walnut's only user (the user, 2026-11-02), a
+  published version may be replaced or erased, each deletion with the user's OK; once Walnut has outside
+  users they are kept forever again. The old
   LAN server (tibi-server), its `ps3*` suites and `build/aptly` are retired and deleted (the user, 2026-10-26;
   the backup is /mnt/data_linux/Temp/ps3/retired-tibi-server-20261026/, keep it). Licensed packages are built only locally (never on
   GitHub Actions: no game data there) and published to the `licensed` suite.
