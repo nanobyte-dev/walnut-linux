@@ -8,6 +8,11 @@ WATCH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "walnut-watch")
 GPG = {}	# good, other: GNUPGHOMEs; keyring: the good key exported
 
 
+def slurp(p, mode="r"):
+	with open(p, mode) as f:
+		return f.read()
+
+
 def sha(b):
 	return hashlib.sha256(b).hexdigest()
 
@@ -240,7 +245,7 @@ class Watch(unittest.TestCase):
 
 	def base(self, kind, suite):
 		p = f"{self.root}/www/{kind}/dists/{suite}/InRelease"
-		return sha(open(p, "rb").read()) if os.path.exists(p) else "none"
+		return sha(slurp(p, "rb")) if os.path.exists(p) else "none"
 
 	def apt_bundle(self, debs, suite="testing", who=None, base=None, bad_line=None, bad_gz=False):
 		who = who or ("ci" if suite.startswith("testing") else "good")
@@ -343,7 +348,7 @@ class Watch(unittest.TestCase):
 		self.drop("apt", "b", second)
 		self.drop("download", "c", {"a": b"unsigned"})
 		self.run_watch()
-		st = lambda k, i: open(f"{self.root}/www/status/{k}__{i}").read()
+		st = lambda k, i: slurp(f"{self.root}/www/status/{k}__{i}")
 		self.assertTrue(st("apt", "a").startswith("ok "))
 		self.assertTrue(st("apt", "b").startswith("stale\n"))
 		self.assertTrue(st("download", "c").startswith("refused\n"))
@@ -503,7 +508,7 @@ class SnapshotCache(unittest.TestCase):
 	"""V9, log-only: the snapshot cache's allowlist (repo.conf) flags other suites and architectures, and
 	walnut-watch says when the cache volume is over its cap; nothing is refused or removed"""
 	def flagged(self, uri):
-		conf = open(os.path.join(os.path.dirname(WATCH), "repo.conf")).read()
+		conf = slurp(os.path.join(os.path.dirname(WATCH), "repo.conf"))
 		rules = re.findall(r"^\s+~(\S+) 1;$", conf, re.M)
 		self.assertEqual(len(rules), 2)
 		return any(re.search(r, uri) for r in rules)
