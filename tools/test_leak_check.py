@@ -108,6 +108,23 @@ class LeakCheck(unittest.TestCase):
         self.assertEqual(rc, 1, out)
         self.assertIn("tyrian-data", out)
 
+    def test_installed_counts_half_installed_states(self):
+        st = os.path.join(self.d, "status")
+        for state in ("unpacked", "half-installed", "half-configured", "triggers-awaited", "triggers-pending"):
+            with open(st, "w") as f:
+                f.write("Package: engine\nStatus: install ok installed\nSection: games\nVersion: 1\n\n"
+                        "Package: tyrian-data\nStatus: install ok %s\nSection: games\nVersion: 2\n" % state)
+            rc, out = run("installed", st)
+            self.assertEqual(rc, 1, state + out)
+            self.assertIn("tyrian-data", out)
+
+    def test_installed_empty_status_fails(self):
+        st = os.path.join(self.d, "status")
+        for text in ("", "\n", "Package: gone\nStatus: deinstall ok config-files\n"):
+            with open(st, "w") as f:
+                f.write(text)
+            self.assertEqual(run("installed", st)[0], 2, repr(text))
+
     def test_classify(self):
         free = make_dsc(self.d, "engine", [("engine", "games")], {"engine-1/main.c": b"int main;"})
         lic = make_dsc(self.d, "mixed", [("mixed", "games"), ("mixed-data", "non-free/games")], {"m/x": b"x"})

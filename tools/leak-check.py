@@ -2,7 +2,8 @@
 """leak-check.py: keeps licensed content (docs/PACKAGING.md "Licensed packages") out of what we publish.
 
   leak-check.py debs DEB...                      no licensed binary package among these
-  leak-check.py installed STATUS                 no licensed package installed (a dpkg status file)
+  leak-check.py installed STATUS                 no licensed package installed or half-installed (a dpkg status file;
+                                                 an empty one fails)
   leak-check.py classify DSC...                  prints "licensed" or "free" and the .dsc, one per line
   leak-check.py sources [--licensed DEB|DIR]... DSC...
                                                  these source packages are free, and no file in
@@ -207,13 +208,19 @@ def cmd_installed(a, names):
     bad = n = 0
     for st in stanzas:
         c = parse_fields(st)
-        if not c.get("Package") or "installed" not in c.get("Status", ""):
+        # every state but not-installed and config-files has the package's files on disk: unpacked,
+        # half-installed, half-configured, triggers-awaited and triggers-pending count as installed
+        state = c.get("Status", "").split()[-1:] or ["not-installed"]
+        if not c.get("Package") or state[0] in ("not-installed", "config-files"):
             continue
         n += 1
         if is_licensed(c["Package"], c.get("Section"), names):
             print("LEAK: licensed package installed: %s %s (Section %s)" % (c["Package"], c.get("Version"), c.get("Section")))
             bad += 1
     print("%d packages installed, %d licensed" % (n, bad))
+    if n == 0:
+        print("!! no installed package in %s: an empty or unreadable status file proves nothing" % a.status)
+        return 2
     return 1 if bad else 0
 
 
