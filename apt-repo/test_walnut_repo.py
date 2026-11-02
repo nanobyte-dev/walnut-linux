@@ -460,5 +460,45 @@ class Repo(unittest.TestCase):
 		          self.keys["ci"][1], "--out", f"{self.root}/o", f"{d}/foo_1.0.dsc", f"{d}/two/foo_1.1.dsc")
 
 
+	def test_ar_sizes_and_concatenated_streams(self):
+		"""R-1: a negative or odd ar size is refused at once (it used to seek back and loop forever); R-2: input after
+		the first gzip member or xz stream is refused (dpkg reads further members, python's decompressors stop)."""
+		d = self.debs
+		import gzip as gz
+		base = make_deb(f"{d}/ok.deb", "badwolf", "1")
+		raw = open(base, "rb").read()
+		# the data.tar member's header: size field at offset 48 of its 60 bytes
+		i = raw.index(b"data.tar.xz")
+		for why, field in (("negative", b"-60       "), ("sign", b"+10       "), ("hex", b"0x10      "), ("space first", b" 10       "),
+		                   ("empty", b"          ")):
+			bad = raw[:i + 48] + field + raw[i + 58:]
+			open(f"{d}/bad.deb", "wb").write(bad)
+			r = subprocess.run([REPO, "--url", self.url, "add", "--suite", "testing", "--keyring", self.keys["ci"][2],
+			                    "--sign-key", self.keys["ci"][1], "--out", f"{self.root}/o", f"{d}/bad.deb"],
+			                   env=dict(os.environ, GNUPGHOME=self.keys["ci"][0]), capture_output=True, text=True, timeout=20)
+			self.assertEqual(r.returncode, 1, (why, r.stdout, r.stderr))
+			self.assertIn("!!", r.stderr, why)
+		# two members: the first complete (one stanza), the second another one
+		def tarball(control):
+			b = io.BytesIO()
+			with tarfile.open(fileobj=b, mode="w") as t:
+				ti = tarfile.TarInfo("./control")
+				ti.size = len(control)
+				t.addfile(ti, io.BytesIO(control))
+			return b.getvalue()
+		ctl = lambda name: f"Package: {name}\nVersion: 1\nArchitecture: ppc64\nMaintainer: T <t@t>\nDescription: x\n".encode()
+		first, second = tarball(ctl("badwolf"))[:-1024], tarball(ctl("evilname"))	# the first without its end blocks
+		cases = {"gzip": ("control.tar.gz", gz.compress(first, mtime=0) + gz.compress(second, mtime=0)),
+		         "xz": ("control.tar.xz", lzma.compress(first) + lzma.compress(second))}
+		if shutil.which("zstd"):
+			z = lambda b: subprocess.run(["zstd", "-q", "-c"], input=b, capture_output=True, check=True).stdout
+			cases["zstd"] = ("control.tar.zst", z(first) + z(second))
+		for why, member in cases.items():
+			deb = make_deb(f"{d}/cat-{why}.deb", "badwolf", "1", control_member=member)
+			r = self.repo("add", "--suite", "testing", "--keyring", self.keys["ci"][2], "--sign-key",
+			              self.keys["ci"][1], "--out", f"{self.root}/o", deb, ok=False)
+			self.assertEqual(r.returncode, 1, (why, r.stdout, r.stderr))
+			self.assertNotIn("Traceback", r.stderr, why)
+
 if __name__ == "__main__":
 	unittest.main()

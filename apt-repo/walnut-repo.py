@@ -149,11 +149,15 @@ def decompress(kind, data, limit=MAX_CONTROL):
 			out = d.decompress(data, max_length=limit + 1)
 			if not d.eof and len(out) <= limit:
 				raise Error("truncated xz data")
+			if d.eof and d.unused_data:
+				raise Error("data after the first xz stream")
 		elif kind == "gz":
 			d = zlib.decompressobj(31)
 			out = d.decompress(data, limit + 1)
 			if not d.eof and len(out) <= limit:
 				raise Error("truncated gzip data")
+			if d.eof and d.unused_data:	# dpkg reads every member of a gzip file, zlib stops after the first
+				raise Error("data after the first gzip member")
 		elif kind == "zst":
 			out = _zstd(data, limit)
 		else:
@@ -176,6 +180,8 @@ def _zstd(data, limit):
 			out = d.decompress(data, limit + 1)
 			if not d.eof and len(out) <= limit:
 				raise Error("truncated zstd data")
+			if d.eof and d.unused_data:	# the module stops after the first frame, dpkg reads them all
+				raise Error("data after the first zstd frame")
 			return out
 		except zstd.ZstdError as e:
 			raise Error(f"corrupt zst data ({e})") from None
@@ -213,11 +219,18 @@ def deb_control(path):
 		while hdr := f.read(60):
 			if len(hdr) != 60 or hdr[58:60] != b"`\n":
 				raise Error(f"{path}: bad ar header")
+			# the numeric fields are digits and padding, as dpkg reads them (int() takes "-60", which seeks back)
+			if not (re.fullmatch(rb"[0-9]* *", hdr[16:28]) and re.fullmatch(rb"[0-9]* *", hdr[28:34])
+			        and re.fullmatch(rb"[0-9]* *", hdr[34:40]) and re.fullmatch(rb"[0-7]* *", hdr[40:48])
+			        and re.fullmatch(rb"[0-9]+ *", hdr[48:58])):
+				raise Error(f"{path}: bad ar header")
 			try:
 				name = hdr[:16].decode("ascii").strip().rstrip("/")
-				size = int(hdr[48:58])
 			except ValueError:
 				raise Error(f"{path}: bad ar header") from None
+			size = int(hdr[48:58])
+			if len(order) >= 3:
+				raise Error(f"{path}: more than three ar members")
 			if f.tell() + size > total:
 				raise Error(f"{path}: truncated")
 			order.append(name)
