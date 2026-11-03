@@ -10,6 +10,7 @@ Package: ps3-system
 Architecture: all
 Depends: ${misc:Depends}, systemd, systemd-sysv, openssh-server, udev, util-linux, kmod, python3, whiptail, alsa-utils
 Recommends: bluez, network-manager
+XB-Walnut-Release: ${Walnut:Release}
 Description: PS3 system configuration (Linux on the PlayStation 3)
  Wired networking (systemd-networkd), SSH host keys on first boot and SSH logins (password or
  key, never root), the /dev/ps3gpu_* nodes, swap (zram, and the disk swap behind spare VRAM from

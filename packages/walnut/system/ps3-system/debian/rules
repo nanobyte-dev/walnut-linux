@@ -54,6 +54,9 @@ override_dh_auto_install:
 	install -D -m 644 debian/issue.net $(P)/usr/share/walnut/issue.net
 
 # Our units: enabled; swap and the boot-time oneshots are never stopped or restarted by upgrades
+override_dh_gencontrol:
+	dh_gencontrol -- -VWalnut:Release=$(VER)
+
 override_dh_installsystemd:
 	dh_installsystemd --name=ssh-hostkeys --no-start
 	dh_installsystemd --name=ps3gpu-nodes --no-stop-on-upgrade --no-restart-after-upgrade

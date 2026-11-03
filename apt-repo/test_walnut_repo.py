@@ -391,6 +391,14 @@ class Repo(unittest.TestCase):
 			self.assertTrue(self.publish(self.add([make_deb(f"{d}/ok{i}.deb", f"okpkg{i}", "1", control_extra=extra)])).startswith("ok"), extra)
 
 
+	def test_walnut_release_field_reaches_the_index(self):
+		"""ps3-system's Walnut-Release field (the apt update notice reads it) is accepted and written into Packages."""
+		d = self.debs
+		deb = make_deb(f"{d}/ps3-system_0.9_all.deb", "ps3-system", "0.9", control_extra="Walnut-Release: 0.1\n")
+		self.assertTrue(self.publish(self.add([deb])).startswith("ok"))
+		self.assertIn("\nWalnut-Release: 0.1\n", self.packages("testing"))
+
+
 	def test_malformed_input_is_refused_not_a_crash(self):
 		"""Empty or Source-less .dsc, corrupt or oversized control.tar, a .zst one: an error line, never a traceback (M-2)."""
 		d = self.debs

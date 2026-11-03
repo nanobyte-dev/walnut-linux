@@ -178,7 +178,7 @@ Updating Walnut Linux packages:
      ```bash
      sudo apt update && sudo apt full-upgrade
      ```
-   - `apt update` ends with a one-line Walnut notice when installed Walnut packages have a newer version, ``Notice: A new version of walnut is available, upgrade using `apt full-upgrade` `` There is no daemon, timer or popup; with no updates it prints nothing.
+   - `apt update` ends with a one-line Walnut notice when a new Walnut release is available (the Walnut-Release of the newest ps3-system in the Walnut lists is newer than your VERSION_ID in `/etc/os-release`), ``Notice: A new version of walnut is available, upgrade using `apt full-upgrade` `` Updates to single packages do not trigger it. There is no daemon, timer or popup; with no new release it prints nothing.
    - *(A dedicated `walnut-update` utility that stops graphical services, performs updates with optimized disk I/O, and restarts the desktop is planned for a future release).*
 2. **Kernel Updates & Fallback**
    - Kernel packages automatically detect your boot configuration:
