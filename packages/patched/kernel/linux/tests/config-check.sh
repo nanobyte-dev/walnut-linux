@@ -4,6 +4,7 @@
 # option didn't stick, when a listed hardening option dropped out (even one no fragment mentions),
 # when a must-stay-off driver is on, and when the research drivers are in the release kernel or
 # missing from the debug one. Also: the real package.conf's lists name the options the plan requires.
+# shellcheck disable=SC2154  # the REQUIRE_* lists come from package.conf
 set -u
 cd "$(dirname "$0")/../../../../.." || exit 1
 CHK=$PWD/tools/linux-config-check.sh REALPC=$PWD/packages/patched/kernel/linux/package.conf
@@ -77,7 +78,6 @@ run "a must-stay-off driver on (common list), debug kernel" 1 debug "$T/c" "$T/f
 # the real package.conf names what the plan requires
 # shellcheck source=/dev/null
 . "$REALPC"
-# shellcheck disable=SC2154  # the lists come from package.conf
 need_unset="CONFIG_PS3_FLASH CONFIG_PS3_FLASH_NG CONFIG_PS3_NOR_FLASH CONFIG_PS3_STRGMNGR CONFIG_PS3_ENCDEC CONFIG_SPUISO_FS CONFIG_SPULDR_FS CONFIG_PS3_REPOSITORY_WRITE"
 for o in $need_unset; do case " $REQUIRE_UNSET " in *" $o "*) ;; *) echo "FAIL: package.conf REQUIRE_UNSET lacks $o"; fail=1 ;; esac; done
 for o in CONFIG_PS3_LV1CALL CONFIG_PS3_PHYSMEM CONFIG_PS3_DISP_MANAGER; do
