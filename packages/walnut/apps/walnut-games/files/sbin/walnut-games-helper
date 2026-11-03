@@ -54,7 +54,8 @@ Design
   walnut-games-helper import-data ID PKG`), checked against the root-owned
   /usr/share/walnut-games/data-manifest.json (tools/gamedb/gdp-manifest.py: per package its files'
   paths, sizes and checksums, which are required, its version and its same-game Conflicts/Replaces).
-  Refused while a game runs (ps3-game-mode-watch.service active). The tar stream on stdin is read
+  Refused when the installed game-data-packager's upstream number (dpkg, without +ps3.N or a Debian revision)
+  isn't the manifest's gdp_version, before the stream is read. Refused while a game runs (ps3-game-mode-watch.service active). The tar stream on stdin is read
   member by member (tarfile 'r|', never extracted as such): regular files and directories, and the
   symlinks the manifest lists (gdp's own: Quake III's pk3s under /usr/lib/quake3, the exact path and
   target; each target relative and resolving under usr/, no file or link under a link path; made by
@@ -701,6 +702,31 @@ def load_manifest(path=None, check_owner=True):
     return data["packages"], str(data.get("gdp_version", "?"))
 
 
+def gdp_upstream(version):
+    """game-data-packager's upstream number out of a Debian version: no epoch, no +ps3.N, no Debian revision"""
+    v = version.split(":", 1)[-1]
+    v = re.sub(r"\+ps3\.[0-9]+(~[0-9a-z.]*)?$", "", v)
+    return v.rsplit("-", 1)[0] if "-" in v else v
+
+
+def installed_gdp_version(runner=run):
+    """the installed game-data-packager's upstream number, or Refused when dpkg has none"""
+    rc, out = runner([DPKG_QUERY, "-W", "-f", "${db:Status-Abbrev}\t${Version}\n", "game-data-packager"])
+    st, _, ver = out.strip().partition("\t")
+    if rc != 0 or not st.startswith("ii") or not ver:
+        raise Refused("game-data-packager is not installed")
+    return gdp_upstream(ver)
+
+
+def check_gdp_version(manifest_version, runner=run):
+    """the manifest lists the files of one game-data-packager number (tools/gamedb/gdp-manifest.py); the data
+    tar came from the installed one, and a different number can name files this list doesn't know"""
+    have = installed_gdp_version(runner)
+    if manifest_version != have:
+        raise Refused("the data manifest is for game-data-packager %s, this system has %s: update walnut-games "
+                      "and game-data-packager together" % (manifest_version, have))
+
+
 def data_setup_of(game_id, games):
     """the game's catalog data_setup (validated id); Refused for an unknown game or one without one"""
     if not isinstance(game_id, str) or not ID_RE.match(game_id):
@@ -1300,6 +1326,7 @@ def main(argv, catalog=CATALOG, check_owner=True, need_root=True, stdin=None, ma
         lock = take_lock(action, game_id, check_owner)
         if action == "import-data":
             man, gdp_version = load_manifest(manifest, check_owner)
+            check_gdp_version(gdp_version)
             do_import_data(game_id, argv[3], games, stdin if stdin is not None else sys.stdin.buffer, man,
                            gdp_version, check_owner=check_owner)
         else:

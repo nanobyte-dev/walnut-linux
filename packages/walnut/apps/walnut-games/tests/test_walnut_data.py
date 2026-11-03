@@ -457,6 +457,50 @@ class ImportData(Dirs):
         self.assertEqual(data["packages"]["transport-tycoon-deluxe-music"]["edition"], "music")
 
 
+class GdpVersion(Dirs):
+    """Q13: the manifest is for one game-data-packager number; the helper refuses another installed one"""
+    def runner(self, status="ii ", version="89+ps3.12", rc=0):
+        def f(cmd):
+            self.assertEqual(cmd[0], helper.DPKG_QUERY)
+            return rc, "%s\t%s\n" % (status, version) if rc == 0 else ""
+        return f
+
+    def test_upstream_number(self):
+        for v, want in (("89", "89"), ("89+ps3.12", "89"), ("89-1+ps3.3", "89"), ("89+ps3.1212~dev20261101142203", "89"), ("1:89-2", "89"), ("90~rc1-1", "90~rc1")):
+            self.assertEqual(helper.gdp_upstream(v), want, v)
+
+    def test_same_number_passes(self):
+        for v in ("89", "89+ps3.12", "89-1+ps3.3"):
+            helper.check_gdp_version("89", self.runner(version=v))
+
+    def test_other_number_or_missing_refused(self):
+        with self.assertRaises(helper.Refused) as cm:
+            helper.check_gdp_version("89", self.runner(version="90+ps3.1"))
+        self.assertIn("for game-data-packager 89, this system has 90", str(cm.exception))
+        for r in (self.runner(rc=1), self.runner(status="rc "), self.runner(version="")):
+            with self.assertRaises(helper.Refused):
+                helper.check_gdp_version("89", r)
+        with self.assertRaises(helper.Refused):
+            helper.check_gdp_version("?", self.runner())     # a manifest without a number
+
+    def test_import_refused_before_anything_is_read(self):
+        with tempfile.TemporaryDirectory() as t:
+            p = Path(t) / "catalog.json"
+            p.write_text(json.dumps({"games": list(GAMES.values())}))
+            m = Path(t) / "manifest.json"
+            m.write_text(json.dumps(MANIFEST))
+            old = helper.installed_gdp_version
+            helper.installed_gdp_version = lambda runner=helper.run: "91"
+            try:
+                with contextlib.redirect_stderr(io.StringIO()) as err, contextlib.redirect_stdout(io.StringIO()) as out:
+                    rc = helper.main(["h", "import-data", "alpha", "alpha-data"], str(p), False, False,
+                                     stdin=io.BytesIO(b"never read"), manifest=str(m))
+            finally:
+                helper.installed_gdp_version = old
+            self.assertEqual(rc, 2)
+            self.assertIn("for game-data-packager 89, this system has 91", out.getvalue() + err.getvalue())
+
+
 class Lock(Dirs):
     def test_second_action_refused(self):
         fd = helper.take_lock("import-data", "alpha", check_owner=False)
