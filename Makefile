@@ -531,9 +531,10 @@ $(foreach b,BUILDER GAMES_BUILDER SPU_BUILDER REPO_BUILDER,\
 
 # --- Debian source packages (deb-src + our patches; docs/PLAN.md, packaging plan) ---------------
 DEB_ENV := -e OWNER=$(UID_GID) -e DEBIAN_SUITE=$(DEBIAN_SUITE) -e DEBIAN_MIRROR=$(DEBIAN_MIRROR) -e HOME=/tmp -e CCACHE_REMOTE_STORAGE \
-	$(foreach v,$(ORIG_VARS),-e $(v)=$($(v))) -e KERNEL_RELEASE=$(KERNEL_RELEASE) -e KERNEL_FLAVOUR=$(KERNEL_FLAVOUR)
+	$(foreach v,$(ORIG_VARS),-e $(v)=$($(v))) -e KERNEL_RELEASE=$(KERNEL_RELEASE) -e KERNEL_FLAVOUR=$(KERNEL_FLAVOUR) -e LINUX_VARIANT
 # (the upstream tarballs a package's source is made from: <pkg>-src prerequisites in its orig.mk)
-# KERNEL_RELEASE and KERNEL_FLAVOUR are set only by ps3rsx-modules (below), per kernel.
+# KERNEL_RELEASE and KERNEL_FLAVOUR are set only by ps3rsx-modules (below), per kernel. LINUX_VARIANT (from
+# the caller's environment, e.g. lockdep) is passed on as it is: tools/linux-config.sh adds config/ps3-<name>.config.
 # ps3rsx for both kernels built by linux-deb (build/debs/linux), release and debug: modules
 # ps3rsx-modules-<release>, metas ps3rsx-modules-ps3 and ps3rsx-modules-ps3-debug (named like the
 # kernel's: KERNEL_FLAVOUR is the Debian flavour), in build/debs/ps3rsx-<Debian flavour>
