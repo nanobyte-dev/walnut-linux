@@ -5,7 +5,7 @@
 # when a must-stay-off driver is on, and when the research drivers are in the release kernel or
 # missing from the debug one. Also: the real package.conf's lists name the options the plan requires.
 set -u
-cd "$(dirname "$0")/../../../../.."
+cd "$(dirname "$0")/../../../../.." || exit 1
 CHK=$PWD/tools/linux-config-check.sh REALPC=$PWD/packages/patched/kernel/linux/package.conf
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
 fail=0

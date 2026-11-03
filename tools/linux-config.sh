@@ -23,7 +23,7 @@ if [ -n "${LINUX_VARIANT:-}" ]; then
 fi
 O=$(mktemp -d "${TMPDIR:-/tmp}/linux-config.XXXXXX")
 trap 'rm -rf "$O"' EXIT
-MAKE=(make -s -C "$SRC" O="$O" ARCH=powerpc CROSS_COMPILE=powerpc64-linux-gnu- CC=${LINUX_CONFIG_CC:-powerpc64-linux-gnu-gcc-16})
+MAKE=(make -s -C "$SRC" O="$O" ARCH=powerpc CROSS_COMPILE=powerpc64-linux-gnu- CC="${LINUX_CONFIG_CC:-powerpc64-linux-gnu-gcc-16}")
 "${MAKE[@]}" "$DEFCONFIG" >/dev/null
 "$SRC/scripts/kconfig/merge_config.sh" -m -O "$O" "$O/.config" "${frags[@]}" >/dev/null
 "${MAKE[@]}" olddefconfig >/dev/null

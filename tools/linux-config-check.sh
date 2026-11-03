@@ -12,6 +12,7 @@
 set -euo pipefail
 {
 FLAVOUR=$1 CONFIG=$2; shift 2
+# shellcheck source=/dev/null
 . "${PKGCONF:-packages/patched/kernel/linux/package.conf}"
 fail=0
 bad() { echo "!! $FLAVOUR: $*" >&2; fail=1; }
