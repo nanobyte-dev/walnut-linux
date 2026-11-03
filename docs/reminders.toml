@@ -13,3 +13,15 @@ what = "Review the apt cache's \"outside the snapshot allowlist\" log lines, the
 [[reminder]]
 due = "2027-03-01"
 what = "Re-check the trusted/external tier list in github-ci/packages.toml."
+
+[[reminder]]
+due = "2026-11-15"
+what = "Take polkit 128 or later with the next snapshot refresh (docs/PACKAGING.md), then confirm polkitd 128 in the built image; re-read its Debian CVE status."
+
+[[reminder]]
+due = "2026-12-01"
+what = "Monthly pin check: the Debian snapshot date, the 6.12 kernel point release, polkit, openssh, sudo, glibc and the other tracked CVEs against what the image carries. Then add next month's reminder."
+
+[[reminder]]
+due = "2027-08-21"
+what = "The archive signing subkey expires 2027-10-21: extend it with the offline primary key, publish the new keyring (apt-repo/keyrings and ps3-system's copy), and update the GitHub secret."
