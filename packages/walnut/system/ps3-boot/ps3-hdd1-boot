@@ -16,7 +16,7 @@
 # a .tmp copy and a rename, kboot.conf last, so an interrupted run leaves the old menu working.
 # GameOS's data lives on the same partition, so nothing is copied before the free space is checked
 # against what the run adds; when it is short, only kernels the current menu doesn't use are freed
-# first, and if that is not enough the run stops with dev_hdd1 as it was. Our *.tmp files (also
+# first, and if that is not enough the run stops without writing a menu or a new file (kernels no menu uses may be gone). Our *.tmp files (also
 # those of an interrupted run) are removed at the start and on every exit.
 # PS3_BOOT_ROOT: a prefix for /boot and /usr (host tests); PS3_HDD1_DIR: a directory standing in for
 # the mounted dev_hdd1 (host tests: no blkid, mount or blockdev); PS3_HDD1_FREE_KB with it: the free
@@ -72,6 +72,12 @@ free_kb() {
 	if [ -n "${PS3_HDD1_DIR:-}" ] && [ -n "${PS3_HDD1_FREE_KB:-}" ]; then echo "$PS3_HDD1_FREE_KB"
 	else df -Pk "$M" | awk 'NR==2 {print $4}'; fi
 }
+# kernels the current menu names: ours (the walnut and walnut-prev lines) and every other line's (another install's,
+# any label, single or double quotes); the other lines survive this run, so their kernels are never removed
+kernels_of() { sed -n "s/^$1=[\"']\{0,1\}\/linux\/boot\/vmlinux-\([^ \"']*\).*/\1/p" "$M/kboot.conf" 2>/dev/null || true; }
+ours=$(kernels_of walnut; kernels_of walnut-prev)
+ours=$(echo $ours)
+foreign=$(sed -n "/^walnut\(-prev\)\{0,1\}=/d; s/^[^=#]*=[\"']\{0,1\}\/linux\/boot\/vmlinux-\([^ \"']*\).*/\1/p" "$M/kboot.conf" 2>/dev/null | tr '\n' ' ' || true)
 needed=0
 for r in $cur $prev; do
 	cmp -s "$R/boot/vmlinux-$r" "$M/linux/boot/vmlinux-$r" 2>/dev/null || needed=$((needed + $(size "$R/boot/vmlinux-$r")))
@@ -84,7 +90,7 @@ fi
 short() { [ $(( $(free_kb) * 1024 )) -lt $((needed + 4194304)) ]; }
 if short; then
 	# free the kernels the current menu doesn't use (the old menu stays bootable)
-	used=$(sed -n "s/^walnut\(-prev\)\{0,1\}='\/linux\/boot\/vmlinux-\([^ ]*\) .*/\2/p" "$M/kboot.conf" 2>/dev/null || true)
+	used="$ours $foreign"
 	for f in "$M"/linux/boot/vmlinux-*; do
 		[ -e "$f" ] || continue
 		v=${f##*/vmlinux-}
@@ -140,7 +146,7 @@ sync
 mv -f "$M/kboot.conf.new" "$M/kboot.conf"
 for f in "$M"/linux/boot/vmlinux-*; do
 	[ -e "$f" ] || continue
-	case ${f##*/vmlinux-} in "$cur"|"$prev") ;; *) rm -f "$f" ;; esac
+	case " $cur $prev $foreign " in *" ${f##*/vmlinux-} "*) ;; *) rm -f "$f" ;; esac
 done
 sync
 echo "ps3-hdd1-boot: dev_hdd1: walnut $cur${prev:+, walnut-prev $prev}"

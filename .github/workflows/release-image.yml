@@ -45,7 +45,9 @@ jobs:
           persist-credentials: false
       - name: The games in the package layer (the key covers them, ROOTFS_GAMES from the gamedb files)
         id: inputs
-        run: echo "games=$(python3 -I tools/gamedb/build-info.py image-base | tr '\n' ' ')" >> "$GITHUB_OUTPUT"
+        run: |
+          g=$(python3 -I tools/gamedb/build-info.py image-base) || { echo "::error::build-info.py failed: no key without the games"; exit 1; }
+          echo "games=$(printf '%s' "$g" | tr '\n' ' ')" >> "$GITHUB_OUTPUT"
       - name: Cache key, salted (only a trusted job can compute it; exact key, no fallback)
         id: key
         env:
@@ -167,7 +169,9 @@ jobs:
           persist-credentials: false
       - name: The games in the package layer (the key covers them, ROOTFS_GAMES from the gamedb files)
         id: inputs
-        run: echo "games=$(python3 -I tools/gamedb/build-info.py image-base | tr '\n' ' ')" >> "$GITHUB_OUTPUT"
+        run: |
+          g=$(python3 -I tools/gamedb/build-info.py image-base) || { echo "::error::build-info.py failed: no key without the games"; exit 1; }
+          echo "games=$(printf '%s' "$g" | tr '\n' ' ')" >> "$GITHUB_OUTPUT"
       - name: Cache key, salted
         id: key
         env:

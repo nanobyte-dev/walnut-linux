@@ -246,6 +246,29 @@ class Kboot(unittest.TestCase):
         self.assertFalse((h / "linux/boot/vmlinux-dropme").exists())
         self.assertEqual((h / "kboot.conf").read_text(), "walnut='/linux/boot/vmlinux-keepme initrd=/x'\n")
 
+    def test_hdd1_foreign_entries_keep_their_kernels(self):
+        """another install's kboot.conf lines (any label, single or double quotes) name kernels that stay, when
+        space is short and at the end of every run"""
+        (self.r / "usr/lib/ps3/boot/initrd-walnut.img").write_bytes(b"i" * 4096)
+        (self.r / "boot" / ("vmlinux-" + REL)).write_bytes(b"k" * (2 << 20))
+        h = self.r / "hdd1"
+        (h / "linux/boot").mkdir(parents=True)
+        (h / "kboot.conf").write_text("walnut='/linux/boot/vmlinux-mine initrd=/x'\n"
+                                      "other='/linux/boot/vmlinux-theirs root=/dev/sda2'\n"
+                                      'quoted="/linux/boot/vmlinux-theirs2 root=/dev/sda3"\n')
+        for k in ("mine", "theirs", "theirs2", "stray"):
+            (h / "linux/boot" / ("vmlinux-" + k)).write_bytes(b"k")
+        p, h = self.hdd1(PS3_HDD1_FREE_KB="5000")       # short: frees only "stray"
+        self.assertNotEqual(p.returncode, 0)
+        left = sorted(os.listdir(h / "linux/boot"))
+        self.assertEqual(left, ["vmlinux-mine", "vmlinux-theirs", "vmlinux-theirs2"])
+        p, h = self.hdd1(PS3_HDD1_FREE_KB="100000")     # room: the end-of-run sweep keeps theirs too
+        self.assertEqual(p.returncode, 0, p.stderr)
+        left = sorted(os.listdir(h / "linux/boot"))
+        self.assertIn("vmlinux-theirs", left)
+        self.assertIn("vmlinux-theirs2", left)
+        self.assertNotIn("vmlinux-mine", left)
+
     def test_hdd1_enough_space_and_stale_tmp(self):
         (self.r / "usr/lib/ps3/boot/initrd-walnut.img").write_bytes(b"i" * 4096)
         h = self.r / "hdd1"

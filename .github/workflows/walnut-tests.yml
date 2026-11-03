@@ -3,7 +3,7 @@
 # nothing it can reach is worth taking. A suite that cannot run on the runner is a failure unless
 # tools/ci-skips.txt lists it with a reason (`run-tests.sh --ci`); a missing prerequisite never reads as a pass.
 # gen-workflows.py --check refuses a secret, an environment or a write permission in a workflow that runs on
-# pull_request. A first-time contributor's run waits for a maintainer's "Approve and run" (GitHub's default).
+# pull_request. Set the repository to require approval for all outside collaborators' runs (a GitHub setting); the lint here is hygiene, the boundary is GitHub's no-secrets rule for fork runs.
 name: "walnut: tests"
 
 on:
@@ -27,7 +27,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0  # version and pin tests read the history
-          lfs: true
+          lfs: false  # the suites that need LFS objects skip, and tools/ci-skips.txt says which
           persist-credentials: false
       - name: The tools the suites use
         run: |

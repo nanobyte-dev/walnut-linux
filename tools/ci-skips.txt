@@ -24,3 +24,6 @@ game-data-packager      needs build/debs/game-data-packager and the deb builder 
 ps3rsx-shadow:ppc64     needs the ppc64 cross compiler, qemu-ppc64-static and build/mesa/sysroot
 luajit-low-2gb          needs qemu-ppc64 and the luajit trees
 sdl2-compat-close-locked needs SDL3 development files and the sdl2-compat tarball
+# Git LFS objects are not fetched in this job
+walnut-rate:unittest    skips the tests that need a gamedb session's LFS objects (and Xvfb/ImageMagick if absent)
+gamedb:unittest         skips a test that needs LFS objects

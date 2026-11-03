@@ -522,9 +522,11 @@ def pr_rules(name, doc):
 			errs.append(f"{name}: job {jname}: runs on pull_request and uses an environment")
 		if isinstance(job, dict) and "uses" in job:
 			errs.append(f"{name}: job {jname}: runs on pull_request and calls another workflow")
+	if not isinstance(doc.get("permissions"), (dict, str)):
+		errs.append(f"{name}: runs on pull_request without a top-level permissions: key (the token would get the repository default)")
 	perms = [doc.get("permissions")] + [j.get("permissions") for j in (doc.get("jobs") or {}).values() if isinstance(j, dict)]
 	for pm in perms:
-		if isinstance(pm, str) and pm != "read-all" or isinstance(pm, dict) and any(v != "read" for v in pm.values()):
+		if isinstance(pm, str) and pm != "read-all" or isinstance(pm, dict) and any(v not in ("read", "none") for v in pm.values()):
 			errs.append(f"{name}: runs on pull_request with a permission above read")
 	return errs
 

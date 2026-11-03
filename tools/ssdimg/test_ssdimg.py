@@ -1139,7 +1139,7 @@ class InitRecheck(unittest.TestCase):
         return r.returncode, r.stdout, calls
 
     def test_changed_image_resumed_starts_over(self):
-        rc, out, calls = self.run_it("resume", 1, "'!! CHANGED: the block list differs'")
+        rc, out, calls = self.run_it("resume", 1, "'!! ps3-imgmap-boot refused: CHANGED: the block list differs'")
         self.assertEqual(rc, 0, out)
         self.assertIn("ACTION=install", out)
         self.assertIn("MAP=%s/recheck-%s/boot.map" % (SCRATCH, self._testMethodName), out)
@@ -1152,6 +1152,11 @@ class InitRecheck(unittest.TestCase):
         self.assertIn("FAIL !! no such image", out)
         self.assertEqual(calls, ["recheck"])
 
+    def test_the_word_in_a_path_is_not_a_verdict(self):
+        rc, out, calls = self.run_it("resume", 1, "'!! ps3-imgmap-boot refused: /gameos/linux/UNCHANGED.img: read error'")
+        self.assertEqual(rc, 3, out)
+        self.assertEqual(calls, ["recheck"])
+
     def test_resume_unchanged_stays_a_resume(self):
         rc, out, calls = self.run_it("resume", 0, "ok")
         self.assertEqual(rc, 0, out)
@@ -1160,7 +1165,7 @@ class InitRecheck(unittest.TestCase):
 
     def test_boot_and_finish_do_not_start_over(self):
         for action in ("boot", "finish"):
-            rc, out, calls = self.run_it(action, 1, "'!! CHANGED: inode'")
+            rc, out, calls = self.run_it(action, 1, "'!! ps3-imgmap-boot refused: CHANGED: inode'")
             self.assertEqual(rc, 3, out)
             self.assertEqual(calls, ["recheck"], action)
 

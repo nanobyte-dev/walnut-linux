@@ -109,6 +109,7 @@ class Lint(unittest.TestCase):
 		            wf("    environment: walnut-testing\n    steps:\n      - run: echo\n"),
 		            wf("    steps:\n      - run: echo\n", perms="permissions:\n  contents: write\n"),
 		            wf("    permissions:\n      id-token: write\n    steps:\n      - run: echo\n"),
+		            "on:\n  pull_request:\njobs:\n  t:\n    runs-on: x\n    steps:\n      - run: echo\n",	# no permissions: key
 		            "on:\n  pull_request:\njobs:\n  t:\n    uses: ./.github/workflows/x.yml\n    secrets: inherit\n"):
 			self.assertTrue(self.lint({"a.yml": bad}, yaml=True), bad)
 		# the same things are fine on a push workflow (they are other rules' business)
@@ -359,7 +360,9 @@ class CacheMac(unittest.TestCase):
 			for need in ("build-containers/Dockerfile'", "build-containers/Dockerfile.deb", "system/image/packages.txt",
 			             "tools/build-rootfs.sh", "config.mk", "steps.inputs.outputs.games"):
 				self.assertIn(need, base, f"{j}: {need}")
-			self.assertIn("build-info.py image-base", steps[names.index("inputs")]["run"])
+			run = steps[names.index("inputs")]["run"]
+			self.assertIn("build-info.py image-base", run)
+			self.assertRegex(run, r"\$\(python3 -I tools/gamedb/build-info.py image-base\) \|\| \{.*exit 1")	# a failure stops the job
 			self.assertEqual(secret_uses_of(steps[names.index("inputs")]), [], j)	# the step that reads the repository's files holds no secret
 
 	def test_workflows_use_it(self):
