@@ -4,7 +4,7 @@
 stamp), the arms numbered in load order (A1, B1, B2, A2, then extra arms); the bench runs are read
 with bench/analysis/report.py, the desktop cases from their "rsxab:" lines. One table per case, a
 column per arm, then the verdict per metric:
-  significant  a B arm worse than both A arms by more than the A1-to-A2 difference (the boot's own
+  significant  a B arm worse than every A arm by more than the spread of the A arms (the boot's own
                noise), for stall time, 1% low, load time, mpv's dropped frames and the X loop's p99
                and total; or steady fps more than 3% below the lower A arm
   ok           neither
@@ -100,8 +100,8 @@ def main(argv):
             av = [by_arm[c][key] for c in a_arms if key in by_arm[c]]
             bv = [by_arm[c][key] for c in b_arms if key in by_arm[c]]
             verdict = ""
-            if len(av) == 2 and bv:
-                noise = abs(av[0] - av[1])
+            if len(av) >= 2 and bv:
+                noise = max(av) - min(av)	# the boot's own A/A spread (two or more A arms)
                 if key == "steady":
                     sig = any(b < 0.97 * min(av) for b in bv)
                 elif higher_worse:
