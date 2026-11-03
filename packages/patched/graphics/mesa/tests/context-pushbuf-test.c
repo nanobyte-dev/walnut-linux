@@ -59,6 +59,9 @@ struct nouveau_bufctx *nouveau_pushbuf_bufctx(struct nouveau_pushbuf *push, stru
 
 /* what destroy and flush call besides: nothing to do in this model */
 void nv30_shader_cache_report(struct nv30_screen *screen, const char *event) { (void)screen; (void)event; }
+/* 0057: the staging count nv30_miptree.c keeps for the context (not under test here: none) */
+struct nv30_inflight *nv30_inflight_new(void) { return NULL; }
+void nv30_inflight_release(struct nv30_inflight *i) { (void)i; }
 void nv30_framebuffer_init(struct pipe_context *pctx, const struct pipe_framebuffer_state *fb,
 			   struct pipe_surface **cbufs, struct pipe_surface **zsbuf)
 {
