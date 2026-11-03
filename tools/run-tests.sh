@@ -35,6 +35,8 @@
 #            sdl2-compat-close-locked (sdl2-compat 0001: SDL_CloseAudio while locked, SDL 1.2's and
 #            SDL2's API, dummy driver, a timeout; our build passes, the stock tarball's hangs), luajit-low-2gb
 #            (luajit 0001: luaL_newstate() 100 times under qemu-ppc64, ours never fails, stock does),
+#            walnut-install (system/installer/test_walnut_install.py: the release checks, the USB install's plan, and that
+#            only the typed model name confirms a live USB install),
 #            ssdimg (the SSD test
 #            drive's stamp.py, ps3-imgmap on a fake UFS layer, ps3-vswap's device-mapper backing;
 #            ps3-imgmap-boot's maps and tables against ps3-imgmap's; both tools' write guard
@@ -178,6 +180,7 @@ run sdl2-compat-close-locked bash packages/patched/graphics/sdl2-compat/tests/cl
 run luajit-low-2gb packages/patched/libs/luajit/tests/low-2gb.sh
 run ssdimg python3 tools/ssdimg/test_ssdimg.py
 run ps3-boot python3 packages/walnut/system/ps3-boot/tests/test_kboot.py
+run walnut-install python3 -I system/installer/test_walnut_install.py
 run agent-guard python3 -I tools/hooks/test_agent_guard.py
 run commit-tests bash -c "python3 -I tools/commit_tests/tests/test_checks.py && python3 -I tools/commit_tests/tests/test_e2e.py"
 run commit-hooks tools/hooks/install.sh --check
