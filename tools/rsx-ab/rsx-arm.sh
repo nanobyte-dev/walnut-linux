@@ -1,9 +1,9 @@
 #!/bin/bash
 # rsx-arm.sh: switches the PS3 between ps3rsx builds within one boot, for same-boot A/B runs (run as
 # tibi on the PS3; uses sudo). The modules come from arms-prep.sh on the PC, copied to
-# /var/tmp/rsx-ab/arms/{A,B,C}/ps3rsx.ko with arms.txt.
-#   rsx-arm.sh ARM [PARAM=VALUE...]   load arm A, B or C (C: the test-switch build) with those module
-#                                     parameters, e.g. rsx-arm.sh C test_clear_off=1
+# /var/tmp/rsx-ab/arms/{A,B,C,D}/ps3rsx.ko with arms.txt.
+#   rsx-arm.sh ARM [PARAM=VALUE...]   load arm A, B, C or D (C: the test-switch build, D: a candidate
+#                                     fix) with those module parameters, e.g. rsx-arm.sh C test_clear_off=1
 #   rsx-arm.sh unload                 the desktop stopped, the VRAM swap off, ps3rsx unloaded
 #   rsx-arm.sh status                 the loaded arm (by the module file's sha256) and its parameters
 # A switch: `ps3-bench.sh quiet` (desktop stopped, caches dropped, swaps emptied), the VRAM swap off
@@ -33,7 +33,7 @@ recovered() {
 which_arm() {
 	local s a
 	s=$(sha256sum "$KO" | cut -c1-16)
-	for a in A B C; do
+	for a in A B C D; do
 		[ -e "$D/$a/ps3rsx.ko" ] && [ "$(sha256sum "$D/$a/ps3rsx.ko" | cut -c1-16)" = "$s" ] && { echo "$a"; return; }
 	done
 	echo "package ($s)"
@@ -60,9 +60,9 @@ unload)
 	;;
 status)
 	echo "arm: $(which_arm); loaded: $([ -d /sys/module/ps3rsx ] && echo yes || echo no)"
-	for f in /sys/module/ps3rsx/parameters/*; do [ -r "$f" ] && echo "  ${f##*/}=$(cat "$f")"; done 2>/dev/null | grep -E 'test_clear_off|vswap_vram_mb|ctxsw|dry_run' || true
+	for f in /sys/module/ps3rsx/parameters/*; do [ -r "$f" ] && echo "  ${f##*/}=$(cat "$f")"; done 2>/dev/null | grep -E 'test_clear_off|test_reuse_off|test_gart_wait_off|vswap_vram_mb|ctxsw|dry_run' || true
 	;;
-A|B|C)
+A|B|C|D)
 	arm=$1; shift
 	[ -e "$D/$arm/ps3rsx.ko" ] || die "no $D/$arm/ps3rsx.ko (arms-prep.sh on the PC, then copy)"
 	grep -q "^$arm\s.*\s$REL\$" "$D/arms.txt" || die "arm $arm isn't built for the running kernel $REL ($D/arms.txt)"

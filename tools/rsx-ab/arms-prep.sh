@@ -1,14 +1,14 @@
 #!/bin/bash
-# arms-prep.sh B.deb [C.deb]: the ps3rsx modules of a same-boot A/B (tools/rsx-ab/rsx-arm.sh on the
+# arms-prep.sh B.deb [C.deb [D.deb]]: the ps3rsx modules of a same-boot A/B (tools/rsx-ab/rsx-arm.sh on the
 # PS3), on the PC: arm A is walnut-stable's ps3rsx-modules for the kernel B was built for (its signed
 # index checked with the archive key, the deb with the index's sha256), arm B the new build, arm C
-# (optional) the same source built with the test switch (a "testclear" version). Writes
-# build/tmp/rsx-ab/arms/{A,B,C}/ps3rsx.ko and arms.txt (arm, package, version, sha256 prefix, vermagic),
+# (optional) the same source built with the test switch (a "testclear" version), arm D (optional) a
+# candidate fix on top of B. Writes build/tmp/rsx-ab/arms/{A,B,C,D}/ps3rsx.ko and arms.txt (arm, package, version, sha256 prefix, vermagic),
 # then copy the directory to the PS3:  scp -r build/tmp/rsx-ab/arms PS3:/var/tmp/rsx-ab/
 # Nothing is installed here, and nothing goes to build/debs.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
-[ $# -ge 1 ] && [ $# -le 2 ] || { echo "usage: $0 B.deb [C.deb]" >&2; exit 2; }
+[ $# -ge 1 ] && [ $# -le 3 ] || { echo "usage: $0 B.deb [C.deb [D.deb]]" >&2; exit 2; }
 O=build/tmp/rsx-ab/arms
 W=$(mktemp -d build/tmp/rsx-ab-prep.XXXXXX)
 trap 'rm -rf "$W"' EXIT
@@ -62,5 +62,6 @@ echo "$sha  $W/a.deb" | sha256sum -c --quiet - || { echo "!! $file: sha256 misma
 arm A "$W/a.deb"
 arm B "$1"
 [ $# -lt 2 ] || arm C "$2"
+[ $# -lt 3 ] || arm D "$3"
 column -t "$O/arms.txt"
 echo ">> $O: copy to the PS3's /var/tmp/rsx-ab/arms"
