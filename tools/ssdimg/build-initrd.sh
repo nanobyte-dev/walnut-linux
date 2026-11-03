@@ -31,7 +31,7 @@
 #                 maps: required when the release's System.map in KDEB has the guard, auto otherwise and
 #                 with MODDIR (auto: a kernel without the guard boots with a log line saying so);
 #                 generic: required (every Walnut kernel has the guard)
-#   INITRD_BUILT  the build's name for /etc/ps3ssd-initrd (make passes git describe)
+#   INITRD_BUILT  the build's name for /etc/ps3ssd-initrd (make passes the last commit that touched ps3-boot's sources)
 # Also writes $OUT.manifest (sha256 of every file and of the kernel package's modules, the sizes), the
 # boot maps into maps/ next to $OUT, and ps3-imgmap-boot.$ARCH next to it: what the PS3 side
 # (tools/ssdimg/ssd-install-image.sh) checks against the running system.

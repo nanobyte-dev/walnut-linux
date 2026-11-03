@@ -517,5 +517,54 @@ class DeployAptCheck(unittest.TestCase):
         self.assertNotIn("apt-get check: ok", r.stdout)
 
 
+class StagedDebBuild(unittest.TestCase):
+    """Q15: tools/deb-build.sh (BUILD=indep, stub dpkg tools) stages its output in build/debs/.new-<pkg>; a failed
+    rebuild leaves the previous debs in place, a successful one replaces them"""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        (self.root / "tools").mkdir()
+        for f in ("deb-build.sh", "pkg-dir.sh"):
+            shutil.copy(HERE / f, self.root / "tools" / f)
+        write(self.root, "packages/walnut/x/fake/package.conf", "TYPE=native\nBUILD=indep\nSOURCE=fake\n")
+        write(self.root, "build/src/fake/fake_1.dsc", "dsc")
+        write(self.root, "build/debs/fake/old_1_all.deb", "old")
+        stubs = self.root / "stubs"
+        stubs.mkdir()
+        for name, body in (("dpkg-source", 'mkdir -p "$3"\n'),
+                           ("dpkg-buildpackage", '[ -z "$FAKE_FAIL" ] || { echo broken; exit 1; }\n'
+                                                 'echo new > ../fake_2_all.deb; echo b > ../fake.buildinfo; echo c > ../fake.changes\n')):
+            (stubs / name).write_text("#!/bin/sh\n" + body)
+            (stubs / name).chmod(0o755)
+
+    def build(self, fail=False):
+        env = dict(os.environ, PATH=f"{self.root}/stubs:{os.environ['PATH']}", OWNER=f"{os.getuid()}:{os.getgid()}",
+                   FAKE_FAIL="1" if fail else "")
+        return subprocess.run(["bash", "tools/deb-build.sh", "fake"], cwd=self.root, env=env,
+                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+
+    def debs(self):
+        return sorted(p.name for p in (self.root / "build/debs/fake").glob("*"))
+
+    def test_failed_build_keeps_the_previous_debs(self):
+        r = self.build(fail=True)
+        self.assertNotEqual(r.returncode, 0, r.stdout)
+        self.assertEqual(self.debs(), ["old_1_all.deb"])
+
+    def test_good_build_replaces_them(self):
+        r = self.build()
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertEqual(self.debs(), ["build-indep.log", "fake.buildinfo", "fake.changes", "fake_2_all.deb"])
+        self.assertFalse((self.root / "build/debs/.new-fake").exists())
+
+    def test_a_failed_build_after_a_failed_one_starts_clean(self):
+        self.build(fail=True)
+        r = self.build()
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertNotIn("old_1_all.deb", self.debs())
+
+
 if __name__ == "__main__":
     unittest.main()

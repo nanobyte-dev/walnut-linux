@@ -76,7 +76,7 @@ if [ -n "${WALNUT_SUITE:-}" ]; then
 else
 	# this checkout's build outputs, as a flat repository
 	mkdir -p "$R/tmp/ps3-repo"
-	find build/debs -mindepth 2 -maxdepth 2 -name "*.deb" -exec cp -t "$R/tmp/ps3-repo/" {} +
+	find build/debs -mindepth 2 -maxdepth 2 ! -path "build/debs/.*" -name "*.deb" -exec cp -t "$R/tmp/ps3-repo/" {} +
 	rm -f "$R"/tmp/ps3-repo/*-dbgsym_*.deb	# debug symbols
 	if [ "$PROFILE" = "public" ]; then
 		# No debug kernel or debug ps3rsx in public image
