@@ -99,6 +99,30 @@ class Lint(unittest.TestCase):
 		self.assertTrue(self.lint({"a.yml": "name: x\n"}, yaml=True))	# not a workflow
 		self.assertEqual(self.lint({}), [])
 
+	def test_pull_request_workflows_hold_nothing(self):
+		"""M11: a workflow on pull_request has no secret, no environment, no write permission, no called workflow"""
+		def wf(body, perms="permissions:\n  contents: read\n"):
+			return f"on:\n  pull_request:\n{perms}jobs:\n  t:\n    runs-on: x\n{body}"
+		ok = wf("    steps:\n      - run: make test\n")
+		self.assertEqual(self.lint({"a.yml": ok}, yaml=True), [])
+		for bad in (wf("    steps:\n      - run: echo\n        env:\n          K: ${{ secrets.K }}\n"),
+		            wf("    environment: walnut-testing\n    steps:\n      - run: echo\n"),
+		            wf("    steps:\n      - run: echo\n", perms="permissions:\n  contents: write\n"),
+		            wf("    permissions:\n      id-token: write\n    steps:\n      - run: echo\n"),
+		            "on:\n  pull_request:\njobs:\n  t:\n    uses: ./.github/workflows/x.yml\n    secrets: inherit\n"):
+			self.assertTrue(self.lint({"a.yml": bad}, yaml=True), bad)
+		# the same things are fine on a push workflow (they are other rules' business)
+		self.assertEqual(self.lint({"a.yml": "on:\n  push:\njobs:\n  t:\n    runs-on: x\n    environment: walnut-testing\n    steps:\n      - run: echo\n        env:\n          K: ${{ secrets.K }}\n"}, yaml=True), [])
+
+	def test_the_tests_workflow_exists_and_is_secret_free(self):
+		import yaml
+		doc = yaml.safe_load(open(f"{HERE}/../.github/workflows/walnut-tests.yml"))
+		self.assertIn("pull_request", doc[True])
+		self.assertEqual(gw.secret_uses(doc), [])
+		run = "\n".join(st.get("run", "") for st in doc["jobs"]["tests"]["steps"])
+		self.assertIn("tools/run-tests.sh --ci", run)
+		self.assertIn("commit_tests/run.py --all --only shell", run)
+
 	def test_secrets_stay_out_of_package_code(self):
 		def wf(jobs, top=""):
 			return f"{top}on:\n  push:\njobs:\n{jobs}"

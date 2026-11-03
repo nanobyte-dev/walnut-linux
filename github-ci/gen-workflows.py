@@ -508,6 +508,27 @@ def secret_rules(name, doc):
 	return errs
 
 
+def pr_rules(name, doc):
+	"""A workflow that runs on pull_request runs code from outside the repository's maintainers: it holds no secret,
+	no environment, no write permission and calls nothing that passes secrets on."""
+	on = doc.get("on", doc.get(True)) or {}
+	if "pull_request" not in (on if isinstance(on, (dict, list, str)) else {}):
+		return []
+	errs = []
+	if secret_uses(doc) or any("secrets" in j for j in (doc.get("jobs") or {}).values() if isinstance(j, dict)):
+		errs.append(f"{name}: runs on pull_request and references a secret")
+	for jname, job in (doc.get("jobs") or {}).items():
+		if isinstance(job, dict) and "environment" in job:
+			errs.append(f"{name}: job {jname}: runs on pull_request and uses an environment")
+		if isinstance(job, dict) and "uses" in job:
+			errs.append(f"{name}: job {jname}: runs on pull_request and calls another workflow")
+	perms = [doc.get("permissions")] + [j.get("permissions") for j in (doc.get("jobs") or {}).values() if isinstance(j, dict)]
+	for pm in perms:
+		if isinstance(pm, str) and pm != "read-all" or isinstance(pm, dict) and any(v != "read" for v in pm.values()):
+			errs.append(f"{name}: runs on pull_request with a permission above read")
+	return errs
+
+
 STABLE_ENVS = ("walnut-stable", "walnut-${{ inputs.channel }}")
 
 
@@ -567,7 +588,7 @@ def workflow_lint(check_yaml=True):
 			if not e:
 				import yaml
 				doc = yaml.safe_load(open(f))
-				errs += secret_rules(name, doc) + stable_rules(name, doc)
+				errs += secret_rules(name, doc) + stable_rules(name, doc) + pr_rules(name, doc)
 		text = "\n".join(l for l in open(f).read().splitlines() if not l.lstrip().startswith("#")) + "\n"	# not comments
 		if "pull_request_target" in text:
 			errs.append(f"{name}: pull_request_target")

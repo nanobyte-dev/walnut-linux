@@ -1,0 +1,41 @@
+# The host test suites (tools/run-tests.sh, `make test`) and ShellCheck on every push to main and every pull
+# request. No secrets, no environment, a read-only token: it runs code of the pull request and of main, so
+# nothing it can reach is worth taking. A suite that cannot run on the runner is a failure unless
+# tools/ci-skips.txt lists it with a reason (`run-tests.sh --ci`); a missing prerequisite never reads as a pass.
+# gen-workflows.py --check refuses a secret, an environment or a write permission in a workflow that runs on
+# pull_request. A first-time contributor's run waits for a maintainer's "Approve and run" (GitHub's default).
+name: "walnut: tests"
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: walnut-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0  # version and pin tests read the history
+          lfs: true
+          persist-credentials: false
+      - name: The tools the suites use
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends shellcheck python3-yaml git-filter-repo gcc make
+      - name: The commit hooks, so the suite that checks them has them
+        run: tools/hooks/install.sh
+      - name: The host test suites
+        run: tools/run-tests.sh --ci
+      - name: ShellCheck and the shell patterns over every tracked script
+        run: python3 -I tools/commit_tests/run.py --all --only shell
