@@ -41,11 +41,11 @@ Config states are from the shipped `config-6.12.111+ps3.419`.
 | 0050 ps3sysmgr-lpar-reboot | reboot asks the SM for an LPAR reboot instead of a system reboot | CAREFUL (SM request, run time) | keep |
 | 0060 ps3sysmgr-char-device | `/dev/ps3sysmngr`: raw System Manager packets from userspace. Built in; while open, the kernel stops handling power-button and thermal events | FORBIDDEN-capable (any SM service; the SM fronts SYSCON; glevand's ps3sm-utils drive LEDs and the buzzer through it) | **dropped 2026-10-18** (decision 2) |
 | 0070 ps3avmgr-char-device | `/dev/ps3avmgr`: raw AV manager packets. Built in, no use today | CAREFUL | keep, unused |
-| 0080 ps3dispmgr | `/dev/ps3dispmngr`: raw dispatcher manager (update manager, storage manager, secure RTC). `=m`, autoloaded by its bus alias | FORBIDDEN-capable (update manager = firmware update and EEPROM writes) | **`PS3_DISP_MANAGER` off 2026-10-18** (decision 3); the patch stays in the series, nothing is built from it |
+| 0080 ps3dispmgr | `/dev/ps3dispmngr`: raw dispatcher manager (update manager, storage manager, secure RTC). `=m`, autoloaded by its bus alias | FORBIDDEN-capable (update manager = firmware update and EEPROM writes) | **`PS3_DISP_MANAGER` off 2026-10-18** (decision 3); from round 3 (2026-11-04) built as a module in the debug flavour only (`ps3-debug.config`), never in the release kernel |
 | 0090 ps3rom-vendor-specific-command | SCSI pass-through of vendor commands to the BD drive. Built in | CAREFUL, FORBIDDEN-capable (BD drive firmware commands) | **dropped 2026-10-18** (decision 4) |
 | 0100 spu-enum-shared-param | enumerate the shared SPE as well (the parameter is `spu_base.enum_shared`) | SAFE | keep |
 | 0110, 0120, 0130, 0190, 0260 lv1call additions | declarations for repository, storage-region, SPE and debug-console hcalls; needed by the others | SAFE | keep |
-| 0140 ps3physmem | map all LPAR memory from userspace. `=m`, manual load | CAREFUL, FORBIDDEN-capable in principle (arbitrary memory writes) | keep, never autoloaded |
+| 0140 ps3physmem | map all LPAR memory from userspace. `=m`, manual load | CAREFUL, FORBIDDEN-capable in principle (arbitrary memory writes) | keep, never autoloaded; debug flavour only since round 3 |
 | 0150 ps3strgmngr | storage manager: create and delete storage regions | FORBIDDEN (persistent region table) | built off, keep off |
 | 0160 ps3jupiter | glevand's direct Wi-Fi driver for the Jupiter chip over the internal USB | CAREFUL (needs 0170) | **dropped 2026-10-18** with 0170 and 0316 (decision 5) |
 | 0170 gelic-disable-eurus-ctrl-iface | at gelic probe, clears this LPAR's bit in the HV repository node `ios.net.eurus.lpar` (`lv1_write_repository_node`). Runs every boot, and bypasses our `PS3_REPOSITORY_WRITE=n` choice | CAREFUL | **dropped 2026-10-18** (decision 1) |
@@ -53,7 +53,7 @@ Config states are from the shipped `config-6.12.111+ps3.419`.
 | 0200, 0210 exports | export SPE irq and event-port helpers for 0230/0240 | SAFE | keep |
 | 0220 ps3encdec | HDD encryption device | CAREFUL (keys) | built off |
 | 0230 spuisofs, 0240 spuldrfs | load and run isolated SPU programs | CAREFUL (isolation mode, key material) | built off |
-| 0250 ps3lv1call | arbitrary hypercalls from userspace. `=m`, manual load | FORBIDDEN-capable (any lv1 call, flash included) | keep, never autoloaded |
+| 0250 ps3lv1call | arbitrary hypercalls from userspace. `=m`, manual load | FORBIDDEN-capable (any lv1 call, flash included) | keep, never autoloaded; debug flavour only since round 3 |
 | 0270 udbg-lv1-console | early printk through the lv1 debug console | SAFE | built off (`PS3_LV1_CONS_UDBG` unset) |
 | 0280 ps3_rtc_adj | `RTCAdj=` boot argument offsets the RTC | SAFE | keep |
 | 0310 rtc-ps3 | `range_max` U64_MAX to S64_MAX | SAFE | keep |
@@ -64,7 +64,7 @@ Config states are from the shipped `config-6.12.111+ps3.419`.
 | 0430 gelic-wireless-miss-kfree | free the command on scan failure (T2's 0175 is the same) | SAFE | keep |
 | 0440, 0450 lv1call/interrupt SRR clobber | mark SRR0/1 clobbered on every lv1 call; stability (bogus SRR warnings). Posted by René Rebe ([V2](https://patchwork.ozlabs.org/project/linuxppc-dev/patch/20251118.184901.486820791149579338.rene@exactco.de/), 2025-11-18, not merged); ours is identical to V2 | SAFE | keep |
 
-None of the "built off" drivers is compiled. Already safe by configuration: `PS3_FLASH*`, `PS3_NOR_FLASH`, `PS3_STRGMNGR`, `PS3_ENCDEC`, `SPUISO_FS`, `SPULDR_FS` and `PS3_REPOSITORY_WRITE` are all off; `PS3_LV1CALL` and `PS3_PHYSMEM` are modules nothing loads automatically.
+None of the "built off" drivers is compiled. Already safe by configuration: `PS3_FLASH*`, `PS3_NOR_FLASH`, `PS3_STRGMNGR`, `PS3_ENCDEC`, `SPUISO_FS`, `SPULDR_FS` and `PS3_REPOSITORY_WRITE` are all off; `PS3_LV1CALL`, `PS3_PHYSMEM` and `PS3_DISP_MANAGER` are modules of the debug flavour only (round 3, K4: `config/ps3-debug.config`), nothing loads them automatically, and the release kernel has none. `tools/linux-config.sh` fails if that changes (package.conf `REQUIRE_*`).
 
 ### B. Candidates from the other sources
 

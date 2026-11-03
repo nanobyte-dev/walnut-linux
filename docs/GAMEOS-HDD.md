@@ -1067,8 +1067,8 @@ boot`). Unsealed or different: refused (reboot, recheck, create).
 
 ### Not covered
 
-- Root making raw lv1 storage calls through `/dev/ps3lv1call` (`CONFIG_PS3_LV1CALL=m`, loaded by
-  hand for GPU research) goes around the block layer.
+- Root making raw lv1 storage calls through `/dev/ps3lv1call` (`CONFIG_PS3_LV1CALL=m` in the debug
+  kernel only since round 3, loaded by hand for GPU research; the release kernel has no such device) goes around the block layer.
 - Kernels without the patch (older ones, a kexec'd foreign kernel) have no guard (`write_guard/`
   absent). Today's `.472` is one of them.
 - A buffered write to `/dev/ps3db` that the guard refused leaves the changed data in the page

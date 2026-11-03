@@ -21,6 +21,10 @@ fetch)
 		if [ -n "${COMPONENT:-}" ] && [ "$COMPONENT" != main ]; then
 			sed -n "s/^\(deb-src .*\) main\$/\1 $COMPONENT/p" /etc/apt/sources.list > /etc/apt/sources.list.d/ps3-$COMPONENT.list
 		fi
+		if [ -n "${SOURCE_SECURITY_SNAPSHOT:-}" ]; then	# as in deb-fetch.sh
+			sed -n "s|^\(deb-src .*/archive/debian-security/\)[0-9TZ]*\( trixie-security main\)\$|\1$SOURCE_SECURITY_SNAPSHOT\2|p" /etc/apt/sources.list \
+				> /etc/apt/sources.list.d/ps3-source-security.list
+		fi
 		apt-get update -qq
 		(cd "$SRC" && apt-get source --download-only -qq "$SOURCE=$NEWVERSION")
 	fi
