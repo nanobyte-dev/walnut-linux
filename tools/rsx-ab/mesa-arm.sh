@@ -2,8 +2,9 @@
 # mesa-arm.sh select ARM | env ARM | status: the PS3 side of a same-boot Mesa A/B (abba-batch.sh with
 # MESA_AB=1; the arms from mesa-arms-prep.sh on the PC, copied to /var/tmp/rsx-ab/mesa/{A,B}/{lib,dri}
 # with mesa-arms.txt). A Mesa arm is a pair of directories, not an installed package: a run uses it through
-# LD_LIBRARY_PATH (its libgallium, libGLX_mesa, libEGL_mesa, libgbm in front of the system's),
-# LIBGL_DRIVERS_PATH (its driver stub, which needs its libgallium by exact name) and GBM_BACKENDS_PATH.
+# LD_LIBRARY_PATH (its libgallium, libGLX_mesa, libEGL_mesa, libgbm in front of the system's: they ask for
+# the libgallium of their own package version by name), LIBGL_DRIVERS_PATH (its driver stub) and
+# GBM_BACKENDS_PATH, so no file of the other build is used.
 #   select ARM  checks the arm (its libgallium against mesa-arms.txt's hash) and logs the switch to
 #               /var/tmp/ps3-bench/rsx-arms.log in rsx-arm.sh's format, so abba-report.py reads a Mesa
 #               A/B like a ps3rsx one (the params column says "mesa")

@@ -10,8 +10,11 @@
 # Writes build/tmp/rsx-ab/mesa/{A,B}/{lib,dri} (lib: libgallium-<version>.so, libEGL_mesa, libGLX_mesa, libgbm,
 # gbm/; dri: the driver stub and its links) and mesa-arms.txt (arm, version, libgallium's sha256 prefix), then
 # copy the directory to the PS3:  scp -r build/tmp/rsx-ab/mesa PS3:/var/tmp/rsx-ab/
-# libgallium's file name carries the package version, and the driver stub (dri/libdril_dri.so) needs exactly
-# that name: an arm is only whole when its dri/ is used with its lib/, which is what the three variables do.
+# libgallium's file name carries the package version, and libGLX_mesa, libEGL_mesa and libgbm need exactly that
+# name (the driver stub, dri/libdril_dri.so, finds libgallium's symbols in the process): an arm is only whole when
+# it is used with its own lib/ in front, and with its own dri/ and gbm/, so no file of the other build is used;
+# that is what the three variables of mesa-arm.sh do. The prep refuses an arm whose libGLX_mesa asks for another
+# libgallium than the one in its lib/ (debs of two builds mixed).
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 [ $# -ge 1 ] && [ $# -le 2 ] || { echo "usage: $0 B_DEBS [A_DEBS]" >&2; exit 2; }
@@ -54,9 +57,9 @@ lay_out() {	# lay_out ARM: the ladder layout under $O/ARM
 		[ -e "$O/$arm/lib/$f" ] || { echo "!! arm $arm: no $f" >&2; exit 1; }
 	done
 	[ -e "$O/$arm/dri/nouveau_dri.so" ] || { echo "!! arm $arm: no dri/nouveau_dri.so" >&2; exit 1; }
-	# the stub needs the libgallium of this very package version
-	grep -q -a "$(basename "$g")" "$O/$arm/dri/$(readlink "$O/$arm/dri/nouveau_dri.so" 2>/dev/null || echo nouveau_dri.so)" ||
-		{ echo "!! arm $arm: dri/nouveau_dri.so doesn't name $(basename "$g"): the debs are not of one build" >&2; exit 1; }
+	# libGLX_mesa's dependency on libgallium names this very package version
+	grep -q -a "$(basename "$g")" "$O/$arm/lib/libGLX_mesa.so.0" ||
+		{ echo "!! arm $arm: libGLX_mesa.so.0 doesn't ask for $(basename "$g"): the debs are not of one build" >&2; exit 1; }
 	printf '%s\t%s\t%s\n' "$arm" "$(cat "$W/$arm/version")" "$(sha256sum "$g" | cut -c1-16)" >> "$O/mesa-arms.txt"
 }
 

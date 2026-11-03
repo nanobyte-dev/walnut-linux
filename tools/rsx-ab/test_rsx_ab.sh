@@ -103,10 +103,10 @@ mkdeb() {	# mkdeb DIR PKG VERSION: a deb with PKG's files of the fake build VERS
 	rm -rf "$w"; mkdir -p "$w/data/$t" "$w/ctl" "$d"
 	case $p in
 	mesa-libgallium) echo "gallium $v" > "$w/data/$t/libgallium-$v.so" ;;
-	libgl1-mesa-dri) mkdir -p "$w/data/$t/dri"; echo "NEEDED libgallium-$v.so" > "$w/data/$t/dri/libdril_dri.so"
+	libgl1-mesa-dri) mkdir -p "$w/data/$t/dri"; echo "stub" > "$w/data/$t/dri/libdril_dri.so"
 		ln -s libdril_dri.so "$w/data/$t/dri/nouveau_dri.so"; ln -s libdril_dri.so "$w/data/$t/dri/swrast_dri.so" ;;
 	libegl-mesa0) echo egl > "$w/data/$t/libEGL_mesa.so.0.0.0"; ln -s libEGL_mesa.so.0.0.0 "$w/data/$t/libEGL_mesa.so.0" ;;
-	libglx-mesa0) echo glx > "$w/data/$t/libGLX_mesa.so.0.0.0"; ln -s libGLX_mesa.so.0.0.0 "$w/data/$t/libGLX_mesa.so.0" ;;
+	libglx-mesa0) echo "NEEDED libgallium-$v.so" > "$w/data/$t/libGLX_mesa.so.0.0.0"; ln -s libGLX_mesa.so.0.0.0 "$w/data/$t/libGLX_mesa.so.0" ;;
 	libgbm1) echo gbm > "$w/data/$t/libgbm.so.1.0.0"; ln -s libgbm.so.1.0.0 "$w/data/$t/libgbm.so.1"
 		mkdir -p "$w/data/$t/gbm"; echo dri_gbm > "$w/data/$t/gbm/dri_gbm.so" ;;
 	esac
