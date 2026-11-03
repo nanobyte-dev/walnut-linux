@@ -253,6 +253,17 @@ Agents: two at a time, three when I'm idle. Opus for M1 (the initramfs install m
 - **History:** zero exact trailers left, re-runs give identical IDs, and the scan is clean.
 - **Site:** `run-local.sh`, then test.nanobyte.dev, then approved prod.
 
+## Before the next public release
+
+Carry-overs from the round 2 hardening. Each one is a switch from "warn and log" to "refuse"; do them before
+the next stable release goes out, and tick them in the release commit.
+
+- [ ] Switch `tools/public-scan.py` from warn-only to enforcing (`WALNUT_EXPORT_SCAN=enforce` becomes the default).
+- [ ] Turn the WARN-only checks in `github-ci/batch-publish.py` into refusals.
+- [ ] Switch the apt cache's suite and architecture allowlist (`servers/walnut.nanobyte.dev/repo.conf`) from log-only
+  to refusing, after reading its logs (docs/reminders.toml has a dated reminder for the review).
+- [ ] Ship an update notice for consoles. The user has not decided how yet; nothing is built until then.
+
 ## Decided (the user, 2026-10-21)
 
 - **License** of our own code (tools, installer, packaging, scripts, ps3-gpu-tools, SPU code): GPL-2.0-or-later;
