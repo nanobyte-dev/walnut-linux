@@ -137,20 +137,31 @@ class Lint(unittest.TestCase):
 
 	def test_stable_needs_the_gate(self):
 		A = gw.ALLOWED
-		gate = ("  stable-gate:\n    if: inputs.target == 'stable' && !" + A + "\n    runs-on: x\n    environment: walnut-stable-review\n"
-		        "    steps:\n      - run: echo ok\n")
+		gate = ("  stable-gate:\n    needs: publish-check\n    if: always() && needs.publish-check.result == 'success' && inputs.target == 'stable' && !" + A
+		        + "\n    runs-on: x\n    environment: walnut-stable-review\n    steps:\n      - run: echo ok\n")
+		check = "  publish-check:\n    runs-on: x\n    steps:\n      - run: echo ok\n"
+		outcome = ("  stable-outcome:\n    needs: [publish-check, stable-gate, publish]\n    if: always() && needs.publish.result != 'success'\n"
+		           "    runs-on: x\n    steps:\n      - run: |\n          echo no\n          exit 1\n")
 		recheck = ("      - env:\n          GATE: ${{ needs.stable-gate.result }}\n          PUBLISHERS: ${{ vars.WALNUT_STABLE_PUBLISHERS }}\n"
 		           "          ACTOR: ${{ github.triggering_actor }}\n        run: |\n" + gw.RECHECK_RUN)
-		pub = ("  publish:\n    needs: [stable-gate]\n    if: always() && (needs.stable-gate.result == 'success' || "
+		pub = ("  publish:\n    needs: [publish-check, stable-gate]\n    if: always() && (needs.stable-gate.result == 'success' || "
 		       "(needs.stable-gate.result == 'skipped' && " + A + "))\n    runs-on: x\n    environment: walnut-stable\n    steps:\n"
 		       + recheck + "      - run: test $GITHUB_REF = refs/heads/main && echo publish\n")
-		wf = lambda *jobs: "on:\n  push:\njobs:\n" + "".join(jobs)
-		self.assertEqual(self.lint({"a.yml": wf(gate, pub)}, yaml=True), [])
-		errs = lambda *jobs: "\n".join(self.lint({"a.yml": wf(*jobs)}, yaml=True))
+		wf = lambda *jobs: "on:\n  push:\njobs:\n" + check + "".join(jobs)
+		self.assertEqual(self.lint({"a.yml": wf(gate, pub, outcome)}, yaml=True), [])
+		errs = lambda *jobs: "\n".join(self.lint({"a.yml": wf(*(jobs if outcome in jobs or not pub in jobs else jobs + (outcome,)))}, yaml=True))
+		# the skipped-ancestor case: a gate without always() is skipped whenever build-external was, and the run stays green
+		self.assertIn("needs always()", errs(gate.replace("always() && ", ""), pub))
+		self.assertIn("needs always()", errs(gate.replace("needs.publish-check.result == 'success' && ", ""), pub))
+		# a run that wanted a stable publish and didn't get one must end red
+		self.assertIn("no stable-outcome", "\n".join(self.lint({"a.yml": wf(gate, pub)}, yaml=True)))
+		self.assertIn("no stable-outcome", "\n".join(self.lint({"a.yml": wf(gate, pub, outcome.replace("exit 1", "exit 0"))}, yaml=True)))
+		self.assertIn("no stable-outcome", "\n".join(self.lint({"a.yml": wf(gate, pub, outcome.replace("always() && ", ""))}, yaml=True)))
+		self.assertIn("no stable-outcome", "\n".join(self.lint({"a.yml": wf(gate, pub, outcome.replace("!= 'success'", "== 'failure'"))}, yaml=True)))
 		self.assertIn("no stable-gate", errs(pub))	# the gate is missing
 		self.assertIn("no stable-gate", errs(gate.replace("environment: walnut-stable-review", "environment: walnut-stable"), pub))
 		self.assertIn("no stable-gate", errs(gate.replace("!" + A, A), pub))	# the wrong way round
-		self.assertIn("without needing stable-gate", errs(gate, pub.replace("    needs: [stable-gate]\n", "")))
+		self.assertIn("without needing stable-gate", errs(gate, pub.replace("    needs: [publish-check, stable-gate]\n", "")))
 		self.assertIn("must accept the gate's success", errs(gate, pub.replace("needs.stable-gate.result == 'skipped'", "true")))
 		self.assertIn("must accept the gate's success", errs(gate, pub.replace(A, "true")))	# any skipped gate would do
 		self.assertIn("first step must check", errs(gate, pub.replace(recheck, "")))
@@ -185,6 +196,11 @@ class Lint(unittest.TestCase):
 
 	def test_the_generated_workflows_have_the_gate(self):
 		t = gw.generate()["walnut-package.yml"]
+		import yaml
+		for src in (t, open(f"{HERE}/../.github/workflows/release-image.yml").read()):
+			jobs = yaml.safe_load(src)["jobs"]
+			self.assertTrue(jobs["stable-gate"]["if"].startswith("always() && needs."))
+			self.assertEqual(jobs["stable-outcome"]["steps"][0]["run"].splitlines()[-1].strip(), "exit 1")
 		self.assertIn("environment: walnut-stable-review", t)
 		self.assertIn("!" + gw.ALLOWED, t)
 		r = open(f"{HERE}/../.github/workflows/release-image.yml").read()
@@ -317,7 +333,7 @@ class CacheMac(unittest.TestCase):
 		# salt jobs run no package code; the layer cache-save signs comes from the layer job (Debian packages only)
 		import yaml
 		jobs = yaml.safe_load(r)["jobs"]
-		self.assertEqual(list(jobs), ["cache-restore", "layer", "build", "cache-save", "stable-gate", "publish"])
+		self.assertEqual(list(jobs), ["cache-restore", "layer", "build", "cache-save", "stable-gate", "publish", "stable-outcome"])
 		build = yaml.dump(jobs["build"])
 		self.assertIn("build-release.sh", build)
 		self.assertNotIn("secrets.", build)

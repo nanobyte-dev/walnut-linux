@@ -202,7 +202,8 @@ jobs:
   stable-gate:
     # a stable release by someone not on the allowlist waits here for the reviewers of walnut-stable-review (no secrets)
     needs: build
-    if: inputs.publish && inputs.channel == 'stable' && !contains(fromJSON(vars.WALNUT_STABLE_PUBLISHERS || '[]'), github.triggering_actor)
+    # always(): after a skipped ancestor (the layer job on a cache hit) success() is false and the gate would be skipped
+    if: always() && needs.build.result == 'success' && inputs.publish && inputs.channel == 'stable' && !contains(fromJSON(vars.WALNUT_STABLE_PUBLISHERS || '[]'), github.triggering_actor)
     runs-on: ubuntu-24.04
     environment: walnut-stable-review
     steps:
@@ -257,3 +258,16 @@ jobs:
           pre=; [[ $ID == 0.* ]] && pre=--prerelease  # 0.x: alpha
           gh release create "v$ID" --target "$GITHUB_SHA" $pre \
             --title "Walnut $ID" --notes-file notes.md out/*
+
+  stable-outcome:
+    # the run ends red when a stable release was wanted, the build passed, and the publish didn't complete
+    needs: [build, stable-gate, publish]
+    if: always() && inputs.publish && inputs.channel == 'stable' && needs.build.result == 'success' && needs.publish.result != 'success'
+    runs-on: ubuntu-24.04
+    steps:
+      - env:
+          GATE: ${{ needs.stable-gate.result }}
+          PUBLISH: ${{ needs.publish.result }}
+        run: |
+          echo "::error::stable publish not approved or not completed (gate: $GATE, publish: $PUBLISH)"
+          exit 1
