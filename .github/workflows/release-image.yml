@@ -43,11 +43,14 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
+      - name: The games in the package layer (the key covers them, ROOTFS_GAMES from the gamedb files)
+        id: inputs
+        run: echo "games=$(python3 -I tools/gamedb/build-info.py image-base | tr '\n' ' ')" >> "$GITHUB_OUTPUT"
       - name: Cache key, salted (only a trusted job can compute it; exact key, no fallback)
         id: key
         env:
           SALT: ${{ secrets.WALNUT_CACHE_SALT }}
-          BASE: ${{ hashFiles('system/image/packages.txt', 'tools/build-rootfs.sh', 'config.mk', 'build-containers/Dockerfile') }}
+          BASE: ${{ hashFiles('system/image/packages.txt', 'tools/build-rootfs.sh', 'config.mk', 'build-containers/Dockerfile', 'build-containers/Dockerfile.deb') }} ${{ steps.inputs.outputs.games }}
         run: |
           [ -n "$SALT" ] || { echo "-- no WALNUT_CACHE_SALT: no Actions cache in this run"; exit 0; }
           base="rootfs-base-$(printf '%s' "$BASE" | openssl dgst -sha256 -hmac "$SALT" -r | cut -c1-40)"
@@ -162,11 +165,14 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
+      - name: The games in the package layer (the key covers them, ROOTFS_GAMES from the gamedb files)
+        id: inputs
+        run: echo "games=$(python3 -I tools/gamedb/build-info.py image-base | tr '\n' ' ')" >> "$GITHUB_OUTPUT"
       - name: Cache key, salted
         id: key
         env:
           SALT: ${{ secrets.WALNUT_CACHE_SALT }}
-          BASE: ${{ hashFiles('system/image/packages.txt', 'tools/build-rootfs.sh', 'config.mk', 'build-containers/Dockerfile') }}
+          BASE: ${{ hashFiles('system/image/packages.txt', 'tools/build-rootfs.sh', 'config.mk', 'build-containers/Dockerfile', 'build-containers/Dockerfile.deb') }} ${{ steps.inputs.outputs.games }}
         run: |
           [ -n "$SALT" ] || { echo "-- no WALNUT_CACHE_SALT: no Actions cache in this run"; exit 0; }
           base="rootfs-base-$(printf '%s' "$BASE" | openssl dgst -sha256 -hmac "$SALT" -r | cut -c1-40)"

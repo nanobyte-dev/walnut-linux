@@ -288,6 +288,10 @@ class Generated(unittest.TestCase):
 				self.assertRegex(st, r"key: \$\{\{ steps\.(keys|key|base)\.outputs", name)	# only the salted key, never a literal one
 
 
+def secret_uses_of(x):
+	return gw.secret_uses(x)
+
+
 class CacheMac(unittest.TestCase):
 	"""A cache entry anyone can create is used only when it matches a MAC made with the secret salt (C-1)."""
 
@@ -318,6 +322,21 @@ class CacheMac(unittest.TestCase):
 			self.assertEqual(self.run_mac("record", f, f + ".mac", salt="guess").returncode, 0)
 			self.assertEqual(self.run_mac("verify", f, f + ".mac").returncode, 3)	# a MAC with another salt
 			self.assertEqual(self.run_mac("verify", f"{t}/absent", f"{t}/absent.mac").returncode, 0)	# a cache miss
+
+	def test_layer_key_covers_everything_the_layer_is_made_from(self):
+		"""Q18: both jobs that compute the layer's key hash the builder's Dockerfiles and the games of ROOTFS_GAMES"""
+		import yaml
+		jobs = yaml.safe_load(open(f"{HERE}/../.github/workflows/release-image.yml"))["jobs"]
+		for j in ("cache-restore", "cache-save"):
+			steps = jobs[j]["steps"]
+			names = [st.get("id") for st in steps]
+			self.assertLess(names.index("inputs"), names.index("key"), j)
+			base = steps[names.index("key")]["env"]["BASE"]
+			for need in ("build-containers/Dockerfile'", "build-containers/Dockerfile.deb", "system/image/packages.txt",
+			             "tools/build-rootfs.sh", "config.mk", "steps.inputs.outputs.games"):
+				self.assertIn(need, base, f"{j}: {need}")
+			self.assertIn("build-info.py image-base", steps[names.index("inputs")]["run"])
+			self.assertEqual(secret_uses_of(steps[names.index("inputs")]), [], j)	# the step that reads the repository's files holds no secret
 
 	def test_workflows_use_it(self):
 		t = gw.generate()["walnut-package.yml"]
