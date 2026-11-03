@@ -1,5 +1,5 @@
 #!/usr/bin/python3 -I
-"""Walnut: after a successful apt update, name the installed Walnut packages with a newer version in the
+"""Walnut: after a successful apt update, print one notice line when an installed Walnut package has a newer version in the
 Walnut suites' Packages lists. Reads only /var/lib/apt/lists/walnut.nanobyte.dev_* of the suites enabled in
 walnut.sources (streamed, no apt cache), runs dpkg-query and dpkg --compare-versions, writes only to stdout.
 Prints nothing without updates; exits 0 whatever happens (apt update must never fail because of it).
@@ -11,7 +11,6 @@ VERS = re.compile(r"^(?:[0-9]+:)?[0-9][A-Za-z0-9.+~-]*$")  # no leading '-', no 
 SUITE = re.compile(r"^[a-z][a-z0-9-]*$")
 MAX_LINE = 65536
 MAX_PKGS = 20000
-SHOW = 8
 
 lists = sys.argv[1] if len(sys.argv) > 1 else "/var/lib/apt/lists"
 sources = sys.argv[2] if len(sys.argv) > 2 else "/etc/apt/sources.list.d/walnut.sources"
@@ -100,10 +99,7 @@ def main():
         except Exception:
             continue
     if names:
-        shown = ", ".join(names[:SHOW]) + (", and %d more" % (len(names) - SHOW) if len(names) > SHOW else "")
-        print("Walnut: %d update%s (%s). Install with: sudo apt full-upgrade "
-              "(from a text console, Ctrl+Alt+F2, if the desktop is short on memory)."
-              % (len(names), "" if len(names) == 1 else "s", shown))
+        print("Notice: A new version of walnut is available, upgrade using `apt full-upgrade`")
 
 
 try:

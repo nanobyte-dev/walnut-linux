@@ -67,7 +67,7 @@ fails=0
 check() { if eval "$2"; then echo "ok   $1"; else echo "FAIL $1"; fails=$((fails + 1)); fi; }
 run() { python3 -I "$S" "$T/lists" "$T/sources" "$T/bin"; }
 out=$(run); rc=$?
-check "updates named, one line" '[ "$out" = "Walnut: 3 updates (ps3rsx-modules-ps3, ps3-system, ps3-desktop). Install with: sudo apt full-upgrade (from a text console, Ctrl+Alt+F2, if the desktop is short on memory)." ]'
+check "updates: the notice, one line" '[ "$out" = "Notice: A new version of walnut is available, upgrade using \`apt full-upgrade\`" ]'
 check "exit 0" '[ $rc = 0 ]'
 check "disabled testing suite ignored (ps3-desktop 3.0 not 99)" '! grep -q testing "$T/sources" || [ "$(run | wc -l)" = 1 ]'
 check "nothing written" '[ ! -e /tmp/x ] || ! [ /tmp/x -nt "$T/sources" ]'
@@ -76,7 +76,7 @@ out=$(run); rc=$?
 check "no updates: no output, exit 0" '[ -z "$out" ] && [ $rc = 0 ]'
 printf 'Package: ps3-system\nVersion: 2.0\n\n' > "$L"
 out=$(run)
-check "singular" '[[ "$out" == "Walnut: 1 update (ps3-system). Install"* ]]'
+check "one update: the same notice" '[[ "$out" == "Notice: A new version of walnut"* ]]'
 printf '\0\0\xff\xfe garbage\n:\n\n\nPackage:\nVersion:\n\n' > "$L"
 out=$(run); rc=$?
 check "binary garbage: no output, exit 0" '[ -z "$out" ] && [ $rc = 0 ]'
@@ -94,7 +94,7 @@ cat > "$T/bin/dpkg-query" <<'X'
 for i in 1 2 3 4 5 6 7 8 9 10 11; do printf 'p%s\t1\tii \n' $i; done
 X
 out=$(run)
-check "more than 8: first 8 and a count" '[[ "$out" == *"11 updates (p1, p2, p3, p4, p5, p6, p7, p8, and 3 more)."* ]]'
+check "many updates: still one line" '[ "$(printf "%s\n" "$out" | wc -l)" = 1 ]'
 check "debian/rules installs the script and the drop-in" 'grep -q "files/libexec/apt-update-notice .*usr/libexec/walnut/apt-update-notice" debian/rules && grep -q "files/apt/99walnut-update-notice .*etc/apt/apt.conf.d/99walnut-update-notice" debian/rules'
 check "drop-in is Post-Invoke-Success with || true" 'grep -q "Post-Invoke-Success" files/apt/99walnut-update-notice && grep -q "|| true" files/apt/99walnut-update-notice'
 [ $fails -eq 0 ] && echo "apt-update-notice: all passed"
