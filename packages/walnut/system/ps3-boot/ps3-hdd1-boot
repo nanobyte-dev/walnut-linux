@@ -14,8 +14,13 @@
 # dev_hdd1 is written only after blkid finds a vfat file system on it; it is mounted rw for these
 # copies only and made read-only again (the initramfs leaves it read-only). Every file goes through
 # a .tmp copy and a rename, kboot.conf last, so an interrupted run leaves the old menu working.
+# GameOS's data lives on the same partition, so nothing is copied before the free space is checked
+# against what the run adds; when it is short, only kernels the current menu doesn't use are freed
+# first, and if that is not enough the run stops with dev_hdd1 as it was. Our *.tmp files (also
+# those of an interrupted run) are removed at the start and on every exit.
 # PS3_BOOT_ROOT: a prefix for /boot and /usr (host tests); PS3_HDD1_DIR: a directory standing in for
-# the mounted dev_hdd1 (host tests: no blkid, mount or blockdev).
+# the mounted dev_hdd1 (host tests: no blkid, mount or blockdev); PS3_HDD1_FREE_KB with it: the free
+# space to assume (host tests).
 set -e
 PATH=/usr/sbin:/usr/bin:/sbin:/bin
 export PATH
@@ -44,8 +49,10 @@ prev=
 for r in "$@"; do [ "$r" != "$cur" ] && fits "$r" && [ "$(flavour "$r")" = "$(flavour "$cur")" ] && { prev=$r; break; }; done
 [ -n "$prev" ] || for r in "$@"; do [ "$r" != "$cur" ] && fits "$r" && { prev=$r; break; }; done
 
+cleanup_tmp() { rm -f "$M"/linux/boot/*.tmp "$M/kboot.conf.new" 2>/dev/null || true; }
 if [ -n "${PS3_HDD1_DIR:-}" ]; then
 	M=$PS3_HDD1_DIR
+	trap cleanup_tmp EXIT
 else
 	[ -b "$DEV" ] || die "no $DEV (dev_hdd1)"
 	t=$(blkid -o value -s TYPE "$DEV" 2>/dev/null || true)
@@ -53,10 +60,42 @@ else
 	grep -q "^$DEV " /proc/mounts && die "$DEV is mounted: unmount it first"
 	M=$(mktemp -d /run/ps3-hdd1.XXXXXX)
 	ro=$(blockdev --getro "$DEV")
-	trap 'umount "$M" 2>/dev/null; rmdir "$M"; [ "$ro" = 1 ] && blockdev --setro "$DEV"' EXIT
+	trap 'cleanup_tmp; umount "$M" 2>/dev/null; rmdir "$M"; [ "$ro" = 1 ] && blockdev --setro "$DEV"' EXIT
 	blockdev --setrw "$DEV"
 	mount -t vfat -o rw,noatime,nodev,nosuid,noexec "$DEV" "$M"
 fi
+cleanup_tmp
+
+# free space: what this run adds (bytes) against what the partition has, plus 4 MiB for FAT's clusters
+size() { wc -c < "$1" 2>/dev/null || echo 0; }
+free_kb() {
+	if [ -n "${PS3_HDD1_DIR:-}" ] && [ -n "${PS3_HDD1_FREE_KB:-}" ]; then echo "$PS3_HDD1_FREE_KB"
+	else df -Pk "$M" | awk 'NR==2 {print $4}'; fi
+}
+needed=0
+for r in $cur $prev; do
+	cmp -s "$R/boot/vmlinux-$r" "$M/linux/boot/vmlinux-$r" 2>/dev/null || needed=$((needed + $(size "$R/boot/vmlinux-$r")))
+done
+new=$R/usr/lib/ps3/boot/initrd-walnut.img
+if [ -e "$new" ] && ! cmp -s "$new" "$M/linux/boot/initrd-walnut.img" 2>/dev/null; then
+	needed=$((needed + $(size "$new")))
+	[ -e "$M/linux/boot/initrd-walnut.img" ] && needed=$((needed + $(size "$M/linux/boot/initrd-walnut.img")))
+fi
+short() { [ $(( $(free_kb) * 1024 )) -lt $((needed + 4194304)) ]; }
+if short; then
+	# free the kernels the current menu doesn't use (the old menu stays bootable)
+	used=$(sed -n "s/^walnut\(-prev\)\{0,1\}='\/linux\/boot\/vmlinux-\([^ ]*\) .*/\2/p" "$M/kboot.conf" 2>/dev/null || true)
+	for f in "$M"/linux/boot/vmlinux-*; do
+		[ -e "$f" ] || continue
+		v=${f##*/vmlinux-}
+		case " $used $cur $prev " in *" $v "*) continue ;; esac
+		short || break
+		echo "ps3-hdd1-boot: dev_hdd1 is short of space: removing the unused $v"
+		rm -f "$f"
+		sync
+	done
+fi
+short && die "dev_hdd1 has $(free_kb) kB free, this needs $((needed / 1024 + 4096)) kB: nothing written"
 
 put() {	# put SRC DEST: through DEST.tmp, then a rename
 	cp "$1" "$M$2.tmp"
@@ -80,7 +119,6 @@ for r in $cur $prev; do
 done
 I=/linux/boot/initrd-walnut.img
 P=/linux/boot/initrd-walnut-prev.img
-new=$R/usr/lib/ps3/boot/initrd-walnut.img
 if [ -e "$new" ] && ! cmp -s "$new" "$M$I" 2>/dev/null; then
 	[ -e "$M$I" ] && put "$M$I" "$P"
 	put "$new" "$I"

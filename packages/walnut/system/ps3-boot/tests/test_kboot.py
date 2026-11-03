@@ -56,7 +56,7 @@ class Kboot(unittest.TestCase):
         for k in rels:
             (self.r / "boot" / ("config-" + k)).write_text("CONFIG_UFS_FS=y\nCONFIG_BLK_DEV_DM=y\n")
 
-    def hdd1(self, extra=""):
+    def hdd1(self, extra="", **env):
         """the internal install: PS3_BOOT_TARGET=hdd1, dev_hdd1 stood in by a directory"""
         self.builtins(REL, OLD)
         (self.r / "etc/default/ps3-boot").write_text(
@@ -65,7 +65,7 @@ class Kboot(unittest.TestCase):
         h = self.r / "hdd1"
         h.mkdir(exist_ok=True)
         e = dict(os.environ, PS3_BOOT_ROOT=str(self.r), PS3_HDD1_DIR=str(h),
-                 PS3_HDD1_BOOT="sh " + str(HERE.parent / "ps3-hdd1-boot"))
+                 PS3_HDD1_BOOT="sh " + str(HERE.parent / "ps3-hdd1-boot"), **env)
         p = subprocess.run(["sh", str(SCRIPT)], env=e, capture_output=True, text=True, timeout=30)
         return p, h
 
@@ -196,6 +196,67 @@ class Kboot(unittest.TestCase):
         self.assertNotEqual(p.returncode, 0)
         self.assertIn("not an internal install", p.stderr)
         self.assertFalse((h / "kboot.conf").exists())
+
+    # Q1: no empty menu; dev_hdd1's free space and its leftover files
+    def test_no_kernels_keeps_the_old_menu(self):
+        lines, _ = self.run_it()
+        before = (self.r / "etc/kboot.conf").read_text()
+        for k in (REL, DBG, OLD):
+            (self.r / "boot" / ("vmlinux-" + k)).unlink()
+        lines, out = self.run_it()
+        self.assertEqual((self.r / "etc/kboot.conf").read_text(), before)
+        self.assertIn("left as it is", out)
+        self.assertEqual([x for x in os.listdir(self.r / "etc") if x.startswith("kboot.conf.")], [])
+
+    def test_no_kernels_and_no_menu_writes_none(self):
+        for k in (REL, DBG, OLD):
+            (self.r / "boot" / ("vmlinux-" + k)).unlink()
+        e = dict(os.environ, PS3_BOOT_ROOT=str(self.r))
+        p = subprocess.run(["sh", str(SCRIPT)], env=e, capture_output=True, text=True, timeout=30)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertFalse((self.r / "etc/kboot.conf").exists())
+
+    def test_hdd1_full_partition_is_left_as_it_was(self):
+        (self.r / "usr/lib/ps3/boot/initrd-walnut.img").write_bytes(b"i" * 4096)
+        (self.r / "boot" / ("vmlinux-" + REL)).write_bytes(b"k" * (6 << 20))
+        h = self.r / "hdd1"
+        (h / "linux/boot").mkdir(parents=True)
+        (h / "kboot.conf").write_text("walnut='old'\n")
+        (h / "linux/boot/stale.tmp").write_bytes(b"x")
+        p, h = self.hdd1(PS3_HDD1_FREE_KB="1000")
+        self.assertNotEqual(p.returncode, 0)
+        self.assertIn("nothing written", p.stderr)
+        self.assertEqual((h / "kboot.conf").read_text(), "walnut='old'\n")
+        self.assertEqual(sorted(os.listdir(h / "linux/boot")), [])   # our leftover gone, nothing new copied
+
+    def test_hdd1_short_space_frees_only_unused_kernels(self):
+        (self.r / "usr/lib/ps3/boot/initrd-walnut.img").write_bytes(b"i" * 4096)
+        (self.r / "boot" / ("vmlinux-" + REL)).write_bytes(b"k" * (2 << 20))
+        h = self.r / "hdd1"
+        (h / "linux/boot").mkdir(parents=True)
+        (h / "kboot.conf").write_text("walnut='/linux/boot/vmlinux-keepme initrd=/x'\n")
+        (h / "linux/boot/vmlinux-keepme").write_bytes(b"k")
+        (h / "linux/boot/vmlinux-dropme").write_bytes(b"k")
+        # 1 MiB of kernels in need of 2+4 MiB: free is 5 MiB; the unused kernel's size isn't counted by the
+        # fake figure, so the loop frees it and then, still short, the run stops with the menu's kernel kept
+        p, h = self.hdd1(PS3_HDD1_FREE_KB="5000")
+        self.assertNotEqual(p.returncode, 0)
+        self.assertIn("removing the unused dropme", p.stdout)
+        self.assertTrue((h / "linux/boot/vmlinux-keepme").exists())
+        self.assertFalse((h / "linux/boot/vmlinux-dropme").exists())
+        self.assertEqual((h / "kboot.conf").read_text(), "walnut='/linux/boot/vmlinux-keepme initrd=/x'\n")
+
+    def test_hdd1_enough_space_and_stale_tmp(self):
+        (self.r / "usr/lib/ps3/boot/initrd-walnut.img").write_bytes(b"i" * 4096)
+        h = self.r / "hdd1"
+        (h / "linux/boot").mkdir(parents=True)
+        (h / "linux/boot/initrd-walnut-prev.img.tmp").write_bytes(b"x" * 10)
+        (h / "kboot.conf.new").write_bytes(b"x")
+        p, h = self.hdd1(PS3_HDD1_FREE_KB="100000")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertFalse((h / "linux/boot/initrd-walnut-prev.img.tmp").exists())
+        self.assertFalse((h / "kboot.conf.new").exists())
+        self.assertTrue(any(x.startswith("walnut=") for x in (h / "kboot.conf").read_text().splitlines()))
 
     def test_kernels_only(self):
         lines, out = self.run_it()
