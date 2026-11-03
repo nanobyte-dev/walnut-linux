@@ -8,7 +8,7 @@
 #    remove cancels the watchdog and then the re-probe, and skips waiting when the re-probe itself is
 #    the caller (cancel_work_sync on the running item would never return).
 set -u
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/.." || exit 1
 P7=patches/local/0007-ps3-rsx-gart-cma.patch P49=patches/local/0049-gelic-rx-watchdog.patch
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
 fail=0

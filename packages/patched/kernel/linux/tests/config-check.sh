@@ -75,7 +75,9 @@ echo "CONFIG_PS3_ENCDEC=m" >> "$T/c"
 run "a must-stay-off driver on (common list), debug kernel" 1 debug "$T/c" "$T/frag3.config"
 
 # the real package.conf names what the plan requires
+# shellcheck source=/dev/null
 . "$REALPC"
+# shellcheck disable=SC2154  # the lists come from package.conf
 need_unset="CONFIG_PS3_FLASH CONFIG_PS3_FLASH_NG CONFIG_PS3_NOR_FLASH CONFIG_PS3_STRGMNGR CONFIG_PS3_ENCDEC CONFIG_SPUISO_FS CONFIG_SPULDR_FS CONFIG_PS3_REPOSITORY_WRITE"
 for o in $need_unset; do case " $REQUIRE_UNSET " in *" $o "*) ;; *) echo "FAIL: package.conf REQUIRE_UNSET lacks $o"; fail=1 ;; esac; done
 for o in CONFIG_PS3_LV1CALL CONFIG_PS3_PHYSMEM CONFIG_PS3_DISP_MANAGER; do
