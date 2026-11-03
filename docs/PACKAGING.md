@@ -10,6 +10,8 @@ Decided 2026-10-15, with the packaging plan of 2026-10-16.
 
 **Base.** The base is a pinned Debian sid snapshot (`DEBIAN_SNAPSHOT` in `config.mk`, now `20261013T000000Z`, taken from snapshot.debian.org's debian-ports archive). Debian has no stable release for ppc64 (big-endian), only debian-ports unstable, so a frozen snapshot is the closest thing to an LTS. It moves on purpose, at the latest when Debian 14 is released, and never piecemeal.
 
+When the snapshot date is next refreshed (`DEBIAN_SNAPSHOT` in `config.mk`, and the copies in `tools/ssdimg/upstream.mk` and the builder image), take polkit 128 or later: 127 has two CVEs that 128 fixes. Confirm the version in the built image.
+
 **One compiler version everywhere: GCC 16.2,** the snapshot's system compiler.
 
 - PPE side (kernel, Mesa, ps3rsx, games): Debian's `gcc-16-powerpc64-linux-gnu` 16.2.0-3cross1, from the amd64 sid snapshot of the same date.
