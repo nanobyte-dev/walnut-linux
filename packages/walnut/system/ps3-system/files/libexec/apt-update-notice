@@ -1,6 +1,6 @@
 #!/usr/bin/python3 -I
 """Walnut: after a successful apt update, print one notice line when a newer Walnut RELEASE is available (not when a single
-package has an update). ps3-system's stanza in the enabled Walnut suites' Packages lists carries a Walnut-Release field (the
+package has an update). ps3-system's stanza in stable's Packages list carries a Walnut-Release field (the
 top-level VERSION at build time); the notice compares the highest ps3-system version's field with VERSION_ID in
 /etc/os-release. Reads only /var/lib/apt/lists/walnut.nanobyte.dev_* of the suites enabled in walnut.sources (streamed, no
 apt cache), runs dpkg --compare-versions, writes only to stdout. Exits 0 whatever happens (apt update must never fail
@@ -88,6 +88,8 @@ try:
             return
         files = []
         for s in suites():
+            if s != "stable":  # a release is what stable carries; a testing build is no release
+                continue
             files += sorted(glob.glob(os.path.join(lists, "walnut.nanobyte.dev_apt_dists_%s_*_Packages*" % s)))
         files = [x for x in files if x.endswith(("_Packages", "_Packages.gz", "_Packages.xz"))]
         best = None  # (package version, release) of the highest ps3-system version

@@ -63,6 +63,10 @@ printf 'VERSION_ID="0.1"\n' > "$T/os-release"
 printf 'Package: ps3-system\nVersion: 0.2\nWalnut-Release: 0.2\n\n' > "$T/lists/walnut.nanobyte.dev_apt_dists_testing_main_binary-powerpc_Packages"
 rm -f "$L"
 check "newer release only in a disabled suite: silent" 'silent'
+cp "$T/sources" "$T/sources.off"
+sed 's/^Enabled: no$/Enabled: yes/' "$T/sources.off" > "$T/sources"
+check "newer release only in an enabled testing: silent (stable carries releases)" 'silent'
+cp "$T/sources.off" "$T/sources"
 printf '\0\0\xff\xfe garbage\n:\n\n\nPackage:\nVersion:\n\n' > "$L"
 check "binary garbage: silent" 'silent'
 printf 'Package: ps3-system\nVersion: 0.2\nWalnut-Release: 0.2\n\n' > "$L"
