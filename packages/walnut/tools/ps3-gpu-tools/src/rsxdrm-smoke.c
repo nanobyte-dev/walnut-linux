@@ -6,7 +6,8 @@
  *   rsxdrm-smoke m2mf    copy GART -> VRAM -> GART with the M2MF engine, compare
  *   rsxdrm-smoke clear   3D clear of a VRAM BO, read back with M2MF
  *   rsxdrm-smoke fence   10k back-end semaphore releases, label checked after each SYNC submit
- *   rsxdrm-smoke reject  pushes the validator must refuse (JMP, unknown object/DMA/method, host)
+ *   rsxdrm-smoke reject  pushes the validator must refuse (JMP, unknown object/DMA/method, host),
+ *                        each on a fresh channel that first takes an accepted push
  *   rsxdrm-smoke tri     a magenta triangle into a 64x64 VRAM target, read back (center, corner)
  *   rsxdrm-smoke twochan two channels (two fds): A sets its surface once, B sets another and
  *                        clears, A clears again: with the kernel's context switch A's clear
@@ -258,34 +259,59 @@ static int t_fence(void)
 	return stale != 0;
 }
 
+/*
+ * One rejection on a channel of its own: since ps3rsx 0.1036 the first rejected push refuses its
+ * channel (-EIO from then on), so each case gets a fresh channel, shows it is live with an
+ * accepted push (the 3D bind), then sends its words and expects -EINVAL.
+ */
+static int reject_case(const char *what, const uint32_t *w, size_t n)
+{
+	struct drm_nouveau_channel_alloc c = { .fb_ctxdma_handle = 0xfeed0000,
+					       .tt_ctxdma_handle = 0xfeed0001 };
+	int live, rc;
+
+	if (ioctl(fd, DRM_IOCTL_NOUVEAU_CHANNEL_ALLOC, &c)) {
+		printf("  %-24s CHANNEL_ALLOC: %s\n", what, strerror(errno));
+		return 1;
+	}
+	chan = c;
+	OUT(0, 0, 0x31337000);
+	live = submit(NULL, 0);
+	memcpy(p, w, n * 4);
+	p += n;
+	rc = submit(NULL, 0);
+	printf("  %-24s %s (live channel: %s)\n", what,
+	       rc == -EINVAL ? "rejected" : rc ? strerror(-rc) : "NOT rejected",
+	       live ? strerror(-live) : "yes");
+	struct drm_nouveau_channel_free f = { .channel = c.channel };
+	ioctl(fd, DRM_IOCTL_NOUVEAU_CHANNEL_FREE, &f);
+	return live != 0 || rc != -EINVAL;
+}
+
 static int t_reject(void)
 {
+	static const uint32_t jmp[] = { 0x20000000 | 0x1000 };
+	static const uint32_t unknown_obj[] = { MTH(1, 1, 0), 0xdeadbeef };
+	static const uint32_t unknown_dma[] = { MTH(1, 0, 0x194), 0x12345678 };
+	static const uint32_t truncated[] = { MTH(4, 0, 0x100), 0 };
+	static const uint32_t not_allowed[] = { MTH(1, 0, 0x1ffc), 0 };
+	static const uint32_t thin_rt[] = { MTH(1, 0, 0x208), 0x06000208 };	/* swizzled, 1 wide */
+	static const uint32_t acquire[] = { MTH(1, 0, 0x68), 0 };		/* FIFO semaphore acquire */
+	int fail = 0;
+
 	setup();
-	int fail = 0, rc;
-	*p++ = 0x20000000 | 0x1000;		/* JMP */
-	rc = submit(NULL, 0);
-	printf("  JMP: %s\n", rc == -EINVAL ? "rejected" : "NOT rejected"); fail |= rc != -EINVAL;
-	OUT(0, 0, 0xdeadbeef);			/* unknown object */
-	rc = submit(NULL, 0);
-	printf("  bind unknown object: %s\n", rc == -EINVAL ? "rejected" : "NOT rejected"); fail |= rc != -EINVAL;
-	OUT(0, 0, 0x31337000);
-	OUT(0, 0x194, 0x12345678);		/* unknown context DMA */
-	rc = submit(NULL, 0);
-	printf("  unknown context DMA: %s\n", rc == -EINVAL ? "rejected" : "NOT rejected"); fail |= rc != -EINVAL;
-	*p++ = MTH(4, 0, 0x100); *p++ = 0;	/* burst longer than the push */
-	rc = submit(NULL, 0);
-	printf("  truncated burst: %s\n", rc == -EINVAL ? "rejected" : "NOT rejected"); fail |= rc != -EINVAL;
-	OUT(0, 0, 0x31337000);
-	OUT(0, 0x1ffc, 0);			/* not in the 3D allowlist */
-	rc = submit(NULL, 0);
-	printf("  3D method 0x1ffc: %s\n", rc == -EINVAL ? "rejected" : "NOT rejected"); fail |= rc != -EINVAL;
-	OUT(0, 0, 0x31337000);
-	OUT(0, 0x208, 0x06000208);		/* RT_FORMAT swizzled 1x64 (log2 width 0) */
-	rc = submit(NULL, 0);
-	printf("  swizzled 1-wide target: %s\n", rc == -EINVAL ? "rejected" : "NOT rejected"); fail |= rc != -EINVAL;
-	OUT(0, 0x68, 0);			/* FIFO semaphore acquire */
-	rc = submit(NULL, 0);
-	printf("  semaphore acquire: %s\n", rc == -EINVAL ? "rejected" : "NOT rejected"); fail |= rc != -EINVAL;
+	{	/* setup's own channel isn't used for these */
+		struct drm_nouveau_channel_free f = { .channel = chan.channel };
+
+		ioctl(fd, DRM_IOCTL_NOUVEAU_CHANNEL_FREE, &f);
+	}
+	fail |= reject_case("JMP", jmp, 1);
+	fail |= reject_case("bind unknown object", unknown_obj, 2);
+	fail |= reject_case("unknown context DMA", unknown_dma, 2);
+	fail |= reject_case("truncated burst", truncated, 2);
+	fail |= reject_case("3D method 0x1ffc", not_allowed, 2);
+	fail |= reject_case("swizzled 1-wide target", thin_rt, 2);
+	fail |= reject_case("semaphore acquire", acquire, 2);
 	return fail;
 }
 

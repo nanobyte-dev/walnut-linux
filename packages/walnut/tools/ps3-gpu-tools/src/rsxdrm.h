@@ -32,6 +32,8 @@ struct drm_nouveau_channel_alloc {
 	uint32_t nr_subchan;
 };
 #define DRM_IOCTL_NOUVEAU_CHANNEL_ALLOC _IOWR('d', DRM_COMMAND_BASE + 0x02, struct drm_nouveau_channel_alloc)
+struct drm_nouveau_channel_free { int32_t channel; };
+#define DRM_IOCTL_NOUVEAU_CHANNEL_FREE _IOW('d', DRM_COMMAND_BASE + 0x03, struct drm_nouveau_channel_free)
 struct drm_nouveau_notifierobj_alloc { uint32_t channel, handle, size, offset; };
 #define DRM_IOCTL_NOUVEAU_NOTIFIEROBJ_ALLOC _IOWR('d', DRM_COMMAND_BASE + 0x05, struct drm_nouveau_notifierobj_alloc)
 
