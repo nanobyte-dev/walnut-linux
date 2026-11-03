@@ -22,6 +22,7 @@
 #include <linux/seq_file.h>
 
 #include "ps3rsx.h"
+#include "pushdump.h"
 
 #define IOPTE_RW (CBE_IOPTE_PP_W | CBE_IOPTE_PP_R | CBE_IOPTE_M)
 
@@ -116,8 +117,17 @@ static int bo_open(struct drm_gem_object *obj, struct drm_file *file)
 
 	if (!bo->owner || !pf || pf->owner != bo->owner)
 		WRITE_ONCE(bo->shared, true);
+	ps3rsx_pd_bo_event(bo, file, true);	/* the push dump (test builds) */
 	return 0;
 }
+
+#ifdef PS3RSX_PUSH_DUMP
+/* A handle deleted: the push dump records the files' buffer sets (test builds only) */
+static void bo_close(struct drm_gem_object *obj, struct drm_file *file)
+{
+	ps3rsx_pd_bo_event(to_bo(obj), file, false);
+}
+#endif
 
 static void bo_free(struct drm_gem_object *obj)
 {
@@ -213,6 +223,9 @@ static int bo_mmap(struct drm_gem_object *obj, struct vm_area_struct *vma)
 static const struct drm_gem_object_funcs bo_funcs = {
 	.free = bo_free,
 	.open = bo_open,
+#ifdef PS3RSX_PUSH_DUMP
+	.close = bo_close,
+#endif
 	.export = bo_export,
 	.mmap = bo_mmap,
 	.vm_ops = &ps3rsx_vm_ops,

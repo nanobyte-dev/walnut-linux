@@ -18,6 +18,7 @@
 #include <asm/ps3av.h>
 
 #include "ps3rsx.h"
+#include "pushdump.h"
 
 static int ps3rsx_open(struct drm_device *dev, struct drm_file *file)
 {
@@ -180,6 +181,7 @@ static int ps3rsx_probe(struct platform_device *pdev)
 		 rsx->vram_size >> 20, rsx->info.reserved, rsx->gart_size >> 20,
 		 rsx->gart_dynamic ? "on demand" : "reserved",
 		 rsx->info.xres, rsx->info.yres, rsx->info.line_length);
+	ps3rsx_pd_init(rsx);		/* the push dump (test builds): under the minor's debugfs */
 	return 0;
 }
 
@@ -188,6 +190,7 @@ static void ps3rsx_remove(struct platform_device *pdev)
 	struct ps3rsx_device *rsx = platform_get_drvdata(pdev);
 
 	ps3rsx_uw_quiesce(rsx);		/* no recovery work under the teardown below */
+	ps3rsx_pd_fini(rsx);
 	drm_dev_unregister(&rsx->drm);
 	drm_atomic_helper_shutdown(&rsx->drm);	/* flips back to ps3fb's frame */
 	ps3rsx_vclear_stop(rsx);	/* no clear runs under the teardown; zombies go at mem_fini */

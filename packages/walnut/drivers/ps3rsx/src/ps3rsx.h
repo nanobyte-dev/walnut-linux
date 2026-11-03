@@ -23,6 +23,9 @@
 #include <drm/nouveau_drm.h>
 #include <asm/ps3gpu.h>
 #include "vclear.h"
+#ifdef PS3RSX_PUSH_DUMP
+#include "pushdump_scan.h"
+#endif
 
 struct ps3rsx_vstate;
 struct ps3rsx_file;
@@ -473,6 +476,9 @@ struct ps3rsx_chan {
 	bool lost;			/* the GPU was recovered under it: -ECANCELED once (PS3_RECOVER) or -EIO */
 	struct ps3rsx_subhist hist[PS3RSX_HIST];	/* the last submits (exec_lock) */
 	u32 hist_n;
+#ifdef PS3RSX_PUSH_DUMP
+	struct pd_chan_state pd;	/* the push dump's view of its binds (pushdump.c, exec_lock) */
+#endif
 };
 
 /* Per open file */

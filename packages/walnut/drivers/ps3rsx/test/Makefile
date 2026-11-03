@@ -5,7 +5,9 @@
 # fixtures/: mpv's first frame, captured with mesa-shim/), pushbuf-test, GEM_PUSHBUF's argument
 # checks at the u64 edge (src/pushbuf.h), vclear-test, the VRAM clear's rules on a model heap
 # and GPU (src/vclear.h), and validate-capture, a mesa-shim
-# capture's pushes through the validator; fix-off, validate-test with one stability rule turned off
+# capture's pushes through the validator; pushdump-test, the push dump's scanner and record format
+# (src/pushdump_scan.h) and, with pushdump-test.sh, a sample dump split by pushdump-split.py into
+# validate-capture's inputs; fix-off, validate-test with one stability rule turned off
 # at a time (fix-off.sh: a copy of validate.c edited under O, or an OLD_* define for the submit.c
 # model), each build expected to fail with its own FAIL line.
 #   make && make run		x86 with ASan/UBSan, x86 plain, ppc64 (big-endian) under qemu
@@ -21,7 +23,8 @@ PPCFLAGS := --sysroot=$(SYSROOT) -isystem $(SYSROOT)/usr/include/powerpc64-linux
 	-L$(SYSROOT)/usr/lib/powerpc64-linux-gnu -L$(SYSROOT)/lib/powerpc64-linux-gnu -static
 
 all: $(O)/shadow-equiv $(O)/shadow-equiv-fast $(O)/shadow-equiv-ppc64 $(O)/zero-test $(O)/zero-test-ppc64 \
-	$(O)/validate-test $(O)/validate-capture $(O)/blame-test $(O)/pushbuf-test $(O)/vclear-test
+	$(O)/validate-test $(O)/validate-capture $(O)/blame-test $(O)/pushbuf-test $(O)/vclear-test \
+	$(O)/pushdump-test
 $(O)/shadow-equiv: $(SRC)
 	@mkdir -p $(O)
 	gcc $(CFLAGS) -fsanitize=address,undefined -fno-sanitize-recover=undefined -o $@ $<
@@ -63,6 +66,11 @@ $(O)/vclear-test: vclear-test.c ../src/vclear.h inc/shim.h
 $(O)/validate-capture: validate-capture.c ../src/validate.c ../src/shadow.c inc/shim.h
 	@mkdir -p $(O)
 	gcc $(CFLAGS) -Wno-unused-function -fsanitize=address,undefined -fno-sanitize-recover=undefined -o $@ $<
+# the push dump's scanner and record layout (src/pushdump_scan.h); pushdump-test.sh runs it end to
+# end with pushdump-split.py and validate-capture
+$(O)/pushdump-test: pushdump-test.c ../src/pushdump_scan.h inc/shim.h
+	@mkdir -p $(O)
+	gcc $(CFLAGS) -Wno-unused-function -fsanitize=address,undefined -fno-sanitize-recover=undefined -o $@ $<
 # the old behaviour of each stability rule fails its case (fix-off.sh)
 fix-off: fix-off.sh validate-test.c pushbuf-test.c vclear-test.c ../src/validate.c ../src/shadow.c \
 	../src/pushbuf.h ../src/vclear.h inc/shim.h
@@ -79,6 +87,7 @@ run: all
 	$(O)/validate-test
 	$(O)/pushbuf-test
 	$(O)/vclear-test
+	./pushdump-test.sh $(O)
 	./fix-off.sh $(O)
 clean:
 	rm -rf $(O)

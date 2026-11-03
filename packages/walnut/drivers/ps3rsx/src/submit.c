@@ -17,6 +17,7 @@
 
 #include "ps3rsx.h"
 #include "pushbuf.h"
+#include "pushdump.h"
 #include "wait.h"
 
 /* At load only: turned off under running clients, the GPU's binds would stop matching each
@@ -105,6 +106,7 @@ static int end_primitive(struct ps3rsx_device *rsx)
 	if (IS_ERR(f))
 		return PTR_ERR(f);
 	dma_fence_put(f);
+	ps3rsx_pd_end(rsx, owner, p[0]);	/* the push dump (test builds) */
 	owner->vstate.prim_open = false;
 	rsx->prim_owner = NULL;
 	wake_up_all(&rsx->prim_wq);
@@ -434,6 +436,7 @@ int ps3rsx_ioctl_gem_pushbuf(struct drm_device *dev, void *data, struct drm_file
 	struct drm_gem_object **objs = NULL;
 	struct ww_acquire_ctx ticket;
 	struct dma_fence *fence = NULL;
+	struct pd_submit *pds = NULL;		/* the push dump's reads after the fence */
 	bool held = false, switched;
 	struct ps3rsx_chan *ch;
 	struct ps3rsx_vstate vs;
@@ -626,6 +629,9 @@ int ps3rsx_ioctl_gem_pushbuf(struct drm_device *dev, void *data, struct drm_file
 				     push[i].bo_index, push[i].offset, dst, len);
 			ret = ps3rsx_validate(&vs, dst, len / 4);
 			if (ret) {
+				/* the push dump (test builds), before an END can reuse the ring space */
+				ps3rsx_pd_submit(rsx, ch, false, i, push, req->nr_push, bos, objs,
+						 req->nr_buffers, ring, restore / 4, ring + restore / 4);
 				ret = submit_rejected(rsx, ch);
 				mutex_unlock(&rsx->exec_lock);
 				goto out;
@@ -644,6 +650,9 @@ int ps3rsx_ioctl_gem_pushbuf(struct drm_device *dev, void *data, struct drm_file
 	if (!IS_ERR(fence)) {
 		u32 *dst = ring + restore / 4;
 
+		/* the push dump (test builds): the words as they went to the ring */
+		pds = ps3rsx_pd_submit(rsx, ch, true, 0, push, req->nr_push, bos, objs,
+				       req->nr_buffers, ring, restore / 4, dst);
 		/*
 		 * The GPU now holds this channel's state, then what its pushes set: they go into
 		 * the channel's validator state and shadow (from the ring, where they still are).
@@ -735,6 +744,8 @@ int ps3rsx_ioctl_gem_pushbuf(struct drm_device *dev, void *data, struct drm_file
 out:
 	if (held)
 		ps3rsx_console_unhold(rsx);
+	/* the push dump (test builds): what the pushes fetched, once the GPU has passed them */
+	ps3rsx_pd_contents(rsx, pds, fence, objs, req->nr_buffers);
 	chan_put(ch);			/* exec_lock isn't held here */
 	if (fence)
 		dma_fence_put(fence);
