@@ -10,6 +10,11 @@
  * through nv30_miptree.c's own functions: the size classes, a buffer back only in its own class,
  * the 32-buffer and 2 MiB limits (the oldest given back first), the drain when GART runs out, and
  * a pool closed with its screen.
+ * And Mesa 0057 (staging_inflight): the bytes of staging whose copies may still run are counted up
+ * at the unmap and down by the fence work, through nv30_staging_bo_new and nv30_staging_finish with
+ * a fence queue the test signals: uploads whose fences signal along the way never wait for the
+ * GPU (before: a full wait every 4 MB), 4 MB really in flight still wait, a context destroyed
+ * with uploads pending leaves the count to them (AddressSanitizer), no count at all works.
  * (tools/run-tests.sh --only mesa-transfer-cpu runs it; skipped without build/work/mesa) */
 #include "nv30/nv30_miptree.c"
 #include "nv30/nv30_transfer.c"
@@ -71,7 +76,23 @@ int nouveau_bo_map(struct nouveau_bo *bo, uint32_t access, struct nouveau_client
 		maps_wr++;
 	return 0;
 }
-bool nouveau_fence_wait_idle(struct nouveau_context *nv) { (void)nv; waits_idle++; return true; }
+/* fence work: run at once, or queued until signal_fences() (the GPU's pending copies) */
+static struct { void (*func)(void *); void *data; } pending[512];
+static unsigned npending;
+static int defer_fences;
+static void signal_fences(void)
+{
+	for (unsigned i = 0; i < npending; i++)
+		pending[i].func(pending[i].data);
+	npending = 0;
+}
+/* waiting for the GPU to go idle signals everything queued */
+bool nouveau_fence_wait_idle(struct nouveau_context *nv)
+{
+	(void)nv; waits_idle++;
+	signal_fences();
+	return true;
+}
 
 /* never reached with a full GART: the GPU paths and the rest of the driver */
 #define UNREACHED(...) { fails++; printf("FAIL: %s called\n", __func__); }
@@ -90,7 +111,16 @@ void nouveau_fence_ref(struct nouveau_fence *f, struct nouveau_fence **r, struct
 { (void)f; (void)r; (void)s; }
 bool nouveau_fence_wait(struct nouveau_fence *f, struct util_debug_callback *d) { (void)f; (void)d; return true; }
 bool nouveau_fence_work(struct nouveau_fence *f, void (*func)(void *), void *data)
-{ (void)f; func(data); return true; }
+{
+	(void)f;
+	if (defer_fences) {
+		pending[npending].func = func;
+		pending[npending++].data = data;
+	} else {
+		func(data);
+	}
+	return true;
+}
 void nouveau_fence_unref_bo(void *data) { struct nouveau_bo *bo = data; nouveau_bo_ref(NULL, &bo); }
 int nouveau_heap_alloc(struct nouveau_heap *h, unsigned s, void *p, struct nouveau_heap **r)
 { (void)h; (void)s; (void)p; (void)r; UNREACHED(); return -1; }
@@ -338,6 +368,81 @@ static void test_staging_small(void)
 	gart_full = 1;
 }
 
+/* one write upload of size bytes as the driver queues it: a staging buffer (waiting for the GPU
+ * first when 4 MB are in flight), then the unmap's bookkeeping with the fence after the copy */
+static unsigned max_inflight;
+static void queue_upload(unsigned size)
+{
+	struct nouveau_bo *bo = NULL;
+	struct nv30_transfer *tx = CALLOC_STRUCT(nv30_transfer);
+
+	CHECK(nv30_staging_bo_new(&ctx, size, &bo) == 0, "no staging buffer");
+	tx->tmp.bo = bo;
+	nv30_staging_finish(&ctx, tx);
+	FREE(tx);
+	if (nv30_inflight_bytes(ctx.staging_inflight) > max_inflight)
+		max_inflight = nv30_inflight_bytes(ctx.staging_inflight);
+}
+
+static void test_inflight(void)
+{
+	int base = bos;
+
+	gart_full = 0;
+	defer_fences = 1;
+	screen.staging_max = 0;		/* no pool: every upload's buffer is freed by the fence work */
+
+	/* uploads whose fences signal along the way: 8 of 64 KiB at a time, 200 uploads (12.5 MiB) */
+	ctx.staging_inflight = nv30_inflight_new();
+	waits_idle = 0;
+	max_inflight = 0;
+	for (unsigned i = 0; i < 200; i++) {
+		queue_upload(64 << 10);
+		if (i % 8 == 7)
+			signal_fences();
+	}
+	CHECK(waits_idle == 0, "%d waits for the GPU with at most 512 KiB in flight (a wait every 4 MB of "
+	      "uploads before)", waits_idle);
+	CHECK(max_inflight == 8 * (64 << 10), "in flight at most %u bytes, want 524288", max_inflight);
+	signal_fences();
+	CHECK(nv30_inflight_bytes(ctx.staging_inflight) == 0 && bos == base,
+	      "after the last fence: %u bytes in flight, %d buffers alive", nv30_inflight_bytes(ctx.staging_inflight),
+	      bos - base);
+
+	/* nothing signals: 4 MB of 64 KiB uploads fit, the next one waits (and the wait signals all) */
+	waits_idle = 0;
+	max_inflight = 0;
+	for (unsigned i = 0; i < 64; i++)
+		queue_upload(64 << 10);
+	CHECK(waits_idle == 0 && max_inflight == 4u << 20, "4 MiB in flight: %d waits, %u bytes", waits_idle,
+	      max_inflight);
+	queue_upload(64 << 10);
+	CHECK(waits_idle == 1, "the upload past 4 MiB in flight made %d waits, want 1", waits_idle);
+	CHECK(nv30_inflight_bytes(ctx.staging_inflight) == 64 << 10, "after the wait %u bytes in flight, want 65536",
+	      nv30_inflight_bytes(ctx.staging_inflight));
+	signal_fences();
+
+	/* the context is destroyed with uploads pending: their fence work still counts down, and the
+	 * last one frees the count */
+	for (unsigned i = 0; i < 5; i++)
+		queue_upload(64 << 10);
+	nv30_inflight_release(ctx.staging_inflight);
+	ctx.staging_inflight = NULL;
+	signal_fences();
+	CHECK(bos == base, "%d buffers alive after the fences", bos - base);
+
+	/* no count (its allocation failed): uploads still go through, nothing is counted */
+	waits_idle = 0;
+	for (unsigned i = 0; i < 80; i++)
+		queue_upload(64 << 10);
+	CHECK(waits_idle == 0, "%d waits without a count", waits_idle);
+	signal_fences();
+	CHECK(bos == base, "%d buffers alive after the fences, no count", bos - base);
+
+	defer_fences = 0;
+	gart_full = 1;
+}
+
 int main(void)
 {
 	screen.base.is_ps3 = true;
@@ -351,6 +456,7 @@ int main(void)
 	test_linear();
 	test_dxt1();
 	test_staging_small();
+	test_inflight();
 	CHECK(bos == 0, "%d buffer objects left", bos);
 	printf("%s: %d checks, %d failed\n", fails ? "FAIL" : "ok", checks, fails);
 	return fails != 0;

@@ -1,0 +1,244 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Wed, 4 Nov 2026 01:30:28 +0200
+Subject: nv30: staging_inflight counts what is still in flight, not every
+ upload since the last idle
+
+On the PS3, nv30_staging_bo_new() waits for the GPU once 4 MB of this context's texture
+uploads are in flight, because the GART is a small reservation shared by every process. But
+staging_inflight was only ever added to, and zeroed by that very wait: it counted every upload
+since the last full idle, whether its copy had run long ago or not. A load with many small
+uploads (Luanti's textures, Trigger Rally's and OpenArena's level loads) therefore stopped for a
+full GPU idle every 4 MB, a periodic hitch, with the GPU's queue empty of staging in between.
+
+The count is now taken down by each upload's fence work, when the fence after its copy signals
+(nv30_staging_done, for the pooled, the big-pool and the plain buffer alike), and a wait no
+longer resets it. Uploads whose copies have run don't count; 4 MB really in flight still wait.
+
+The fence work can run after the context is gone (fences belong to the screen), so the count is
+a small refcounted object (struct nv30_inflight) that the context and every pending upload hold.
+If its allocation fails the uploads are simply not counted. The unmap's bookkeeping moves into
+nv30_staging_finish() unchanged but for the count (and a fence work that frees a plain buffer
+through nv30_staging_free, so it can count down; an allocation failure still falls back to
+nouveau_fence_unref_bo).
+
+Forwarded: no
+
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_context.c b/src/gallium/drivers/nouveau/nv30/nv30_context.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_context.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_context.c
+@@ -212,6 +212,10 @@ nv30_context_destroy(struct pipe_context *pipe)
+ {
+    struct nv30_context *nv30 = nv30_context(pipe);
+ 
++   /* the uploads still pending hold it: it goes with the last of them */
++   nv30_inflight_release(nv30->staging_inflight);
++   nv30->staging_inflight = NULL;
++
+    if (nv30->screen->sysmem_stats && nv30->frames)
+       nv30_sysmem_stats_print(nv30, "end");
+    nv30_shader_cache_report(nv30->screen, "end");
+@@ -269,6 +273,7 @@ nv30_context_create(struct pipe_screen *pscreen, void *priv, unsigned ctxflags)
+       return NULL;
+ 
+    nv30->screen = screen;
++   nv30->staging_inflight = nv30_inflight_new();	/* NULL: uploads aren't counted */
+    nv30->base.copy_data = nv30_transfer_copy_data;
+ 
+    pipe = &nv30->base.pipe;
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_context.h b/src/gallium/drivers/nouveau/nv30/nv30_context.h
+--- a/src/gallium/drivers/nouveau/nv30/nv30_context.h
++++ b/src/gallium/drivers/nouveau/nv30/nv30_context.h
+@@ -41,6 +41,10 @@
+ #define NV30_NEW_SWTNL        (1 << 31)
+ #define NV30_NEW_ALL          0x000fffff
+ 
++struct nv30_inflight;
++struct nv30_inflight *nv30_inflight_new(void);
++void nv30_inflight_release(struct nv30_inflight *i);
++
+ struct nv30_context {
+    struct nouveau_context base;
+    struct nv30_screen *screen;
+@@ -83,8 +87,10 @@ struct nv30_context {
+    /* frames (end-of-frame flushes) of this context, for NV30_SYSMEM_STATS */
+    unsigned frames;
+ 
+-   /* PS3: bytes of texture upload staging (GART) whose copies may still be pending */
+-   unsigned staging_inflight;
++   /* PS3: bytes of texture upload staging (GART) whose copies may still be pending: counted
++    * up when an upload is queued and down when the fence after its copy signals, so it can
++    * outlive the context (each pending upload holds a reference; nv30_miptree.c) */
++   struct nv30_inflight *staging_inflight;
+ 
+    struct draw_context *draw;
+    uint32_t draw_flags;
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_miptree.c b/src/gallium/drivers/nouveau/nv30/nv30_miptree.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_miptree.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_miptree.c
+@@ -300,7 +300,45 @@ static void
+ nv30_wait_idle(struct nv30_context *nv30)
+ {
+    nouveau_fence_wait_idle(&nv30->base);
+-   nv30->staging_inflight = 0;
++}
++
++/* Bytes of staging whose copies the GPU may still run, counted down by the fence work of each
++ * upload (nv30_staging_done), never reset by a wait: before, the count only grew until a full
++ * wait for the GPU zeroed it, so every 4 MB of uploads ended in an idle GPU whatever had
++ * finished meanwhile, a hitch every few uploads on a load. A pending upload's fence work can run
++ * after its context is gone, so the count is a small object they all hold a reference on. */
++struct nv30_inflight {
++   int refs;
++   int bytes;
++};
++
++struct nv30_inflight *
++nv30_inflight_new(void)
++{
++   struct nv30_inflight *i = CALLOC_STRUCT(nv30_inflight);
++
++   if (i)
++      i->refs = 1;
++   return i;
++}
++
++static void
++nv30_inflight_unref(struct nv30_inflight *i)
++{
++   if (i && p_atomic_dec_zero(&i->refs))
++      FREE(i);
++}
++
++void
++nv30_inflight_release(struct nv30_inflight *i)
++{
++   nv30_inflight_unref(i);
++}
++
++static inline unsigned
++nv30_inflight_bytes(struct nv30_inflight *i)
++{
++   return i ? p_atomic_read(&i->bytes) : 0;
+ }
+ 
+ static void nv30_staging_drain(struct nv30_screen *screen);
+@@ -311,8 +349,9 @@ nv30_staging_bo_new(struct nv30_context *nv30, unsigned size, struct nouveau_bo
+    struct nouveau_device *dev = nv30->screen->base.device;
+    int ret;
+ 
+-   if (nv30->screen->base.is_ps3 && nv30->staging_inflight &&
+-       nv30->staging_inflight + size > NV30_PS3_STAGING_INFLIGHT)
++   unsigned inflight = nv30_inflight_bytes(nv30->staging_inflight);
++
++   if (nv30->screen->base.is_ps3 && inflight && inflight + size > NV30_PS3_STAGING_INFLIGHT)
+       nv30_wait_idle(nv30);
+    ret = nouveau_bo_new(dev, NOUVEAU_BO_GART | NOUVEAU_BO_MAP, 0, size, NULL, pbo);
+    if (ret) {
+@@ -369,8 +408,32 @@ struct nv30_staging_return {
+    struct nv30_screen *screen;
+    struct nouveau_bo *bo;
+    unsigned size;
++   struct nv30_inflight *inflight; /* what this upload added to the context's count, or NULL */
++   unsigned inflight_bytes;
+ };
+ 
++/* fence work, first: the copy is done, its bytes are no longer in flight */
++static void
++nv30_staging_done(struct nv30_staging_return *r)
++{
++   if (r->inflight) {
++      p_atomic_add(&r->inflight->bytes, -(int)r->inflight_bytes);
++      nv30_inflight_unref(r->inflight);
++   }
++}
++
++/* fence work for an upload that is neither pooled nor kept: free the buffer */
++static void
++nv30_staging_free(void *data)
++{
++   struct nv30_staging_return *r = data;
++   struct nouveau_bo *bo = r->bo;
++
++   nv30_staging_done(r);
++   FREE(r);
++   nouveau_bo_ref(NULL, &bo);
++}
++
+ /* fence work: the copy out of the buffer is done (runs with or without the fence lock held) */
+ static void
+ nv30_staging_pool_put(void *data)
+@@ -380,6 +443,7 @@ nv30_staging_pool_put(void *data)
+    struct nouveau_bo *bo = r->bo, *evict[ARRAY_SIZE(screen->staging_pool)];
+    unsigned size = r->size, n = 0, i;
+ 
++   nv30_staging_done(r);
+    FREE(r);
+    simple_mtx_lock(&screen->staging_lock);
+    if (!screen->staging_closed) {
+@@ -463,6 +527,7 @@ nv30_staging_big_put(void *data)
+    unsigned cls = r->size, n = 0, i;
+    int64_t now = os_time_get();
+ 
++   nv30_staging_done(r);
+    FREE(r);
+    simple_mtx_lock(&screen->staging_lock);
+    if (!screen->staging_closed && nv30_staging_big_fits(cls, screen->staging_big_max)) {
+@@ -686,6 +751,34 @@ nv30_miptree_transfer_map(struct pipe_context *pipe, struct pipe_resource *pt,
+    return tx->tmp.bo->map;
+ }
+ 
++/* The copies out of tx's staging buffer are queued: once the fence after them signals the
++ * buffer goes back to its pool or is freed, and its bytes stop counting as in flight. */
++static void
++nv30_staging_finish(struct nv30_context *nv30, struct nv30_transfer *tx)
++{
++   /* Allow the copies to finish executing before freeing the source */
++   struct nv30_staging_return *r = MALLOC_STRUCT(nv30_staging_return);
++   if (r) {
++      r->screen = nv30->screen;
++      r->bo = tx->tmp.bo;
++      r->size = tx->pooled_size ? tx->pooled_size : tx->big_size;
++      r->inflight = NULL;
++      r->inflight_bytes = 0;
++      if (!tx->big_reused && nv30->staging_inflight) {
++         r->inflight = nv30->staging_inflight;
++         r->inflight_bytes = tx->tmp.bo->size;
++         p_atomic_inc(&r->inflight->refs);
++         p_atomic_add(&r->inflight->bytes, (int)r->inflight_bytes);
++      }
++      nouveau_fence_work(nv30->base.fence,
++                         tx->pooled_size ? nv30_staging_pool_put :
++                         tx->big_size ? nv30_staging_big_put : nv30_staging_free, r);
++   } else {
++      nouveau_fence_work(nv30->base.fence,
++                         nouveau_fence_unref_bo, tx->tmp.bo);
++   }
++}
++
+ void
+ nv30_miptree_transfer_unmap(struct pipe_context *pipe,
+                             struct pipe_transfer *ptx)
+@@ -721,21 +814,7 @@ nv30_miptree_transfer_unmap(struct pipe_context *pipe,
+          tx->tmp.offset += tx->base.layer_stride;
+       }
+ 
+-      /* Allow the copies above to finish executing before freeing the source */
+-      if (!tx->big_reused)
+-         nv30->staging_inflight += tx->tmp.bo->size;
+-      struct nv30_staging_return *r =
+-         tx->pooled_size || tx->big_size ? MALLOC_STRUCT(nv30_staging_return) : NULL;
+-      if (r) {
+-         r->screen = nv30->screen;
+-         r->bo = tx->tmp.bo;
+-         r->size = tx->pooled_size ? tx->pooled_size : tx->big_size;
+-         nouveau_fence_work(nv30->base.fence,
+-                            tx->pooled_size ? nv30_staging_pool_put : nv30_staging_big_put, r);
+-      } else {
+-         nouveau_fence_work(nv30->base.fence,
+-                            nouveau_fence_unref_bo, tx->tmp.bo);
+-      }
++      nv30_staging_finish(nv30, tx);
+    } else {
+       nouveau_bo_ref(NULL, &tx->tmp.bo);
+    }
