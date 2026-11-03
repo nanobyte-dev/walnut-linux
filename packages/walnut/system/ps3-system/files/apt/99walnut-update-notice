@@ -1,0 +1,3 @@
+// After a successful apt update: name the Walnut packages that have a newer version (nothing if none).
+// Never makes apt update fail.
+APT::Update::Post-Invoke-Success { "/usr/libexec/walnut/apt-update-notice || true"; };

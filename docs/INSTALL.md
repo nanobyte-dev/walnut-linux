@@ -178,6 +178,7 @@ Updating Walnut Linux packages:
      ```bash
      sudo apt update && sudo apt full-upgrade
      ```
+   - `apt update` ends with a one-line Walnut notice when installed Walnut packages have a newer version, e.g. `Walnut: 3 updates (ps3rsx-modules-ps3, ps3-system, ps3-desktop). Install with: sudo apt full-upgrade (from a text console, Ctrl+Alt+F2, if the desktop is short on memory).` There is no daemon, timer or popup; with no updates it prints nothing.
    - *(A dedicated `walnut-update` utility that stops graphical services, performs updates with optimized disk I/O, and restarts the desktop is planned for a future release).*
 2. **Kernel Updates & Fallback**
    - Kernel packages automatically detect your boot configuration:

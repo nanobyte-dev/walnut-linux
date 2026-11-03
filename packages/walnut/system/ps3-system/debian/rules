@@ -34,6 +34,8 @@ override_dh_auto_install:
 	install -D -m 644 files/apt/walnut.sources $(P)/etc/apt/sources.list.d/walnut.sources
 	install -D -m 644 files/apt/debian.sources $(P)/etc/apt/sources.list.d/debian.sources
 	install -D -m 644 files/apt/walnut.pref $(P)/etc/apt/preferences.d/walnut
+	install -D -m 644 files/apt/99walnut-update-notice $(P)/etc/apt/apt.conf.d/99walnut-update-notice
+	install -D -m 755 files/libexec/apt-update-notice $(P)/usr/libexec/walnut/apt-update-notice
 	install -D -m 644 files/apt/walnut-archive-keyring.gpg $(P)/usr/share/keyrings/walnut-archive-keyring.gpg
 	install -D -m 644 files/apt/walnut-testing-keyring.gpg $(P)/usr/share/keyrings/walnut-testing-keyring.gpg
 	install -D -m 644 files/sound/alsoft.conf $(P)/etc/xdg/alsoft.conf

@@ -1,0 +1,113 @@
+#!/usr/bin/python3 -I
+"""Walnut: after a successful apt update, name the installed Walnut packages with a newer version in the
+Walnut suites' Packages lists. Reads only /var/lib/apt/lists/walnut.nanobyte.dev_* of the suites enabled in
+walnut.sources (streamed, no apt cache), runs dpkg-query and dpkg --compare-versions, writes only to stdout.
+Prints nothing without updates; exits 0 whatever happens (apt update must never fail because of it).
+Usage: apt-update-notice [LISTS_DIR [SOURCES_FILE [BIN_DIR]]]  (arguments are for the host test)"""
+import glob, gzip, lzma, os, re, subprocess, sys
+
+NAME = re.compile(r"^[a-z0-9][a-z0-9+.-]+$")  # Debian policy 5.6.1
+VERS = re.compile(r"^(?:[0-9]+:)?[0-9][A-Za-z0-9.+~-]*$")  # no leading '-', no spaces, no shell characters
+SUITE = re.compile(r"^[a-z][a-z0-9-]*$")
+MAX_LINE = 65536
+MAX_PKGS = 20000
+SHOW = 8
+
+lists = sys.argv[1] if len(sys.argv) > 1 else "/var/lib/apt/lists"
+sources = sys.argv[2] if len(sys.argv) > 2 else "/etc/apt/sources.list.d/walnut.sources"
+bindir = sys.argv[3] if len(sys.argv) > 3 else "/usr/bin"
+
+
+def suites():
+    """The suites of the enabled stanzas (a missing Enabled: means yes)."""
+    out, cur = [], {}
+    with open(sources, encoding="utf-8", errors="replace") as f:
+        for line in list(f)[:500] + ["\n"]:
+            if line.strip() == "":
+                if cur.get("uris", "").startswith("https://walnut.nanobyte.dev/apt") \
+                        and cur.get("enabled", "yes").lower() in ("yes", "true", "1"):
+                    out += [s for s in cur.get("suites", "").split() if SUITE.match(s)]
+                cur = {}
+            elif not line.startswith("#") and ":" in line:
+                k, v = line.split(":", 1)
+                cur[k.strip().lower()] = v.strip()
+    return out
+
+
+def installed():
+    r = subprocess.run([os.path.join(bindir, "dpkg-query"), "-W", "-f", "${Package}\t${Version}\t${db:Status-Abbrev}\n"],
+                       capture_output=True, text=True, errors="replace", timeout=60, stdin=subprocess.DEVNULL)
+    inst = {}
+    for line in r.stdout.splitlines()[:MAX_PKGS]:
+        p = line.split("\t")
+        if len(p) == 3 and p[2].startswith("ii") and NAME.match(p[0]) and VERS.match(p[1]):
+            inst[p[0]] = p[1]
+    return inst
+
+
+def opener(path):
+    if path.endswith(".gz"):
+        return gzip.open(path, "rt", encoding="utf-8", errors="replace")
+    if path.endswith(".xz"):
+        return lzma.open(path, "rt", encoding="utf-8", errors="replace")
+    return open(path, encoding="utf-8", errors="replace")
+
+
+def stanzas(path):
+    """(Package, Version) of each stanza that has both, one pass over the file."""
+    pkg = ver = None
+    with opener(path) as f:
+        for line in f:
+            if len(line) > MAX_LINE:
+                line = line[:MAX_LINE]
+            if line.strip() == "":
+                if pkg and ver:
+                    yield pkg, ver
+                pkg = ver = None
+            elif line.startswith("Package:"):
+                pkg = line[8:].strip()
+            elif line.startswith("Version:"):
+                ver = line[8:].strip()
+    if pkg and ver:
+        yield pkg, ver
+
+
+def newer(a, b):
+    return subprocess.run([os.path.join(bindir, "dpkg"), "--compare-versions", a, "gt", b],
+                          stdin=subprocess.DEVNULL, capture_output=True, timeout=20).returncode == 0
+
+
+def main():
+    files = []
+    for s in suites():
+        files += sorted(glob.glob(os.path.join(lists, "walnut.nanobyte.dev_apt_dists_%s_*_Packages*" % s)))
+    files = [x for x in files if x.endswith(("_Packages", "_Packages.gz", "_Packages.xz"))]
+    if not files:
+        return
+    inst = installed()
+    names, seen = [], set()
+    for fn in files:
+        try:
+            for pkg, ver in stanzas(fn):
+                if pkg in seen or pkg not in inst or not NAME.match(pkg) or not VERS.match(ver):
+                    continue
+                try:
+                    if newer(ver, inst[pkg]):
+                        seen.add(pkg)
+                        names.append(pkg)
+                except Exception:
+                    pass
+        except Exception:
+            continue
+    if names:
+        shown = ", ".join(names[:SHOW]) + (", and %d more" % (len(names) - SHOW) if len(names) > SHOW else "")
+        print("Walnut: %d update%s (%s). Install with: sudo apt full-upgrade "
+              "(from a text console, Ctrl+Alt+F2, if the desktop is short on memory)."
+              % (len(names), "" if len(names) == 1 else "s", shown))
+
+
+try:
+    main()
+except BaseException:
+    pass
+sys.exit(0)

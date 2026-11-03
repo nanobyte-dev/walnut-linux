@@ -262,7 +262,7 @@ the next stable release goes out, and tick them in the release commit.
 - [ ] Turn the WARN-only checks in `github-ci/batch-publish.py` into refusals.
 - [ ] Switch the apt cache's suite and architecture allowlist (`servers/walnut.nanobyte.dev/repo.conf`) from log-only
   to refusing, after reading its logs (docs/reminders.toml has a dated reminder for the review).
-- [ ] Ship an update notice for consoles. The user has not decided how yet; nothing is built until then.
+- [x] Ship an update notice for consoles. Decided (the user, 2026-11-03): no daemon, timer or popup; users run `apt update` and `apt upgrade`/`full-upgrade`, and `apt update` ends with a notice naming the Walnut packages with updates (ps3-system's apt-update-notice, an `APT::Update::Post-Invoke-Success` drop-in). Done.
 
 ## Decided (the user, 2026-10-21)
 
