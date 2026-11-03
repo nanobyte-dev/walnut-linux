@@ -11,7 +11,7 @@ The PC-side installer for Walnut Linux on the PlayStation 3 (milestone M5 of the
 2. **USB Install (`usb`)**
    Prepares an external USB drive for Petitboot:
    - Verifies the disk is a whole drive on USB transport and not mounted or the host PC's root disk.
-   - Prompts for confirmation by requiring the user to type the disk's model name.
+   - Prompts for confirmation by requiring the user to type the disk's model name.  No option skips it.
    - Re-elevates with `sudo` if needed.
    - Partitions with `sfdisk` (DOS label, random 32-bit disk ID): partition 1 as swap (labelled `ps3swap`), partition 2 as ext4 (labelled `ps3root`, formatted with `-O ^metadata_csum,^metadata_csum_seed,^64bit,^orphan_file` so Petitboot's legacy e2fsprogs can mount it).
    - Unpacks the rootfs tarball preserving numeric ownership and extended attributes (`tar --xattrs --xattrs-include='*' --numeric-owner`).
