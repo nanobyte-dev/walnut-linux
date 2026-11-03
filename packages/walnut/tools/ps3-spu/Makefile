@@ -11,7 +11,9 @@
 #                   (deadline.spu's skinning op and libspeq's PPE path against Sauerbraten's
 #                   skinning written out in C; the spu path again with SPEQ_FAKE_RZ=1, rounding
 #                   toward zero as the SPU does), pool-test (synth and skinning sharing the deadline
-#                   pool next to DXT's bulk queue: deadlines, a slow job, faults)
+#                   pool next to DXT's bulk queue: deadlines, a slow job, faults), s3tc-stuck-test
+#                   (a dxt.spu op that never ends: the upload's wait and a full ring's stall end,
+#                   the queue is given up; lib/s3tc.c, lib/queue.c)
 #   make test-fluidsynth  fluidsynth with the libspeq hook against unpatched fluidsynth, both
 #                   built for the host, on a generated MIDI file (tests/fluidsynth-compare.sh)
 #   make test-mesa  our DXT1 and DXT5 encoders against Mesa's on a corpus (tests/mesa-compare.sh)
@@ -99,7 +101,7 @@ $(OUT)/deadline.spu: spu/deadline.c $(OUT)/deadline-synth.o $(OUT)/deadline-skin
 test:
 	$(MAKE) OUT=$(TEST_OUT) $(TEST_OUT)/libspeq.so.0 $(TEST_OUT)/speq-dxt $(TEST_OUT)/dlopen-check \
 		$(TEST_OUT)/queue-test $(TEST_OUT)/speq-bench-fake $(TEST_OUT)/speq-dxt-fake \
-		$(TEST_OUT)/synth-test $(TEST_OUT)/speq-skin-fake $(TEST_OUT)/pool-test
+		$(TEST_OUT)/synth-test $(TEST_OUT)/speq-skin-fake $(TEST_OUT)/pool-test $(TEST_OUT)/s3tc-stuck-test
 	$(TEST_OUT)/speq-dxt --check
 	SPEQ_FAKE=1 $(TEST_OUT)/speq-dxt-fake --check --path spu
 	SPEQ_FAKE=1 $(TEST_OUT)/speq-dxt-fake --check --path auto
@@ -112,6 +114,9 @@ test:
 	SPEQ_FAKE=1 $(TEST_OUT)/speq-skin-fake --check --path auto
 	$(TEST_OUT)/speq-skin-fake --check --path ppe
 	SPEQ_FAKE=1 $(TEST_OUT)/pool-test
+	$(TEST_OUT)/s3tc-stuck-test wait
+	$(TEST_OUT)/s3tc-stuck-test wait-spu
+	$(TEST_OUT)/s3tc-stuck-test stall
 $(OUT)/dlopen-check: tests/dlopen-check.c lib/dxt-ref.c $(SPEQ_HDR)
 	@mkdir -p $(OUT)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -Ilib $(LDFLAGS) -o $@ tests/dlopen-check.c lib/dxt-ref.c -ldl
@@ -135,6 +140,12 @@ $(OUT)/speq-skin-fake: tools/speq-skin.c $(SPEQ_SRC) $(FAKE_POOL) $(SPEQ_HDR) $(
 	@mkdir -p $(OUT)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -DSPEQ_FAKE -Ilib -Ispu $(LDFLAGS) -o $@ tools/speq-skin.c \
 		$(SPEQ_SRC) $(FAKE_POOL) -lm -lpthread
+# MS4: a stuck SPE (a fake dxt.spu whose op never ends) must not hang the upload (lib/s3tc.c, lib/queue.c)
+S3TC_STUCK_SRC := lib/s3tc.c lib/dxt-ref.c lib/synth.c lib/skin.c lib/pool.c lib/queue.c lib/spe.c lib/fake.c spu/runtime.c
+$(OUT)/s3tc-stuck-test: tests/s3tc-stuck-test.c $(S3TC_STUCK_SRC) $(SPEQ_HDR) $(SPU_HDR)
+	@mkdir -p $(OUT)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -DSPEQ_FAKE -Ilib -Ispu $(LDFLAGS) -o $@ tests/s3tc-stuck-test.c \
+		$(S3TC_STUCK_SRC) -lm -lpthread
 $(OUT)/pool-test: tests/pool-test.c $(SPEQ_SRC) $(FAKE_ALL) $(SPEQ_HDR) $(SPU_HDR)
 	@mkdir -p $(OUT)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -DSPEQ_FAKE -DSK_CHECK -Ilib -Ispu $(LDFLAGS) -o $@ \

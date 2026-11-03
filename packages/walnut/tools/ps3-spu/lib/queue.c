@@ -32,6 +32,9 @@
 #define FREE_MS		5000	/* a parked worker frees its context after this (~260 KB vmalloc) */
 #define STRIKES		3	/* contexts dying in a row without a job: the worker gives up */
 #define CLOSE_MS	3000	/* speq_close waits this long for each worker */
+#define STALL_MS	10000	/* a submit that finds the ring full and its head not moving for this long gives
+			 * the queue up (SPEQ_SUBMIT_STALL_MS, 0: wait for ever): workers that never
+			 * claim again would hold every submitter in the loop below for ever */
 
 static pthread_mutex_t queues_lock = PTHREAD_MUTEX_INITIALIZER;
 static struct speq *queues;
@@ -486,6 +489,7 @@ int spq_open_ex(struct speq **qp, const char *prog, unsigned nworkers, unsigned 
 	 * fault in through the worker's spu_run, which works); best effort */
 	mlock(cb, SPEQ_CB_SIZE);
 	q->spin_us = env_uint("SPEQ_SPIN_US", SPIN_US);
+	q->stall_ms = env_uint("SPEQ_SUBMIT_STALL_MS", STALL_MS);
 	q->free_ms = env_uint("SPEQ_FREE_MS", FREE_MS);
 	q->ctl->abi = SPEQ_ABI_VERSION;
 	q->ctl->nworkers = q->nworkers;
@@ -568,7 +572,8 @@ int spq_submit_dl(struct speq *q, const struct speq_job *jobs, unsigned n, struc
 		  uint64_t deadline)
 {
 	struct speq_ctl *c;
-	uint32_t head, tail, v, space, k, j, i = 0;
+	uint32_t head, tail, v, space, k, j, i = 0, last_head = UINT32_MAX;
+	double t_moved = 0;
 
 	if (!q || !done || ((uintptr_t)done & (SPEQ_LINE - 1)) || (n && !jobs))
 		return -EINVAL;
@@ -588,6 +593,18 @@ int spq_submit_dl(struct speq *q, const struct speq_job *jobs, unsigned n, struc
 		if (!space) {	/* 64 queued: the workers are busy */
 			if (LOAD(&q->dead))
 				break;
+			if (q->stall_ms) {
+				/* busy is not stuck: the head moves as workers claim jobs. Stuck: it
+				 * doesn't for stall_ms, the queue is given up (the code below fails what
+				 * is queued and what is left of this batch), not waited on for ever */
+				if (head != last_head) {
+					last_head = head;
+					t_moved = spq_now_us();
+				} else if (spq_now_us() - t_moved > q->stall_ms * 1000.0) {
+					STORE(&q->dead, 1);
+					break;
+				}
+			}
 			sched_yield();
 			continue;
 		}
@@ -629,6 +646,14 @@ int spq_submit_dl(struct speq *q, const struct speq_job *jobs, unsigned n, struc
 		return -EIO;
 	}
 	return 0;
+}
+
+void spq_abandon(struct speq *q)
+{
+	if (!q)
+		return;
+	STORE(&q->dead, 1);
+	drain_ring(q, -EIO);
 }
 
 int spq_wait_ex(struct speq *q, struct speq_done *done, int spin_us, long timeout_us)
