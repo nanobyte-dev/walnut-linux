@@ -374,6 +374,41 @@ class PublicExport(unittest.TestCase):
             self.assertEqual(self.git(out, "rev-list", "--count", "main").strip(), "3", r.stdout)
             self.assertNotIn("packages/licensed", self.git(out, "log", "--name-only", "--format="))
 
+    def test_env_list_adds_to_the_default_list(self):
+        """G6: $WALNUT_PUBLIC_REPLACE adds its patterns to tools/public-replace.local.txt, both are applied"""
+        if not shutil.which("git-filter-repo") and not os.path.exists(os.path.expanduser("~/.local/bin/git-filter-repo")):
+            self.skipTest("no git-filter-repo")
+        with tempfile.TemporaryDirectory() as tmp:
+            src, out = os.path.join(tmp, "src"), os.path.join(tmp, "out")
+            os.makedirs(os.path.join(src, "tools", "commit_tests", "checks"))
+            self.git(src, "init", "-q", "-b", "main")
+            for f in ("public-export.sh", "licensed.py", "licensed-files.txt", "public-scan.py", "public-scan-allow.txt"):
+                shutil.copy(HERE / f, os.path.join(src, "tools", f))
+            shutil.copy(HERE / "commit_tests" / "checks" / "private.py", os.path.join(src, "tools", "commit_tests", "checks", "private.py"))
+            Path(src, "tools", "public-strip-blobs.txt").write_text("")
+            Path(src, "tools", "public-replace.local.txt").write_text("literal:SECRET-ONE==>one\n")
+            extra = os.path.join(tmp, "extra.txt")
+            Path(extra).write_text("literal:SECRET-TWO==>two\n")
+            Path(src, "a.txt").write_text("SECRET-ONE and SECRET-TWO\n")
+            self.git(src, "add", "-A")
+            self.git(src, "commit", "-qm", "files")
+            base = dict(os.environ, PATH=os.path.expanduser("~/.local/bin") + ":" + os.environ["PATH"])
+            r = subprocess.run(["bash", os.path.join(src, "tools", "public-export.sh"), out],
+                               env=dict(base, WALNUT_PUBLIC_REPLACE=extra), cwd=src,
+                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            self.assertEqual(r.returncode, 0, r.stdout)
+            self.assertEqual(Path(out, "a.txt").read_text(), "one and two\n")
+            # a variable naming a missing file stops the export, and the default list alone still works
+            r = subprocess.run(["bash", os.path.join(src, "tools", "public-export.sh"), out],
+                               env=dict(base, WALNUT_PUBLIC_REPLACE=os.path.join(tmp, "absent")), cwd=src,
+                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            self.assertEqual(r.returncode, 2, r.stdout)
+            r = subprocess.run(["bash", os.path.join(src, "tools", "public-export.sh"), out], env=base, cwd=src,
+                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            self.assertEqual(r.returncode, 0, r.stdout)
+            self.assertEqual(Path(out, "a.txt").read_text(), "one and SECRET-TWO\n")
+
+
 
 class PublicScan(unittest.TestCase):
     """tools/public-scan.py on a temporary repository: a key block, a token and a netrc line inside a binary

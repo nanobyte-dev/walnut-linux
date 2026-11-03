@@ -24,8 +24,20 @@ DIR=${1:-${WALNUT_PUBLIC_DIR:-/mnt/data_linux/Temp/ps3/walnut-public}}
 command -v git-filter-repo >/dev/null || { echo "!! git-filter-repo is missing: pip install --user git-filter-repo" >&2; exit 2; }
 # text to replace in every file of every commit: an untracked local file (it names what it hides, so
 # it can't be published itself), one filter-repo expression per line (regex:...==>...)
-REPL=${WALNUT_PUBLIC_REPLACE:-$SRC/tools/public-replace.local.txt}
-[ -r "$REPL" ] || { echo "!! no $REPL (the private replace list)" >&2; exit 2; }
+# $WALNUT_PUBLIC_REPLACE adds its list to the default one (a stale variable must not shrink what is hidden); both
+# are read into one private temporary file (mode 600), which filter-repo and the scan then use
+DEFAULT_REPL=$SRC/tools/public-replace.local.txt
+REPL=$(mktemp "${TMPDIR:-/tmp}/public-replace.XXXXXX")
+trap 'rm -f "$REPL"' EXIT
+have=0
+for l in "$DEFAULT_REPL" "${WALNUT_PUBLIC_REPLACE:-}"; do
+	[ -n "$l" ] || continue
+	[ -r "$l" ] || { echo "!! no $l (a private replace list)" >&2; exit 2; }
+	if [ -n "$(find "$l" -maxdepth 0 -perm /077)" ]; then echo "?? $l is readable by others: chmod 600" >&2; fi
+	cat "$l" >> "$REPL"; echo >> "$REPL"
+	have=1
+done
+[ $have = 1 ] || { echo "!! no $DEFAULT_REPL (the private replace list)" >&2; exit 2; }
 # fail closed: an empty list hides nothing; a glob: entry, which filter-repo anchors to the end of the text on
 # newer Pythons (it would replace nothing inside a line), is refused rather than trusted
 grep -q '[^[:space:]]' "$REPL" || { echo "!! $REPL has no pattern" >&2; exit 2; }

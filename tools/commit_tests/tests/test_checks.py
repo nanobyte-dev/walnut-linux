@@ -345,6 +345,72 @@ class Private(Base):
         subprocess.run(["git", "-C", str(wt), "add", "doc.md"], check=True, env=ENV)
         self.assertTrue(any("nothing can be checked" in f[3] for f in self.worktree_errors(wt)))
 
+    # G6: $WALNUT_PUBLIC_REPLACE adds to the default list, never replaces it; the list should be mode 600
+    def with_env(self, value):
+        old = os.environ.get("WALNUT_PUBLIC_REPLACE")
+        os.environ["WALNUT_PUBLIC_REPLACE"] = value
+
+        def restore():
+            if old is None:
+                os.environ.pop("WALNUT_PUBLIC_REPLACE", None)
+            else:
+                os.environ["WALNUT_PUBLIC_REPLACE"] = old
+        self.addCleanup(restore)
+
+    def test_env_list_adds_to_the_default(self):
+        extra = self.r.dir / "extra-list.txt"
+        extra.write_text("literal:%s-extra\n" % self.r.token)
+        self.with_env(str(extra))
+        self.r.write("a.md", "x %s-extra\n" % self.r.token)
+        self.r.write("b.md", "y %s\n" % self.r.token)     # the default list's pattern still counts
+        self.r.add("a.md", "b.md")
+        errs = self.bad("private", "private pattern")
+        self.assertEqual({e[2] for e in errs}, {"a.md", "b.md"})
+
+    def test_env_list_alone_when_the_clone_has_none(self):
+        extra = self.r.dir / "extra-list.txt"
+        extra.write_text("literal:%s-extra\n" % self.r.token)
+        (self.r.dir / "tools/public-replace.local.txt").unlink()
+        self.with_env(str(extra))
+        self.r.write("a.md", "x %s-extra\n" % self.r.token)
+        self.r.add("a.md")
+        self.bad("private", "private pattern")
+
+    def test_list_readable_by_others_warns(self):
+        lst = self.r.dir / "tools/public-replace.local.txt"
+        self.r.write("doc.md", "fine\n")
+        self.r.add("doc.md")
+        lst.chmod(0o644)
+        self.assertTrue(any(f[1] == "warning" and "readable by others" in f[3] for f in self.r.run(["private"])))
+        lst.chmod(0o600)
+        self.assertFalse([f for f in self.r.run(["private"]) if f[1] == "warning"])
+
+    # G5: the report takes private text out of every check's findings
+    def test_report_redacts_private_text(self):
+        import io
+        ctx = core.Ctx(self.r.dir, "hook", [], message="x\n")
+        ctx.check = "shell"
+        ctx.error("dir-%s/a.sh" % self.r.token, "line 3: echo %s is not allowed" % self.r.token)
+        ctx.warn(None, "token ghp_" + "a" * 36 + " in the text")
+        ctx.error("clean.sh", "plain finding")
+        out = io.StringIO()
+        self.assertEqual(core.report(ctx, out=out), 2)
+        text = out.getvalue()
+        self.assertNotIn(self.r.token, text)
+        self.assertNotIn("ghp_", text)
+        self.assertIn("dir-<private>/a.sh: line 3: echo <private> is not allowed", text)
+        self.assertIn("plain finding", text)
+
+    def test_report_without_a_list_still_prints(self):
+        import io
+        (self.r.dir / "tools/public-replace.local.txt").unlink()
+        ctx = core.Ctx(self.r.dir, "hook", [], message="x\n")
+        ctx.check = "shell"
+        ctx.error("a.sh", "something")
+        out = io.StringIO()
+        core.report(ctx, out=out)
+        self.assertIn("something", out.getvalue())
+
     def test_empty_replace_list(self):
         self.r.write("tools/public-replace.local.txt", "\n")
         self.bad("private", "has no pattern")

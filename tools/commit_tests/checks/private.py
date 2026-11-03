@@ -2,7 +2,7 @@
 (`git diff --cached -U0`; --all: every tracked file) and the commit message, and refuses
   - a match of the private patterns: tools/public-replace.local.txt (untracked; a linked worktree reads the
     main worktree's file when it has none of its own: the text the public export
-    replaces, $WALNUT_PUBLIC_REPLACE as tools/public-export.sh reads it) plus, when it exists, the
+    replaces; $WALNUT_PUBLIC_REPLACE adds its list to it, as tools/public-export.sh reads it) plus, when it exists, the
     untracked tools/commit-private.local.txt; both in git filter-repo's --replace-text syntax (one per
     line: literal text, literal:TEXT, regex:RE or glob:G, each optionally followed by ==>REPLACEMENT).
     The replace list is required, with at least one pattern: without it nothing can be checked, so every
@@ -111,13 +111,32 @@ def private_list(ctx, rel):
     return None
 
 
+def replace_lists(ctx):
+    """[(path, what)] of the replace lists that exist: the untracked default (this worktree's, else the main
+    worktree's) and $WALNUT_PUBLIC_REPLACE, which adds to it (a clone without the default points at the real list
+    that way; it never replaces the default: a stale variable must not shrink what is checked)"""
+    out = []
+    default = private_list(ctx, REPLACE)
+    if default:
+        out.append((default, REPLACE))
+    extra = os.environ.get("WALNUT_PUBLIC_REPLACE")
+    if extra and os.path.isfile(extra) and not (default and os.path.samefile(default, extra)):
+        out.append((extra, "$WALNUT_PUBLIC_REPLACE"))
+    return out
+
+
 def patterns(ctx):
-    repl = os.environ.get("WALNUT_PUBLIC_REPLACE") or private_list(ctx, REPLACE) or str(ctx.path(REPLACE))
-    if not os.path.isfile(repl):
+    lists = replace_lists(ctx)
+    if not lists:
         ctx.error(None, "no %s (the private replace list, untracked): nothing can be checked for private text, so "
                   "nothing is committed. Copy it from your private notes (tools/public-export.sh reads it too)" % REPLACE)
         return None
-    pats = load_patterns(repl, REPLACE)
+    pats = []
+    for path, label in lists:
+        pats += load_patterns(path, label)
+        if os.stat(path).st_mode & 0o077:
+            ctx.warn(None, "%s is readable by others (mode %o): chmod 600, it names what the public export hides"
+                     % (label, os.stat(path).st_mode & 0o777))
     if not pats:
         ctx.error(None, "%s has no pattern: nothing can be checked for private text, so nothing is committed" % REPLACE)
         return None
