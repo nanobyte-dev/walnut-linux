@@ -1,0 +1,26 @@
+# tools/ci-skips.txt: what `tools/run-tests.sh --ci` (GitHub's runner, .github/workflows/walnut-tests.yml) may skip.
+# One key per line, then the reason: a suite (xmoto-glbatch), a part of one (suite:part, a "SKIP suite:part ..." line),
+# or suite:unittest (a unittest skip). A skip that is not listed fails the run, so a missing prerequisite never reads as a
+# pass. Keep the reasons honest: an entry is a hole in the CI's coverage, to be closed by giving the job the
+# prerequisite, not a place to park a failing test. The first runs on the runner will show which of these are
+# wrong (an entry that did not skip is only mentioned in the log).
+
+# the patched Mesa tree (make mesa-work: the Debian source with our patches applied) is not built in this job
+mesa-forcedxt           needs build/work/mesa
+mesa-staging-pool       needs build/work/mesa
+mesa-vtx-snorm8         needs build/work/mesa
+mesa-minmax-vmx         needs build/work/mesa
+mesa-query-steal        needs build/work/mesa
+mesa-query-lost         needs build/work/mesa
+mesa-alloc-fail         needs build/work/mesa
+mesa-transfer-cpu       needs build/work/mesa
+mesa-point-smooth       needs build/work/mesa
+mesa-minmax-vmx:ppc64   needs the deb builder image and qemu-ppc64
+mesa-alloc-fail:fix-off needs a git tree of Mesa
+fix-ladder              needs the Mesa clone (make mesa-work)
+# other local work trees and built packages
+xmoto-glbatch           needs build/work/xmoto (make xmoto-work)
+game-data-packager      needs build/debs/game-data-packager and the deb builder image
+ps3rsx-shadow:ppc64     needs the ppc64 cross compiler, qemu-ppc64-static and build/mesa/sysroot
+luajit-low-2gb          needs qemu-ppc64 and the luajit trees
+sdl2-compat-close-locked needs SDL3 development files and the sdl2-compat tarball

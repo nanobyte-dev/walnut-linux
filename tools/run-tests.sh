@@ -74,6 +74,7 @@
 #            cancel in remove), game-data-packager (our patches'
 #            --progress-fd and --no-launchers on the built deb, in the deb builder image: packages/patched/tools/
 #            game-data-packager/tests; skipped without build/debs/game-data-packager)
+#   --ci     for GitHub's runner (.github/workflows/walnut-tests.yml): a skip fails unless tools/ci-skips.txt lists it
 #   --slow   also autogm (packages/walnut/system/ps3-desktop/tests/autogm-check.sh: needs Xvfb+openbox or docker/podman) and
 #            ssdimg-vm (tools/ssdimg/vm-e2e.sh: ps3-imgmap on a real big-endian UFS2 image in a KVM
 #            guest of the host's kernel, then Phase B: ps3-imgmap-boot's devices, the initramfs
@@ -87,9 +88,9 @@
 # (XPASS: fixed? take it off the list) or any other failure is reported and fails the run.
 set -u
 cd "$(dirname "$0")/.."
-slow=0; only=""
+slow=0; only=""; ci=0
 while [ $# -gt 0 ]; do
-	case $1 in --slow) slow=1;; --only) only=$2; shift;; *) echo "usage: $0 [--slow] [--only NAME]" >&2; exit 2;; esac
+	case $1 in --slow) slow=1;; --only) only=$2; shift;; --ci) ci=1;; *) echo "usage: $0 [--slow] [--ci] [--only NAME]" >&2; exit 2;; esac
 	shift
 done
 L=build/tmp/tests; mkdir -p "$L"
@@ -226,5 +227,18 @@ run game-data-packager packages/patched/tools/game-data-packager/tests/run-in-bu
 echo; printf '%-26s %-6s %s\n' suite result seconds
 for i in "${!names[@]}"; do printf '%-26s %-6s %s\n' "${names[$i]}" "${res[$i]}" "${secs[$i]}"; done
 [ ${#skips[@]} = 0 ] || { echo "skipped (not passes):"; printf '  %s\n' "${skips[@]}"; }
+# --ci (GitHub's runner, github-ci/walnut-tests): a skip is a failure unless tools/ci-skips.txt lists its key
+# (SKIP's second word: a suite, suite:part or suite:unittest) with a reason; a missing prerequisite never reads as
+# a pass. An entry that no skip used is only mentioned: another runner may differ.
+if [ $ci = 1 ]; then
+	declare -A allowed=() used=()
+	while read -r k _; do case $k in ''|'#'*) ;; *) allowed[$k]=1 ;; esac; done < tools/ci-skips.txt
+	for line in "${skips[@]}"; do
+		k=${line#SKIP }; k=${k%% *}
+		if [ -n "${allowed[$k]:-}" ]; then used[$k]=1
+		else echo "!! skipped in CI and not in tools/ci-skips.txt: $k"; fail=1; fi
+	done
+	for k in "${!allowed[@]}"; do [ -n "$only" ] || [ -n "${used[$k]:-}" ] || echo "-- tools/ci-skips.txt lists $k, which did not skip"; done
+fi
 [ $fail = 0 ] && echo "all passed" || echo "FAILED (logs in $L)"
 exit $fail
