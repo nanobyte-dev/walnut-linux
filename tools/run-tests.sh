@@ -68,7 +68,10 @@
 #            helper mode with a fake sudo, the clean-system check and the watch on made-up process lists and windows,
 #            the export's scrub and an export -> import-run.py round trip, the submission check's refusals and a
 #            submit -> pull request -> submissions.py show/accept round trip with gh stubbed), ps3disk-guard (kernel local/0045's
-#            range checks, packages/patched/kernel/linux/tests/ps3disk-guard.sh), game-data-packager (our patches'
+#            range checks, packages/patched/kernel/linux/tests/ps3disk-guard.sh), kernel-config-check (tools/linux-config-check.sh: a dropped
+#            or changed config option, the hardening and must-stay-off lists of the kernel's package.conf, the research drivers per flavour),
+#            kernel-gart-parse (local/0007's size parser against the memparse wraps, no panic on an oversized reservation, local/0049's re-probe
+#            cancel in remove), game-data-packager (our patches'
 #            --progress-fd and --no-launchers on the built deb, in the deb builder image: packages/patched/tools/
 #            game-data-packager/tests; skipped without build/debs/game-data-packager)
 #   --slow   also autogm (packages/walnut/system/ps3-desktop/tests/autogm-check.sh: needs Xvfb+openbox or docker/podman) and
@@ -214,6 +217,8 @@ run walnut-games python3 -I packages/walnut/apps/walnut-games/tests/test_walnut_
 run walnut-data python3 -I packages/walnut/apps/walnut-games/tests/test_walnut_data.py
 run walnut-rate python3 -I packages/walnut/apps/walnut-rate/tests/test_walnut_rate.py
 run ps3disk-guard packages/patched/kernel/linux/tests/ps3disk-guard.sh
+run kernel-config-check packages/patched/kernel/linux/tests/config-check.sh
+run kernel-gart-parse packages/patched/kernel/linux/tests/ps3rsx-gart-parse.sh
 run game-data-packager packages/patched/tools/game-data-packager/tests/run-in-builder.sh
 [ $slow = 1 ] && run autogm bash -c "$(declare -f t_autogm); t_autogm"
 [ $slow = 1 ] && run ssdimg-vm tools/ssdimg/vm-e2e.sh
