@@ -1,0 +1,104 @@
+#!/bin/bash
+# mesa-arms-prep.sh B_DEBS [A_DEBS]: the Mesa arms of a same-boot Mesa A/B (abba-batch.sh with MESA_AB=1,
+# mesa-arm.sh on the PS3), made on the PC: two Mesa builds side by side, each in its own directory, chosen
+# per run through LD_LIBRARY_PATH, LIBGL_DRIVERS_PATH and GBM_BACKENDS_PATH as the fix ladder's rungs are
+# (tools/ladder-mesa-build.sh, rsx-ladder.sh). Nothing is installed anywhere; ps3rsx stays what it is.
+#   B_DEBS  a directory with the new build's Mesa debs (build/debs/mesa): mesa-libgallium, libgl1-mesa-dri,
+#           libegl-mesa0, libglx-mesa0 and libgbm1
+#   A_DEBS  the same for the old build (a directory); without it walnut-stable's: its signed index checked with
+#           the archive key, each deb with the index's sha256 (the way arms-prep.sh gets ps3rsx's arm A)
+# Writes build/tmp/rsx-ab/mesa/{A,B}/{lib,dri} (lib: libgallium-<version>.so, libEGL_mesa, libGLX_mesa, libgbm,
+# gbm/; dri: the driver stub and its links) and mesa-arms.txt (arm, version, libgallium's sha256 prefix), then
+# copy the directory to the PS3:  scp -r build/tmp/rsx-ab/mesa PS3:/var/tmp/rsx-ab/
+# libgallium's file name carries the package version, and the driver stub (dri/libdril_dri.so) needs exactly
+# that name: an arm is only whole when its dri/ is used with its lib/, which is what the three variables do.
+set -euo pipefail
+cd "$(dirname "$0")/../.."
+[ $# -ge 1 ] && [ $# -le 2 ] || { echo "usage: $0 B_DEBS [A_DEBS]" >&2; exit 2; }
+O=${MESA_ARMS_OUT:-build/tmp/rsx-ab/mesa}
+PKGS="mesa-libgallium libgl1-mesa-dri libegl-mesa0 libglx-mesa0 libgbm1"
+W=$(mktemp -d build/tmp/rsx-ab-mesaprep.XXXXXX)
+trap 'rm -rf "$W"' EXIT
+URL=${WALNUT_APT:-https://walnut.nanobyte.dev/apt}
+
+field() { sed -n "s/^$2: //p" "$1" | head -1; }
+
+unpack() {	# unpack ARM DEBDIR-or-list: the five debs of ARM extracted under $W/ARM
+	local arm=$1 p f c
+	shift
+	mkdir -p "$W/$arm"
+	for p in $PKGS; do
+		f=	# "<package>_" never matches the -dbgsym debs
+		for c in "$1"/"${p}"_*.deb; do [ ! -e "$c" ] || f=$(realpath "$c"); done
+		[ -n "$f" ] || { echo "!! arm $arm: no ${p}_*.deb in $1" >&2; exit 1; }
+		mkdir -p "$W/$arm/x-$p"
+		(cd "$W/$arm/x-$p" && ar x "$f" && tar -xf data.tar.* && tar -xf control.tar.* ./control)
+		[ "$p" != mesa-libgallium ] || field "$W/$arm/x-$p/control" Version > "$W/$arm/version"
+	done
+}
+
+lay_out() {	# lay_out ARM: the ladder layout under $O/ARM
+	local arm=$1 t g n
+	rm -rf "${O:?}/$arm"
+	mkdir -p "$O/$arm/lib/gbm" "$O/$arm/dri"
+	for t in "$W/$arm"/x-*/usr/lib/*-linux-gnu; do
+		[ -d "$t" ] || continue
+		cp -a "$t"/libgallium-*.so "$t"/libEGL_mesa.so* "$t"/libGLX_mesa.so* "$t"/libgbm.so* "$O/$arm/lib/" 2>/dev/null || true
+		[ ! -d "$t/gbm" ] || cp -a "$t"/gbm/*.so "$O/$arm/lib/gbm/"
+		[ ! -d "$t/dri" ] || cp -a "$t"/dri/. "$O/$arm/dri/"
+	done
+	n=$(ls "$O/$arm"/lib/libgallium-*.so 2>/dev/null | wc -l)
+	[ "$n" = 1 ] || { echo "!! arm $arm: $n libgallium-*.so files (want 1)" >&2; exit 1; }
+	g=$(ls "$O/$arm"/lib/libgallium-*.so)
+	for f in libEGL_mesa.so.0 libGLX_mesa.so.0 libgbm.so.1; do
+		[ -e "$O/$arm/lib/$f" ] || { echo "!! arm $arm: no $f" >&2; exit 1; }
+	done
+	[ -e "$O/$arm/dri/nouveau_dri.so" ] || { echo "!! arm $arm: no dri/nouveau_dri.so" >&2; exit 1; }
+	# the stub needs the libgallium of this very package version
+	grep -q -a "$(basename "$g")" "$O/$arm/dri/$(readlink "$O/$arm/dri/nouveau_dri.so" 2>/dev/null || echo nouveau_dri.so)" ||
+		{ echo "!! arm $arm: dri/nouveau_dri.so doesn't name $(basename "$g"): the debs are not of one build" >&2; exit 1; }
+	printf '%s\t%s\t%s\n' "$arm" "$(cat "$W/$arm/version")" "$(sha256sum "$g" | cut -c1-16)" >> "$O/mesa-arms.txt"
+}
+
+fetch_stable() {	# fetch_stable DIR: walnut-stable's five debs, checked against its signed index
+	local p file sha
+	mkdir -p "$1"
+	curl -sf -o "$W/InRelease" "$URL/dists/stable/InRelease"
+	gpgv --keyring apt-repo/keyrings/archive-keyring.gpg "$W/InRelease" 2>/dev/null ||
+		{ echo "!! stable InRelease: bad or missing signature" >&2; exit 1; }
+	curl -sf -o "$W/Packages" "$URL/dists/stable/main/binary-ppc64/Packages"
+	[ "$(sha256sum "$W/Packages" | cut -d' ' -f1)" = "$(grep ' main/binary-ppc64/Packages$' "$W/InRelease" | tail -1 | awk '{print $1}')" ] ||
+		{ echo "!! Packages doesn't match InRelease" >&2; exit 1; }
+	for p in $PKGS; do
+		read -r file sha < <(python3 -I - "$W/Packages" "$p" <<'PY'
+import re, sys
+best = None
+for para in open(sys.argv[1]).read().split("\n\n"):
+    f = dict(re.findall(r"^([A-Za-z0-9-]+): (.*)$", para, re.M))
+    if f.get("Package") == sys.argv[2]:
+        best = f		# the index lists one version per package and suite
+if best:
+    print(best["Filename"], best["SHA256"])
+PY
+)
+		[ -n "${file:-}" ] || { echo "!! $p is not in walnut-stable" >&2; exit 1; }
+		curl -sf -o "$1/${file##*/}" "$URL/$file"
+		echo "$sha  $1/${file##*/}" | sha256sum -c --quiet - || { echo "!! $file: sha256 mismatch" >&2; exit 1; }
+	done
+}
+
+mkdir -p "$O"
+: > "$O/mesa-arms.txt"
+if [ $# = 2 ]; then
+	A=$2
+else
+	A=$W/stable-debs
+	fetch_stable "$A"
+fi
+unpack A "$A"
+unpack B "$1"
+lay_out A
+lay_out B
+column -t "$O/mesa-arms.txt"
+[ "$(cut -f2 "$O/mesa-arms.txt" | sort -u | wc -l)" = 2 ] || echo "?? both arms are the same Mesa version: the A/B compares a build with itself" >&2
+echo ">> $O: copy to the PS3's /var/tmp/rsx-ab/mesa"

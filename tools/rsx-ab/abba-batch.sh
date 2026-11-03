@@ -16,16 +16,23 @@
 # build with clearing off, to attribute a cost to it). CASES="..." runs a subset (names as above).
 # Then the desktop comes back. Read the results on the PC: make bench-pull, then
 # tools/rsx-ab/abba-report.py build/tmp/rsx-ab/rsx-arms.log build/bench/ps3-bench-<stamp>-*.
+# MESA_AB=1: a Mesa A/B instead (old Mesa against new, the ps3rsx build unchanged): the arms are two Mesa
+# builds in /var/tmp/rsx-ab/mesa/{A,B} (mesa-arms-prep.sh on the PC), and each run gets its arm's
+# LD_LIBRARY_PATH, LIBGL_DRIVERS_PATH and GBM_BACKENDS_PATH (mesa-arm.sh, MESA_ARM); the same arm
+# letters and log, so abba-report.py reads it the same way. EXTRA is for ps3rsx arms: not with MESA_AB.
 # Stops at the first failed arm switch, and at a graph exception (nothing reloads after one).
 set -uo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 BENCH=${BENCH:-/var/tmp/bench}
 RSX_ARM=${RSX_ARM:-$here/rsx-arm.sh}
 DESK=${DESK:-$here/desktop-cases.sh}
+MESA_ARM=${MESA_ARM:-$here/mesa-arm.sh}
 cd "$BENCH/harness" || exit 1
 [ -x ./run.sh ] || { echo "abba-batch: no run.sh in $BENCH/harness (make bench-push)" >&2; exit 1; }
 ARMS=${ARMS:-A B B A}
 CASES=${CASES:-luanti neverball supertuxkart trigger-rally openarena mpv xloop}
+[ -z "${MESA_AB:-}" ] || [ -z "${EXTRA:-}" ] || { echo "abba-batch: EXTRA (ps3rsx arms) with MESA_AB" >&2; exit 1; }
+export MESA_BASE_LD=${LD_LIBRARY_PATH-}	# what a Mesa arm's LD_LIBRARY_PATH keeps behind its own
 n_arms=$(( $(wc -w <<<"$ARMS") + $(wc -w <<<"${EXTRA:-}") ))
 export BATCH_NAME=rsxab BATCH_TOTAL=$(( n_arms * $(wc -w <<<"$CASES") ))
 rm -f /dev/shm/ps3-bench.batchpos
@@ -46,7 +53,11 @@ one() {	# one CASE ARM
 
 arm_run() {	# arm_run ARM [PARAM=VALUE...]
 	local a=$1; shift
-	"$RSX_ARM" "$a" "$@" || { echo "abba-batch: arm $a didn't load: stopping" >&2; exit 1; }
+	if [ -n "${MESA_AB:-}" ]; then	# the arm is the Mesa the runs use: no module is reloaded
+		"$MESA_ARM" select "$a" && eval "$("$MESA_ARM" env "$a")" || { echo "abba-batch: Mesa arm $a isn't usable: stopping" >&2; exit 1; }
+	else
+		"$RSX_ARM" "$a" "$@" || { echo "abba-batch: arm $a didn't load: stopping" >&2; exit 1; }
+	fi
 	sudo cat /sys/kernel/debug/dri/0/ps3rsx_mm 2>/dev/null | grep -E '^(clear|reuse):' | sed "s/^/arm $a before: /"
 	for c in $CASES; do
 		one "$c" "$a"
@@ -60,4 +71,5 @@ for e in $(tr ' ' '\n' <<<"${EXTRA:-}"); do
 	a=${e%%:*}; p=${e#*:}; [ "$p" = "$e" ] && p=
 	arm_run "$a" $(tr ',' ' ' <<<"$p")
 done
+[ -z "${MESA_AB:-}" ] || eval "$("$MESA_ARM" env off)"	# the desktop comes back on the system's Mesa
 ps3-bench.sh desktop
