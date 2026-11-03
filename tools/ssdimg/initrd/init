@@ -394,19 +394,43 @@ if [ $KIND = generic ]; then
 	[ $ACTION = resume ] && say "the install of $IMAGE was interrupted: formatting its root and unpacking the system again"
 fi
 
+# BEGIN image-map functions (tools/ssdimg/test_ssdimg.py runs them on stubs)
+map_image() {	# a new image: its blocks mapped (an install, or a resumed one started over)
+	step "Finding where ${IMAGE##*/} lies on the internal disk"
+	STEP="mapping the new image's blocks ($IMAGE)"
+	MAP=$RUN/boot.map
+	run_shown $TOOL map /gameos "$IMAGE" --uuid "$I_UUID" --size "$I_SIZE" --swap-mib "$I_SWAP" --out $MAP --run $RUN
+}
+
+recheck_image() {	# the saved map against the image on dev_hdd0 (FIBMAP of every block)
+	STEP="rechecking the image's block list ($IMAGE)"
+	[ $QUIET = 1 ] || echo "ps3ssd: rechecking $IMAGE on dev_hdd0 (FIBMAP of every block)..."
+	if [ $ACTION != resume ]; then
+		run $TOOL recheck "$MAP" /gameos --run $RUN
+		return 0
+	fi
+	# an interrupted install whose image was uploaded again (the saved map is of the old file) can't
+	# resume; the install manifest is there, so it starts over: the new map and a full verify keep it safe
+	n0=$(wc -l < $LOG)
+	$TOOL recheck "$MAP" /gameos --run $RUN >> $LOG 2>&1 && return 0
+	if tail -n +$((n0 + 1)) $LOG | grep -q 'CHANGED'; then
+		say "$IMAGE was uploaded again since the interrupted install: installing it from the start"
+		ACTION=install STEPS=5
+		map_image
+		return 0
+	fi
+	fail "$(why_since $n0)"
+}
+# END image-map functions
+
 STEP="mounting dev_hdd0 read-only"
 run mount -t ufs -o ro,ufstype=ufs2 /dev/ps3db /gameos
 grep -q '^[^ ]* /gameos ufs ro[, ]' /proc/mounts || fail "/gameos is not a read-only ufs mount: $(grep ' /gameos ' /proc/mounts)"
 
 if [ $ACTION = install ]; then
-	step "Finding where ${IMAGE##*/} lies on the internal disk"
-	STEP="mapping the new image's blocks ($IMAGE)"
-	MAP=$RUN/boot.map
-	run_shown $TOOL map /gameos "$IMAGE" --uuid "$I_UUID" --size "$I_SIZE" --swap-mib "$I_SWAP" --out $MAP --run $RUN
+	map_image
 else
-	STEP="rechecking the image's block list ($IMAGE)"
-	[ $QUIET = 1 ] || echo "ps3ssd: rechecking $IMAGE on dev_hdd0 (FIBMAP of every block)..."
-	run $TOOL recheck "$MAP" /gameos --run $RUN
+	recheck_image
 fi
 
 STEP="unmounting dev_hdd0"
