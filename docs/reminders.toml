@@ -1,0 +1,15 @@
+# Dated reminders. `make commit-tests` prints a warning for each entry past its due date (it never fails a
+# commit); delete an entry when it is done. Keep the text free of anything private.
+# Each entry: due = "YYYY-MM-DD", what = "...".
+
+[[reminder]]
+due = "2026-11-06"
+what = "Delete the two ccache-data.flushed-2026-11-03-* folders on the server (/data/nanobyte/Walnut)."
+
+[[reminder]]
+due = "2026-11-10"
+what = "Review the apt cache's \"outside the snapshot allowlist\" log lines, then switch the allowlist to refusing (servers/walnut.nanobyte.dev/repo.conf)."
+
+[[reminder]]
+due = "2027-03-01"
+what = "Re-check the trusted/external tier list in github-ci/packages.toml."

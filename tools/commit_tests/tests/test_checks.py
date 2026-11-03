@@ -601,6 +601,36 @@ class KeyExpiry(Base):
         self.assertEqual([x[1] for x in self.check("2027-10-01")], ["error"])
 
 
+class Reminders(Base):
+    TOML = '[[reminder]]\ndue = "2026-11-06"\nwhat = "do the thing"\n\n[[reminder]]\ndue = "2027-03-01"\nwhat = "later"\n'
+
+    def check(self, today, text=None):
+        self.r.write("docs/reminders.toml", self.TOML if text is None else text)
+        self.r.add("docs")
+        old = os.environ.get("WALNUT_TODAY")
+        os.environ["WALNUT_TODAY"] = today
+        try:
+            return [f for f in self.r.run(["reminders"]) if f[0] == "reminders"]
+        finally:
+            if old is None:
+                del os.environ["WALNUT_TODAY"]
+            else:
+                os.environ["WALNUT_TODAY"] = old
+
+    def test_future_is_quiet(self):
+        self.assertEqual(self.check("2026-11-05"), [])
+
+    def test_past_warns_only_for_the_past_one(self):
+        f = self.check("2026-11-10")
+        self.assertEqual([x[1] for x in f], ["warning"])
+        self.assertIn("do the thing", f[0][3])
+
+    def test_bad_schema_is_an_error(self):
+        for text in ('[[reminder]]\ndue = "soon"\nwhat = "x"\n', '[[reminder]]\ndue = "2026-11-06"\n',
+                     '[[reminder]]\ndue = 2026-11-06\nwhat = "x"\n', '[[reminder]]\ndue = "2026-11-06"\nwhat = ""\n'):
+            self.assertEqual([x[1] for x in self.check("2026-01-01", text)], ["error"], text)
+
+
 class Palette(Base):
     def test_bad(self):
         self.r.write("packages/walnut/apps/a/files/lib/a.py", 'BG = "#1a2b3c"\n')

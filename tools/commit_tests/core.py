@@ -31,7 +31,7 @@ HERE = Path(__file__).resolve().parent
 CHECKS_DIR = HERE / "checks"
 # the checks, in the order they run and report (each one is checks/<module>.py)
 ORDER = ("toml", "python", "shell", "private", "deletions", "gamedb", "schema", "batches", "desktop",
-         "versions", "keyexpiry", "palette", "patch-register", "licensed", "generated", "docs")
+         "versions", "keyexpiry", "reminders", "palette", "patch-register", "licensed", "generated", "docs")
 UNSKIPPABLE = {"private"}
 SKIP_RE = re.compile(r"^Commit-Tests-Skip:[ \t]*([A-Za-z0-9_-]+)[ \t]*:[ \t]*(\S.*)$", re.M)
 EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
