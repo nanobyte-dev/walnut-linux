@@ -8,7 +8,9 @@
 # Inside the deb builder, privileged, as root. Everything big is under /xcc ($(XCC_ROOT) on the host:
 # config.local.mk may put it on another disk): the chroot (run-<pkg>), the build-dependency chroot
 # (<pkg>-deps-<hash>.tar) and ccache (ccache/, XCC_CCACHE_SIZE, 20G).
-# Output: build/debs/<pkg>/ (replaced) and its build.log.
+# Output: build/debs/<pkg>/ (replaced when the build succeeds) and its build.log. The build is staged in
+# build/debs/.new-<pkg> (make's wildcards and globs skip it): a failed build, an hour of WebKit, leaves the
+# previous debs where they were and its log in the staging directory.
 # The build runs under nice -n 15 and ionice -c3 (the dev PC stays usable).
 # Env: OWNER JOBS XCC_TREE (the exported toolchain, a path under /xcc) DEB_BUILD_EXTRA
 # package.conf XCC_ENV: more VAR=value for the build (webkit2gtk: WEBKIT_NINJA_LINK_MAX=2, two links at a time)
@@ -25,7 +27,8 @@ PD=$(tools/pkg-dir.sh "$PKG")
 NOCHECK=nocheck; [ "${CHECK:-0}" = 1 ] && NOCHECK=
 DSC=$(ls build/src/"$PKG"/*.dsc | head -1)
 UPVER=${VERSION%-*}; UPVER=${UPVER#*:}
-OUT=build/debs/$PKG
+FINAL=build/debs/$PKG
+OUT=build/debs/.new-$PKG
 rm -rf "$OUT"; mkdir -p "$OUT"
 R=/xcc/run-$PKG
 mkdir -p /xcc/ccache
@@ -106,6 +109,7 @@ cp "${debs[@]}" "$OUT/"
 for f in "$R"/build/reproducible-path/*.ddeb "$R"/build/reproducible-path/*.buildinfo "$R"/build/reproducible-path/*.changes; do [ ! -e "$f" ] || cp "$f" "$OUT/"; done
 cp "$R/build/build.log" "$OUT/build.log"
 chown -R "$OWNER" "$OUT" /xcc/ccache
-ls -la "$OUT"
+rm -rf "$FINAL"; mv "$OUT" "$FINAL"
+ls -la "$FINAL"
 exit
 }

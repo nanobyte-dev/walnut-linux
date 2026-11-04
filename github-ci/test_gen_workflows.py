@@ -2,7 +2,7 @@
 """github-ci/gen-workflows.py's checks: the tier rules (a trusted package must not be upstream or fetch) and the
 lint over every workflow file (secrets: inherit, a checkout that keeps the token, stable without a main check),
 and what the generated workflows give each tier. python3 github-ci/test_gen_workflows.py"""
-import importlib.machinery, importlib.util, os, re, tempfile, unittest
+import glob, importlib.machinery, importlib.util, os, re, tempfile, unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 _spec = importlib.util.spec_from_loader("gw", importlib.machinery.SourceFileLoader("gw", f"{HERE}/gen-workflows.py"))
@@ -99,6 +99,44 @@ class Lint(unittest.TestCase):
 		self.assertTrue(self.lint({"a.yml": "name: x\n"}, yaml=True))	# not a workflow
 		self.assertEqual(self.lint({}), [])
 
+	def test_deploy_key_environments(self):
+		"""V1/L10: each workflow's jobs use the deploy key only in the environment meant for it"""
+		def wf(env):
+			e = f"    environment: {env}\n" if env else ""
+			return f"on:\n  push:\njobs:\n  t:\n    runs-on: x\n{e}    steps:\n      - run: echo\n        env:\n          K: ${{{{ secrets.WALNUT_DEPLOY_KEY }}}}\n"
+		self.assertEqual(self.lint({"walnut-publish.yml": wf("walnut-testing")}, yaml=True), [])
+		self.assertTrue(self.lint({"walnut-publish.yml": wf("walnut-stable")}, yaml=True))	# the stable key in the testing workflow
+		self.assertTrue(self.lint({"walnut-publish.yml": wf(None)}, yaml=True))				# no environment: a repository secret
+		for f in sorted(glob.glob(f"{HERE}/../.github/workflows/*.yml")):	# and no other real workflow names the key
+			if os.path.basename(f) not in gw.DEPLOY_KEY_ENVS and not os.path.basename(f).startswith("pkg-"):
+				self.assertNotIn("WALNUT_DEPLOY_KEY", open(f).read(), f)
+		self.assertEqual([e for e in self.lint({"release-image.yml": wf("walnut-${{ inputs.channel }}")}, yaml=True) if "DEPLOY_KEY" in e], [])
+
+	def test_pull_request_workflows_hold_nothing(self):
+		"""M11: a workflow on pull_request has no secret, no environment, no write permission, no called workflow"""
+		def wf(body, perms="permissions:\n  contents: read\n"):
+			return f"on:\n  pull_request:\n{perms}jobs:\n  t:\n    runs-on: x\n{body}"
+		ok = wf("    steps:\n      - run: make test\n")
+		self.assertEqual(self.lint({"a.yml": ok}, yaml=True), [])
+		for bad in (wf("    steps:\n      - run: echo\n        env:\n          K: ${{ secrets.K }}\n"),
+		            wf("    environment: walnut-testing\n    steps:\n      - run: echo\n"),
+		            wf("    steps:\n      - run: echo\n", perms="permissions:\n  contents: write\n"),
+		            wf("    permissions:\n      id-token: write\n    steps:\n      - run: echo\n"),
+		            "on:\n  pull_request:\njobs:\n  t:\n    runs-on: x\n    steps:\n      - run: echo\n",	# no permissions: key
+		            "on:\n  pull_request:\njobs:\n  t:\n    uses: ./.github/workflows/x.yml\n    secrets: inherit\n"):
+			self.assertTrue(self.lint({"a.yml": bad}, yaml=True), bad)
+		# the same things are fine on a push workflow (they are other rules' business)
+		self.assertEqual(self.lint({"a.yml": "on:\n  push:\njobs:\n  t:\n    runs-on: x\n    environment: walnut-testing\n    steps:\n      - run: echo\n        env:\n          K: ${{ secrets.K }}\n"}, yaml=True), [])
+
+	def test_the_tests_workflow_exists_and_is_secret_free(self):
+		import yaml
+		doc = yaml.safe_load(open(f"{HERE}/../.github/workflows/walnut-tests.yml"))
+		self.assertIn("pull_request", doc[True])
+		self.assertEqual(gw.secret_uses(doc), [])
+		run = "\n".join(st.get("run", "") for st in doc["jobs"]["tests"]["steps"])
+		self.assertIn("tools/run-tests.sh --ci", run)
+		self.assertIn("commit_tests/run.py --all --only shell", run)
+
 	def test_secrets_stay_out_of_package_code(self):
 		def wf(jobs, top=""):
 			return f"{top}on:\n  push:\njobs:\n{jobs}"
@@ -137,20 +175,31 @@ class Lint(unittest.TestCase):
 
 	def test_stable_needs_the_gate(self):
 		A = gw.ALLOWED
-		gate = ("  stable-gate:\n    if: inputs.target == 'stable' && !" + A + "\n    runs-on: x\n    environment: walnut-stable-review\n"
-		        "    steps:\n      - run: echo ok\n")
+		gate = ("  stable-gate:\n    needs: publish-check\n    if: always() && needs.publish-check.result == 'success' && inputs.target == 'stable' && !" + A
+		        + "\n    runs-on: x\n    environment: walnut-stable-review\n    steps:\n      - run: echo ok\n")
+		check = "  publish-check:\n    runs-on: x\n    steps:\n      - run: echo ok\n"
+		outcome = ("  stable-outcome:\n    needs: [publish-check, stable-gate, publish]\n    if: always() && needs.publish.result != 'success'\n"
+		           "    runs-on: x\n    steps:\n      - run: |\n          echo no\n          exit 1\n")
 		recheck = ("      - env:\n          GATE: ${{ needs.stable-gate.result }}\n          PUBLISHERS: ${{ vars.WALNUT_STABLE_PUBLISHERS }}\n"
 		           "          ACTOR: ${{ github.triggering_actor }}\n        run: |\n" + gw.RECHECK_RUN)
-		pub = ("  publish:\n    needs: [stable-gate]\n    if: always() && (needs.stable-gate.result == 'success' || "
+		pub = ("  publish:\n    needs: [publish-check, stable-gate]\n    if: always() && (needs.stable-gate.result == 'success' || "
 		       "(needs.stable-gate.result == 'skipped' && " + A + "))\n    runs-on: x\n    environment: walnut-stable\n    steps:\n"
 		       + recheck + "      - run: test $GITHUB_REF = refs/heads/main && echo publish\n")
-		wf = lambda *jobs: "on:\n  push:\njobs:\n" + "".join(jobs)
-		self.assertEqual(self.lint({"a.yml": wf(gate, pub)}, yaml=True), [])
-		errs = lambda *jobs: "\n".join(self.lint({"a.yml": wf(*jobs)}, yaml=True))
+		wf = lambda *jobs: "on:\n  push:\njobs:\n" + check + "".join(jobs)
+		self.assertEqual(self.lint({"a.yml": wf(gate, pub, outcome)}, yaml=True), [])
+		errs = lambda *jobs: "\n".join(self.lint({"a.yml": wf(*(jobs if outcome in jobs or not pub in jobs else jobs + (outcome,)))}, yaml=True))
+		# the skipped-ancestor case: a gate without always() is skipped whenever build-external was, and the run stays green
+		self.assertIn("needs always()", errs(gate.replace("always() && ", ""), pub))
+		self.assertIn("needs always()", errs(gate.replace("needs.publish-check.result == 'success' && ", ""), pub))
+		# a run that wanted a stable publish and didn't get one must end red
+		self.assertIn("no stable-outcome", "\n".join(self.lint({"a.yml": wf(gate, pub)}, yaml=True)))
+		self.assertIn("no stable-outcome", "\n".join(self.lint({"a.yml": wf(gate, pub, outcome.replace("exit 1", "exit 0"))}, yaml=True)))
+		self.assertIn("no stable-outcome", "\n".join(self.lint({"a.yml": wf(gate, pub, outcome.replace("always() && ", ""))}, yaml=True)))
+		self.assertIn("no stable-outcome", "\n".join(self.lint({"a.yml": wf(gate, pub, outcome.replace("!= 'success'", "== 'failure'"))}, yaml=True)))
 		self.assertIn("no stable-gate", errs(pub))	# the gate is missing
 		self.assertIn("no stable-gate", errs(gate.replace("environment: walnut-stable-review", "environment: walnut-stable"), pub))
 		self.assertIn("no stable-gate", errs(gate.replace("!" + A, A), pub))	# the wrong way round
-		self.assertIn("without needing stable-gate", errs(gate, pub.replace("    needs: [stable-gate]\n", "")))
+		self.assertIn("without needing stable-gate", errs(gate, pub.replace("    needs: [publish-check, stable-gate]\n", "")))
 		self.assertIn("must accept the gate's success", errs(gate, pub.replace("needs.stable-gate.result == 'skipped'", "true")))
 		self.assertIn("must accept the gate's success", errs(gate, pub.replace(A, "true")))	# any skipped gate would do
 		self.assertIn("first step must check", errs(gate, pub.replace(recheck, "")))
@@ -185,6 +234,11 @@ class Lint(unittest.TestCase):
 
 	def test_the_generated_workflows_have_the_gate(self):
 		t = gw.generate()["walnut-package.yml"]
+		import yaml
+		for src in (t, open(f"{HERE}/../.github/workflows/release-image.yml").read()):
+			jobs = yaml.safe_load(src)["jobs"]
+			self.assertTrue(jobs["stable-gate"]["if"].startswith("always() && needs."))
+			self.assertEqual(jobs["stable-outcome"]["steps"][0]["run"].splitlines()[-1].strip(), "exit 1")
 		self.assertIn("environment: walnut-stable-review", t)
 		self.assertIn("!" + gw.ALLOWED, t)
 		r = open(f"{HERE}/../.github/workflows/release-image.yml").read()
@@ -272,6 +326,10 @@ class Generated(unittest.TestCase):
 				self.assertRegex(st, r"key: \$\{\{ steps\.(keys|key|base)\.outputs", name)	# only the salted key, never a literal one
 
 
+def secret_uses_of(x):
+	return gw.secret_uses(x)
+
+
 class CacheMac(unittest.TestCase):
 	"""A cache entry anyone can create is used only when it matches a MAC made with the secret salt (C-1)."""
 
@@ -303,6 +361,23 @@ class CacheMac(unittest.TestCase):
 			self.assertEqual(self.run_mac("verify", f, f + ".mac").returncode, 3)	# a MAC with another salt
 			self.assertEqual(self.run_mac("verify", f"{t}/absent", f"{t}/absent.mac").returncode, 0)	# a cache miss
 
+	def test_layer_key_covers_everything_the_layer_is_made_from(self):
+		"""Q18: both jobs that compute the layer's key hash the builder's Dockerfiles and the games of ROOTFS_GAMES"""
+		import yaml
+		jobs = yaml.safe_load(open(f"{HERE}/../.github/workflows/release-image.yml"))["jobs"]
+		for j in ("cache-restore", "cache-save"):
+			steps = jobs[j]["steps"]
+			names = [st.get("id") for st in steps]
+			self.assertLess(names.index("inputs"), names.index("key"), j)
+			base = steps[names.index("key")]["env"]["BASE"]
+			for need in ("build-containers/Dockerfile'", "build-containers/Dockerfile.deb", "system/image/packages.txt",
+			             "tools/build-rootfs.sh", "config.mk", "steps.inputs.outputs.games"):
+				self.assertIn(need, base, f"{j}: {need}")
+			run = steps[names.index("inputs")]["run"]
+			self.assertIn("build-info.py image-base", run)
+			self.assertRegex(run, r"\$\(python3 -I tools/gamedb/build-info.py image-base\) \|\| \{.*exit 1")	# a failure stops the job
+			self.assertEqual(secret_uses_of(steps[names.index("inputs")]), [], j)	# the step that reads the repository's files holds no secret
+
 	def test_workflows_use_it(self):
 		t = gw.generate()["walnut-package.yml"]
 		t = t[t.index("\n  build:\n"):t.index("\n  build-external:\n")]
@@ -317,7 +392,7 @@ class CacheMac(unittest.TestCase):
 		# salt jobs run no package code; the layer cache-save signs comes from the layer job (Debian packages only)
 		import yaml
 		jobs = yaml.safe_load(r)["jobs"]
-		self.assertEqual(list(jobs), ["cache-restore", "layer", "build", "cache-save", "stable-gate", "publish"])
+		self.assertEqual(list(jobs), ["cache-restore", "layer", "build", "cache-save", "stable-gate", "publish", "stable-outcome"])
 		build = yaml.dump(jobs["build"])
 		self.assertIn("build-release.sh", build)
 		self.assertNotIn("secrets.", build)

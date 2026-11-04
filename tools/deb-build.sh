@@ -5,7 +5,8 @@
 # (build/chroot/<pkg>-deps-<hash>.tar); ccache persists in build/ccache (5 GB max), and with
 # CCACHE_REMOTE_STORAGE set (tools/ccache-remote.sh) also in the shared store at walnut.nanobyte.dev,
 # compilers identified by content so CI and the dev PC share it.
-# Output: build/debs/<pkg>/ (replaced), plus the build log.
+# Output: build/debs/<pkg>/ (replaced when the build succeeds, so a failed rebuild leaves the previous debs
+# in place; the build is staged in build/debs/.new-<pkg>, which make's wildcards and globs skip), plus the build log.
 # Env: OWNER JOBS DEB_BUILD_EXTRA (e.g. noautodbgsym) KEEP_TREE (BUILD=cross-linux: keep the build tree)
 # package.conf: NATIVE_PROFILES (build profiles for the chroot build), CROSS_PROFILES (cross-linux)
 # package.conf CHECK=1: the package's own tests run (DEB_BUILD_OPTIONS without nocheck; luanti's
@@ -24,8 +25,11 @@ if [ "$TYPE" = native ]; then
 elif [ "$TYPE" = debsrc ]; then
 	UPVER=${VERSION%-*}; UPVER=${UPVER#*:}
 fi	# TYPE=upstream: UPVER from package.conf
-OUT=build/debs/$PKG${KERNEL_FLAVOUR:+-$KERNEL_FLAVOUR}
+FINAL=build/debs/$PKG${KERNEL_FLAVOUR:+-$KERNEL_FLAVOUR}
+OUT=build/debs/.new-${FINAL##*/}
 rm -rf "$OUT"; mkdir -p "$OUT"
+# the new output replaces the old one only when the whole build worked
+finish_out() { rm -rf "$FINAL"; mv "$OUT" "$FINAL"; }
 # BUILD=indep: everything builds right here (amd64 deb builder), no qemu. BUILD=split: the
 # Architecture: all packages here (-A, with INDEP_PATH on PATH, e.g. our spu-elf toolchain),
 # the ppc64 ones in the chroot (-B). BUILD=native (default): all in the chroot.
@@ -65,7 +69,7 @@ if [ "${BUILD:-native}" = indep ] || [ "${BUILD:-native}" = split ] || [ "${BUIL
 	mv "$W/build.log" "$OUT/build-indep.log"
 	rm -rf "$W"
 	chown -R "$OWNER" "$OUT"
-	if [ "$BUILD" != split ]; then ls "$OUT"/*.deb; exit 0; fi
+	if [ "$BUILD" != split ]; then finish_out; ls "$FINAL"/*.deb; exit 0; fi
 fi
 ARCHBUILD=-b; [ "${BUILD:-native}" = split ] && ARCHBUILD=-B
 [ "${BUILD:-native}" = cross-linux ] && ARCHBUILD=-B
@@ -176,6 +180,7 @@ mv "build/chroot/$PKG-build.log" "$META/build.log"
 # only our outputs (never the chroot tree: see unmount_all)
 chown -R "$OWNER" "$OUT" build/ccache
 chown "$OWNER" build/chroot build/chroot/*.tar build/chroot/*.log 2>/dev/null || true
-ls -la "$OUT"
+finish_out
+ls -la "$FINAL"
 exit
 }

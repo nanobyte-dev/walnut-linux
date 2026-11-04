@@ -7,6 +7,9 @@
 # container is thrown away after it; build-containers/Dockerfile.deb stays as it is).
 # package.conf SOURCE_SNAPSHOT: a Debian source newer than the build snapshot, fetched from the
 # snapshot it first appears in (its unstable deb-src line added the same way); DSC_SHA256 still pins it.
+# package.conf SOURCE_SECURITY_SNAPSHOT: the same for a source only the security archive has so far (the
+# kernel's point releases reach unstable later): the snapshot of debian-security that holds it
+# (its trixie-security deb-src line added the same way).
 # Env: OWNER (uid:gid for the files)
 set -euo pipefail
 # One block, parsed whole before it runs: editing this file during a run can't make bash
@@ -26,6 +29,11 @@ if [ ! -e "$DSC" ]; then
 		sed -n "s|^\(deb-src .*/archive/debian/\)[0-9TZ]*\( unstable main\)\$|\1$SOURCE_SNAPSHOT\2|p" /etc/apt/sources.list \
 			> /etc/apt/sources.list.d/ps3-source-snapshot.list
 		[ -s /etc/apt/sources.list.d/ps3-source-snapshot.list ] || { echo "!! no unstable deb-src line to point at $SOURCE_SNAPSHOT"; exit 1; }
+	fi
+	if [ -n "${SOURCE_SECURITY_SNAPSHOT:-}" ]; then
+		sed -n "s|^\(deb-src .*/archive/debian-security/\)[0-9TZ]*\( trixie-security main\)\$|\1$SOURCE_SECURITY_SNAPSHOT\2|p" /etc/apt/sources.list \
+			> /etc/apt/sources.list.d/ps3-source-security.list
+		[ -s /etc/apt/sources.list.d/ps3-source-security.list ] || { echo "!! no trixie-security deb-src line to point at $SOURCE_SECURITY_SNAPSHOT"; exit 1; }
 	fi
 	apt-get update -qq
 	(cd "$OUT" && apt-get source --download-only -qq "$SOURCE=$VERSION")

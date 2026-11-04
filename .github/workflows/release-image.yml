@@ -43,11 +43,16 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
+      - name: The games in the package layer (the key covers them, ROOTFS_GAMES from the gamedb files)
+        id: inputs
+        run: |
+          g=$(python3 -I tools/gamedb/build-info.py image-base) || { echo "::error::build-info.py failed: no key without the games"; exit 1; }
+          echo "games=$(printf '%s' "$g" | tr '\n' ' ')" >> "$GITHUB_OUTPUT"
       - name: Cache key, salted (only a trusted job can compute it; exact key, no fallback)
         id: key
         env:
           SALT: ${{ secrets.WALNUT_CACHE_SALT }}
-          BASE: ${{ hashFiles('system/image/packages.txt', 'tools/build-rootfs.sh', 'config.mk', 'build-containers/Dockerfile') }}
+          BASE: ${{ hashFiles('system/image/packages.txt', 'tools/build-rootfs.sh', 'config.mk', 'build-containers/Dockerfile', 'build-containers/Dockerfile.deb') }} ${{ steps.inputs.outputs.games }}
         run: |
           [ -n "$SALT" ] || { echo "-- no WALNUT_CACHE_SALT: no Actions cache in this run"; exit 0; }
           base="rootfs-base-$(printf '%s' "$BASE" | openssl dgst -sha256 -hmac "$SALT" -r | cut -c1-40)"
@@ -162,11 +167,16 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
+      - name: The games in the package layer (the key covers them, ROOTFS_GAMES from the gamedb files)
+        id: inputs
+        run: |
+          g=$(python3 -I tools/gamedb/build-info.py image-base) || { echo "::error::build-info.py failed: no key without the games"; exit 1; }
+          echo "games=$(printf '%s' "$g" | tr '\n' ' ')" >> "$GITHUB_OUTPUT"
       - name: Cache key, salted
         id: key
         env:
           SALT: ${{ secrets.WALNUT_CACHE_SALT }}
-          BASE: ${{ hashFiles('system/image/packages.txt', 'tools/build-rootfs.sh', 'config.mk', 'build-containers/Dockerfile') }}
+          BASE: ${{ hashFiles('system/image/packages.txt', 'tools/build-rootfs.sh', 'config.mk', 'build-containers/Dockerfile', 'build-containers/Dockerfile.deb') }} ${{ steps.inputs.outputs.games }}
         run: |
           [ -n "$SALT" ] || { echo "-- no WALNUT_CACHE_SALT: no Actions cache in this run"; exit 0; }
           base="rootfs-base-$(printf '%s' "$BASE" | openssl dgst -sha256 -hmac "$SALT" -r | cut -c1-40)"
@@ -202,7 +212,8 @@ jobs:
   stable-gate:
     # a stable release by someone not on the allowlist waits here for the reviewers of walnut-stable-review (no secrets)
     needs: build
-    if: inputs.publish && inputs.channel == 'stable' && !contains(fromJSON(vars.WALNUT_STABLE_PUBLISHERS || '[]'), github.triggering_actor)
+    # always(): after a skipped ancestor (the layer job on a cache hit) success() is false and the gate would be skipped
+    if: always() && needs.build.result == 'success' && inputs.publish && inputs.channel == 'stable' && !contains(fromJSON(vars.WALNUT_STABLE_PUBLISHERS || '[]'), github.triggering_actor)
     runs-on: ubuntu-24.04
     environment: walnut-stable-review
     steps:
@@ -257,3 +268,16 @@ jobs:
           pre=; [[ $ID == 0.* ]] && pre=--prerelease  # 0.x: alpha
           gh release create "v$ID" --target "$GITHUB_SHA" $pre \
             --title "Walnut $ID" --notes-file notes.md out/*
+
+  stable-outcome:
+    # the run ends red when a stable release was wanted, the build passed, and the publish didn't complete
+    needs: [build, stable-gate, publish]
+    if: always() && inputs.publish && inputs.channel == 'stable' && needs.build.result == 'success' && needs.publish.result != 'success'
+    runs-on: ubuntu-24.04
+    steps:
+      - env:
+          GATE: ${{ needs.stable-gate.result }}
+          PUBLISH: ${{ needs.publish.result }}
+        run: |
+          echo "::error::stable publish not approved or not completed (gate: $GATE, publish: $PUBLISH)"
+          exit 1

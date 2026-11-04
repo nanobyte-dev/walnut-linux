@@ -258,13 +258,47 @@ def run_checks(ctx, only=None):
     return times
 
 
+def redactor(ctx):
+    """a function that takes the private text out of a finding before it is printed: the private patterns
+    (the replace lists and tools/commit-private.local.txt, as the private check reads them) and the secret
+    shapes become <private>. Quiet when the lists are missing: the private check says so itself. A pattern
+    that matches the empty string is left out (it would match everywhere)."""
+    pats = []
+    try:
+        priv = load_check("private")
+        paths = [p for p, _ in priv.replace_lists(ctx)]
+        local = priv.private_list(ctx, priv.LOCAL)
+        if local:
+            paths.append(local)
+        for path in paths:
+            pats += [rx for _, rx in priv.load_patterns(path, "")]
+        secrets = [rx for _, rx in priv.SECRETS]
+    except Exception:   # never let the redaction stop a report
+        secrets = []
+    pats = [rx for rx in pats if not rx.match(b"")]
+
+    def redact(text):
+        if not text:
+            return text
+        b = text.encode("utf-8", "surrogateescape")
+        for rx in pats:
+            b = rx.sub(b"<private>", b)
+        t = b.decode("utf-8", "surrogateescape")
+        for rx in secrets:
+            t = rx.sub("<private>", t)
+        return t
+    return redact
+
+
 def report(ctx, out=sys.stderr, times=None):
-    """prints the findings; the number of errors"""
+    """prints the findings, with private text and secrets taken out of them (a check that echoes a line of a
+    file would otherwise put it in the terminal and in an agent's transcript); the number of errors"""
     n = 0
+    redact = redactor(ctx)
     for check, kind, path, text in ctx.findings:
         n += kind == "error"
-        where = "%s: " % path if path else ""
-        print("commit-tests: %s: %s: %s%s" % (check, kind, where, text), file=out)
+        where = "%s: " % redact(path) if path else ""
+        print("commit-tests: %s: %s: %s%s" % (check, kind, where, redact(text)), file=out)
     if ctx.verbose and times:
         print("commit-tests: times: " + ", ".join("%s %.2fs" % kv for kv in times.items() if kv[1] >= 0.005), file=out)
     return n

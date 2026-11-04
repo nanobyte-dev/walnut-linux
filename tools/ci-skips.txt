@@ -1,0 +1,34 @@
+# tools/ci-skips.txt: what `tools/run-tests.sh --ci` (GitHub's runner, .github/workflows/walnut-tests.yml) may skip.
+# One key per line, then the reason: a suite (xmoto-glbatch), a part of one (suite:part, the key a "SKIP suite:part ..."
+# line names), or suite:unittest (a unittest skip). A skip that is not listed fails the run, so a missing prerequisite
+# never reads as a pass. An entry is a hole in the CI's coverage: list only what the runner cannot provide (the build/work
+# trees, ppc64 sysroots and qemu, tools Ubuntu does not carry), never a failing test. An entry that did not skip is only
+# mentioned in the log.
+
+# the patched Mesa tree (make mesa-work: the Debian source with our patches applied) is not built in this job
+mesa-forcedxt           needs build/work/mesa
+mesa-staging-pool       needs build/work/mesa
+mesa-vtx-snorm8         needs build/work/mesa
+mesa-minmax-vmx         needs build/work/mesa
+mesa-query-steal        needs build/work/mesa
+mesa-query-lost         needs build/work/mesa
+mesa-alloc-fail         needs build/work/mesa
+mesa-transfer-cpu       needs build/work/mesa
+mesa-point-smooth       needs build/work/mesa
+fix-ladder              needs the Mesa clone (make mesa-work)
+# other work trees and built packages
+xmoto-glbatch           needs build/work/xmoto (make xmoto-work)
+game-data-packager      needs build/debs/game-data-packager (a ppc64 build in the deb builder image)
+sdl2-compat:all         needs the sdl2-compat source tarball (build/work) and SDL3 development files
+# ppc64 under qemu (the runner has no ppc64 sysroot or qemu-ppc64 binfmt here)
+ps3rsx-shadow:ppc64     needs the ppc64 cross compiler, qemu-ppc64-static and build/mesa/sysroot
+luajit-low-2gb:all      needs qemu-ppc64-static and the luajit trees
+# tools Ubuntu 24.04 does not carry
+gamedb-evidence         needs ImageMagick 7 (magick); Ubuntu has 6, whose output differs and breaks the byte-for-byte reimport check
+# the public export, which the runner checks out, leaves out the licensed package directories
+blocks                  two generated blocks list the licensed packages' directories
+# the runner is no login session
+bench-selftest:intfwatch-login-processes   the detector counts commands in login sessions (a user.slice cgroup); a runner has none
+# Git LFS objects are not fetched in this job
+walnut-rate:unittest    skips the tests that need a gamedb session's LFS objects
+gamedb:unittest         skips a test that needs LFS objects

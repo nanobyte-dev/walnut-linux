@@ -39,13 +39,17 @@ bytes checked. Symlinks, special files, hidden names and files missing from the 
 bundle. Then the upload is deleted, published or refused; an id is used once. Each outcome is
 written to www/status/<kind>__<id> (ok, stale or refused, then why), so a publisher knows instead
 of guessing; kept STATUS_DAYS. Uploads that never got
-their manifest go after ORPHAN_DAYS. Results: state/done/<kind>__<id> and the journal.
+their manifest go after ORPHAN_HOURS. Results: state/done/<kind>__<id> and the journal.
 
   walnut-watch            process new bundles
   walnut-watch --rebuild  rebuild the current site image (after a Dockerfile/nginx.conf change)
 Env: WALNUT_ROOT (default /data/nanobyte/Walnut), WALNUT_NO_DOCKER=1 (tests: no image, no container).
 """
 import fcntl, gzip, hashlib, json, lzma, os, re, shutil, stat, subprocess, sys, time
+
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))	# -I drops the script's directory: the rule modules live beside it
+from walnut_checks import (Refused, Stale, PolicyRefused, POLICY, KINDS, NIGHTLY_RE, VERSION_RE,
+                           keydirs, policy_error, load_rules, check_index, signing_fpr, anchor_errors)
 
 ROOT = os.environ.get("WALNUT_ROOT", "/data/nanobyte/Walnut")
 INC, WWW, STATE, SITES = f"{ROOT}/incoming", f"{ROOT}/www", f"{ROOT}/state", f"{ROOT}/site"
@@ -54,32 +58,23 @@ TESTING_KEYRING = f"{ROOT}/keys/testing-keyring.gpg"	# testing: the CI key, good
 SUITE_KEYRING = {("apt", "testing"): TESTING_KEYRING, ("apt", "testing-debug"): TESTING_KEYRING,
                  ("apt", "stable"): KEYRING, ("apt", "stable-debug"): KEYRING, ("licensed", "licensed"): KEYRING}
 NO_DOCKER = os.environ.get("WALNUT_NO_DOCKER") == "1"
-KINDS = ("site", "download", "apt", "licensed")
+RULES_DIR = f"{ROOT}/rules"	# root-owned, changed only at a sitting (deploy.sh --rules): ownership.toml, protected-names.txt, pins.json
+RULES = None
 ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}\Z")
 NAME_RE = re.compile(r"[A-Za-z0-9_+~-][A-Za-z0-9._+~-]{0,200}\Z")	# one path component, never hidden
 SITE_EXT = {"html", "css", "js", "txt", "xml", "json", "svg", "png", "jpg", "jpeg", "webp", "gif",
             "ico", "woff", "woff2", "asc", "gpg", "pdf"}
-NIGHTLY_RE = re.compile(r"nightly-[0-9]{8}-[0-9]{4}-[0-9a-f]{7}\Z")
 NIGHTLY_KEEP = 3
-VERSION_RE = re.compile(r"([0-9]+)\.([0-9]+)\.([0-9]+)\Z")	# a stable release, for download/latest
 MAX_BYTES = 8 << 30		# one bundle
 KEEP_FREE = 5 << 30		# left on the disk after it
 KEEP_SITES = 3			# site versions (and images) kept for a rollback
 KEEP_GENS = 3			# old dists generations kept per suite
 BYHASH_DAYS = 14		# by-hash files carried over this long
-ORPHAN_DAYS = 2			# an upload without its manifest
+ORPHAN_HOURS = 6		# an upload without its manifest
 PRUNE_DAYS = float(os.environ.get("WALNUT_PRUNE_DAYS", "14"))	# a pool file no index names any more
 APTCACHE = f"{ROOT}/aptcache-data"	# walnut-aptcache's volume (docker-compose.yml)
 APTCACHE_CAP = float(os.environ.get("WALNUT_APTCACHE_CAP_GB", "30")) * (1 << 30)	# log-only for now
 NOF = os.O_NOFOLLOW | os.O_CLOEXEC
-
-
-class Refused(Exception):
-	pass
-
-
-class Stale(Refused):
-	"""Made from a published state that is no longer the published one: the publisher makes it again."""
 
 
 def log(msg):
@@ -182,7 +177,7 @@ def copy_bundle(bundle_fd, man, staging):
 			mt = os.fstat(src.fileno()).st_mtime
 			os.utime(dst_path, (mt, mt))
 		if h.hexdigest() != want:
-			raise Refused(f"{rel}: sha256 does not match the manifest")
+			raise Refused(f"{rel}: sha256 does not match the manifest", "E-HASH")
 
 
 def sha256_file(path):
@@ -202,7 +197,7 @@ def files_under(top):
 
 # --- download --------------------------------------------------------------------------------
 
-def verify_signature(what, *files, output=None, keyring=KEYRING):
+def verify_signature(what, *files, output=None, keyring=KEYRING, pins=None):
 	"""gpgv against the archive keyring only: no keyring, no publish. Status lines, not the exit
 	code alone, decide: one VALIDSIG and no BADSIG/ERRSIG/EXPKEYSIG/REVKEYSIG."""
 	if not os.path.isfile(keyring):
@@ -216,7 +211,10 @@ def verify_signature(what, *files, output=None, keyring=KEYRING):
 	bad = {"BADSIG", "ERRSIG", "EXPKEYSIG", "REVKEYSIG", "EXPSIG", "NO_PUBKEY"} & set(status)
 	if r.returncode or bad or status.count("VALIDSIG") != 1:
 		raise Refused(f"{what}: not signed by the {os.path.basename(keyring)} key ({', '.join(sorted(bad)) or 'gpgv ' + str(r.returncode)})\n"
-		              f"{r.stderr.strip()[-500:]}")
+		              f"{r.stderr.strip()[-500:]}", "E-SIG")
+	# V4: the key that made the signature (VALIDSIG's first field, a subkey's own), against the suite's pins
+	if pins is None or signing_fpr(r.stdout.splitlines()) not in pins:
+		raise Refused(f"{what}: signed by {signing_fpr(r.stdout.splitlines())}, which is not pinned for it", "E-KEY")
 
 
 def point_latest(top, bid):
@@ -241,7 +239,8 @@ def publish_download(bid, staging):
 	sums, sig = f"{staging}/SHA256SUMS", f"{staging}/SHA256SUMS.asc"
 	if not os.path.isfile(sums) or not os.path.isfile(sig):
 		raise Refused("a release needs SHA256SUMS and its signature SHA256SUMS.asc")
-	verify_signature("SHA256SUMS", sig, sums, keyring=TESTING_KEYRING if nightly else KEYRING)
+	verify_signature("SHA256SUMS", sig, sums, keyring=TESTING_KEYRING if nightly else KEYRING,
+	                 pins=RULES.pins.get("download/nightly" if nightly else "download/release"))
 	listed = {}
 	with open(sums, encoding="utf-8") as f:
 		for n, line in enumerate(f, 1):
@@ -278,13 +277,63 @@ def publish_download(bid, staging):
 
 # --- apt / licensed --------------------------------------------------------------------------
 
+INDEX_MAX = 256 << 20	# one copy of an index, decompressed (a real Packages is a few MiB)
+
+
+def _read_capped(f):
+	"""All of f, or Refused E-INDEX past INDEX_MAX: streamed, so a compression bomb never gets as far as memory"""
+	chunks, total = [], 0
+	while chunk := f.read(1 << 20):
+		total += len(chunk)
+		if total > INDEX_MAX:
+			raise Refused(f"an index is longer than {INDEX_MAX >> 20} MiB decompressed", "E-INDEX")
+		chunks.append(chunk)
+	return b"".join(chunks)
+
+
+def _zstd_open():
+	try:
+		from compression import zstd	# Python 3.14
+		return zstd.open
+	except ImportError:
+		def no(*a, **k):
+			raise Refused("a .zst index cannot be read on this server", "E-INDEX")
+		return no
+
+
 def read_index(path):
-	"""Text of a Packages/Sources index from its uncompressed, .gz or .xz copy."""
-	for ext, op in (("", open), (".gz", gzip.open), (".xz", lzma.open)):
+	"""Text of a Packages/Sources index. Every copy present (plain, .gz, .xz, .bz2, .zst) is read and they must be the
+	same text: apt takes whichever form it likes, so the one that is checked has to be all of them."""
+	import bz2
+	texts = []
+	for ext, op in (("", open), (".gz", gzip.open), (".xz", lzma.open), (".bz2", bz2.open), (".zst", None)):
 		if os.path.isfile(path + ext):
-			with op(path + ext, "rb") as f:
-				return f.read().decode("utf-8", "replace")
-	return None
+			with (op or _zstd_open())(path + ext, "rb") as f:
+				texts.append((ext, _read_capped(f).decode("utf-8", "replace")))
+	if any(t != texts[0][1] for _, t in texts):
+		raise Refused(f"{os.path.basename(path)}: the copies of this index ({', '.join(e or 'plain' for e, _ in texts)}) are not the same text", "E-INDEX")
+	return texts[0][1] if texts else None
+
+
+def stanza_key(st):
+	return tuple(sorted(st.items()))
+
+
+def published_stanzas(prefix, suite):
+	"""The stanzas (as stanza_key) of the suite's currently published Packages and Sources."""
+	from walnut_checks import parse_stanzas
+	out = set()
+	top = os.path.realpath(f"{prefix}/dists/{suite}")
+	for d, _, fs in os.walk(top):
+		if "by-hash" in d.split(os.sep):
+			continue
+		for name in {f.split(".")[0] for f in fs} & {"Packages", "Sources"}:
+			try:
+				text = read_index(f"{d}/{name}")
+			except Refused:
+				continue
+			out.update(stanza_key(st) for st in parse_stanzas(text or ""))
+	return out
 
 
 def index_files(text, sources):
@@ -299,7 +348,7 @@ def index_files(text, sources):
 					if l.strip():
 						f = l.split()
 						if len(f) != 3:
-							raise Refused("a Sources index has a malformed Files line")
+							raise Refused("a Sources index has a malformed Files line", "E-INDEX")
 						out.append(f"{d.group(1)}/{f[2]}")
 		else:
 			m = re.search(r"^Filename: (\S+)", para, re.M)
@@ -334,34 +383,54 @@ def index_hashes(text, sources):
 	return out
 
 
-def check_release_hashes(suite, sdir, signed):
+def check_release_hashes(suite, sdir, signed, keyring=None, pins=None):
 	"""Every index file in the suite must be the one the signed Release text names (its SHA256
-	section), so the indices read below, and served, are the signed ones."""
+	section), so the indices read below, and served, are the signed ones. Release must be that signed
+	text and Release.gpg a signature of it by the same pinned key; by-hash holds SHA256 copies of
+	files the Release names, beside the index they belong to, and nothing else."""
 	with open(signed, encoding="utf-8", errors="replace") as f:
 		text = f.read()
 	m = re.search(r"^SHA256:\n((?: .*\n?)+)", text, re.M)
 	if not m:
-		raise Refused(f"dists/{suite}: the signed Release has no SHA256 section")
+		raise Refused(f"dists/{suite}: the signed Release has no SHA256 section", "E-INDEX")
 	named = {}
 	for l in m.group(1).splitlines():
 		f = l.split()
 		# a line that is not "<sha256> <size> <name>" refuses the bundle; an unhandled error here would
 		# leave it undone, and every later run would stop on it again
 		if len(f) != 3 or not re.fullmatch(r"[0-9a-f]{64}", f[0]) or not f[1].isdigit():
-			raise Refused(f"dists/{suite}: the signed Release has a malformed SHA256 line")
+			raise Refused(f"dists/{suite}: the signed Release has a malformed SHA256 line", "E-INDEX")
 		named[f[2]] = (f[0], int(f[1]))
-	for rel, p in files_under(sdir):
-		if rel in ("InRelease", "Release", "Release.gpg") or "/by-hash/" in f"/{rel}":
+	hashes = {h for h, _ in named.values()}
+	for rel, p in sorted(files_under(sdir)):
+		parts = rel.split("/")
+		if rel == "InRelease":
+			continue
+		if rel == "Release":
+			with open(p, encoding="utf-8", errors="replace") as f:
+				if f.read().rstrip("\n") != text.rstrip("\n"):
+					raise Refused(f"dists/{suite}/Release is not the signed text", "E-RELEASE")
+			continue
+		if rel == "Release.gpg":
+			if not os.path.isfile(f"{sdir}/Release"):
+				raise Refused(f"dists/{suite}/Release.gpg without a Release", "E-RELEASE")
+			verify_signature(f"dists/{suite}/Release.gpg", p, f"{sdir}/Release", keyring=keyring, pins=pins)
+			continue
+		if "by-hash" in parts:
+			i = parts.index("by-hash")
+			if len(parts) != i + 3 or parts[i + 1] != "SHA256" or not re.fullmatch(r"[0-9a-f]{64}", parts[-1]):
+				raise Refused(f"dists/{suite}/{rel}: by-hash holds SHA256/<64 hex digits> only", "E-BYHASH")
+			if sha256_file(p) != parts[-1]:
+				raise Refused(f"dists/{suite}/{rel}: by-hash file does not match its name", "E-BYHASH")
+			parent = "/".join(parts[:i])
+			if parts[-1] not in hashes or not any(n.startswith(parent + "/") for n in named):
+				raise Refused(f"dists/{suite}/{rel}: not a copy of a file the signed Release names beside it", "E-BYHASH")
 			continue
 		if rel not in named:
-			raise Refused(f"dists/{suite}/{rel}: not named in the signed Release")
+			raise Refused(f"dists/{suite}/{rel}: not named in the signed Release", "E-INDEX")
 		h, size = named[rel]
 		if os.path.getsize(p) != size or sha256_file(p) != h:
-			raise Refused(f"dists/{suite}/{rel}: does not match the signed Release")
-	for rel, p in files_under(sdir):
-		parts = rel.split("/")
-		if "by-hash" in parts and parts[-2] == "SHA256" and sha256_file(p) != parts[-1]:
-			raise Refused(f"dists/{suite}/{rel}: by-hash file does not match its name")
+			raise Refused(f"dists/{suite}/{rel}: does not match the signed Release", "E-INDEX")
 
 
 def check_base(kind, suite, signed):
@@ -370,7 +439,7 @@ def check_base(kind, suite, signed):
 	with open(signed, encoding="utf-8", errors="replace") as f:
 		m = re.search(r"^X-Walnut-Base: (\S+)", f.read(), re.M)
 	if not m:
-		raise Refused(f"dists/{suite}: the signed Release has no X-Walnut-Base")
+		raise Refused(f"dists/{suite}: the signed Release has no X-Walnut-Base", "E-INDEX")
 	cur = f"{WWW}/{kind}/dists/{suite}/InRelease"
 	have = sha256_file(cur) if os.path.isfile(cur) else "none"
 	if m.group(1) != have:
@@ -393,8 +462,9 @@ def publish_repo(kind, bid, staging):
 		if not keyring:
 			raise Refused(f"{kind}/dists/{s}: not a suite of ours")
 		signed = f"{staging}/.Release-{s}"
-		verify_signature(f"dists/{s}/InRelease", f"{staging}/dists/{s}/InRelease", output=signed, keyring=keyring)
-		check_release_hashes(s, f"{staging}/dists/{s}", signed)
+		pins = RULES.pins.get(f"{kind}/{s}")
+		verify_signature(f"dists/{s}/InRelease", f"{staging}/dists/{s}/InRelease", output=signed, keyring=keyring, pins=pins)
+		check_release_hashes(s, f"{staging}/dists/{s}", signed, keyring, pins)
 		check_base(kind, s, signed)
 		os.unlink(signed)
 	# published pool files never change; new ones must not clash
@@ -403,15 +473,18 @@ def publish_repo(kind, bid, staging):
 		dest = f"{prefix}/pool/{rel}"
 		if os.path.lexists(dest):
 			if os.path.islink(dest) or not os.path.isfile(dest) or sha256_file(dest) != sha256_file(p):
-				raise Refused(f"pool/{rel} is already published with other contents")
+				raise Refused(f"pool/{rel} is already published with other contents", "E-POOL")
 		else:
 			new_pool.append((p, dest))
 	# every file the new indices name must be there once the pool is in
 	named = {}
 	for s in suites:
+		was = published_stanzas(prefix, s)
 		for d, _, fs in os.walk(f"{staging}/dists/{s}"):
 			for name in {f.split(".")[0] for f in fs} & {"Packages", "Sources"}:
 				text = read_index(f"{d}/{name}")
+				# V2: everything is checked except a stanza the suite already publishes, field for field
+				check_index(RULES, s, name == "Sources", text or "", lambda st: stanza_key(st) in was)
 				for ref, h in index_hashes(text or "", name == "Sources").items():
 					if named.setdefault(ref, h) != h:
 						raise Refused(f"dists/{s}: {ref} has two different hashes in the indices")
@@ -423,9 +496,9 @@ def publish_repo(kind, bid, staging):
 	for rel, p in (files_under(f"{staging}/pool") if "pool" in top else ()):
 		want = named.get(f"pool/{rel}", "unindexed")
 		if want == "unindexed":
-			raise Refused(f"pool/{rel}: no signed index of the bundle names it")
+			raise Refused(f"pool/{rel}: no signed index of the bundle names it", "E-POOL")
 		if want is None or sha256_file(p) != want:
-			raise Refused(f"pool/{rel}: not the sha256 the signed index gives")
+			raise Refused(f"pool/{rel}: not the sha256 the signed index gives", "E-POOL")
 	for p, dest in new_pool:	# new files only: nothing an index names yet
 		os.makedirs(os.path.dirname(dest), 0o755, exist_ok=True)
 		os.rename(p, dest)
@@ -462,7 +535,7 @@ def publish_repo(kind, bid, staging):
 def carry_by_hash(old, new):
 	cutoff = time.time() - BYHASH_DAYS * 86400
 	for d, _, fs in os.walk(old):
-		if "by-hash" not in d.split(os.sep):
+		if "by-hash" not in d.split(os.sep) or os.path.basename(d) != "SHA256":	# the other algorithms are not carried
 			continue
 		nd = os.path.join(new, os.path.relpath(d, old))
 		for f in fs:
@@ -558,6 +631,11 @@ def publish_site(bid, staging):
 			raise Refused(f"{rel}: not a static site file type")
 	if not os.path.isfile(f"{staging}/index.html"):
 		raise Refused("no index.html")
+	for rel, p in files_under(staging):	# the trust anchor: the keys and fingerprints a page shows are the server's pins
+		with open(p, "rb") as f:
+			err = anchor_errors(rel, f.read(8 << 20), RULES.anchor, f"{STATE}/gnupg")
+		if err:
+			raise Refused(err, "E-ANCHOR")
 	target = f"{SITES}/{bid}"
 	if os.path.lexists(target):
 		raise Refused(f"site/{bid} exists")
@@ -591,8 +669,13 @@ STAGING_DIR = {"site": SITES, "download": f"{WWW}/download", "apt": f"{WWW}/apt"
 PUBLISH = {"site": publish_site, "download": publish_download, "apt": publish_repo, "licensed": publish_repo}
 
 
-def process(kind, kind_fd, bid):
+def process(kind, kind_fd, bid, keydir=""):
+	global RULES
 	man, mhash = read_manifest(kind_fd, bid)
+	err = policy_error(keydir, kind, bid, man)
+	if err:
+		raise PolicyRefused(err)
+	RULES = load_rules(RULES_DIR)	# every kind: a server without its rules publishes nothing
 	bundle_fd = open_dir([bid], kind_fd)
 	staging = f"{STAGING_DIR[kind]}/.incoming-{bid}"
 	try:
@@ -600,12 +683,12 @@ def process(kind, kind_fd, bid):
 		extra = sorted({p for p, _ in have} - set(man))
 		missing = sorted(set(man) - {p for p, _ in have})
 		if extra or missing:
-			raise Refused(f"bundle and manifest differ: extra {extra[:5]}, missing {missing[:5]}")
+			raise Refused(f"bundle and manifest differ: extra {extra[:5]}, missing {missing[:5]}", "E-MANIFEST")
 		size = sum(s for _, s in have)
 		os.makedirs(STAGING_DIR[kind], 0o755, exist_ok=True)
 		st = os.statvfs(STAGING_DIR[kind])
 		if size > MAX_BYTES or st.f_bavail * st.f_frsize - size < KEEP_FREE:
-			raise Refused(f"{size >> 20} MiB: too big for one bundle or for the disk")
+			raise Refused(f"{size >> 20} MiB: too big for one bundle or for the disk", "E-SIZE")
 		shutil.rmtree(staging, ignore_errors=True)
 		copy_bundle(bundle_fd, man, staging)
 		if kind == "apt" or kind == "licensed":
@@ -736,53 +819,96 @@ def prune_status():
 			os.unlink(e.path)
 
 
+def keydir_path(keydir):
+	return f"{INC}/{keydir}" if keydir else INC
+
+
+def sweep_foreign(keydir):
+	"""Whatever a key's directory holds that is not a kind it may post (and any loose file) is deleted and
+	logged: it would never be walked, and the incoming/ quota is shared."""
+	base = keydir_path(keydir)
+	try:
+		dfd = os.open(base, os.O_RDONLY | os.O_DIRECTORY | NOF)
+	except FileNotFoundError:
+		return
+	try:
+		with os.scandir(dfd) as it:
+			names = [e.name for e in it]
+		for n in names:
+			if n not in POLICY[keydir]:
+				log(f"-- {keydir}/{n}: not a kind this key posts, deleted")
+				remove_entry(dfd, n)
+	finally:
+		os.close(dfd)
+
+
 def run():
 	os.makedirs(f"{STATE}/done", 0o755, exist_ok=True)
-	for kind in KINDS:
-		try:
-			kind_fd = os.open(f"{INC}/{kind}", os.O_RDONLY | os.O_DIRECTORY | NOF)
-		except FileNotFoundError:
-			continue
-		try:
-			with os.scandir(kind_fd) as it:
-				ids = sorted(e.name[:-6] for e in it if e.name.endswith(".ready") and not e.name.startswith("."))
-			for bid in ids:
-				done = f"{STATE}/done/{kind}__{bid}"
-				if not ID_RE.match(bid):
-					log(f"!! {kind}/{bid}: bad id, deleted")
-				elif os.path.exists(done):
-					log(f"!! {kind}/{bid}: this id was used before, the upload is deleted")
-				else:
-					try:
-						msg, mhash = process(kind, kind_fd, bid)
-						res = f"ok {mhash}\n{msg}\n"
-						log(f">> {kind}/{bid}: {msg}")
-					except Stale as e:
-						res = f"stale\n{e}\n"
-						log(f"-- {kind}/{bid} stale: {e}")
-					except (Refused, OSError, UnicodeDecodeError, ValueError, IndexError) as e:
-						res = f"refused\n{e}\n"
-						log(f"!! {kind}/{bid} refused: {e}")
-					except Exception as e:
-						# anything else (a truncated .xz or .gz index: EOFError, LZMAError; a KeyError): the bundle
-						# is refused and marked done, or every later run would stop on it again. The status file
-						# is public, so it gets the kind of error only; the journal gets the traceback
-						import traceback
-						res = f"refused\ninternal error while checking the bundle ({type(e).__name__})\n"
-						log(f"!! {kind}/{bid} refused: internal error\n{traceback.format_exc()}")
+	for keydir in keydirs():
+		if keydir:
+			sweep_foreign(keydir)
+		for kind in (KINDS if not keydir else POLICY[keydir]):
+			run_kind(keydir, kind)
+
+
+def run_kind(keydir, kind):
+	try:
+		kind_fd = os.open(f"{keydir_path(keydir)}/{kind}", os.O_RDONLY | os.O_DIRECTORY | NOF)
+	except FileNotFoundError:
+		return
+	where = f"{keydir + '/' if keydir else ''}{kind}"
+	try:
+		with os.scandir(kind_fd) as it:
+			ids = sorted(e.name[:-6] for e in it if e.name.endswith(".ready") and not e.name.startswith("."))
+		for bid in ids:
+			done = f"{STATE}/done/{kind}__{bid}"
+			if not ID_RE.match(bid):
+				log(f"!! {where}/{bid}: bad id, deleted")
+			elif os.path.exists(done) and keydir == "":
+				log(f"!! {where}/{bid}: this id was used before, the upload is deleted")
+			elif os.path.exists(done):
+				# an id burned by a refusal or a publish; this key's ids have their own shapes, so it is this key's
+				log(f"!! {where}/{bid}: this id was used before, the upload is deleted")
+			else:
+				try:
+					msg, mhash = process(kind, kind_fd, bid, keydir)
+					res, pub = f"ok {mhash}\n{msg}\n", f"ok {mhash}\n"
+					log(f">> {where}/{bid}: {msg}")
+				except PolicyRefused as e:
+					# not this key's to post: no done/ and no status/ entry, so it can neither burn an id nor
+					# answer for another publisher's
+					log(f"!! {where}/{bid} refused (E-POLICY): {e}")
+					res = pub = None
+				except Stale as e:
+					res, pub = f"stale\n{e}\n", "stale\nE-STALE\n"
+					log(f"-- {where}/{bid} stale: {e}")
+				except Refused as e:
+					res, pub = f"refused\n{e}\n", f"refused\n{e.code}\n"
+					log(f"!! {where}/{bid} refused ({e.code}): {e}")
+				except (OSError, UnicodeDecodeError, ValueError, IndexError) as e:
+					res, pub = f"refused\n{e}\n", "refused\nE-REFUSED\n"
+					log(f"!! {where}/{bid} refused: {e}")
+				except Exception as e:
+					# anything else (a truncated .xz or .gz index: EOFError, LZMAError; a KeyError): the bundle
+					# is refused and marked done, or every later run would stop on it again. The status file
+					# is public, so it gets the code only; the journal gets the traceback
+					import traceback
+					res, pub = f"refused\ninternal error while checking the bundle ({type(e).__name__})\n", "refused\nE-INTERNAL\n"
+					log(f"!! {where}/{bid} refused: internal error\n{traceback.format_exc()}")
+				if res is not None:
 					with open(done + ".new", "w") as f:
 						f.write(res)
 					os.replace(done + ".new", done)
-					write_status(kind, bid, res)
-				remove_upload(kind_fd, bid)
-			cutoff = time.time() - ORPHAN_DAYS * 86400
-			with os.scandir(kind_fd) as it:
-				for e in it:
-					if e.stat(follow_symlinks=False).st_ctime < cutoff:
-						log(f"-- {kind}/{e.name}: no manifest after {ORPHAN_DAYS} days, deleted")
-						remove_entry(kind_fd, e.name)
-		finally:
-			os.close(kind_fd)
+					write_status(kind, bid, pub)
+			remove_upload(kind_fd, bid)
+		cutoff = time.time() - ORPHAN_HOURS * 3600
+		with os.scandir(kind_fd) as it:
+			for e in it:
+				if e.stat(follow_symlinks=False).st_ctime < cutoff:
+					log(f"-- {where}/{e.name}: no manifest after {ORPHAN_HOURS} hours, deleted")
+					remove_entry(kind_fd, e.name)
+	finally:
+		os.close(kind_fd)
 
 
 def main():

@@ -49,7 +49,16 @@ def drop(*paths):
     for p in paths:
         fd = os.open(p, os.O_RDONLY)
         os.fdatasync(fd)
-        os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_DONTNEED)
+        # DONTNEED skips pages that are under writeback or readahead at that moment, and readahead that is still in
+        # flight lands after it (a runner's disk is slow, the PC's is not): drop again until the file has stayed
+        # out of memory for a short while, so the tests start from the state they name
+        quiet = 0
+        for _ in range(200):
+            os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_DONTNEED)
+            quiet = quiet + 1 if resident_pages(p) == 0 else 0
+            if quiet >= 3:
+                break
+            time.sleep(0.05)
         os.close(fd)
 
 
@@ -151,6 +160,23 @@ def fake_sampler(paths, cwd, exe, t0=None):
     s.main = (1000, exe, [exe], str(cwd), 1)
     s.n = 3
     return s
+
+
+def walk_order():
+    """a recursive root as long as the file limit does not starve the flat directories (an interpreter's whole library
+    tree on a runner): the game's own directories are listed first"""
+    w = Path(tempfile.mkdtemp(prefix=".gprefetch-walk-", dir=str(BASE_TMP)))
+    try:
+        flat, big = w / "flat", w / "big"
+        flat.mkdir()
+        big.mkdir()
+        for i in range(50):
+            (big / f"f{i}").write_text("x")
+        (flat / "tex.png").write_text("y")
+        out, cut = gp.walk([str(big)], [str(flat)], 10, time.monotonic() + 5)
+        check("walk: the flat directory first, so a big recursive root cannot starve it", str(flat / "tex.png") in out and cut, (out[:3], cut))
+    finally:
+        shutil.rmtree(w, ignore_errors=True)
 
 
 def learning(w):
@@ -331,7 +357,7 @@ def end_to_end(w):
     check("game-run learn: game-learn line", "game-learn" in p.stderr, p.stderr[-400:])
     _, g = gp.find_list(str(lists), ["/usr/games/fake"])
     check("game-run learn: list found through the --key link", g is not None and {str(p1), str(p2), str(tex)} <= set(g.entries),
-          sorted(g.entries) if g else None)
+          (sorted(g.entries) if g else None, p.stderr[-600:]))
     drop(p1, p2, tex)
     before = (resident_pages(p1), resident_pages(p2), resident_pages(tex))
     cmd = [str(SCRIPT), "game-run", "--mode", "fetch", "--key", "/usr/games/fake", "--",
@@ -357,6 +383,9 @@ def end_to_end(w):
     check("game-run without a list: the game runs anyway", p.returncode == 0 and "nothing learnt yet" in p.stderr, p.stderr)
 
 
+BASE_TMP = HERE.parents[4] / "build" / "tmp"
+
+
 def main():
     base = Path(sys.argv[1]) if len(sys.argv) > 1 else None
     if base is None:
@@ -367,6 +396,7 @@ def main():
     home = os.environ.get("HOME")
     try:
         pieces()
+        walk_order()
         real_files(base)
         lists, exe, files = learning(base)
         os.environ["HOME"] = home or "/"

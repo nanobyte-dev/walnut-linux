@@ -13,6 +13,8 @@
 #            failed recovery's dialog only on the new X), gpu-crash-restart (ps3-system's crash report: the
 #            display-only desktop restart once per boot through logind, the old X waited for, the user's own X only),
 #            render-node (ps3-system's udev rule: the RSX's render node for the render group only),
+#            ps3-firstboot (walnut-firstboot's setup file in a dry run on a fake root: where it came from, the question, a decline or timeout,
+#            the confirm helper's rules),
 #            apt-update-notice (ps3-system's notice after apt update: fixture lists, os-release, fake dpkg; newer release, same release, garbage, missing),
 #            rsx-ab (tools/rsx-ab: the same-boot ps3rsx A/B batch against stubs, the mpv counter script),
 #            ps3-spu, xmoto-glbatch,
@@ -36,6 +38,8 @@
 #            sdl2-compat-close-locked (sdl2-compat 0001: SDL_CloseAudio while locked, SDL 1.2's and
 #            SDL2's API, dummy driver, a timeout; our build passes, the stock tarball's hangs), luajit-low-2gb
 #            (luajit 0001: luaL_newstate() 100 times under qemu-ppc64, ours never fails, stock does),
+#            walnut-install (system/installer/test_walnut_install.py: the release checks, the USB install's plan, and that
+#            only the typed model name confirms a live USB install),
 #            ssdimg (the SSD test
 #            drive's stamp.py, ps3-imgmap on a fake UFS layer, ps3-vswap's device-mapper backing;
 #            ps3-imgmap-boot's maps and tables against ps3-imgmap's; both tools' write guard
@@ -67,9 +71,14 @@
 #            helper mode with a fake sudo, the clean-system check and the watch on made-up process lists and windows,
 #            the export's scrub and an export -> import-run.py round trip, the submission check's refusals and a
 #            submit -> pull request -> submissions.py show/accept round trip with gh stubbed), ps3disk-guard (kernel local/0045's
-#            range checks, packages/patched/kernel/linux/tests/ps3disk-guard.sh), game-data-packager (our patches'
+#            range checks, packages/patched/kernel/linux/tests/ps3disk-guard.sh), kernel-config-check (tools/linux-config-check.sh: a dropped
+#            or changed config option, the hardening and must-stay-off lists of the kernel's package.conf, the research drivers per flavour),
+#            kernel-lockdep-variant (LINUX_VARIANT=lockdep: a test-build version of its own, the release flavour unaffected, PROVE_LOCKING in the debug config; the config half needs a patched tree in build/tmp/lane-km/t115 or LINUX_TREE),
+#            kernel-gart-parse (local/0007's size parser against the memparse wraps, no panic on an oversized reservation, local/0049's re-probe
+#            cancel in remove), game-data-packager (our patches'
 #            --progress-fd and --no-launchers on the built deb, in the deb builder image: packages/patched/tools/
 #            game-data-packager/tests; skipped without build/debs/game-data-packager)
+#   --ci     for GitHub's runner (.github/workflows/walnut-tests.yml): a skip fails unless tools/ci-skips.txt lists it
 #   --slow   also autogm (packages/walnut/system/ps3-desktop/tests/autogm-check.sh: needs Xvfb+openbox or docker/podman) and
 #            ssdimg-vm (tools/ssdimg/vm-e2e.sh: ps3-imgmap on a real big-endian UFS2 image in a KVM
 #            guest of the host's kernel, then Phase B: ps3-imgmap-boot's devices, the initramfs
@@ -83,9 +92,9 @@
 # (XPASS: fixed? take it off the list) or any other failure is reported and fails the run.
 set -u
 cd "$(dirname "$0")/.."
-slow=0; only=""
+slow=0; only=""; ci=0
 while [ $# -gt 0 ]; do
-	case $1 in --slow) slow=1;; --only) only=$2; shift;; *) echo "usage: $0 [--slow] [--only NAME]" >&2; exit 2;; esac
+	case $1 in --slow) slow=1;; --only) only=$2; shift;; --ci) ci=1;; *) echo "usage: $0 [--slow] [--ci] [--only NAME]" >&2; exit 2;; esac
 	shift
 done
 L=build/tmp/tests; mkdir -p "$L"
@@ -171,6 +180,7 @@ run gpu-recovered python3 -I packages/walnut/system/ps3-desktop/tests/gpu-recove
 run gpu-crash-restart bash packages/walnut/system/ps3-system/tests/gpu-crash-restart-test.sh
 run render-node bash packages/walnut/system/ps3-system/tests/render-node-test.sh
 run apt-update-notice bash packages/walnut/system/ps3-system/tests/apt-update-notice-test.sh
+run ps3-firstboot python3 -I packages/walnut/system/ps3-system/tests/test_firstboot_preseed.py
 run rsx-ab bash tools/rsx-ab/test_rsx_ab.sh
 run ps3rsx-shadow bash -c "$(declare -f need skip_part t_ps3rsx); t_ps3rsx"
 run ps3-spu make -C packages/walnut/tools/ps3-spu test
@@ -188,6 +198,7 @@ run sdl2-compat-close-locked bash packages/patched/graphics/sdl2-compat/tests/cl
 run luajit-low-2gb packages/patched/libs/luajit/tests/low-2gb.sh
 run ssdimg python3 tools/ssdimg/test_ssdimg.py
 run ps3-boot python3 packages/walnut/system/ps3-boot/tests/test_kboot.py
+run walnut-install python3 -I system/installer/test_walnut_install.py
 run agent-guard python3 -I tools/hooks/test_agent_guard.py
 run commit-tests bash -c "python3 -I tools/commit_tests/tests/test_checks.py && python3 -I tools/commit_tests/tests/test_e2e.py"
 run commit-hooks tools/hooks/install.sh --check
@@ -198,7 +209,7 @@ run ps3-sudoers bash packages/walnut/system/ps3-desktop/tests/sudoers-check.sh
 run repo-tools python3 -I tools/test_repo_tools.py
 run licensed python3 -I tools/licensed.py check
 run workflows python3 -I github-ci/gen-workflows.py --check
-run blocks python3 -I tools/gamedb/blocks.py --check
+run blocks bash -c "[ -d gamedb/games/classicube/licensed ] || { echo 'skip: the licensed package directories are not in this checkout (the public export), and two generated blocks list them'; exit 77; }; python3 -I tools/gamedb/blocks.py --check"
 run doclinks python3 -I tools/doclinks.py --report
 # report only for now: what doesn't resolve is listed in its log, not a failure
 [ ! -s "$L/doclinks.log" ] || { [ -n "$only" ] && [ "$only" != doclinks ]; } ||
@@ -212,7 +223,7 @@ run batch-publish python3 -I github-ci/test_batch_publish.py
 run walnut-lists python3 -I github-ci/test_walnut_lists.py
 run gen-workflows python3 -I github-ci/test_gen_workflows.py
 run gamedb python3 -I tools/gamedb/test_gamedb.py
-run gamedb-evidence bash -c "python3 -I tools/gamedb/test_evidence.py && python3 -I tools/gamedb/reimport.py --check"
+run gamedb-evidence bash -c "command -v magick >/dev/null || { echo 'skip: no ImageMagick 7 (magick)'; exit 77; }; python3 -I tools/gamedb/test_evidence.py && python3 -I tools/gamedb/reimport.py --check"
 run gamedb-technical python3 -I tools/gamedb/test_technical.py
 run gamedb-schema python3 -I tools/gamedb/test_schema.py
 run patch-register python3 -I tools/gamedb/patches.py
@@ -221,6 +232,9 @@ run walnut-games python3 -I packages/walnut/apps/walnut-games/tests/test_walnut_
 run walnut-data python3 -I packages/walnut/apps/walnut-games/tests/test_walnut_data.py
 run walnut-rate python3 -I packages/walnut/apps/walnut-rate/tests/test_walnut_rate.py
 run ps3disk-guard packages/patched/kernel/linux/tests/ps3disk-guard.sh
+run kernel-config-check packages/patched/kernel/linux/tests/config-check.sh
+run kernel-gart-parse packages/patched/kernel/linux/tests/ps3rsx-gart-parse.sh
+run kernel-lockdep-variant packages/patched/kernel/linux/tests/lockdep-variant.sh
 run game-data-packager packages/patched/tools/game-data-packager/tests/run-in-builder.sh
 [ $slow = 1 ] && run autogm bash -c "$(declare -f t_autogm); t_autogm"
 [ $slow = 1 ] && run ssdimg-vm tools/ssdimg/vm-e2e.sh
@@ -228,5 +242,18 @@ run game-data-packager packages/patched/tools/game-data-packager/tests/run-in-bu
 echo; printf '%-26s %-6s %s\n' suite result seconds
 for i in "${!names[@]}"; do printf '%-26s %-6s %s\n' "${names[$i]}" "${res[$i]}" "${secs[$i]}"; done
 [ ${#skips[@]} = 0 ] || { echo "skipped (not passes):"; printf '  %s\n' "${skips[@]}"; }
+# --ci (GitHub's runner, github-ci/walnut-tests): a skip is a failure unless tools/ci-skips.txt lists its key
+# (SKIP's second word: a suite, suite:part or suite:unittest) with a reason; a missing prerequisite never reads as
+# a pass. An entry that no skip used is only mentioned: another runner may differ.
+if [ $ci = 1 ]; then
+	declare -A allowed=() used=()
+	while read -r k _; do case $k in ''|'#'*) ;; *) allowed[$k]=1 ;; esac; done < tools/ci-skips.txt
+	for line in "${skips[@]}"; do
+		k=${line#SKIP }; k=${k%% *}
+		if [ -n "${allowed[$k]:-}" ]; then used[$k]=1
+		else echo "!! skipped in CI and not in tools/ci-skips.txt: $k"; fail=1; fi
+	done
+	for k in "${!allowed[@]}"; do [ -n "$only" ] || [ -n "${used[$k]:-}" ] || echo "-- tools/ci-skips.txt lists $k, which did not skip"; done
+fi
 [ $fail = 0 ] && echo "all passed" || echo "FAILED (logs in $L)"
 exit $fail

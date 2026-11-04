@@ -184,7 +184,9 @@ jobs:
   stable-gate:
     # a stable publish by someone not on the allowlist waits here for the reviewers of walnut-stable-review (no secrets)
     needs: publish-check
-    if: inputs.target == 'stable' && !contains(fromJSON(vars.WALNUT_STABLE_PUBLISHERS || '[]'), github.triggering_actor)
+    # always(): without a status function the implicit success() is false whenever any ancestor was skipped (build-external
+    # always is, for a trusted package), and the gate would be skipped with the run green
+    if: always() && needs.publish-check.result == 'success' && inputs.target == 'stable' && !contains(fromJSON(vars.WALNUT_STABLE_PUBLISHERS || '[]'), github.triggering_actor)
     runs-on: ubuntu-24.04
     environment: walnut-stable-review
     steps:
@@ -239,3 +241,17 @@ jobs:
           else
             github-ci/publish.sh stable ${{ inputs.package }} out
           fi
+
+  stable-outcome:
+    # the run ends red when a stable publish was wanted, the build passed, and the publish didn't complete (not approved,
+    # rejected, failed): a skipped gate or publish alone would leave the run green
+    needs: [publish-check, stable-gate, publish]
+    if: always() && inputs.target == 'stable' && needs.publish-check.result == 'success' && needs.publish.result != 'success'
+    runs-on: ubuntu-24.04
+    steps:
+      - env:
+          GATE: ${{ needs.stable-gate.result }}
+          PUBLISH: ${{ needs.publish.result }}
+        run: |
+          echo "::error::stable publish not approved or not completed (gate: $GATE, publish: $PUBLISH)"
+          exit 1

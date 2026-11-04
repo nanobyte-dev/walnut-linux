@@ -35,6 +35,12 @@
 # local/0055: ps3fb's direct GPU interface from ps3/0030 (PS3GPU_IOCTL_INFO/ENTER/EXIT, /dev/ps3gpu_*) is root only and takes
 #   its arguments through get_user; the attribute and cursor ioctls are removed (nothing used them); a direct session
 #   ends by itself when its process is gone. ps3rsx is unaffected.
+# Round 3 (2026-11-04): local/0007 parses ps3rsx_gart= and ps3rsx_cma= with a ceiling (a larger number, or one
+#   memparse wrapped, is clamped with a warning; a fixed reservation memblock can't give turns the GART off instead of
+#   panicking) and the parameters are __ro_after_init; local/0049's re-probe is cancelled in remove and shutdown;
+#   local/0055 gives the ps3gpu file operations an owner. The research drivers (ps3/0080, 0140, 0250) are built in the
+#   debug flavour only (config/ps3-debug.config). The __ro_after_init on the ps3rsx parameters is enforced only with STRICT_KERNEL_RWX: debug only until K5 turns it on in release.
+#   Rebased on 6.12.115: all patches apply (offsets only).
 ps3/0020-ps3stor-send-cmd-timeout.patch
 ps3/0035-ps3flash.patch
 ps3/0040-ps3-partition.patch

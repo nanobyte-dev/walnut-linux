@@ -966,7 +966,10 @@ mem_snap() {	# mem_snap LABEL: the game's memory now into $D/mem/LABEL.*
 	# every thread's name and stack pointer (in a system call: memprof.py finds the thread stacks)
 	local tk c y
 	for tk in /proc/$p/task/*; do
-		read -r c < "$tk/comm"; read -r y < "$tk/syscall"; printf '%s\t%s\t%s\n' "${tk##*/}" "$c" "$y"
+		# (a thread's syscall file is refused to a process that is not allowed to trace the game, e.g. under Yama's
+		# ptrace_scope=1 when the game is not this shell's descendant: the thread is listed without a stack pointer)
+		c= y=; read -r c < "$tk/comm" 2>/dev/null || true; read -r y < "$tk/syscall" 2>/dev/null || true
+		printf '%s\t%s\t%s\n' "${tk##*/}" "$c" "$y"
 	done > "$D/mem/$1.tasks" 2>/dev/null
 	cat /proc/meminfo > "$D/mem/$1.meminfo"
 	# ps3rsx's buffers per client (takes mm_lock and walks them: once a snapshot)

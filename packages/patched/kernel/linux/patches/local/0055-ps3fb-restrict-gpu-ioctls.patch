@@ -35,6 +35,9 @@ through the in-kernel API (ps3fb_gpu_takeover() and the rest), which
 keeps working; its takeover is refused only during a live session, as
 before.
 
+The /dev/ps3gpu_* file operations get an owner (ps3fb is built in, so
+it changes nothing today) and are const.
+
 Forwarded: no
 ---
 diff --git a/arch/powerpc/include/uapi/asm/ps3fb.h b/arch/powerpc/include/uapi/asm/ps3fb.h
@@ -115,8 +118,8 @@ diff --git a/drivers/video/fbdev/ps3fb.c b/drivers/video/fbdev/ps3fb.c
 +#include <linux/pid.h>
 +#include <linux/sched/signal.h>
  #include <linux/fb.h>
- #include <linux/fbcon.h>
  #include <linux/init.h>
+ 
 @@ -206,6 +209,15 @@ EXPORT_SYMBOL_GPL(ps3fb_gpu_handles);
   */
  static DEFINE_MUTEX(gpu_own_lock);
@@ -452,7 +455,17 @@ diff --git a/drivers/video/fbdev/ps3fb.c b/drivers/video/fbdev/ps3fb.c
  
  static int ps3fb_gpu_mmap(struct file *filp, struct vm_area_struct *vm)
  {
-@@ -2989,8 +2995,11 @@ static void ps3fb_shutdown(struct ps3_system_bus_device *dev)
+@@ -2860,7 +2866,8 @@ static int ps3fb_gpu_mmap(struct file *filp, struct vm_area_struct *vm)
+ 	return 0;
+ }
+ 
+-static struct file_operations ps3fb_gpu_fops = {
++static const struct file_operations ps3fb_gpu_fops = {
++	.owner   = THIS_MODULE,
+ 	.mmap    = ps3fb_gpu_mmap,
+ 	.open    = ps3fb_gpu_open,
+ 	.release = ps3fb_gpu_release,
+@@ -2989,8 +2996,11 @@ static void ps3fb_shutdown(struct ps3_system_bus_device *dev)
  	mutex_unlock(&shadow_lock);
  	mutex_lock(&gpu_own_lock);
  	shadow.dead = true;

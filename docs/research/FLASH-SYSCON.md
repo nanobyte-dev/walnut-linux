@@ -94,7 +94,7 @@ Not worth it: a newer CFW PUP for its own sake (no Linux gain, and it outdates t
 - A NOR image from another console, or a "rebuilt" one.
 - BadWDSD/qCFW on this model.
 - eFuse or Cell-key experiments.
-- Loading `ps3flash`, `ps3physmem` or `ps3_lv1call` write paths on a normal session. We already build `PS3_FLASH`, `PS3_NOR_FLASH`, `REPOSITORY_WRITE` and `ENCDEC` out; keep it that way, and keep lv1call and disp_manager blacklisted while ps3rsx runs ([DRIVER.md](../DRIVER.md)).
+- Loading `ps3flash`, `ps3physmem` or `ps3_lv1call` write paths on a normal session. We already build `PS3_FLASH`, `PS3_NOR_FLASH`, `REPOSITORY_WRITE` and `ENCDEC` out; keep it that way, and keep lv1call manual-load only and disp_manager unbuilt (no blacklist file exists; round 3 review H1).
 
 ## Open questions
 

@@ -1,0 +1,135 @@
+#!/usr/bin/python3 -I
+"""walnut-firstboot-confirm SECONDS: waits up to SECONDS for the person at the console to accept a setup file found
+on dev_hdd1 (S3, round 3). Exit 0: accepted (Enter on the console with nothing typed before it, or Cross or Start on
+a gamepad). Exit 1: anything else, the time running out and nothing being able to answer included. It never accepts
+by default and prints nothing; walnut-firstboot shows the question.
+
+- The console: whatever was typed before the question (typeahead) is flushed first, and only an empty line accepts.
+- Gamepads: every /dev/input/event* whose sysfs capabilities include BTN_SOUTH (0x130), found again every second (a
+  USB pad's node can appear after this starts); events are read, nothing is grabbed or written. Cross (BTN_SOUTH)
+  or Start (BTN_START, 0x13b), press only.
+Test seams (--events FILE, --sys DIR, --no-tty) are refused unless DRY_RUN=1 is in the environment, as walnut-firstboot's
+own dry run is."""
+import glob, os, select, struct, sys, termios, time
+
+EV_KEY, BTN_SOUTH, BTN_START = 1, 0x130, 0x13b
+EVENT = struct.Struct("@llHHi")	# struct input_event on a 64-bit kernel and userspace: 24 bytes, native byte order
+
+
+def pad_nodes(sysdir):
+	"""[/dev/input/eventN] whose capabilities/key has BTN_SOUTH: the bit string is unsigned longs, highest first"""
+	words = struct.calcsize("l") * 8
+	out = []
+	for cap in glob.glob(f"{sysdir}/event*/device/capabilities/key"):
+		try:
+			with open(cap) as f:
+				ws = [int(w, 16) for w in f.read().split()]
+		except (OSError, ValueError):
+			continue
+		bit = BTN_SOUTH
+		idx = len(ws) - 1 - bit // words
+		if 0 <= idx < len(ws) and ws[idx] >> (bit % words) & 1:
+			out.append("/dev/input/" + cap.split("/")[-4])
+	return out
+
+
+def main(argv):
+	seams = os.environ.get("DRY_RUN") == "1"
+	events, sysdir, tty = None, "/sys/class/input", True
+	args = list(argv)
+	if not args:
+		return 1
+	try:
+		limit = float(args.pop(0))
+	except ValueError:
+		return 1
+	while args:
+		a = args.pop(0)
+		if not seams or a not in ("--events", "--sys", "--no-tty"):
+			return 1
+		if a == "--events" and args:
+			events = args.pop(0)
+		elif a == "--sys" and args:
+			sysdir = args.pop(0)
+		elif a == "--no-tty":
+			tty = False
+		else:
+			return 1
+	deadline = time.monotonic() + limit
+	fds, buf = {}, {}
+	old = None
+	if tty:
+		if not os.isatty(0):
+			tty = False
+		else:
+			try:
+				old = termios.tcgetattr(0)
+				termios.tcflush(0, termios.TCIFLUSH)	# what was typed before the question accepts nothing
+			except termios.error:
+				tty = False
+	if events:
+		fds[os.open(events, os.O_RDONLY | os.O_NONBLOCK)] = events
+	try:
+		last_scan = 0.0
+		line = b""
+		while True:
+			now = time.monotonic()
+			if now >= deadline:
+				return 1
+			if now - last_scan >= 1.0 and not events:
+				last_scan = now
+				for node in pad_nodes(sysdir):
+					if node not in fds.values():
+						try:
+							fds[os.open(node, os.O_RDONLY | os.O_NONBLOCK | os.O_CLOEXEC)] = node
+						except OSError:
+							pass
+			watch = list(fds) + ([0] if tty else [])
+			r, _, _ = select.select(watch, [], [], min(1.0, max(0.0, deadline - now)))
+			for fd in r:
+				if fd == 0:
+					try:
+						chunk = os.read(0, 256)
+					except OSError:
+						return 1
+					if not chunk:
+						return 1
+					line += chunk
+					while b"\n" in line or b"\r" in line:
+						i = min(x for x in (line.find(b"\n"), line.find(b"\r")) if x >= 0)
+						text, line = line[:i], line[i + 1:]
+						if text.strip() == b"":
+							return 0
+				else:
+					try:
+						data = os.read(fd, EVENT.size * 32)
+					except OSError:
+						data = b""
+					if not data:
+						if events:
+							events = None	# a file of events ends; the pads (if any) and the console go on
+						try:
+							os.close(fd)
+						except OSError:
+							pass
+						fds.pop(fd, None)
+						continue
+					buf[fd] = buf.get(fd, b"") + data
+					while len(buf[fd]) >= EVENT.size:
+						rec, buf[fd] = buf[fd][:EVENT.size], buf[fd][EVENT.size:]
+						_, _, typ, code, value = EVENT.unpack(rec)
+						if typ == EV_KEY and code in (BTN_SOUTH, BTN_START) and value == 1:
+							return 0
+	finally:
+		if old is not None:
+			try:
+				termios.tcsetattr(0, termios.TCSADRAIN, old)
+			except termios.error:
+				pass
+
+
+if __name__ == "__main__":
+	try:
+		sys.exit(main(sys.argv[1:]))
+	except Exception:
+		sys.exit(1)	# any failure is a decline

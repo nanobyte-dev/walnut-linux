@@ -27,7 +27,15 @@
  * worker's thread, against a few for the PPE. If any job fails, the whole image is redone on
  * the PPE and the call still succeeds; MAX_FAILS images in a row (a destination the SPEs can't
  * write, say) and the process stays on the PPE. Calls from several threads are safe: each has
- * its own done word. */
+ * its own done word.
+ * Waits are bounded (and a timeout is re-waited once for GRACE_MS, in case the process was frozen): an image whose jobs don't end within TIMEOUT_BASE_MS plus TIMEOUT_US_PER_PX
+ * a pixel (a stuck SPE; SPEQ_S3TC_TIMEOUT_MS sets the whole bound) is redone on the PPE, the queue
+ * is given up for good (no new job; queued ones nobody took are failed; queue.c) and the call's
+ * done word is leaked, since a job a stuck SPE still holds would write into freed memory. What a
+ * job that ends after the bound could still write is its destination: valid blocks into the
+ * texture the PPE has just filled, or into memory freed meanwhile (the bound is generous so that
+ * only an SPE that is not coming back reaches it). A submit that finds the ring full and still
+ * (queue.c, SPEQ_SUBMIT_STALL_MS) gives the queue up the same way. */
 #include <errno.h>
 #include <pthread.h>
 #include <stdio.h>
@@ -43,10 +51,15 @@
 #define JOB_MIN_PX	16384		/* ~45 us of one SPE: dispatch is 3-10 us, p99 65 us */
 #define BAD_EA		0x1000		/* spq_s3tc_fault: an unmapped EA (a DATA_STORAGE fault) */
 #define MAX_FAILS	3		/* images failed on the SPEs in a row: the PPE from then on */
+#define TIMEOUT_BASE_MS	10000		/* an image's jobs must end within this ... */
+#define GRACE_MS	2000		/* ... and, once it is up, this much more before the jobs count as stuck */
+#define TIMEOUT_US_PER_PX 2		/* ... plus this a pixel (slow scheduling on a loaded system is ms) */
 
 static pthread_once_t once = PTHREAD_ONCE_INIT;
 static int mode = SPQ_S3TC_AUTO, debug, dxt5 = 1, rgb = SPQ_S3TC_AUTO;
 static unsigned long min_px = MIN_PX;
+static long grace_ms = GRACE_MS;	/* SPEQ_S3TC_GRACE_MS */
+static long timeout_ms = -1;	/* SPEQ_S3TC_TIMEOUT_MS: the whole bound, any size (-1: the formula) */
 
 static pthread_mutex_t qlock = PTHREAD_MUTEX_INITIALIZER;
 static struct speq *queue;	/* set once (release), never closed */
@@ -90,6 +103,10 @@ static void init(void)
 		rgb = SPQ_S3TC_OFF;
 	else
 		fprintf(stderr, "speq: SPEQ_S3TC_RGB=%s unknown, using auto\n", r);
+	if ((m = getenv("SPEQ_S3TC_TIMEOUT_MS")) && *m)
+		timeout_ms = strtol(m, NULL, 0);
+	if ((m = getenv("SPEQ_S3TC_GRACE_MS")) && *m)
+		grace_ms = strtol(m, NULL, 0);
 	debug = d && *d && strcmp(d, "0");
 	dxt5 = !five || !*five || (strcmp(five, "0") && strcmp(five, "off"));
 	page = sysconf(_SC_PAGESIZE);
@@ -119,6 +136,8 @@ void spq_s3tc_stats(struct spq_s3tc_stats *s)
 	s->ppe = LOAD(&stats.ppe);
 	s->redone = LOAD(&stats.redone);
 	s->jobs = LOAD(&stats.jobs);
+	s->timeouts = LOAD(&stats.timeouts);
+	s->graced = LOAD(&stats.graced);
 }
 
 struct speq *spq_s3tc_queue(void)
@@ -185,13 +204,22 @@ static void touch(uint8_t *dst, unsigned rows, unsigned rowbytes, unsigned strid
 	(void)sink;
 }
 
+/* How long an image's jobs may take: TIMEOUT_BASE_MS plus TIMEOUT_US_PER_PX a pixel, or
+ * SPEQ_S3TC_TIMEOUT_MS */
+static long timeout_us(unsigned w, unsigned h)
+{
+	if (timeout_ms >= 0)
+		return timeout_ms * 1000;
+	return TIMEOUT_BASE_MS * 1000L + (long)w * h * TIMEOUT_US_PER_PX;
+}
+
 /* The SPU path: 0, or -errno with the image to be redone on the PPE. jmode: DXT_JOB_*, comps
  * 3 or 4 */
 static int spu_encode(struct speq *q, const uint8_t *src, unsigned comps, unsigned w, unsigned h,
 		      uint8_t *dst, unsigned stride, unsigned jmode, unsigned *njobs)
 {
 	struct speq_job jobs[SPEQ_MAX_WORKERS];
-	struct speq_done done __attribute__((aligned(128)));
+	struct speq_done *done;
 	unsigned rows = h / 4, nw = q->nworkers ? q->nworkers : 1, per, minrows, n, i, bad;
 	int ret, err;
 
@@ -216,12 +244,33 @@ static int spu_encode(struct speq *q, const uint8_t *src, unsigned comps, unsign
 	}
 	touch(dst, rows, jmode == DXT_JOB_DXT5 ? 4 * w : 2 * w, stride, src,
 	      (size_t)4 * comps * w * rows);
-	memset(&done, 0, sizeof(done));
-	ret = speq_submit(q, jobs, n, &done);
-	if (ret == -EINVAL)
+	/* on the heap: a stuck SPE may still hold the done word when this call has given up on it */
+	if (posix_memalign((void **)&done, 128, sizeof(*done)))
+		return -ENOMEM;
+	memset(done, 0, sizeof(*done));
+	ret = speq_submit(q, jobs, n, done);
+	if (ret == -EINVAL) {
+		free(done);
 		return ret;	/* nothing queued */
+	}
 	/* even after a failed submit: jobs it queued may run, and write dst */
-	err = speq_wait(q, &done);
+	err = speq_wait_timeout(q, done, timeout_us(w, h), 0);
+	/* The bound is wall time: a process stopped or frozen for longer than it (SIGSTOP, a debugger, the
+	 * cgroup freezer of game mode) is past it the moment it runs again, with its SPE jobs about to finish.
+	 * One more wait, short, before they count as stuck; a thawed SPE needs microseconds. */
+	if (err == -ETIMEDOUT && grace_ms > 0) {
+		err = speq_wait_timeout(q, done, grace_ms * 1000, 0);
+		if (err != -ETIMEDOUT)
+			INC(&stats.graced);
+	}
+	if (err == -ETIMEDOUT) {
+		/* the jobs don't end: no more jobs for this queue, nobody frees what they hold */
+		spq_abandon(q);
+		queue_broke(-EIO);
+		INC(&stats.timeouts);
+		return -ETIMEDOUT;
+	}
+	free(done);
 	/* every worker gave up, or this is a fork child: the PPE from now on (one job's failure
 	 * isn't that: its context is recreated) */
 	if (ret == -EIO || __atomic_load_n(&q->dead, __ATOMIC_ACQUIRE))

@@ -1,0 +1,65 @@
+# The host test suites (tools/run-tests.sh, `make test`) and ShellCheck on every push to main and every pull
+# request. No secrets, no environment, a read-only token: it runs code of the pull request and of main, so
+# nothing it can reach is worth taking. A suite that cannot run on the runner is a failure unless
+# tools/ci-skips.txt lists it with a reason (`run-tests.sh --ci`); a missing prerequisite never reads as a pass.
+# gen-workflows.py --check refuses a secret, an environment or a write permission in a workflow that runs on
+# pull_request. Set the repository to require approval for all outside collaborators' runs (a GitHub setting); the lint here is hygiene, the boundary is GitHub's no-secrets rule for fork runs.
+name: "walnut: tests"
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      only:
+        description: "One suite of tools/run-tests.sh (empty: all of them)"
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: walnut-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"  # the tools use Python 3.13/3.14 (PurePath.full_match, compression.zstd); Ubuntu 24.04 has 3.12
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0  # version and pin tests read the history
+          lfs: false  # the suites that need LFS objects skip, and tools/ci-skips.txt says which
+          persist-credentials: false
+      - name: The tools the suites use
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends shellcheck git-filter-repo gcc make luajit xvfb
+          python3 -m pip install pyyaml pillow "ruff==$(cat tools/ruff-version)"
+      - name: The commit hooks, so the suite that checks them has them
+        run: tools/hooks/install.sh
+      - name: The host test suites
+        id: suites
+        continue-on-error: true  # the shell check and the logs below still run; the last step fails the job
+        env:
+          ONLY: ${{ inputs.only }}
+        run: tools/run-tests.sh --ci ${ONLY:+--only "$ONLY"}
+      - name: The suites' logs (a failed suite's full output; run-tests.sh prints only its tail)
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-logs
+          path: build/tmp/tests/
+          retention-days: 7
+          if-no-files-found: ignore
+      - name: ShellCheck and the shell patterns over every tracked script
+        run: python3 -I tools/commit_tests/run.py --all --only shell
+      - name: The suites' verdict
+        if: steps.suites.outcome == 'failure'
+        run: exit 1

@@ -40,3 +40,4 @@
 0054-loader-dri3-keep-the-back-buffers-we-have-when-anoth.patch
 0055-nv30-on-the-PS3-a-texture-that-finds-no-VRAM-goes-to.patch
 0056-nv30-on-the-PS3-a-query-report-that-never-comes-ends.patch
+0057-nv30-staging-inflight-counts-what-is-still-in-flight.patch

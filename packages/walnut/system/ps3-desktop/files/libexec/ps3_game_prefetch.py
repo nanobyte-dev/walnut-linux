@@ -740,8 +740,19 @@ def roots_of(sampler, home, names=()):
 
 
 def walk(rec, flat, limit, deadline):
-    """the regular files under rec (recursively) and in flat; True as well if cut short"""
-    out, stack = [], list(rec)
+    """the regular files in flat (each directory itself) and under rec (recursively); True as well if cut short.
+    The flat directories come first: they are a few directories the game itself works in, while a recursive root
+    can be a whole tree (an interpreter's library directory) that would use up the limit before they were looked at"""
+    out = []
+    for d in flat:
+        try:
+            with os.scandir(d) as it:
+                out += [e.path for e in it if e.is_file(follow_symlinks=False)]
+        except OSError:
+            continue
+        if len(out) >= limit or time.monotonic() > deadline:
+            return out, True
+    stack = list(rec)
     while stack:
         d = stack.pop()
         try:
@@ -759,14 +770,6 @@ def walk(rec, flat, limit, deadline):
                     continue
                 if len(out) >= limit or time.monotonic() > deadline:
                     return out, True
-    for d in flat:
-        try:
-            with os.scandir(d) as it:
-                out += [e.path for e in it if e.is_file(follow_symlinks=False)]
-        except OSError:
-            continue
-        if len(out) >= limit or time.monotonic() > deadline:
-            return out, True
     return out, False
 
 

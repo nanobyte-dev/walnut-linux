@@ -45,6 +45,7 @@ struct speq {
 	int quit, dead, forked, leaked;
 	int alive;		/* workers not broken */
 	unsigned spin_us, free_ms;
+	unsigned stall_ms;	/* a full ring that doesn't move for this long: the queue is dead (0: never) */
 	uint8_t *img;		/* the SPU ELF */
 	size_t img_size;
 	char prog[64];		/* the program as speq_open got it (the fake backend's lookup) */
@@ -83,6 +84,11 @@ void spq_stats(struct speq *q, struct spq_stats *s);
 uint32_t spq_tb_hz(void);
 double spq_now_us(void);
 void spq_fail_job(struct speq_done *done, int err);
+/* Gives the queue up when a wait on it timed out (its workers are stuck): no job is accepted any
+ * more and the queued ones that no worker has taken are failed (-EIO), so they never run later.
+ * A job a worker already runs may still finish: its buffers and done word stay the caller's to
+ * leak, never to free. */
+void spq_abandon(struct speq *q);
 
 /* pool.c: the process's deadline pool (deadline.spu), opened on first use; NULL with *err once
  * it can't be had. spq_pool_check(q, ret) after a failed submit (its return; after a failed
@@ -105,6 +111,8 @@ struct spq_s3tc_stats {
 	unsigned long ppe;	/* ... on the PPE (redone ones included) */
 	unsigned long redone;	/* SPU path failed, redone on the PPE */
 	unsigned long jobs;	/* SPU jobs submitted */
+	unsigned long timeouts;	/* images whose SPU jobs didn't end in time: the queue was given up */
+	unsigned long graced;	/* ... that ended in the grace wait after the bound (a frozen process) */
 };
 int spq_s3tc_mode(int mode);	/* overrides SPEQ_S3TC (-1: no change); returns the mode */
 int spq_s3tc_rgb(int mode);	/* overrides SPEQ_S3TC_RGB (OFF, PPE, AUTO; -1: no change) */

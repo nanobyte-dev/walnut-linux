@@ -1106,6 +1106,70 @@ class InitCmdline(unittest.TestCase):
             self.assertEqual(self.timeout("ps3ssd.timeout=" + bad + " quiet"), "30", msg=bad)
 
 
+class InitRecheck(unittest.TestCase):
+    """Q11: tools/ssdimg/initrd/init's map_image and recheck_image on a stub tool. A resumed install whose
+    image was uploaded again (CHANGED) starts over as an install; every other refusal, and every other
+    action, still fails or rechecks as before"""
+    INIT = Path(__file__).resolve().parent / "initrd" / "init"
+
+    def run_it(self, action, tool_rc, tool_out):
+        text = self.INIT.read_text()
+        a = text.index("# BEGIN image-map functions")
+        b = text.index("# END image-map functions")
+        d = Path(SCRATCH) / ("recheck-" + self._testMethodName)
+        shutil.rmtree(d, ignore_errors=True)
+        d.mkdir(parents=True)
+        tool = d / "tool"
+        tool.write_text('#!/bin/sh\necho "$1" >> %s/calls\nif [ "$1" = recheck ]; then echo %s; exit %d; fi\n'
+                        'echo mapped\nexit 0\n' % (d, tool_out, tool_rc))
+        tool.chmod(0o755)
+        (d / "log").write_text("")
+        script = (
+            'LOG=%s/log RUN=%s QUIET=1 TOOL=%s IMAGE=/linux/walnut.img MAP=/old/boot.map ACTION=%s STEPS=3\n'
+            'I_UUID=u I_SIZE=1 I_SWAP=1\n'
+            'step() { echo "STEP $1"; }\nsay() { echo "SAY $*"; }\n'
+            'fail() { echo "FAIL $*"; exit 3; }\n'
+            'why_since() { tail -n +$(($1 + 1)) $LOG | grep "^!!" | tail -n 1; }\n'
+            'run() { n0=$(wc -l < $LOG); "$@" >> $LOG 2>&1 && return 0; fail "$(why_since $n0)"; }\n'
+            'run_shown() { run "$@"; }\n' % (d, d, tool, action)
+            + text[a:b] +
+            'recheck_image\necho "ACTION=$ACTION MAP=$MAP STEPS=$STEPS"\n')
+        r = subprocess.run(["sh", "-e", "-c", script], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        calls = (d / "calls").read_text().split() if (d / "calls").exists() else []
+        return r.returncode, r.stdout, calls
+
+    def test_changed_image_resumed_starts_over(self):
+        rc, out, calls = self.run_it("resume", 1, "'!! ps3-imgmap-boot refused: CHANGED: the block list differs'")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("ACTION=install", out)
+        self.assertIn("MAP=%s/recheck-%s/boot.map" % (SCRATCH, self._testMethodName), out)
+        self.assertEqual(calls, ["recheck", "map"])
+        self.assertIn("uploaded again", out)
+
+    def test_other_refusals_still_fail(self):
+        rc, out, calls = self.run_it("resume", 1, "'!! no such image'")
+        self.assertEqual(rc, 3, out)
+        self.assertIn("FAIL !! no such image", out)
+        self.assertEqual(calls, ["recheck"])
+
+    def test_the_word_in_a_path_is_not_a_verdict(self):
+        rc, out, calls = self.run_it("resume", 1, "'!! ps3-imgmap-boot refused: /gameos/linux/UNCHANGED.img: read error'")
+        self.assertEqual(rc, 3, out)
+        self.assertEqual(calls, ["recheck"])
+
+    def test_resume_unchanged_stays_a_resume(self):
+        rc, out, calls = self.run_it("resume", 0, "ok")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("ACTION=resume", out)
+        self.assertEqual(calls, ["recheck"])
+
+    def test_boot_and_finish_do_not_start_over(self):
+        for action in ("boot", "finish"):
+            rc, out, calls = self.run_it(action, 1, "'!! ps3-imgmap-boot refused: CHANGED: inode'")
+            self.assertEqual(rc, 3, out)
+            self.assertEqual(calls, ["recheck"], action)
+
+
 if __name__ == "__main__":
     r = unittest.main(exit=False, verbosity=2).result
     shutil.rmtree(SCRATCH, ignore_errors=True)

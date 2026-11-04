@@ -374,6 +374,41 @@ class PublicExport(unittest.TestCase):
             self.assertEqual(self.git(out, "rev-list", "--count", "main").strip(), "3", r.stdout)
             self.assertNotIn("packages/licensed", self.git(out, "log", "--name-only", "--format="))
 
+    def test_env_list_adds_to_the_default_list(self):
+        """G6: $WALNUT_PUBLIC_REPLACE adds its patterns to tools/public-replace.local.txt, both are applied"""
+        if not shutil.which("git-filter-repo") and not os.path.exists(os.path.expanduser("~/.local/bin/git-filter-repo")):
+            self.skipTest("no git-filter-repo")
+        with tempfile.TemporaryDirectory() as tmp:
+            src, out = os.path.join(tmp, "src"), os.path.join(tmp, "out")
+            os.makedirs(os.path.join(src, "tools", "commit_tests", "checks"))
+            self.git(src, "init", "-q", "-b", "main")
+            for f in ("public-export.sh", "licensed.py", "licensed-files.txt", "public-scan.py", "public-scan-allow.txt"):
+                shutil.copy(HERE / f, os.path.join(src, "tools", f))
+            shutil.copy(HERE / "commit_tests" / "checks" / "private.py", os.path.join(src, "tools", "commit_tests", "checks", "private.py"))
+            Path(src, "tools", "public-strip-blobs.txt").write_text("")
+            Path(src, "tools", "public-replace.local.txt").write_text("literal:SECRET-ONE==>one\n")
+            extra = os.path.join(tmp, "extra.txt")
+            Path(extra).write_text("literal:SECRET-TWO==>two\n")
+            Path(src, "a.txt").write_text("SECRET-ONE and SECRET-TWO\n")
+            self.git(src, "add", "-A")
+            self.git(src, "commit", "-qm", "files")
+            base = dict(os.environ, PATH=os.path.expanduser("~/.local/bin") + ":" + os.environ["PATH"])
+            r = subprocess.run(["bash", os.path.join(src, "tools", "public-export.sh"), out],
+                               env=dict(base, WALNUT_PUBLIC_REPLACE=extra), cwd=src,
+                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            self.assertEqual(r.returncode, 0, r.stdout)
+            self.assertEqual(Path(out, "a.txt").read_text(), "one and two\n")
+            # a variable naming a missing file stops the export, and the default list alone still works
+            r = subprocess.run(["bash", os.path.join(src, "tools", "public-export.sh"), out],
+                               env=dict(base, WALNUT_PUBLIC_REPLACE=os.path.join(tmp, "absent")), cwd=src,
+                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            self.assertEqual(r.returncode, 2, r.stdout)
+            r = subprocess.run(["bash", os.path.join(src, "tools", "public-export.sh"), out], env=base, cwd=src,
+                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            self.assertEqual(r.returncode, 0, r.stdout)
+            self.assertEqual(Path(out, "a.txt").read_text(), "one and SECRET-TWO\n")
+
+
 
 class PublicScan(unittest.TestCase):
     """tools/public-scan.py on a temporary repository: a key block, a token and a netrc line inside a binary
@@ -515,6 +550,64 @@ class DeployAptCheck(unittest.TestCase):
         self.assertIn("!! apt-get check failed", r.stdout)
         self.assertIn("sudo systemctl start getty@tty1", r.stdout)
         self.assertNotIn("apt-get check: ok", r.stdout)
+
+
+class LicensedSigning(unittest.TestCase):
+    """V4/M4: the licensed publish signs with the primary key itself (fpr!), the one key walnut-watch pins for the suite"""
+
+    def test_sign_key_is_exact(self):
+        text = (REPO / "apt-repo" / "licensed-publish.sh").read_text()
+        self.assertIn('--sign-key "$fpr!"', text)
+        self.assertNotIn('--sign-key "$fpr" ', text)
+
+
+class StagedDebBuild(unittest.TestCase):
+    """Q15: tools/deb-build.sh (BUILD=indep, stub dpkg tools) stages its output in build/debs/.new-<pkg>; a failed
+    rebuild leaves the previous debs in place, a successful one replaces them"""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        (self.root / "tools").mkdir()
+        for f in ("deb-build.sh", "pkg-dir.sh"):
+            shutil.copy(HERE / f, self.root / "tools" / f)
+        write(self.root, "packages/walnut/x/fake/package.conf", "TYPE=native\nBUILD=indep\nSOURCE=fake\n")
+        write(self.root, "build/src/fake/fake_1.dsc", "dsc")
+        write(self.root, "build/debs/fake/old_1_all.deb", "old")
+        stubs = self.root / "stubs"
+        stubs.mkdir()
+        for name, body in (("dpkg-source", 'mkdir -p "$3"\n'),
+                           ("dpkg-buildpackage", '[ -z "$FAKE_FAIL" ] || { echo broken; exit 1; }\n'
+                                                 'echo new > ../fake_2_all.deb; echo b > ../fake.buildinfo; echo c > ../fake.changes\n')):
+            (stubs / name).write_text("#!/bin/sh\n" + body)
+            (stubs / name).chmod(0o755)
+
+    def build(self, fail=False):
+        env = dict(os.environ, PATH=f"{self.root}/stubs:{os.environ['PATH']}", OWNER=f"{os.getuid()}:{os.getgid()}",
+                   FAKE_FAIL="1" if fail else "")
+        return subprocess.run(["bash", "tools/deb-build.sh", "fake"], cwd=self.root, env=env,
+                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+
+    def debs(self):
+        return sorted(p.name for p in (self.root / "build/debs/fake").glob("*"))
+
+    def test_failed_build_keeps_the_previous_debs(self):
+        r = self.build(fail=True)
+        self.assertNotEqual(r.returncode, 0, r.stdout)
+        self.assertEqual(self.debs(), ["old_1_all.deb"])
+
+    def test_good_build_replaces_them(self):
+        r = self.build()
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertEqual(self.debs(), ["build-indep.log", "fake.buildinfo", "fake.changes", "fake_2_all.deb"])
+        self.assertFalse((self.root / "build/debs/.new-fake").exists())
+
+    def test_a_failed_build_after_a_failed_one_starts_clean(self):
+        self.build(fail=True)
+        r = self.build()
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertNotIn("old_1_all.deb", self.debs())
 
 
 if __name__ == "__main__":

@@ -329,10 +329,11 @@ def check_usb_disk(disk: str, cmd_runner=None, mounts_text=None) -> dict:
     }
 
 
-def confirm_usb_disk(disk_info: dict, confirmed: bool = False, dry_run: bool = False) -> bool:
-    """Display disk information and prompt for model confirmation."""
+def confirm_usb_disk(disk_info: dict, dry_run: bool = False) -> bool:
+    """Display disk information and require the typed model name. No option, argument or
+    environment variable skips it; only dry_run returns without asking (it writes nothing)."""
     disk = disk_info["disk"]
-    model = disk_info.get("model") or "UNKNOWN"
+    model = (disk_info.get("model") or "").strip() or "UNKNOWN"
     serial = disk_info.get("serial") or "UNKNOWN"
     size = disk_info.get("size") or "UNKNOWN"
 
@@ -343,9 +344,6 @@ def confirm_usb_disk(disk_info: dict, confirmed: bool = False, dry_run: bool = F
 
     if dry_run:
         print(f">> [dry-run] Live execution would require typing '{model}' to confirm.")
-        return True
-
-    if confirmed:
         return True
 
     print(f"\n!! WARNING: ALL DATA ON {disk} WILL BE PERMANENTLY ERASED !!")
@@ -560,10 +558,9 @@ def cmd_usb(args):
     print(f">> Validating target disk: {args.disk}")
     disk_info = check_usb_disk(args.disk)
 
-    # 3. Confirm disk
-    confirm_usb_disk(disk_info, confirmed=args.confirmed, dry_run=args.dry_run)
-
-    # 4. Check root privileges if not dry-run
+    # 3. Root first (the sudo re-run starts over with the same checks), then the typed confirmation:
+    #    it happens in the process that writes, once, and no option skips it. Only --dry-run
+    #    prints the plan without asking, and it writes nothing.
     if not args.dry_run and os.geteuid() != 0:
         print(">> Need root privileges to partition and format the USB disk.")
         print(">> Re-running with sudo...")
@@ -575,9 +572,9 @@ def cmd_usb(args):
             "--release-dir", os.path.abspath(args.release_dir),
             "--disk", args.disk,
             "--swap-gib", str(args.swap_gib),
-            "--yes",   # confirmed above; the disk checks run again as root
         ]
         os.execvp("sudo", cmd)
+    confirm_usb_disk(disk_info, dry_run=args.dry_run)
 
     disk = args.disk
     p1, p2 = get_partition_names(disk)
@@ -726,8 +723,6 @@ def main(argv=None):
     u_parser.add_argument("--disk", required=True, help="target USB block device (e.g. /dev/sdX)")
     u_parser.add_argument("--swap-gib", type=int, default=4, help="swap partition size in GiB (default: 4)")
     u_parser.add_argument("--dry-run", action="store_true", help="dry-run mode: check device and show commands without writing")
-    u_parser.add_argument("--confirmed", action="store_true", help=argparse.SUPPRESS)
-    u_parser.add_argument("--yes", dest="confirmed", action="store_true", help="skip interactive model confirmation")
 
     args = parser.parse_args(argv)
     try:

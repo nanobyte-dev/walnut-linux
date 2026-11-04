@@ -21,10 +21,10 @@ When the snapshot date is next refreshed (`DEBIAN_SNAPSHOT` in `config.mk`, and 
 - On the SPEs (2026-10-15) 1629 of 1677 execute tests pass, the same tests one by one as with binutils 2.33.1 and newlib 1.20.
 - A PPE miscompile to know about (2026-10-20): GCC 16.2's loop vectorizer at `-O3` with `-mcpu=cell` (AltiVec without VSX; `-mcpu=970` and `-mcpu=power6 -maltivec` too, `-O2` not) gets stb_image_resize's 4-channel horizontal downsampling loop wrong, and the result is near-black, transparent images. It needs `-DNDEBUG`, because the asserts inside the loop stop the vectorizer. Warzone 2100 is fixed (its patch 0007: [warzone2100](../gamedb/games/warzone2100/)). Any other package that builds stb_image_resize, or other float accumulation loops like it, at `-O3 -mcpu=cell` can hit the same bug (most CMake Release builds use `-O3`). A minimal C reproducer is still missing, so nothing has gone upstream yet.
 
-**Kernel.** 6.12 LTS (supported to December 2028), from Debian's `linux` source (trixie, 6.12.111-1) with our patches. Two flavours, named 2026-10-16:
+**Kernel.** 6.12 LTS (supported to December 2028), from Debian's `linux` source (6.12.115-2, the security archive's point release of 2026-11-02; kernel.org's newest 6.12.y that day was 6.12.115) with our patches. Two flavours, named 2026-10-16:
 
-- the release kernel `6.12.111+ps3.N`: 8.7 MB more `MemTotal` on the PS3 than the debug one (222704 kB against 213992 kB; vmlinux 11.9 MB against 21.2 MB, task #14);
-- debug kernels `6.12.111+ps3.N-debug<stamp>`, each build its own release so they sit side by side.
+- the release kernel `6.12.115+ps3.N`: 8.7 MB more `MemTotal` on the PS3 than the debug one (222704 kB against 213992 kB; vmlinux 11.9 MB against 21.2 MB, task #14);
+- debug kernels `6.12.115+ps3.N-debug<stamp>`, each build its own release so they sit side by side.
 
 **Mesa.** Debian's source package of the snapshot's release, rebuilt with our patches (`packages/patched/graphics/mesa/`, version `26.2.4-1+ps3.N`).
 
@@ -197,14 +197,20 @@ The result is `build/rootfs/debian-ppc64.tar`. The image installs the same packa
 
 `make linux-deb` builds Debian's `linux` source with `packages/patched/kernel/linux/patches` and `packages/patched/kernel/linux/packaging`, using the full configs from `tools/linux-config.sh` (`ps3_defconfig` + `packages/patched/kernel/linux/config/ps3.config`, plus `ps3-release.config` for the release kernel). It is cross-built for ppc64, then `linux-kbuild` natively. The two kernels (decided 2026-10-16):
 
-- **release:** release `6.12.111+ps3.N`, packages `linux-image-6.12.111+ps3.N` and `linux-headers-6.12.111+ps3.N`, metas `linux-image-ps3` and `linux-headers-ps3`;
-- **debug:** release `6.12.111+ps3.N-debug<stamp>`, metas `linux-image-ps3-debug` and `linux-headers-ps3-debug`. The stamp (`YYYYMMDDHHMM`, UTC) is the date of the commit the version stands for (`tools/deb-version.sh`; a dirty tree uses the build time), so the same commit always gives the same release and every debug build installs next to the others.
+- **release:** release `6.12.115+ps3.N`, packages `linux-image-6.12.115+ps3.N` and `linux-headers-6.12.115+ps3.N`, metas `linux-image-ps3` and `linux-headers-ps3`;
+- **debug:** release `6.12.115+ps3.N-debug<stamp>`, metas `linux-image-ps3-debug` and `linux-headers-ps3-debug`. The stamp (`YYYYMMDDHHMM`, UTC) is the date of the commit the version stands for (`tools/deb-version.sh`; a dirty tree uses the build time), so the same commit always gives the same release and every debug build installs next to the others.
 
 **A kernel comes with its GPU driver.** ps3rsx is built for each kernel release after the kernel (CI starts it once the kernel is in testing), so for a while testing has a kernel without its module. The image metas depend on `ps3rsx-modules-<release>` (packaging patch 0003), so apt holds a kernel upgrade back until the matching module is published and installs the two together; and `ps3-update-kboot` lists kernels without their module after the others, so Petitboot never boots one first (ps3rsx's postinst and postrm rerun it). Before this, a console that upgraded in that window booted a kernel with no GPU driver and no desktop (2026-10-27).
 
 Debian's flavours are `ps3` and `ps3-debug` (their names make the metas). A flavour's `localversion` in `defines.toml` replaces Debian's `-<flavour>` suffix of the release (`packages/patched/kernel/linux/packaging/0001-ps3-flavours.patch`, the stamp filled in by `tools/deb-prepare.sh`). Each image ships its kernel arguments as `/usr/lib/ps3/boot/<release>.args` (`packages/patched/kernel/linux/flavours/release.args`, `debug.args`). There is no initramfs (`ps3-no-initramfs` stands in for initramfs-tools).
 
 `make ps3rsx-modules` builds the RSX driver for both kernels, natively against their headers packages: `ps3rsx-modules-<release>`, metas `ps3rsx-modules-ps3` (release) and `ps3rsx-modules-ps3-debug`.
+
+**What is in which kernel (round 3, 2026-11-04).** The research drivers that let root reach the hypervisor and all memory (`CONFIG_PS3_LV1CALL`, `PS3_PHYSMEM`, `config/ps3-debug.config`) are modules of the debug kernel only; the release kernel has neither. `PS3_DISP_MANAGER` is off in both: it has a bus alias, so udev would load it at every boot. `tools/linux-config.sh` fails the configuration step when a fragment option didn't stick or when one of package.conf's `REQUIRE_SET` / `REQUIRE_UNSET` lists (the hardening options kept, the flash, storage-region and repository-write drivers and the isolated-SPU filesystems off, the research drivers per flavour) isn't met (`tools/linux-config-check.sh`, host test `packages/patched/kernel/linux/tests/config-check.sh`).
+
+**The lockdep kernel.** `LINUX_VARIANT=lockdep make linux-deb` builds the debug flavour with `config/ps3-lockdep.config` on top (`CONFIG_PROVE_LOCKING`, the lock debugging options it selects; boot it with `slub_debug=FZPU`). It costs about 10 MB of RAM, is never the default and is never published; the build replaces `build/debs/linux`, so make it after the release kernels are published or from a copy, and run `make ps3rsx-modules` for it (the pairing rule). Its release name equals the plain debug build's of the same commit: don't install both.
+
+**Source versions.** `package.conf`'s `SOURCE_SECURITY_SNAPSHOT` points `tools/deb-fetch.sh` at a debian-security snapshot for a point release the main archive doesn't have yet; its date goes into the server's list of pinned snapshots at the next deploy (`servers/walnut.nanobyte.dev/deploy.sh` reads it from package.conf), until then the fetch needs `http://snapshot.debian.org` as the snapshot URL. 6.12 is an LTS series supported by kernel.org until December 2028 (Debian's trixie follows it).
 
 Before installing a new kernel, `make netboot-deb FLAVOUR=release|debug ROOT=nfs|usb` boots it from Petitboot without touching the disk, with the arguments its package ships.
 

@@ -46,3 +46,43 @@ The rule everywhere: content appears whole or not at all (a rename), and anythin
 | Redeploys during builds | Containers that change are recreated: uploads retry (`publish.sh`), apt and ccache requests retry or miss. |
 
 Tests: `servers/walnut.nanobyte.dev/test_walnut_watch.py` (stale bases, two-suite staging, status files, the sweep, hostile uploads) and `apt-repo/test_walnut_repo.py` (two publishers on one base, against the real walnut-watch).
+
+## Who may upload what, and what the server checks
+
+Each upload key has its own directory (`incoming/<name>-key/`, rrsync-confined) and walnut-watch accepts there only what
+`servers/walnut.nanobyte.dev/walnut_checks.py` (`POLICY`) lets that key post: the site key a site, the testing key
+testing's apt suites and nightly images, the stable key stable's suites and releases, the PC key the licensed suite.
+Ids differ in shape between keys, so a key can neither use another publisher's id nor answer for it. A bundle a key may
+not post is deleted and logged; it leaves no status and burns no id. The two original keys keep the whole of
+`incoming/` until the migration ends (`LEGACY_ROOT`).
+
+The server also holds its own rules in `rules/` (root-owned, installed at a sitting by `deploy.sh --rules COMMIT`, read-only
+for walnut-watch): a copy of `github-ci/packages.toml` (which Source owns which binary names), `protected-names.txt` and
+`pins.json` (the fingerprint that may sign each suite: the key that actually made the signature, field 1 of gpgv's
+VALIDSIG). Without them every bundle is refused. A bundle's indices must agree with the ownership copy (name, Source,
+relations), every pool file must lie exactly where its Source puts it and be named by a signed index, by-hash holds SHA256
+copies of files the Release names and nothing else, and a site bundle can only carry the pinned keys and fingerprints. This
+bounds names and places; it does not make the content of a testing package trustworthy (that is the testing key's trust).
+
+Everything under `/apt`, `/licensed`, `/download`, `/status` is served as `application/octet-stream` with `nosniff` and a
+`sandbox` CSP (`repo-headers.inc`; `check-headers.sh` tests it from outside). Known remaining hole: the site and
+`/licensed/` share an origin, so a script the site serves could use credentials a browser holds for `/licensed/`. The fix
+is a host of its own for `/licensed/` and `/ccache/` (needs a DNS name and a certificate; consoles' sources change); until
+then the site's content is reviewed (the walnut-site environment has a required reviewer).
+
+`www/status/<kind>__<id>` holds the verdict and a code only; the reason is in the journal and `state/done/`:
+
+| code | meaning |
+|---|---|
+| E-POLICY | not this key's to post (never written: such uploads leave no status) |
+| E-RULE-MISSING | the server's rules are absent or unusable |
+| E-OWNER, E-RELATION, E-POOLPATH, E-SOURCE | a name, relation or path the ownership copy does not allow |
+| E-POOL | a pool file changed, or not named by a signed index with its hash |
+| E-BYHASH, E-RELEASE, E-INDEX | by-hash, Release or index contents wrong |
+| E-SIG, E-KEY | not signed by the suite's keyring / by a key other than its pinned ones |
+| E-ANCHOR | a site page or key file that is not the pinned trust anchor |
+| E-MANIFEST, E-HASH, E-SIZE | bundle and manifest differ, a hash differs, too big |
+| E-STALE | made from an older published state: make it again |
+| E-INTERNAL, E-REFUSED | anything else (see the journal) |
+
+Deploying: `servers/walnut.nanobyte.dev/deploy.sh` (see the deploy runbook kept with the owner's notes for the sitting).

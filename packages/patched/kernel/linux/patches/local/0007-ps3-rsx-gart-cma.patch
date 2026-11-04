@@ -23,6 +23,12 @@ experiments. Its default is 0 (it was 64 MiB, so a command line without
 ps3rsx_gart=0 reserved 64 MiB for good next to the CMA area). Without
 either parameter ps3rsx has no GART and says so when it probes.
 
+Both sizes are parsed with a ceiling (ps3rsx_gart= 64 MiB, ps3rsx_cma=
+256 MiB): a larger number, or one that wrapped in memparse(), is clamped
+with a warning, and a ps3rsx_gart= reservation memblock can't satisfy
+turns the fixed GART off with a warning instead of panicking the boot.
+The parameters are set once at boot and read-only afterwards.
+
 diff --git a/arch/powerpc/include/asm/ps3.h b/arch/powerpc/include/asm/ps3.h
 --- a/arch/powerpc/include/asm/ps3.h
 +++ b/arch/powerpc/include/asm/ps3.h
@@ -53,7 +59,7 @@ diff --git a/arch/powerpc/platforms/ps3/setup.c b/arch/powerpc/platforms/ps3/set
  #include <linux/of.h>
  
  #include <asm/machdep.h>
-@@ -148,6 +150,96 @@ early_param("ps3fb", early_parse_ps3fb);
+@@ -148,6 +150,164 @@ early_param("ps3fb", early_parse_ps3fb);
  #define prealloc_ps3fb_videomemory()	do { } while (0)
  #endif
  
@@ -65,23 +71,88 @@ diff --git a/arch/powerpc/platforms/ps3/setup.c b/arch/powerpc/platforms/ps3/set
 + * (ps3rsx_cma=<size>), which costs RAM only while the GPU uses it. ps3rsx_gart=<size> instead
 + * reserves a fixed area, held for good; ps3rsx uses it in place of the CMA area. Default 0: none.
 + */
-+struct ps3_prealloc ps3rsx_gart = {
++struct ps3_prealloc ps3rsx_gart __ro_after_init = {
 +	.name = "ps3rsx gart",
 +	.size = 0,
 +	.align = 1024*1024
 +};
 +EXPORT_SYMBOL_GPL(ps3rsx_gart);
-+#define prealloc_ps3rsx_gart()	prealloc(&ps3rsx_gart)
++
++/* the most ps3rsx_gart= may hold for good: 64 MiB, the old default (a quarter of the console's RAM) */
++#define PS3RSX_GART_MAX		SZ_64M
++
++/*
++ * memparse() for a size with a ceiling: memparse() shifts the number by its suffix without a
++ * check, so "16384G" wrapped to 0 and a large number reached memblock unchecked. A number above
++ * max (or whose suffix would take it above max) is clamped to max, with a warning.
++ */
++static u64 __init ps3rsx_parse_size(const char *name, const char *arg, u64 max)
++{
++	char *end;
++	unsigned int shift = 0;
++	u64 n = simple_strtoull(arg, &end, 0);
++
++	switch (*end) {
++	case 'E':
++	case 'e':
++		shift += 10;
++		fallthrough;
++	case 'P':
++	case 'p':
++		shift += 10;
++		fallthrough;
++	case 'T':
++	case 't':
++		shift += 10;
++		fallthrough;
++	case 'G':
++	case 'g':
++		shift += 10;
++		fallthrough;
++	case 'M':
++	case 'm':
++		shift += 10;
++		fallthrough;
++	case 'K':
++	case 'k':
++		shift += 10;
++	}
++	if (n > (max >> shift)) {
++		pr_warn("%s=%s is more than %llu MiB, using %llu MiB\n", name, arg,
++			(unsigned long long)max >> 20, (unsigned long long)max >> 20);
++		return max;
++	}
++	return n << shift;
++}
 +
 +static int __init early_parse_ps3rsx_gart(char *p)
 +{
 +	if (!p)
 +		return 1;
 +
-+	ps3rsx_gart.size = ALIGN(memparse(p, &p), ps3rsx_gart.align);
++	ps3rsx_gart.size = ALIGN(ps3rsx_parse_size("ps3rsx_gart", p, PS3RSX_GART_MAX),
++				 ps3rsx_gart.align);
 +	return 0;
 +}
 +early_param("ps3rsx_gart", early_parse_ps3rsx_gart);
++
++/* like prealloc(), but a reservation that doesn't fit costs the GART, not the boot */
++static void __init prealloc_ps3rsx_gart(void)
++{
++	struct ps3_prealloc *p = &ps3rsx_gart;
++
++	if (!p->size)
++		return;
++
++	p->address = memblock_alloc(p->size, p->align);
++	if (!p->address) {
++		pr_warn("%s: no room for %lu bytes, going on without it\n", p->name, p->size);
++		p->size = 0;
++		return;
++	}
++
++	printk(KERN_INFO "%s: %lu bytes at %p\n", p->name, p->size, p->address);
++}
 +#else
 +#define prealloc_ps3rsx_gart()	do { } while (0)
 +#endif
@@ -92,15 +163,18 @@ diff --git a/arch/powerpc/platforms/ps3/setup.c b/arch/powerpc/platforms/ps3/set
 + * them back when they're idle, and in between the area holds ordinary movable pages.
 + * ps3rsx_cma=<size> (default 0: no area, and ps3rsx has no GART unless ps3rsx_gart= is set).
 + */
-+static struct cma *ps3rsx_cma;
++static struct cma *ps3rsx_cma __ro_after_init;
 +static phys_addr_t ps3rsx_cma_req __initdata;
++
++/* the most ps3rsx_cma= may ask for: the console's whole 256 MiB (cma_declare_contiguous refuses what doesn't fit) */
++#define PS3RSX_CMA_MAX		SZ_256M
 +
 +static int __init early_parse_ps3rsx_cma(char *p)
 +{
 +	if (!p)
 +		return 1;
 +
-+	ps3rsx_cma_req = ALIGN(memparse(p, &p), SZ_1M);
++	ps3rsx_cma_req = ALIGN(ps3rsx_parse_size("ps3rsx_cma", p, PS3RSX_CMA_MAX), SZ_1M);
 +	return 0;
 +}
 +early_param("ps3rsx_cma", early_parse_ps3rsx_cma);
@@ -150,7 +224,7 @@ diff --git a/arch/powerpc/platforms/ps3/setup.c b/arch/powerpc/platforms/ps3/set
  #if defined(CONFIG_PS3_FLASH) || defined(CONFIG_PS3_FLASH_MODULE)
  struct ps3_prealloc ps3flash_bounce_buffer = {
  	.name = "ps3flash bounce buffer",
-@@ -253,6 +345,8 @@ static void __init ps3_setup_arch(void)
+@@ -253,6 +413,8 @@ static void __init ps3_setup_arch(void)
  #endif
  
  	prealloc_ps3fb_videomemory();

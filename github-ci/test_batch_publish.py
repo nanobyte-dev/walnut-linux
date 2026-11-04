@@ -184,6 +184,7 @@ kind=$1 id=$2 dir=$3
 cp -r "$dir" "$WALNUT_ROOT/incoming/$kind/$id"
 (cd "$dir" && find . -type f -printf '%P\\0' | LC_ALL=C sort -z | xargs -0r sha256sum) > "$WALNUT_ROOT/incoming/$kind/$id.ready"
 echo "$id" >> "$WALNUT_ROOT/uploads"
+python3 -I "$(dirname "$WATCH")/walnut_testrules.py" "$WALNUT_ROOT" "$dir"
 WALNUT_NO_DOCKER=1 "$WATCH" >/dev/null
 """
 
@@ -543,11 +544,11 @@ class Runs(unittest.TestCase):
 		"""build-package.sh's drift check and stable's strict check, on a directory."""
 		self.build("foo", "1")
 		d = f"{self.root}/build{self.n}"
-		env = dict(os.environ, WALNUT_GIT_DIR=self.repo)
+		env = dict(os.environ, WALNUT_GIT_DIR=self.repo, PATH=self.no_dpkg_path())	# a host without dpkg-deb
 		r = subprocess.run([SCRIPT, "check-output", "foo", d], env=env, capture_output=True, text=True)
 		self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
 		r = subprocess.run([SCRIPT, "check-output", "--strict", "foo", d], env=env, capture_output=True, text=True)
-		self.assertNotEqual(r.returncode, 0)	# strict needs dpkg-deb: this host has none
+		self.assertNotEqual(r.returncode, 0)	# strict needs dpkg-deb
 		self.assertIn("dpkg-deb is missing", r.stdout + r.stderr)
 		env = dict(env, PATH=f"{self.fake_dpkg(honest=True)}:{os.environ['PATH']}")
 		r = subprocess.run([SCRIPT, "check-output", "--strict", "foo", d], env=env, capture_output=True, text=True)
@@ -609,6 +610,19 @@ class Runs(unittest.TestCase):
 		r = subprocess.run([pub, "--no-upload", "testing", "foo", d], env=dict(env, WALNUT_DEPLOY_KEY_DATA="nonsense"),
 		                   capture_output=True, text=True)
 		self.assertNotEqual(r.returncode, 0)
+
+	def no_dpkg_path(self):
+		"""A PATH like this one without dpkg-deb (a symlink farm of every other program on it): Fedora has none, Ubuntu's runner does"""
+		farm = f"{self.root}/nodpkg-bin"
+		if not os.path.isdir(farm):
+			os.makedirs(farm)
+			for d in os.environ["PATH"].split(":"):
+				if os.path.isdir(d):
+					for n in os.listdir(d):
+						p = os.path.join(d, n)
+						if n != "dpkg-deb" and os.access(p, os.X_OK) and not os.path.lexists(os.path.join(farm, n)):
+							os.symlink(p, os.path.join(farm, n))
+		return farm
 
 	def fake_dpkg(self, honest):
 		"""A directory with a dpkg-deb that prints the fields (honest), or another Package (a differential)."""
@@ -730,7 +744,7 @@ class Runs(unittest.TestCase):
 		r = run("--manifest-out", man, "foo", d)
 		self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
 		self.assertTrue(json.load(open(man))["files"])
-		plain = dict(os.environ, WALNUT_GIT_DIR=self.repo)	# the key job: no dpkg-deb on its PATH is fine with a manifest
+		plain = dict(os.environ, WALNUT_GIT_DIR=self.repo, PATH=self.no_dpkg_path())	# the key job: no dpkg-deb on its PATH is fine with a manifest
 		r = run("--manifest", man, "foo", d, e=plain)
 		self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
 		with open(f"{d}/foo_1_ppc64.deb", "ab") as f:	# the bytes changed between the two jobs

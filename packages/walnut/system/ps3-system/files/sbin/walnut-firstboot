@@ -16,6 +16,11 @@
 #     - /var/petitboot/mnt/ps3dc/walnut-setup.conf (dev_hdd1 Petitboot mount)
 #     - /mnt/dev_hdd1/walnut-setup.conf (dev_hdd1 mount)
 #     - /dev/ps3dc (mounted temporarily to check for /walnut-setup.conf)
+#   A setup file on dev_hdd1 (the last three; webMAN's FTP on the LAN can write it) is copied (at most 64 KiB) into a
+#   private directory under /run and shown before it is used: "It would create the admin user ... Press Enter,
+#   or Cross on the controller, to use it. It is ignored after 60 s." (walnut-firstboot-confirm). Ignored, it
+#   changes nothing: the wizard asks for everything as if there were no file. Only a root-owned file on the root file
+#   system (or /boot's, from fstab) is trusted without asking; --preseed PATH is the operator's own choice.
 #   Preseed variables:
 #     WALNUT_USER, WALNUT_PASSWORD_HASH (openssl passwd -6; or WALNUT_PASSWORD), WALNUT_HOSTNAME, WALNUT_TIMEZONE,
 #     WALNUT_SSH (yes/no), WALNUT_DATETIME ("YYYY-MM-DD HH:MM:SS")
@@ -30,6 +35,7 @@ set -euo pipefail
 DRY_RUN=${DRY_RUN:-0}
 FORCE=0
 PRESEED_FILE="${PRESEED_FILE:-}"
+PRESEED_CLI=0
 DONE_FILE="/var/lib/walnut/firstboot-done"
 DESKTOP_DEFAULTS="/etc/default/ps3-desktop"
 BUILD_DATE_FILE="/etc/walnut/build-date"
@@ -52,7 +58,7 @@ while [ $# -gt 0 ]; do
 	case "$1" in
 	--dry-run) DRY_RUN=1 ;;
 	--force) FORCE=1 ;;
-	--preseed) PRESEED_FILE="$2"; shift ;;
+	--preseed) PRESEED_FILE="$2"; PRESEED_CLI=1; shift ;;
 	-h|--help) usage ;;
 	*) echo "Unknown option: $1" >&2; exit 2 ;;
 	esac
@@ -154,30 +160,106 @@ passwordbox() {
 	esac
 }
 
-# --- 1. Check for preseed file ------------------------------------------------
-PRESEED_FILE="${PRESEED_FILE:-}"
-if [ -z "$PRESEED_FILE" ]; then
-	for cand in /boot/walnut-setup.conf /etc/walnut/walnut-setup.conf \
-	            /var/petitboot/mnt/ps3dc/walnut-setup.conf /mnt/dev_hdd1/walnut-setup.conf; do
-		if [ -f "$cand" ]; then
-			PRESEED_FILE="$cand"
-			break
-		fi
-	done
+# --- 1. Find the preseed, and where it came from -------------------------------
+# Test seams, honoured in a dry run only: WALNUT_FB_ROOT (a prefix for the candidate paths), WALNUT_FB_TRUST_UID (the
+# owner that counts as root), WALNUT_FB_PS3DC_DIR (a directory standing in for the mounted /dev/ps3dc),
+# WALNUT_FB_CONFIRM (the confirm helper, with WALNUT_FB_CONFIRM_ARGS and WALNUT_FB_CONFIRM_SECONDS).
+FB_ROOT="" FB_TRUST_UID=0 FB_PS3DC_DIR="" FB_CONFIRM=/usr/lib/ps3/sbin/walnut-firstboot-confirm FB_CONFIRM_ARGS="" FB_CONFIRM_SECONDS=60
+if [ "$DRY_RUN" = 1 ]; then
+	FB_ROOT=${WALNUT_FB_ROOT:-} FB_TRUST_UID=${WALNUT_FB_TRUST_UID:-0} FB_PS3DC_DIR=${WALNUT_FB_PS3DC_DIR:-}
+	FB_CONFIRM=${WALNUT_FB_CONFIRM:-$FB_CONFIRM} FB_CONFIRM_ARGS=${WALNUT_FB_CONFIRM_ARGS:-} FB_CONFIRM_SECONDS=${WALNUT_FB_CONFIRM_SECONDS:-60}
 fi
+PRESEED_SOURCE=""	# explicit (--preseed), root (trusted, no question) or untrusted (dev_hdd1 and anything unproven: asked)
+PRESEED_WHERE=""
+WORK=""
+# The probe's directory holds the mount point and the copy. Cleanup is umount, rmdir, rm -f of our own file and rmdir:
+# never rm -r (a mount that did not come off must not be walked into: that is GameOS's partition).
+cleanup_work() {
+	[ -n "$WORK" ] || return 0
+	if [ -z "$FB_PS3DC_DIR" ] && mountpoint -q "$WORK/mnt" 2>/dev/null; then umount "$WORK/mnt" 2>/dev/null || true; fi
+	rmdir "$WORK/mnt" 2>/dev/null || true
+	rm -f "$WORK/preseed.conf"
+	rmdir "$WORK" 2>/dev/null || true
+}
+trap cleanup_work EXIT
 
-# If not found yet and /dev/ps3dc is available, probe it read-only
-if [ -z "$PRESEED_FILE" ] && [ -b /dev/ps3dc ]; then
-	tmp_probe="$(mktemp -d /tmp/ps3dc-probe.XXXXXX)"
-	if mount -o ro /dev/ps3dc "$tmp_probe" 2>/dev/null; then
-		if [ -f "$tmp_probe/walnut-setup.conf" ]; then
-			cp "$tmp_probe/walnut-setup.conf" /tmp/walnut-preseed.conf
-			PRESEED_FILE="/tmp/walnut-preseed.conf"
-		fi
-		umount "$tmp_probe" 2>/dev/null || true
+hdd1_path() {	# a resolved path on dev_hdd1's mounts (or a probe's copy of it)
+	case $1 in
+	"$FB_ROOT"/var/petitboot/mnt/ps3dc/*|"$FB_ROOT"/mnt/dev_hdd1/*) return 0 ;;
+	esac
+	return 1
+}
+root_trusted() {	# a regular file owned by root, not writable by others, on the root file system or on /boot's from fstab
+	local f=$1 uid mode dev rdev bdev
+	[ -f "$f" ] && [ ! -L "$f" ] || return 1
+	read -r uid mode dev < <(stat -c '%u %a %d' "$f") || return 1
+	[ "$uid" = "$FB_TRUST_UID" ] || return 1
+	[ $(( 8#$mode & 8#022 )) = 0 ] || return 1
+	rdev=$(stat -c %d "$FB_ROOT/") || return 1
+	[ "$dev" = "$rdev" ] && return 0
+	# /boot is a file system of its own: only when fstab lists it and it is not FAT or dev_hdd1
+	bdev=$(stat -c %d "$FB_ROOT/boot" 2>/dev/null) || return 1
+	[ "$dev" = "$bdev" ] || return 1
+	awk '$2 == "/boot" && $1 !~ /ps3dc/ && $3 !~ /^(vfat|msdos|fat|exfat|ntfs)/ { ok = 1 } END { exit !ok }' "$FB_ROOT/etc/fstab" 2>/dev/null
+}
+# a file from dev_hdd1 is read once, into the private directory, at most 64 KiB: the parser below works on the copy
+take_copy() {	# take_copy FILE: PRESEED_FILE becomes the copy, or "" when the file is too long
+	local f=$1
+	[ -f "$f" ] || { echo "walnut-firstboot: the setup file is not a regular file: ignored" >&2; PRESEED_FILE=""; return 1; }	# a FIFO would block head for good
+	mkdir -p "$WORK"
+	head -c 65537 "$f" > "$WORK/preseed.conf" 2>/dev/null || true
+	if [ "$(stat -c %s "$WORK/preseed.conf")" -gt 65536 ]; then
+		echo "walnut-firstboot: the setup file on dev_hdd1 is longer than 64 KiB: ignored" >&2
+		rm -f "$WORK/preseed.conf"
+		PRESEED_FILE=""
+		return 1
 	fi
-	rm -rf "$tmp_probe"
+	PRESEED_FILE="$WORK/preseed.conf"
+}
+new_work() { WORK=$(mktemp -d "$FB_ROOT/run/walnut-firstboot.XXXXXX" 2>/dev/null || mktemp -d /tmp/walnut-firstboot.XXXXXX); }
+
+if [ "$PRESEED_CLI" = 1 ] && [ -n "$PRESEED_FILE" ]; then
+	PRESEED_SOURCE=explicit
+else
+	if [ -z "$PRESEED_FILE" ]; then
+		for cand in "$FB_ROOT/boot/walnut-setup.conf" "$FB_ROOT/etc/walnut/walnut-setup.conf" \
+		            "$FB_ROOT/var/petitboot/mnt/ps3dc/walnut-setup.conf" "$FB_ROOT/mnt/dev_hdd1/walnut-setup.conf"; do
+			if [ -f "$cand" ]; then
+				PRESEED_FILE="$cand"
+				break
+			fi
+		done
+	fi
+	# not found yet and /dev/ps3dc is there: mounted read-only in the private directory, the file copied out
+	if [ -z "$PRESEED_FILE" ] && { [ -b /dev/ps3dc ] || [ -n "$FB_PS3DC_DIR" ]; }; then
+		new_work
+		mkdir -p "$WORK/mnt"
+		if [ -n "$FB_PS3DC_DIR" ]; then
+			probe_dir=$FB_PS3DC_DIR
+		elif mount -t vfat -o ro,nodev,nosuid,noexec /dev/ps3dc "$WORK/mnt" 2>/dev/null; then
+			probe_dir=$WORK/mnt
+		else
+			probe_dir=""
+		fi
+		if [ -n "$probe_dir" ] && [ -f "$probe_dir/walnut-setup.conf" ]; then
+			if take_copy "$probe_dir/walnut-setup.conf"; then PRESEED_SOURCE=untrusted PRESEED_WHERE=dev_hdd1; fi
+		fi
+		if [ -z "$FB_PS3DC_DIR" ] && mountpoint -q "$WORK/mnt" 2>/dev/null; then umount "$WORK/mnt" 2>/dev/null || true; fi
+	elif [ -n "$PRESEED_FILE" ]; then
+		# a file found by path (or named by $PRESEED_FILE in the environment): classified by what it is, never by its name
+		real=$(readlink -f "$PRESEED_FILE")
+		if hdd1_path "$real"; then
+			new_work
+			if take_copy "$real"; then PRESEED_SOURCE=untrusted PRESEED_WHERE=dev_hdd1; fi
+		elif root_trusted "$real"; then
+			PRESEED_SOURCE=root
+		else
+			new_work
+			if take_copy "$real"; then PRESEED_SOURCE=untrusted PRESEED_WHERE="this disk"; fi
+		fi
+	fi
 fi
+logger -t walnut-firstboot "preseed ${PRESEED_FILE:-none} source=${PRESEED_SOURCE:-none}" 2>/dev/null || true
 
 WALNUT_USER=""
 WALNUT_PASSWORD=""
@@ -209,6 +291,37 @@ if [ -n "$PRESEED_FILE" ]; then
 		esac
 	done < "$PRESEED_FILE"
 	[ -z "$WALNUT_PASSWORD" ] || echo "walnut-firstboot: warning: the preseed holds a plain-text password; WALNUT_PASSWORD_HASH (openssl passwd -6) is safer"
+fi
+
+# --- 1b. A setup file nobody proved is asked about, and ignored whole unless accepted -----------------------------
+decline_preseed() {
+	echo "walnut-firstboot: the setup file is ignored: the wizard asks for everything" >&2
+	logger -t walnut-firstboot "preseed ignored decision=ignore" 2>/dev/null || true
+	WALNUT_USER="" WALNUT_PASSWORD="" WALNUT_PASSWORD_HASH="" WALNUT_HOSTNAME="" WALNUT_TIMEZONE="" WALNUT_SSH="" WALNUT_DATETIME=""
+	PRESEED_FILE=""	# the clock step and the welcome box test it: they must run as with no file
+}
+if [ "$PRESEED_SOURCE" = untrusted ]; then
+	shown=$(printf '%s' "$WALNUT_USER" | tr -cd 'a-z0-9_-' | cut -c1-32)
+	if [ -n "$WALNUT_USER" ] && [ "$shown" != "$WALNUT_USER" ]; then
+		echo "walnut-firstboot: the setup file on $PRESEED_WHERE has a user name with odd characters" >&2
+		decline_preseed
+	else
+		if [ -n "$WALNUT_USER" ]; then
+			doing="It would create the admin user \"$shown\" and turn SSH $([ "$WALNUT_SSH" = yes ] && echo on || echo off)."
+		else
+			doing="It would only set the host name and time zone."
+		fi
+		printf '\nSetup file on %s\n\n%s\nPress Enter, or Cross on the controller, to use it. It is ignored after 60 s.\n' \
+			"$PRESEED_WHERE" "$doing" >&2
+		logger -t walnut-firstboot "preseed keys: user=${WALNUT_USER:+set} password=$([ -n "$WALNUT_PASSWORD$WALNUT_PASSWORD_HASH" ] && echo set || echo no) ssh=${WALNUT_SSH:-unset}" 2>/dev/null || true
+		# shellcheck disable=SC2086
+		if "$FB_CONFIRM" "$FB_CONFIRM_SECONDS" $FB_CONFIRM_ARGS; then
+			echo "walnut-firstboot: using the setup file" >&2
+			logger -t walnut-firstboot "preseed accepted decision=accept" 2>/dev/null || true
+		else
+			decline_preseed
+		fi
+	fi
 fi
 
 # --- 2. Clock verification ---------------------------------------------------
@@ -358,7 +471,7 @@ else
 fi
 WALNUT_PASSWORD= WALNUT_PASSWORD_HASH=
 # the preseed's local copies go (the one on dev_hdd1 is read-only from here: INSTALL.md says to delete it)
-for f in /tmp/walnut-preseed.conf /boot/walnut-setup.conf /etc/walnut/walnut-setup.conf; do
+for f in /boot/walnut-setup.conf /etc/walnut/walnut-setup.conf; do
 	[ -f "$f" ] && { shred -u "$f" 2>/dev/null || rm -f "$f"; }
 done
 

@@ -140,12 +140,28 @@ ALLOWED = "contains(fromJSON(vars.WALNUT_STABLE_PUBLISHERS || '[]'), github.trig
 GATE_JOB = """  stable-gate:
     # a stable publish by someone not on the allowlist waits here for the reviewers of walnut-stable-review (no secrets)
     needs: publish-check
-    if: inputs.target == 'stable' && !@ALLOWED@
+    # always(): without a status function the implicit success() is false whenever any ancestor was skipped (build-external
+    # always is, for a trusted package), and the gate would be skipped with the run green
+    if: always() && needs.publish-check.result == 'success' && inputs.target == 'stable' && !@ALLOWED@
     runs-on: ubuntu-24.04
     environment: walnut-stable-review
     steps:
       - run: echo "approved by a reviewer of walnut-stable-review"
 """.replace("@ALLOWED@", ALLOWED)
+OUTCOME_JOB = """  stable-outcome:
+    # the run ends red when a stable publish was wanted, the build passed, and the publish didn't complete (not approved,
+    # rejected, failed): a skipped gate or publish alone would leave the run green
+    needs: [publish-check, stable-gate, publish]
+    if: always() && inputs.target == 'stable' && needs.publish-check.result == 'success' && needs.publish.result != 'success'
+    runs-on: ubuntu-24.04
+    steps:
+      - env:
+          GATE: ${{ needs.stable-gate.result }}
+          PUBLISH: ${{ needs.publish.result }}
+        run: |
+          echo "::error::stable publish not approved or not completed (gate: $GATE, publish: $PUBLISH)"
+          exit 1
+"""
 RECHECK_RUN = """          if [ "$GATE" = success ]; then exit 0; fi
           fail() { echo "::error::not approved, and not on the allowlist"; exit 1; }
           [ "$GATE" = skipped ] || fail
@@ -352,14 +368,15 @@ PACKAGE_TAIL = """
           else
             github-ci/publish.sh stable ${{ inputs.package }} out
           fi
-"""
+
+@OUTCOME@"""
 
 
 def package_workflow():
 	return (PACKAGE_HEAD + "  build:\n    if: inputs.tier == 'trusted'\n    permissions:\n      contents: read\n" +
 	        PACKAGE_COMMON_1 + PACKAGE_TRUSTED + PACKAGE_COMMON_2 +
 	        "\n  build-external:\n    if: inputs.tier == 'external'\n    permissions:\n      contents: read  # the checkout only; the token is not kept on disk (persist-credentials: false)\n" +
-	        PACKAGE_COMMON_1 + PACKAGE_EXTERNAL + PACKAGE_COMMON_2 + PACKAGE_TAIL.replace("@GATE@", "\n" + GATE_JOB).replace("@ALLOWED@", ALLOWED).replace("@RECHECK@", RECHECK))
+	        PACKAGE_COMMON_1 + PACKAGE_EXTERNAL + PACKAGE_COMMON_2 + PACKAGE_TAIL.replace("@GATE@", "\n" + GATE_JOB).replace("@OUTCOME@", OUTCOME_JOB).replace("@ALLOWED@", ALLOWED).replace("@RECHECK@", RECHECK))
 
 
 
@@ -491,6 +508,49 @@ def secret_rules(name, doc):
 	return errs
 
 
+DEPLOY_KEY_ENVS = {"walnut-site.yml": {"walnut-site"}, "walnut-publish.yml": {"walnut-testing"},
+                   "walnut-package.yml": {"walnut-stable"}, "release-image.yml": {"walnut-${{ inputs.channel }}"}}
+
+
+def deploy_key_rules(name, doc):
+	"""WALNUT_DEPLOY_KEY is an environment secret, one key per environment (V1): a job that names it has the
+	environment this workflow is meant for, so a copied job cannot pick up another purpose's key."""
+	errs = []
+	if name not in DEPLOY_KEY_ENVS:	# a workflow outside the table: test_gen_workflows.py checks the real ones name the key nowhere else
+		return errs
+	for jname, job in (doc.get("jobs") or {}).items():
+		if isinstance(job, dict) and "WALNUT_DEPLOY_KEY" in secret_uses(job):
+			env = job.get("environment")
+			env = env.get("name") if isinstance(env, dict) else env
+			if env not in DEPLOY_KEY_ENVS.get(name, set()):
+				errs.append(f"{name}: job {jname}: uses WALNUT_DEPLOY_KEY in environment {env!r} "
+				            f"(want one of {sorted(DEPLOY_KEY_ENVS.get(name, set()))})")
+	return errs
+
+
+def pr_rules(name, doc):
+	"""A workflow that runs on pull_request runs code from outside the repository's maintainers: it holds no secret,
+	no environment, no write permission and calls nothing that passes secrets on."""
+	on = doc.get("on", doc.get(True)) or {}
+	if "pull_request" not in (on if isinstance(on, (dict, list, str)) else {}):
+		return []
+	errs = []
+	if secret_uses(doc) or any("secrets" in j for j in (doc.get("jobs") or {}).values() if isinstance(j, dict)):
+		errs.append(f"{name}: runs on pull_request and references a secret")
+	for jname, job in (doc.get("jobs") or {}).items():
+		if isinstance(job, dict) and "environment" in job:
+			errs.append(f"{name}: job {jname}: runs on pull_request and uses an environment")
+		if isinstance(job, dict) and "uses" in job:
+			errs.append(f"{name}: job {jname}: runs on pull_request and calls another workflow")
+	if not isinstance(doc.get("permissions"), (dict, str)):
+		errs.append(f"{name}: runs on pull_request without a top-level permissions: key (the token would get the repository default)")
+	perms = [doc.get("permissions")] + [j.get("permissions") for j in (doc.get("jobs") or {}).values() if isinstance(j, dict)]
+	for pm in perms:
+		if isinstance(pm, str) and pm != "read-all" or isinstance(pm, dict) and any(v not in ("read", "none") for v in pm.values()):
+			errs.append(f"{name}: runs on pull_request with a permission above read")
+	return errs
+
+
 STABLE_ENVS = ("walnut-stable", "walnut-${{ inputs.channel }}")
 
 
@@ -516,6 +576,15 @@ def stable_rules(name, doc):
 		first = (job.get("steps") or [{}])[0]
 		if not isinstance(gate, dict) or gate.get("environment") != "walnut-stable-review" or f"!{ALLOWED}" not in str(gate.get("if")):
 			errs.append(f"{name}: job {jname} publishes to stable but there is no stable-gate (environment walnut-stable-review, if: !allowlist)")
+		gcond = str(gate.get("if")) if isinstance(gate, dict) else ""
+		gneeds = gate.get("needs") if isinstance(gate, dict) else None
+		gneeds = gneeds if isinstance(gneeds, list) else [gneeds]
+		if "always()" not in gcond or any(f"needs.{n}.result == 'success'" not in gcond for n in gneeds if n):
+			errs.append(f"{name}: stable-gate's `if` needs always() and the result of each job it needs (success() is false after a skipped ancestor, and the gate would be skipped with the run green)")
+		out = jobs.get("stable-outcome")
+		if not isinstance(out, dict) or "always()" not in str(out.get("if")) or jname not in (out.get("needs") or []) \
+		        or "exit 1" not in str(out.get("steps")) or f"needs.{jname}.result != 'success'" not in str(out.get("if")):
+			errs.append(f"{name}: no stable-outcome job that fails when job {jname} didn't complete a wanted stable publish")
 		if "stable-gate" not in needs:
 			errs.append(f"{name}: job {jname} publishes to stable without needing stable-gate")
 		if ALLOWED not in cond or "needs.stable-gate.result == 'success'" not in cond or \
@@ -541,7 +610,7 @@ def workflow_lint(check_yaml=True):
 			if not e:
 				import yaml
 				doc = yaml.safe_load(open(f))
-				errs += secret_rules(name, doc) + stable_rules(name, doc)
+				errs += secret_rules(name, doc) + stable_rules(name, doc) + pr_rules(name, doc) + deploy_key_rules(name, doc)
 		text = "\n".join(l for l in open(f).read().splitlines() if not l.lstrip().startswith("#")) + "\n"	# not comments
 		if "pull_request_target" in text:
 			errs.append(f"{name}: pull_request_target")

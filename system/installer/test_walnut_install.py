@@ -461,10 +461,86 @@ class TestReviewFixes(unittest.TestCase):
         with self.assertRaises(ValueError):
             m.check_usb_disk("/dev/sdb", cmd_runner=runner, mounts_text=mounts)
 
-    def test_sudo_rerun_uses_an_existing_option(self):
+    def test_sudo_rerun_carries_no_confirmation(self):
+        """the typed confirmation happens once, in the root process: the re-run has no flag that skips it"""
         src = INSTALLER_PATH.read_text()
-        self.assertIn('"--yes",   # confirmed above', src)   # the re-run's flag is a defined option
-        self.assertIn('add_argument("--yes"', src)
+        self.assertNotIn('"--yes"', src)
+        self.assertNotIn("--confirmed", src)
+
+
+class TestTypedConfirmation(unittest.TestCase):
+    """Q3: nothing but the typed model name confirms a live install"""
+    INFO = {"disk": "/dev/sdz", "model": "Cruzer Blade", "serial": "S1", "size": "16G"}
+
+    def confirm(self, typed, info=None):
+        def fake_input(prompt):
+            if isinstance(typed, BaseException):
+                raise typed
+            return typed
+        with patch("builtins.input", fake_input), patch("sys.stdout", io.StringIO()):
+            return walnut_install.confirm_usb_disk(info or self.INFO)
+
+    def test_exact_model_confirms(self):
+        self.assertTrue(self.confirm("Cruzer Blade"))
+        self.assertTrue(self.confirm("  Cruzer Blade \n"))
+
+    def test_wrong_or_empty_input_aborts(self):
+        for typed in ("cruzer blade", "yes", "y", "", "/dev/sdz", EOFError()):
+            with self.assertRaises(SystemExit, msg=repr(typed)):
+                self.confirm(typed)
+
+    def test_unknown_model_is_not_confirmed_by_end_of_input(self):
+        for model in ("", "   ", None):
+            with self.assertRaises(SystemExit, msg=repr(model)):
+                self.confirm(EOFError(), dict(self.INFO, model=model))
+            with self.assertRaises(SystemExit):
+                self.confirm("", dict(self.INFO, model=model))
+        self.assertTrue(self.confirm("UNKNOWN", dict(self.INFO, model="")))
+
+    def test_dry_run_asks_nothing(self):
+        def boom(prompt):
+            raise AssertionError("asked")
+        with patch("builtins.input", boom), patch("sys.stdout", io.StringIO()):
+            self.assertTrue(walnut_install.confirm_usb_disk(self.INFO, dry_run=True))
+
+    def test_no_option_skips_it(self):
+        for flag in ("--yes", "--confirmed", "-y", "--force"):
+            with patch("sys.stderr", io.StringIO()), self.assertRaises(SystemExit) as cm:
+                walnut_install.main(["usb", "--release-dir", "/nonexistent", "--disk", "/dev/sdz", flag])
+            self.assertEqual(cm.exception.code, 2, flag)
+
+    def test_live_usb_run_prompts_before_any_write(self):
+        """as root, a live run reaches the prompt and stops at a wrong answer: no mkfs, no sfdisk"""
+        calls = []
+        with tempfile.TemporaryDirectory() as d:
+            create_release_fixtures(d)
+            with patch.object(walnut_install, "check_usb_disk", lambda disk: dict(self.INFO)), \
+                 patch("os.geteuid", lambda: 0), \
+                 patch("subprocess.run", lambda *a, **k: calls.append(a)), \
+                 patch("builtins.input", lambda p: "nope"), \
+                 patch("sys.stdout", io.StringIO()), \
+                 self.assertRaises(SystemExit):
+                walnut_install.main(["usb", "--release-dir", d, "--disk", "/dev/sdz"])
+        self.assertEqual(calls, [])
+
+    def test_sudo_rerun_goes_before_the_prompt_and_carries_no_skip(self):
+        """not root: the process execs sudo (which asks the model itself), never prompting first"""
+        execs = []
+        def fake_exec(f, argv):
+            execs.append(argv)
+            raise SystemExit(0)
+        with tempfile.TemporaryDirectory() as d:
+            create_release_fixtures(d)
+            with patch.object(walnut_install, "check_usb_disk", lambda disk: dict(self.INFO)), \
+                 patch("os.geteuid", lambda: 1000), \
+                 patch("os.execvp", fake_exec), \
+                 patch("builtins.input", lambda p: self.fail("asked before sudo")), \
+                 patch("sys.stdout", io.StringIO()), \
+                 self.assertRaises(SystemExit):
+                walnut_install.main(["usb", "--release-dir", d, "--disk", "/dev/sdz"])
+        self.assertEqual(len(execs), 1)
+        self.assertEqual(execs[0][0], "sudo")
+        self.assertFalse({"--yes", "--confirmed", "-y"} & set(execs[0]))
 
 
 if __name__ == "__main__":

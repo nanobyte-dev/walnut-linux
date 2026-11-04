@@ -73,13 +73,14 @@ if [ -n "$nogpu" ] && [ "$(echo $nogpu | wc -w)" -lt "$(echo $releases | wc -w)"
 fi
 kernels=$(echo "$releases" | sed '/^$/d; s|^|/boot/vmlinux-|')
 if [ -z "$kernels" ]; then
-	# no kernel left: no entries pointing at files that are gone
-	echo "# Petitboot boot menu, written by ps3-update-kboot: no kernels installed" > "$CONF.new"
-	mv "$CONF.new" "$CONF"
-	echo "ps3-update-kboot: no kernels in /boot"
+	# never an empty menu: with no kernel in /boot (a half-finished upgrade, a hook run early, a purge)
+	# the old menu stays; its entries may name files that are gone, which Petitboot reports, an empty
+	# menu would leave it with nothing to try
+	echo "ps3-update-kboot: no kernels in /boot: $CONF left as it is"
 	exit 0
 fi
 tmp=$(mktemp "$CONF.XXXXXX")
+trap 'rm -f "$tmp"' EXIT
 echo "# Petitboot boot menu, written by ps3-update-kboot: newest kernel first" > "$tmp"
 default=
 labels=" "
