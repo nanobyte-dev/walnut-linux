@@ -2,7 +2,7 @@
 """github-ci/gen-workflows.py's checks: the tier rules (a trusted package must not be upstream or fetch) and the
 lint over every workflow file (secrets: inherit, a checkout that keeps the token, stable without a main check),
 and what the generated workflows give each tier. python3 github-ci/test_gen_workflows.py"""
-import importlib.machinery, importlib.util, os, re, tempfile, unittest
+import glob, importlib.machinery, importlib.util, os, re, tempfile, unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 _spec = importlib.util.spec_from_loader("gw", importlib.machinery.SourceFileLoader("gw", f"{HERE}/gen-workflows.py"))
@@ -98,6 +98,19 @@ class Lint(unittest.TestCase):
 		self.assertTrue(self.lint({"a.yml": ok + "      - name: Release: a colon\n"}, yaml=True))	# an unquoted ': '
 		self.assertTrue(self.lint({"a.yml": "name: x\n"}, yaml=True))	# not a workflow
 		self.assertEqual(self.lint({}), [])
+
+	def test_deploy_key_environments(self):
+		"""V1/L10: each workflow's jobs use the deploy key only in the environment meant for it"""
+		def wf(env):
+			e = f"    environment: {env}\n" if env else ""
+			return f"on:\n  push:\njobs:\n  t:\n    runs-on: x\n{e}    steps:\n      - run: echo\n        env:\n          K: ${{{{ secrets.WALNUT_DEPLOY_KEY }}}}\n"
+		self.assertEqual(self.lint({"walnut-publish.yml": wf("walnut-testing")}, yaml=True), [])
+		self.assertTrue(self.lint({"walnut-publish.yml": wf("walnut-stable")}, yaml=True))	# the stable key in the testing workflow
+		self.assertTrue(self.lint({"walnut-publish.yml": wf(None)}, yaml=True))				# no environment: a repository secret
+		for f in sorted(glob.glob(f"{HERE}/../.github/workflows/*.yml")):	# and no other real workflow names the key
+			if os.path.basename(f) not in gw.DEPLOY_KEY_ENVS and not os.path.basename(f).startswith("pkg-"):
+				self.assertNotIn("WALNUT_DEPLOY_KEY", open(f).read(), f)
+		self.assertEqual([e for e in self.lint({"release-image.yml": wf("walnut-${{ inputs.channel }}")}, yaml=True) if "DEPLOY_KEY" in e], [])
 
 	def test_pull_request_workflows_hold_nothing(self):
 		"""M11: a workflow on pull_request has no secret, no environment, no write permission, no called workflow"""

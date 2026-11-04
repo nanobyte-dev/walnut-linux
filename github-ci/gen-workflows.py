@@ -508,6 +508,26 @@ def secret_rules(name, doc):
 	return errs
 
 
+DEPLOY_KEY_ENVS = {"walnut-site.yml": {"walnut-site"}, "walnut-publish.yml": {"walnut-testing"},
+                   "walnut-package.yml": {"walnut-stable"}, "release-image.yml": {"walnut-${{ inputs.channel }}"}}
+
+
+def deploy_key_rules(name, doc):
+	"""WALNUT_DEPLOY_KEY is an environment secret, one key per environment (V1): a job that names it has the
+	environment this workflow is meant for, so a copied job cannot pick up another purpose's key."""
+	errs = []
+	if name not in DEPLOY_KEY_ENVS:	# a workflow outside the table: test_gen_workflows.py checks the real ones name the key nowhere else
+		return errs
+	for jname, job in (doc.get("jobs") or {}).items():
+		if isinstance(job, dict) and "WALNUT_DEPLOY_KEY" in secret_uses(job):
+			env = job.get("environment")
+			env = env.get("name") if isinstance(env, dict) else env
+			if env not in DEPLOY_KEY_ENVS.get(name, set()):
+				errs.append(f"{name}: job {jname}: uses WALNUT_DEPLOY_KEY in environment {env!r} "
+				            f"(want one of {sorted(DEPLOY_KEY_ENVS.get(name, set()))})")
+	return errs
+
+
 def pr_rules(name, doc):
 	"""A workflow that runs on pull_request runs code from outside the repository's maintainers: it holds no secret,
 	no environment, no write permission and calls nothing that passes secrets on."""
@@ -590,7 +610,7 @@ def workflow_lint(check_yaml=True):
 			if not e:
 				import yaml
 				doc = yaml.safe_load(open(f))
-				errs += secret_rules(name, doc) + stable_rules(name, doc) + pr_rules(name, doc)
+				errs += secret_rules(name, doc) + stable_rules(name, doc) + pr_rules(name, doc) + deploy_key_rules(name, doc)
 		text = "\n".join(l for l in open(f).read().splitlines() if not l.lstrip().startswith("#")) + "\n"	# not comments
 		if "pull_request_target" in text:
 			errs.append(f"{name}: pull_request_target")
