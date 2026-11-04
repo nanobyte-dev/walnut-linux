@@ -49,6 +49,20 @@ check "a failed arm switch stops the batch" '[ $rc != 0 ] && ! grep -q "^arm B" 
 PATH=$T/bin:$PATH BENCH=$T/nobench RSX_ARM=$T/arm DESK=$T/desk bash "$here/abba-batch.sh" > "$T/out" 2>&1
 check "no harness: refused before any arm" '[ $? != 0 ] && [ ! -s "$LOG" ]'
 
+# rsx-arm.sh counters: the address checks' debugfs counters copied out (every unload does it first)
+mkdir -p "$T/dbg/0" "$T/pbin"
+printf 'unset 5\n' > "$T/dbg/0/ps3rsx_p4"
+printf '#!/bin/sh\nexec "$@"\n' > "$T/pbin/sudo"	# a passing sudo: cat reads the file
+chmod +x "$T/pbin/sudo"
+PATH=$T/pbin:$PATH P4_DEBUGFS="$T/dbg/*/ps3rsx_p4" P4_SAVE=$T/cnt bash "$here/rsx-arm.sh" counters D > "$T/out" 2>&1
+check "rsx-arm.sh counters saves ps3rsx_p4 under its label" \
+	'[ "$(cat "$T"/cnt/*-D.txt 2>/dev/null)" = "unset 5" ] && grep -q "counters of D saved" "$T/out"'
+PATH=$T/pbin:$PATH P4_DEBUGFS="$T/nodbg/*/ps3rsx_p4" P4_SAVE=$T/cnt2 bash "$here/rsx-arm.sh" counters D > "$T/out" 2>&1
+check "rsx-arm.sh counters with no test build loaded: nothing saved, no error" '[ $? = 0 ] && [ ! -e "$T/cnt2" ]'
+sl=$(grep -n 'save_counters "$(which_arm' "$here/rsx-arm.sh" | head -1 | cut -d: -f1)
+rl=$(grep -n 'sudo rmmod ps3rsx' "$here/rsx-arm.sh" | head -1 | cut -d: -f1)
+check "rsx-arm.sh unload saves the counters before rmmod" '[ -n "$sl" ] && [ -n "$rl" ] && [ "$sl" -lt "$rl" ]'
+
 # MESA_AB=1: the arms are Mesa builds, chosen per run through the environment, ps3rsx untouched
 mkdir -p "$T/mbench/harness" "$T/mbin"
 cat > "$T/mbench/harness/run.sh" <<'X'
