@@ -124,7 +124,7 @@ t_ps3rsx() {
 	need gcc
 	make -C packages/walnut/drivers/ps3rsx/test O="$O" "$O/shadow-equiv" "$O/shadow-equiv-fast" "$O/zero-test" "$O/validate-test" \
 		"$O/blame-test" "$O/pushbuf-test" "$O/vclear-test" "$O/validate-capture" "$O/pushdump-test" \
-		"$O/p4-test" "$O/p4-test-count" "$O/p4-fuzz" || exit 1
+		"$O/p4-test" "$O/p4-test-count" "$O/p4-test-dump" "$O/p4-fuzz" || exit 1
 	"$O/shadow-equiv" 200000 20000 1 || exit 1
 	"$O/shadow-equiv-fast" 1000000 100000 2 || exit 1
 	"$O/zero-test" 20000 1 || exit 1
@@ -135,6 +135,7 @@ t_ps3rsx() {
 	# the address checks: their rules (as released, and in the count-only build), the fuzz
 	"$O/p4-test" || exit 1
 	"$O/p4-test-count" || exit 1
+	"$O/p4-test-dump" || exit 1
 	for seed in 1 2 3; do "$O/p4-fuzz" "$seed" 30000 || exit 1; done
 	# the push dump's scanner and records, a sample split into validate-capture's inputs
 	need python3
