@@ -29,14 +29,18 @@ P4_DEBUGFS=${P4_DEBUGFS:-/sys/kernel/debug/dri/*/ps3rsx_p4}
 P4_SAVE=${P4_SAVE:-/var/tmp/ps3-bench/p4-counters}
 
 save_counters() {	# save_counters LABEL: each ps3rsx_p4 file to P4_SAVE/<stamp>-<label>.txt
-	local f out
-	for f in $P4_DEBUGFS; do
-		sudo test -r "$f" || continue
+	local f out found=
+	# the glob expanded by root: this shell can't list /sys/kernel/debug, so here it would stay
+	# the literal pattern and match nothing
+	while IFS= read -r f; do
+		[ -n "$f" ] || continue
+		found=1
 		mkdir -p "$P4_SAVE"
 		out=$P4_SAVE/$(date -u +%Y%m%dT%H%M%SZ)-$1.txt
 		sudo cat "$f" > "$out" || die "reading $f failed"
 		echo "rsx-arm: the address checks' counters of $1 saved to $out"
-	done
+	done < <(sudo sh -c 'for f in $1; do [ -r "$f" ] && printf "%s\n" "$f"; done; true' _ "$P4_DEBUGFS")
+	[ -n "$found" ] || echo "rsx-arm: no address check counters ($P4_DEBUGFS): not a count-only or dump build"
 }
 
 # the sysfs counters start again at each load, the kernel log doesn't
