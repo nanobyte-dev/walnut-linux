@@ -23,16 +23,28 @@ before): nv30_validate_fb re-emits the window, clip and zeta, nv30_validate_frag
 COORD_CONVENTIONS, on the next normal draw.
 
 The stream of a blit gains the window block, COORD_CONVENTIONS, ZETA_PITCH, ZETA_OFFSET and one DMA
-word at each end; no other word changes and nothing else is touched. A 1-byte-per-pixel destination
-keeps its Z16 zeta format (there is no smaller one): its zeta is a surface twice the colour's size
-that is never accessed.
+word at each end; no other word changes and nothing else is touched. A one-byte-per-pixel destination would need a zeta twice its size (B8 pairs with Z16, there is no
+smaller zeta format): an unscaled one-byte copy is no longer offered to the blit and goes the CPU
+path; a scaled one, which has no other path, keeps the blit and its zeta is never accessed.
 
 Forwarded: no
 
 diff --git a/src/gallium/drivers/nouveau/nv30/nv30_transfer.c b/src/gallium/drivers/nouveau/nv30/nv30_transfer.c
 --- a/src/gallium/drivers/nouveau/nv30/nv30_transfer.c
 +++ b/src/gallium/drivers/nouveau/nv30/nv30_transfer.c
-@@ -228,23 +228,50 @@ nv30_transfer_rect_blit(XFER_ARGS)
+@@ -64,6 +64,11 @@ nv30_transfer_blit(XFER_ARGS)
+       return false;
+    if (dst->cpp > 4 || (dst->cpp == 1 && !dst->pitch))
+       return false;
++   /* The blit points zeta at its destination (nv30_transfer_rect_blit) and a B8 target pairs with
++    * Z16: that zeta would be twice the destination's bytes. An unscaled one-byte copy goes to the
++    * CPU path instead (a scaled one has nothing else; its zeta is never accessed). */
++   if (dst->cpp == 1 && !nv30_transfer_scaled(src, dst))
++      return false;
+    if (src->cpp > 4)
+       return false;
+    /* The blit samples the source as a texture based at the rect's offset, which for a small
+@@ -228,23 +233,50 @@ nv30_transfer_rect_blit(XFER_ARGS)
     if (nv30->screen->base.is_ps3) {
        struct nv04_fifo *fifo = push->channel->data;
  
@@ -87,7 +99,7 @@ diff --git a/src/gallium/drivers/nouveau/nv30/nv30_transfer.c b/src/gallium/driv
  
     /* viewport state */
     BEGIN_NV04(push, NV30_3D(VIEWPORT_TRANSLATE_X), 8);
-@@ -408,8 +435,9 @@ nv30_transfer_rect_blit(XFER_ARGS)
+@@ -408,8 +440,9 @@ nv30_transfer_rect_blit(XFER_ARGS)
     if (nv30->screen->base.is_ps3) {
        struct nv04_fifo *fifo = push->channel->data;
  

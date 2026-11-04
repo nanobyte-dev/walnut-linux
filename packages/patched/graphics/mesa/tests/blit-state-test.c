@@ -198,6 +198,16 @@ int main(int argc, char **argv)
 	rect(&dst, db, NOUVEAU_BO_VRAM, 100, 60, 512, 4, 0);
 	run_blit(nv30, &src, &dst);
 	CHECK(R(0x20c) == ((512u << 16) | 512u), "NV30 class: pitch word %08x", R(0x20c));
+	/* a one-byte destination is not a blit when unscaled (its Z16 zeta would be twice the destination); scaled it is */
+	eng3d.oclass = NV40_3D_CLASS;
+	rect(&src, sb, NOUVEAU_BO_VRAM, 64, 32, 0, 1, 0);
+	rect(&dst, db, NOUVEAU_BO_VRAM, 64, 32, 128, 1, 0);
+	CHECK(!nv30_transfer_blit(nv30, NEAREST, &src, &dst), "an unscaled cpp 1 copy is offered to the blit");
+	rect(&dst, db, NOUVEAU_BO_VRAM, 128, 64, 128, 1, 0);
+	CHECK(nv30_transfer_blit(nv30, NEAREST, &src, &dst), "a scaled cpp 1 copy has no blit");
+	rect(&src, sb, NOUVEAU_BO_VRAM, 64, 32, 0, 4, 0);
+	rect(&dst, db, NOUVEAU_BO_VRAM, 64, 32, 256, 4, 0);
+	CHECK(nv30_transfer_blit(nv30, NEAREST, &src, &dst), "an unscaled cpp 4 copy is not offered to the blit");
 	printf("%s: %d checks, %d failed\n", fails ? "FAIL" : "ok", checks, fails);
 	return fails != 0;
 }

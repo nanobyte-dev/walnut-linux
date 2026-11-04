@@ -27,8 +27,8 @@ offset 0, the window clip (w-1, h-1) of its destination, `COORD_CONVENTIONS` wit
 and zeta = the destination (offset, pitch, and on the PS3 the zeta context DMA beside the colour one), as
 `nv30_validate_fb` does when there is no depth buffer. Depth, stencil and alpha test are off in the blit,
 so zeta is never touched. `NV30_NEW_FRAMEBUFFER | NV30_NEW_FRAGPROG` are marked, so the next normal
-draw restores the framebuffer state and `COORD_CONVENTIONS`. A one-byte destination keeps the Z16 zeta
-format (no smaller one exists).
+draw restores the framebuffer state and `COORD_CONVENTIONS`. A one-byte destination would need a zeta twice its size (B8 pairs with Z16), so an unscaled
+one-byte copy is no longer offered to the blit and takes the CPU path; a scaled one keeps the blit.
 
 On other GPUs the stream gains the same words (the window block and the COORD word are what any
 framebuffer has; no behaviour changes), and the DMA words exist only on the PS3.
