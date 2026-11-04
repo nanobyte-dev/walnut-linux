@@ -7,7 +7,8 @@
 #            threads, a stand-in game: packages/walnut/system/ps3-desktop/tests/rt-audio-check.sh), ps3rsx-shadow (and ps3rsx's clear_dcbz zeroing,
 #            the validator's vertex format checks, blame-test: the recovery's choice of the trapping commit,
 #            pushbuf-test: GEM_PUSHBUF's offset and length checks, vclear-test: freed VRAM cleared
-#            before reuse, on a model heap and GPU),
+#            before reuse, on a model heap and GPU, pushdump-test: the push dump's scanner and records,
+#            p4-test and p4-fuzz: the address checks),
 #            gpu-recovered (ps3-desktop's recovery dialog: its stamp only after the window maps on a live X, a
 #            failed recovery's dialog only on the new X), gpu-crash-restart (ps3-system's crash report: the
 #            display-only desktop restart once per boot through logind, the old X waited for, the user's own X only),
@@ -132,7 +133,8 @@ t_ps3rsx() {
 	O=$PWD/build/tmp/ps3rsx-test
 	need gcc
 	make -C packages/walnut/drivers/ps3rsx/test O="$O" "$O/shadow-equiv" "$O/shadow-equiv-fast" "$O/zero-test" "$O/validate-test" \
-		"$O/blame-test" "$O/pushbuf-test" "$O/vclear-test" || exit 1
+		"$O/blame-test" "$O/pushbuf-test" "$O/vclear-test" "$O/validate-capture" "$O/pushdump-test" \
+		"$O/p4-test" "$O/p4-test-count" "$O/p4-test-dump" "$O/p4-fuzz" || exit 1
 	"$O/shadow-equiv" 200000 20000 1 || exit 1
 	"$O/shadow-equiv-fast" 1000000 100000 2 || exit 1
 	"$O/zero-test" 20000 1 || exit 1
@@ -140,6 +142,14 @@ t_ps3rsx() {
 	"$O/blame-test" || exit 1
 	"$O/pushbuf-test" || exit 1
 	"$O/vclear-test" || exit 1
+	# the address checks: their rules (as released, and in the count-only build), the fuzz
+	"$O/p4-test" || exit 1
+	"$O/p4-test-count" || exit 1
+	"$O/p4-test-dump" || exit 1
+	for seed in 1 2 3; do "$O/p4-fuzz" "$seed" 30000 || exit 1; done
+	# the push dump's scanner and records, a sample split into validate-capture's inputs
+	need python3
+	packages/walnut/drivers/ps3rsx/test/pushdump-test.sh "$O" || exit 1
 	# each rule switched off in a copy of validate.c (or the submit model's old behaviour): its case must fail
 	make -C packages/walnut/drivers/ps3rsx/test O="$O" fix-off || exit 1
 	# big-endian run under qemu, when the cross compiler, the sysroot and qemu are there

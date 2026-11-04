@@ -26,6 +26,8 @@ typedef int8_t s8;
 #define min_t(t, a, b) ((t)(a) < (t)(b) ? (t)(a) : (t)(b))
 /* linux/overflow.h: true when a + b doesn't fit *d (any integer types, as the kernel's) */
 #define check_add_overflow(a, b, d) __builtin_add_overflow(a, b, d)
+#define check_mul_overflow(a, b, d) __builtin_mul_overflow(a, b, d)
+#define max_t(t, a, b) ((t)(a) > (t)(b) ? (t)(a) : (t)(b))
 
 #define BITS_PER_LONG		(8 * (int)sizeof(unsigned long))
 #define BIT_WORD(n)		((n) / BITS_PER_LONG)

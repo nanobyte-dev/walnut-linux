@@ -2,11 +2,13 @@
 # Full test run after a fresh boot (run as tibi; uses sudo for the module). Logs to ~/suite.log
 # on the NFS root, so a wedge or crash still leaves the record. Stops at the first failure.
 #   rsx-suite.sh [smoke|mesa|multi|all]   (default all)
+# RSX_SUITE_BIN=DIR runs rsxdrm-smoke from DIR (a test build of it) instead of the package's.
 L=$HOME/suite.log
-B=/usr/lib/ps3/bin
+B=${RSX_SUITE_BIN:-/usr/lib/ps3/bin}
+[ -x "$B/rsxdrm-smoke" ] || { echo "rsx-suite: no $B/rsxdrm-smoke" >&2; exit 1; }
 what=${1:-all}
 exec > >(tee -a "$L") 2>&1
-echo "=== $(date +%T) rsx-suite $what"
+echo "=== $(date +%T) rsx-suite $what ($B/rsxdrm-smoke)"
 sudo dmesg -n 7
 sudo modprobe drm_kms_helper || exit 1
 # always a fresh load with default parameters (trace=1 floods netconsole and hangs the box)

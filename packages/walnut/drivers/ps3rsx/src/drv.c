@@ -18,6 +18,7 @@
 #include <asm/ps3av.h>
 
 #include "ps3rsx.h"
+#include "pushdump.h"
 
 static int ps3rsx_open(struct drm_device *dev, struct drm_file *file)
 {
@@ -31,6 +32,7 @@ static int ps3rsx_open(struct drm_device *dev, struct drm_file *file)
 		return -ENOMEM;
 	}
 	mutex_init(&pf->lock);
+	mutex_init(&pf->set_lock);
 	INIT_LIST_HEAD(&pf->objects);
 	INIT_LIST_HEAD(&pf->chans);
 	file->driver_priv = pf;
@@ -47,6 +49,7 @@ static void ps3rsx_postclose(struct drm_device *dev, struct drm_file *file)
 	/* its BOs were released before this: what it kept goes to the clear, and a BO freed after
 	 * now (a framebuffer an atomic commit still holds) finds its owner closed */
 	ps3rsx_owner_close(to_rsx(dev), pf->owner);
+	p4set_free(&pf->set);		/* empty: drm_gem_release closed every handle before this */
 	kfree(pf);
 }
 
@@ -180,6 +183,7 @@ static int ps3rsx_probe(struct platform_device *pdev)
 		 rsx->vram_size >> 20, rsx->info.reserved, rsx->gart_size >> 20,
 		 rsx->gart_dynamic ? "on demand" : "reserved",
 		 rsx->info.xres, rsx->info.yres, rsx->info.line_length);
+	ps3rsx_pd_init(rsx);		/* the push dump (test builds): under the minor's debugfs */
 	return 0;
 }
 
@@ -188,6 +192,7 @@ static void ps3rsx_remove(struct platform_device *pdev)
 	struct ps3rsx_device *rsx = platform_get_drvdata(pdev);
 
 	ps3rsx_uw_quiesce(rsx);		/* no recovery work under the teardown below */
+	ps3rsx_pd_fini(rsx);
 	drm_dev_unregister(&rsx->drm);
 	drm_atomic_helper_shutdown(&rsx->drm);	/* flips back to ps3fb's frame */
 	ps3rsx_vclear_stop(rsx);	/* no clear runs under the teardown; zombies go at mem_fini */
@@ -212,6 +217,9 @@ static int __init ps3rsx_init(void)
 {
 	int ret;
 
+	ret = ps3rsx_submit_params_ok();
+	if (ret)
+		return ret;
 	ps3rsx_validate_init();
 	ps3rsx_shadow_init();
 	ret = platform_driver_register(&ps3rsx_platform_driver);

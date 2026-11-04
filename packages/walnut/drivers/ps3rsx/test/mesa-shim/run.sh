@@ -24,7 +24,7 @@ img=$(docker images --format '{{.Repository}}:{{.Tag}}' | grep '^ps3-deb-builder
 [ -n "$img" ] || { echo "no ps3-deb-builder image (make builder)" >&2; exit 1; }
 mkdir -p "$D/in"
 cp "$here"/wrap.c "$here"/ps3val.c "$here"/player.c "$here"/texload.c "$here"/browser.sh "$here"/../../src/validate.c \
-	"$here"/../../src/ps3rsx.h "$D/in/"
+	"$here"/../../src/ps3rsx.h "$here"/../../src/p4.h "$D/in/"
 rm -rf "$D/in/inc"; cp -r "$here"/../inc "$D/in/inc"
 envs=()
 for v in MPVMSG PS3SHIM_RECOVER PS3SHIM_REJECT PS3SHIM_VALIDATE NV30_PS3_RECOVER \

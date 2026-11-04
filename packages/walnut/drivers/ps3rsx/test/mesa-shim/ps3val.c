@@ -12,11 +12,17 @@ static char last_warn[256];
 #define pr_warn(...) snprintf(last_warn, sizeof(last_warn), __VA_ARGS__)
 #define pr_warn_ratelimited pr_warn
 
-struct ps3rsx_vstate {
-	u32 bound[8];
-	u8 cls[8];
-	bool prim_open;
-};
+#include "p4.h"
+/* The mesa-shim's answers (channel 1's fence label and query slice) and no buffer set: captures
+ * made before the dump carry none, so every range counts as one of the file's (host only) */
+static struct p4set all_set = { .all = true };
+
+static inline void vs_reset(struct ps3rsx_vstate *vs)
+{
+	memset(vs, 0, sizeof(*vs));
+	vs->chan_id = 1;
+	vs->set = &all_set;
+}
 bool ps3rsx_known_object(u32 handle);
 int ps3rsx_validate(struct ps3rsx_vstate *vs, const u32 *w, u32 nwords);
 void ps3rsx_validate_init(void);
@@ -34,6 +40,7 @@ void ps3val_begin(void)
 {
 	if (!inited) {
 		ps3rsx_validate_init();
+		vs_reset(&chan_vs);
 		inited = true;
 	}
 	sub_vs = chan_vs;

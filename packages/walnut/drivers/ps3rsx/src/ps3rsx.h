@@ -23,6 +23,10 @@
 #include <drm/nouveau_drm.h>
 #include <asm/ps3gpu.h>
 #include "vclear.h"
+#include "p4.h"
+#ifdef PS3RSX_PUSH_DUMP
+#include "pushdump_scan.h"
+#endif
 
 struct ps3rsx_vstate;
 struct ps3rsx_file;
@@ -83,8 +87,10 @@ struct ps3rsx_gart_chunk {
 };
 
 /*
- * Lock order: drm filelist_mutex -> pf->lock -> own_lock -> exec_lock -> chan_lock / mm_lock
- * -> vc.lock (a spinlock). No path waits for the clear worker while holding exec_lock.
+ * Lock order: drm filelist_mutex -> pf->lock -> own_lock -> pf->set_lock -> exec_lock -> chan_lock
+ * / mm_lock -> vc.lock (a spinlock). No path waits for the clear worker while holding exec_lock.
+ * own_lock is never held across set_lock (console_hold drops it); the order says which comes
+ * first. Nothing takes set_lock with exec_lock or mm_lock held (mem.c, submit.c).
  */
 
 /* vclear.c: a freed range waiting for its clear (a zombie) */
@@ -437,12 +443,11 @@ int ps3rsx_ioctl_gem_pushbuf(struct drm_device *dev, void *data, struct drm_file
 int ps3rsx_ioctl_gem_cpu_prep(struct drm_device *dev, void *data, struct drm_file *file);
 int ps3rsx_ioctl_gem_cpu_fini(struct drm_device *dev, void *data, struct drm_file *file);
 
-/* Per channel validator state: which object this channel bound on each subchannel */
-struct ps3rsx_vstate {
-	u32 bound[8];
-	u8 cls[8];		/* validate.c's class of each bound object */
-	bool prim_open;		/* the channel's last BEGIN_END opened a primitive */
-};
+struct seq_file;
+/* The validator's state per channel and the address checks' set per file: p4.h */
+void ps3rsx_vstate_forget(struct ps3rsx_vstate *vs);
+void ps3rsx_p4_show(struct seq_file *m);
+int ps3rsx_submit_params_ok(void);
 
 struct ps3rsx_shadow;
 
@@ -473,6 +478,9 @@ struct ps3rsx_chan {
 	bool lost;			/* the GPU was recovered under it: -ECANCELED once (PS3_RECOVER) or -EIO */
 	struct ps3rsx_subhist hist[PS3RSX_HIST];	/* the last submits (exec_lock) */
 	u32 hist_n;
+#ifdef PS3RSX_PUSH_DUMP
+	struct pd_chan_state pd;	/* the push dump's view of its binds (pushdump.c, exec_lock) */
+#endif
 };
 
 /* Per open file */
@@ -486,6 +494,11 @@ struct ps3rsx_file {
 	struct list_head chans;
 	bool was_master;		/* counted in masters_open */
 	struct ps3rsx_owner *owner;	/* of the BOs it makes (vkeep.c) */
+	/* the buffers it holds handles to (mem.c's GEM .open/.close), which its submits' copies
+	 * and clears must stay inside: taken by a submit from before its validation to its commit
+	 * (submit.c), and by every handle's creation and deletion */
+	struct mutex set_lock;
+	struct p4set set;
 };
 
 int ps3rsx_ioctl_getparam(struct drm_device *dev, void *data, struct drm_file *file);

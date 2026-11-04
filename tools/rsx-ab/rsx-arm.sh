@@ -6,6 +6,8 @@
 #                                     fix) with those module parameters, e.g. rsx-arm.sh C test_clear_off=1
 #   rsx-arm.sh unload                 the desktop stopped, the VRAM swap off, ps3rsx unloaded
 #   rsx-arm.sh status                 the loaded arm (by the module file's sha256) and its parameters
+#   rsx-arm.sh counters [LABEL]       save the address checks' counters (debugfs ps3rsx_p4, test builds)
+#                                     now; every unload does it first, so a switch never loses them
 # A switch: `ps3-bench.sh quiet` (desktop stopped, caches dropped, swaps emptied), the VRAM swap off
 # (swapoff, its pages come back to RAM first: refused when they wouldn't fit), rmmod, the arm's file
 # put where the package keeps it (/lib/modules/<release>/updates/ps3rsx.ko; the package's own file
@@ -22,6 +24,24 @@ REL=$(uname -r)
 KO=/lib/modules/$REL/updates/ps3rsx.ko
 U=/sys/devices/platform/ps3rsx
 die() { echo "rsx-arm: $*" >&2; exit 1; }
+# the count-only and dump builds' counters: lost at rmmod, so saved before it
+P4_DEBUGFS=${P4_DEBUGFS:-/sys/kernel/debug/dri/*/ps3rsx_p4}
+P4_SAVE=${P4_SAVE:-/var/tmp/ps3-bench/p4-counters}
+
+save_counters() {	# save_counters LABEL: each ps3rsx_p4 file to P4_SAVE/<stamp>-<label>.txt
+	local f out found=
+	# the glob expanded by root: this shell can't list /sys/kernel/debug, so here it would stay
+	# the literal pattern and match nothing
+	while IFS= read -r f; do
+		[ -n "$f" ] || continue
+		found=1
+		mkdir -p "$P4_SAVE"
+		out=$P4_SAVE/$(date -u +%Y%m%dT%H%M%SZ)-$1.txt
+		sudo cat "$f" > "$out" || die "reading $f failed"
+		echo "rsx-arm: the address checks' counters of $1 saved to $out"
+	done < <(sudo sh -c 'for f in $1; do [ -r "$f" ] && printf "%s\n" "$f"; done; true' _ "$P4_DEBUGFS")
+	[ -n "$found" ] || echo "rsx-arm: no address check counters ($P4_DEBUGFS): not a count-only or dump build"
+}
 
 # the sysfs counters start again at each load, the kernel log doesn't
 recovered() {
@@ -50,11 +70,15 @@ unload() {
 		sudo timeout -s INT 180 swapoff /dev/ps3vswap0 || die "swapoff /dev/ps3vswap0 failed"
 	fi
 	if [ -d /sys/module/ps3rsx ]; then
+		save_counters "$(which_arm 2>/dev/null | tr -c 'A-Za-z0-9\n' _ || echo unknown)"
 		sudo rmmod ps3rsx || die "rmmod ps3rsx failed (something still has the device open: lsof /dev/dri/*)"
 	fi
 }
 
 case ${1:-} in
+counters)
+	save_counters "${2:-$(which_arm | tr -c 'A-Za-z0-9\n' _)}"
+	;;
 unload)
 	unload
 	;;

@@ -221,6 +221,7 @@ static int t_clear(void)
 	OUT(0, 0x8c0, w << 16); OUT(0, 0x8c4, h << 16);
 	/* window clip 0: whole target (X's last draw may have left it at a panel's 30 rows) */
 	OUT(0, 0x2c0, (w - 1) << 16); OUT(0, 0x2c4, (h - 1) << 16);
+	OUT(0, 0x1d88, h);
 	OUT(0, 0x324, 0x01010101);
 	OUT(0, 0x1d90, 0xff12ab34);
 	OUT(0, 0x1d94, 0xf0);
@@ -248,6 +249,9 @@ static int t_fence(void)
 	printf("  fence label at reports+%#x\n", n.offset);
 	int stale = 0;
 	OUT(0, 0, 0x31337000);
+	/* the semaphore DMA: ps3rsx refuses a release this channel didn't set it for (another channel
+	 * or the reset program's value isn't this channel's to rely on) */
+	OUT(0, 0x1a4, 0x66606660);
 	for (uint32_t i = 1; i <= 10000; i++) {
 		OUT(0, 0x1d6c, n.offset);
 		OUT(0, 0x1d70, swz02(0x70000000 + i));
@@ -324,6 +328,7 @@ static void surface(uint32_t off, uint32_t w, uint32_t h)
 	OUT(0, 0x220, 1); OUT(0, 0x2b8, 0);
 	OUT(0, 0x8c0, w << 16); OUT(0, 0x8c4, h << 16);
 	OUT(0, 0x2c0, (w - 1) << 16); OUT(0, 0x2c4, (h - 1) << 16);	/* window clip 0 */
+	OUT(0, 0x1d88, h);		/* coordinate conventions: the clear's height (ps3rsx checks it) */
 	OUT(0, 0x324, 0x01010101);
 }
 
@@ -500,7 +505,10 @@ static int t_fill(uint32_t off, uint32_t colour)
 	OUT(0, 0x208, 0x148); OUT(0, 0x20c, 7680); OUT(0, 0x210, off);
 	OUT(0, 0x220, 1); OUT(0, 0x2b8, 0);
 	OUT(0, 0x8c0, 1920 << 16); OUT(0, 0x8c4, 1080 << 16);
+	OUT(0, 0x2c0, 1919 << 16); OUT(0, 0x2c4, 1079 << 16); OUT(0, 0x1d88, 1080);
 	OUT(0, 0x324, 0x01010101);
+	/* since ps3rsx's address checks a clear must land in a buffer this process holds: OFF is
+	 * refused unless it is (a display test runs on an older driver or uses its own dumb BO) */
 	OUT(0, 0x1d90, colour); OUT(0, 0x1d94, 0xf0);
 	int rc = submit(NULL, 0);
 	printf("  filled 1920x1080 at VRAM %#x with %08x: %s\n", off, colour, rc ? strerror(-rc) : "ok");

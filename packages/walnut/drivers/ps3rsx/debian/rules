@@ -8,13 +8,34 @@ DEB_VERSION := $(shell dpkg-parsechangelog -S Version)
 # The test switches, only where asked for. The recovery's wedge generator (test_allow_rt_enable_12)
 # goes into the debug kernel's module; the VRAM clear's off switches (test_clear_off, test_reuse_off, test_gart_wait_off) into a build run
 # with DEB_BUILD_OPTIONS=ps3rsx-testclear, whose version must also say testclear (a ~dev test build:
-# tools/prebuilt-upload.sh refuses ~dev). Both reach Kbuild on its command line, set or empty, so a
-# variable of the same name in the build environment can't turn them on. After the build, each
-# parameter is in the module exactly when it was asked for, or the build fails.
+# tools/prebuilt-upload.sh refuses ~dev); the push dump (test_push_dump, pushdump.c) into a build run
+# with DEB_BUILD_OPTIONS=ps3rsx-pushdump, whose version must also say pushdump; the address checks'
+# count-only mode (test_p4_enforce) into one with ps3rsx-p4count and p4count in the version. Any
+# test option also needs ~dev in the version, so the publishers' ~dev refusal covers every test
+# build. All reach Kbuild on its command line, set or empty, so a variable of the same name in
+# the build environment can't turn them on. After the build, each parameter is in the module
+# exactly when it was asked for, or the build fails.
 TEST_WEDGE := $(if $(findstring -debug,$(KREL)),y)
 TEST_CLEAR := $(if $(filter ps3rsx-testclear,$(DEB_BUILD_OPTIONS)),y)
 ifneq ($(if $(findstring testclear,$(DEB_VERSION)),y),$(TEST_CLEAR))
 $(error the version ($(DEB_VERSION)) and DEB_BUILD_OPTIONS disagree about ps3rsx-testclear)
+endif
+TEST_DUMP := $(if $(filter ps3rsx-pushdump,$(DEB_BUILD_OPTIONS)),y)
+ifneq ($(if $(findstring pushdump,$(DEB_VERSION)),y),$(TEST_DUMP))
+$(error the version ($(DEB_VERSION)) and DEB_BUILD_OPTIONS disagree about ps3rsx-pushdump)
+endif
+TEST_P4COUNT := $(if $(filter ps3rsx-p4count,$(DEB_BUILD_OPTIONS)),y)
+ifneq ($(if $(findstring p4count,$(DEB_VERSION)),y),$(TEST_P4COUNT))
+$(error the version ($(DEB_VERSION)) and DEB_BUILD_OPTIONS disagree about ps3rsx-p4count)
+endif
+# the dump build counts the address checks itself (Kbuild), without the switch p4count has
+ifeq ($(TEST_DUMP)$(TEST_P4COUNT),yy)
+$(error ps3rsx-pushdump and ps3rsx-p4count are separate test builds)
+endif
+ifneq ($(TEST_CLEAR)$(TEST_DUMP)$(TEST_P4COUNT),)
+ifeq ($(findstring ~dev,$(DEB_VERSION)),)
+$(error a test build ($(DEB_BUILD_OPTIONS)) needs ~dev in its version ($(DEB_VERSION)))
+endif
 endif
 # has_parm KO NAME: is NAME one of the module's parameters? (its .modinfo strings)
 has_parm = grep -aq 'parm=$(2):' $(1)
@@ -26,7 +47,8 @@ override_dh_auto_build:
 	mkdir -p b/ps3rsx b/probes
 	cp src/* b/ps3rsx/
 	cp probes/* b/probes/
-	$(KMAKE) M=$(CURDIR)/b/ps3rsx PS3RSX_TEST_WEDGE=$(TEST_WEDGE) PS3RSX_TEST_CLEAR=$(TEST_CLEAR) modules
+	$(KMAKE) M=$(CURDIR)/b/ps3rsx PS3RSX_TEST_WEDGE=$(TEST_WEDGE) PS3RSX_TEST_CLEAR=$(TEST_CLEAR) \
+		PS3RSX_PUSH_DUMP=$(TEST_DUMP) PS3RSX_P4_COUNT=$(TEST_P4COUNT) modules
 	if $(call has_parm,b/ps3rsx/ps3rsx.ko,test_clear_off); then [ "$(TEST_CLEAR)" = y ]; \
 		else [ "$(TEST_CLEAR)" != y ]; fi || \
 		{ echo "!! test_clear_off in the module: $(if $(TEST_CLEAR),missing,not asked for)"; exit 1; }
@@ -36,6 +58,12 @@ override_dh_auto_build:
 	if $(call has_parm,b/ps3rsx/ps3rsx.ko,test_gart_wait_off); then [ "$(TEST_CLEAR)" = y ]; \
 		else [ "$(TEST_CLEAR)" != y ]; fi || \
 		{ echo "!! test_gart_wait_off in the module: $(if $(TEST_CLEAR),missing,not asked for)"; exit 1; }
+	if $(call has_parm,b/ps3rsx/ps3rsx.ko,test_push_dump); then [ "$(TEST_DUMP)" = y ]; \
+		else [ "$(TEST_DUMP)" != y ]; fi || \
+		{ echo "!! test_push_dump in the module: $(if $(TEST_DUMP),missing,not asked for)"; exit 1; }
+	if $(call has_parm,b/ps3rsx/ps3rsx.ko,test_p4_enforce); then [ "$(TEST_P4COUNT)" = y ]; \
+		else [ "$(TEST_P4COUNT)" != y ]; fi || \
+		{ echo "!! test_p4_enforce in the module: $(if $(TEST_P4COUNT),missing,not asked for)"; exit 1; }
 	if $(call has_parm,b/ps3rsx/ps3rsx.ko,test_allow_rt_enable_12); then [ "$(TEST_WEDGE)" = y ]; \
 		else [ "$(TEST_WEDGE)" != y ]; fi || \
 		{ echo "!! test_allow_rt_enable_12 in the module: $(if $(TEST_WEDGE),missing,not asked for)"; exit 1; }
