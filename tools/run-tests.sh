@@ -199,7 +199,7 @@ run ps3-sudoers bash packages/walnut/system/ps3-desktop/tests/sudoers-check.sh
 run repo-tools python3 -I tools/test_repo_tools.py
 run licensed python3 -I tools/licensed.py check
 run workflows python3 -I github-ci/gen-workflows.py --check
-run blocks python3 -I tools/gamedb/blocks.py --check
+run blocks bash -c "[ -d gamedb/games/classicube/licensed ] || { echo 'skip: the licensed package directories are not in this checkout (the public export), and two generated blocks list them'; exit 77; }; python3 -I tools/gamedb/blocks.py --check"
 run doclinks python3 -I tools/doclinks.py --report
 # report only for now: what doesn't resolve is listed in its log, not a failure
 [ ! -s "$L/doclinks.log" ] || { [ -n "$only" ] && [ "$only" != doclinks ]; } ||
@@ -213,7 +213,7 @@ run batch-publish python3 -I github-ci/test_batch_publish.py
 run walnut-lists python3 -I github-ci/test_walnut_lists.py
 run gen-workflows python3 -I github-ci/test_gen_workflows.py
 run gamedb python3 -I tools/gamedb/test_gamedb.py
-run gamedb-evidence bash -c "python3 -I tools/gamedb/test_evidence.py && python3 -I tools/gamedb/reimport.py --check"
+run gamedb-evidence bash -c "command -v magick >/dev/null || { echo 'skip: no ImageMagick 7 (magick)'; exit 77; }; python3 -I tools/gamedb/test_evidence.py && python3 -I tools/gamedb/reimport.py --check"
 run gamedb-technical python3 -I tools/gamedb/test_technical.py
 run gamedb-schema python3 -I tools/gamedb/test_schema.py
 run patch-register python3 -I tools/gamedb/patches.py
