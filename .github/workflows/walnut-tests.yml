@@ -36,7 +36,7 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends shellcheck git-filter-repo gcc make luajit xvfb
-          python3 -m pip install pyyaml
+          python3 -m pip install pyyaml pillow "ruff==$(cat tools/ruff-version)"
       - name: The commit hooks, so the suite that checks them has them
         run: tools/hooks/install.sh
       - name: The host test suites
