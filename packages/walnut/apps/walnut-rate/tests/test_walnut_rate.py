@@ -335,7 +335,7 @@ EXTRA = {
 CGROUP = {470: "/user.slice/user-1000.slice/user@1000.service/ps3-desktop.slice/ps3-game-detect.service"}
 
 
-def rows_of(text, uid=1000, cgroups=None):
+def rows_of(text, uid=os.getuid() or 1000, cgroups=None):	# the user running the test: cleancheck asks os.getuid() (1000 on the PC, 1001 on a runner)
     p = tmpdir() / "ps.txt"
     p.write_text(text)
     rows = proccheck.parse(str(p))
