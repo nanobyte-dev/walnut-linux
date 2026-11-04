@@ -180,6 +180,8 @@ def classify(rec, d, dt):
         return "gpu"
     if st == "D" and sysname in READS:
         return "io"
+    if st == "D" and y is None and (dk["hdd"][0] or dk["hdd"][2]):
+        return "disk"   # the system call is unreadable here (not allowed to trace the game): a D wait with disk reads
     if st == "R":
         c = int(d.get("c", 0)) / 1e6
         return "runq" if dt > 0 and c < 0.25 * dt else "cpu"

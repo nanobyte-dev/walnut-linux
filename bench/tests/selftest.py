@@ -1195,6 +1195,18 @@ def stallrec_e2e(tmp):
     check("stallrec: builds without warnings", p.returncode == 0 and not p.stderr.strip(), p.stderr[-800:])
     if p.returncode:
         return
+    # a thread in D with no readable system call (Yama's ptrace_scope=1 on a runner) but disk reads in the interval: disk
+    class _R:
+        sysnr, W, D = {}, {1: "folio_wait_bit_common"}, {}
+        def __init__(self, hdd):
+            self.hdd = hdd
+        def disks(self, d):
+            return {"hdd": self.hdd, "zram": (0, 0, 0), "vswap": (0, 0, 0)}
+        def vmsum(self, d, *k):
+            return 0
+    check("stalls.classify: D, no syscall, disk reads -> disk", stalls.classify(_R((3, 0, 0)), {"s": "D", "w": 1}, 0.1) == "disk")
+    check("stalls.classify: D, no syscall, no disk reads stays unknown", stalls.classify(_R((0, 0, 0)), {"s": "D", "w": 1}, 0.1) == "unknown")
+    check("stalls.classify: a major fault with disk reads -> disk", stalls.classify(_R((3, 0, 0)), {"s": "D", "mj": "2"}, 0.1) == "disk")
     # the data file on a disk (not tmpfs): faults must read it
     ddir = None
     for c in (os.environ.get("STALLS_DISKDIR"), "/var/tmp", str(HERE)):
