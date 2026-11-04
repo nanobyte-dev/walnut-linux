@@ -87,6 +87,27 @@ class Scratch:
         shutil.rmtree(self.dir, ignore_errors=True)
 
 
+class GeneratedBlocks(unittest.TestCase):
+    def test_no_licensed_directories_no_block_check(self):
+        """the public export (CI's checkout) has no licensed package directories: the blocks that list them are not judged"""
+        sys.path.insert(0, str(HERE.parent / "checks"))
+        gen = core.load_check("generated")
+        r = Scratch()
+        try:
+            ctx = core.Ctx(r.dir, "all", [], message="x\n")
+            ctx.check = "generated"
+            gen.run(ctx, {"blocks"})
+            self.assertEqual([f for f in ctx.findings if f[1] == "error"], [])
+            self.assertTrue(any("licensed package directories" in f[3] for f in ctx.findings if f[1] == "notice"), ctx.findings)
+            (r.dir / "gamedb/games/g/licensed/p").mkdir(parents=True)
+            ctx = core.Ctx(r.dir, "all", [], message="x\n")
+            ctx.check = "generated"
+            gen.run(ctx, {"blocks"})
+            self.assertTrue([f for f in ctx.findings if f[1] == "error"])	# with them, the check runs (and here finds no tool)
+        finally:
+            r.close()
+
+
 class Base(unittest.TestCase):
     def setUp(self):
         self.r = Scratch()

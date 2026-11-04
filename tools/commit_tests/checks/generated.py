@@ -57,7 +57,7 @@ def run(ctx, parts):
     if "blocks" in parts:
         # two blocks list the licensed packages' directories, which the public export leaves out: a checkout
         # without them (CI's) cannot judge those blocks, and says so instead of failing on every commit
-        if any(ctx.root.glob(g) for g in ("gamedb/games/*/licensed/*", "packages/licensed/*")):
+        if any(next(ctx.root.glob(g), None) is not None for g in ("gamedb/games/*/licensed/*", "packages/licensed/*")):
             tool(ctx, "blocks.py --check", ["tools/gamedb/blocks.py", "--check"])
         else:
             ctx.notice(None, "blocks.py --check skipped: this checkout has no licensed package directories (the public export)")
