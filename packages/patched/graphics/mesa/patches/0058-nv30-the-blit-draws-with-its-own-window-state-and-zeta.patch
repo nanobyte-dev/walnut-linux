@@ -1,0 +1,100 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Wed, 4 Nov 2026 09:25:11 +0200
+Subject: nv30: the blit draws with its own window state and zeta (window
+ offset, window clip, COORD_CONVENTIONS, ZETA)
+
+nv30_transfer_rect_blit (the 3D copy of nv30_transfer.c: texture uploads and copies that
+the M2MF and SIFM paths can't do) draws a quad into a render target of its own size, and
+set only the target and what the draw reads. It left the window offset (VIEWPORT_TX_ORIGIN),
+the window clip (the two words after it) and COORD_CONVENTIONS as the last draw had them, and
+the zeta surface of that draw. A stale window offset or clip could be larger or elsewhere than the
+blit's target, so the blit's writes were bounded by the previous framebuffer; a stale zeta is a
+surface of another size in another place. With ps3rsx checking every draw against the surfaces it
+draws to, the first of these was refused (173 blits in a Quakespasm session, 5 in ETR, 6 in
+Armagetron).
+
+The blit now sets, as nv30_validate_fb and nv30_validate_fragment do for a framebuffer: the window
+offset 0, the window clip (w-1, h-1) of its destination, COORD_CONVENTIONS with the destination's
+height, and zeta = the destination (offset, pitch, and on the PS3 the zeta DMA with the colour DMA),
+as validate_fb does when there is no depth buffer. The blit has depth, stencil and alpha test off,
+so zeta is never touched. It marks NV30_NEW_FRAMEBUFFER and NV30_NEW_FRAGPROG (the first was marked
+before): nv30_validate_fb re-emits the window, clip and zeta, nv30_validate_fragment RT_ENABLE and
+COORD_CONVENTIONS, on the next normal draw.
+
+The stream of a blit gains the window block, COORD_CONVENTIONS, ZETA_PITCH, ZETA_OFFSET and one DMA
+word at each end; no other word changes and nothing else is touched. A 1-byte-per-pixel destination
+keeps its Z16 zeta format (there is no smaller one): its zeta is a surface twice the colour's size
+that is never accessed.
+
+Forwarded: no
+
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_transfer.c b/src/gallium/drivers/nouveau/nv30/nv30_transfer.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_transfer.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_transfer.c
+@@ -228,23 +228,50 @@ nv30_transfer_rect_blit(XFER_ARGS)
+    if (nv30->screen->base.is_ps3) {
+       struct nv04_fifo *fifo = push->channel->data;
+ 
+-      BEGIN_NV04(push, NV30_3D(DMA_COLOR0), 1);
++      /* the zeta DMA follows the colour one: zeta is pointed at the destination below */
++      BEGIN_NV04(push, NV30_3D(DMA_COLOR0), 2);
++      PUSH_DATA (push, dst->domain == NOUVEAU_BO_VRAM ? fifo->vram : fifo->gart);
+       PUSH_DATA (push, dst->domain == NOUVEAU_BO_VRAM ? fifo->vram : fifo->gart);
+    }
+ 
+    BEGIN_NV04(push, NV30_3D(VIEWPORT_HORIZ), 2);
+    PUSH_DATA (push, dst->w << 16);
+    PUSH_DATA (push, dst->h << 16);
+-   BEGIN_NV04(push, NV30_3D(RT_HORIZ), 5);
++   /* The window state a normal draw leaves behind is the last framebuffer's: the origin, the window
++    * clip and the coordinate convention's height. Set what this render target needs, as
++    * nv30_validate_fb and nv30_validate_fragment do for theirs (they come back with the next draw,
++    * NV30_NEW_FRAMEBUFFER below), so nothing of the blit is drawn through a stale window. */
++   BEGIN_NV04(push, NV30_3D(VIEWPORT_TX_ORIGIN), 4);
++   PUSH_DATA (push, 0);
++   PUSH_DATA (push, 0);
++   PUSH_DATA (push, ((dst->w - 1) << 16) | 0);
++   PUSH_DATA (push, ((dst->h - 1) << 16) | 0);
++   BEGIN_NV04(push, NV30_3D(COORD_CONVENTIONS), 1);
++   PUSH_DATA (push, dst->h & NV30_3D_COORD_CONVENTIONS_HEIGHT__MASK);	/* the blit's fragment program has no convention bits */
++
++   /* Zeta is the destination too, as nv30_validate_fb does with no depth buffer (zsf = rsf), not
++    * whatever zeta the last draw had: the blit has depth and stencil off and never touches it, but a
++    * stale zeta would be a surface of another size, in another place. */
++   if (nv30->screen->eng3d->oclass >= NV40_3D_CLASS) {
++      BEGIN_NV04(push, NV40_3D(ZETA_PITCH), 1);
++      PUSH_DATA (push, stride);
++   }
++   BEGIN_NV04(push, NV30_3D(RT_HORIZ), 6);
+    PUSH_DATA (push, dst->w << 16);
+    PUSH_DATA (push, dst->h << 16);
+    PUSH_DATA (push, format);
+-   PUSH_DATA (push, stride);
++   if (nv30->screen->eng3d->oclass >= NV40_3D_CLASS)
++      PUSH_DATA (push, stride);
++   else
++      PUSH_DATA (push, (stride << 16) | stride);
+    PUSH_RELOC(push, dst->bo, dst->offset, NOUVEAU_BO_LOW, 0, 0);
++   PUSH_RELOC(push, dst->bo, dst->offset, NOUVEAU_BO_LOW, 0, 0);	/* ZETA_OFFSET */
+    BEGIN_NV04(push, NV30_3D(RT_ENABLE), 1);
+    PUSH_DATA (push, NV30_3D_RT_ENABLE_COLOR0);
+ 
+-   nv30->dirty |= NV30_NEW_FRAMEBUFFER;
++   /* the next draw: nv30_validate_fb (window, clip, zeta) and nv30_validate_fragment (RT_ENABLE and
++    * COORD_CONVENTIONS) run on either bit */
++   nv30->dirty |= NV30_NEW_FRAMEBUFFER | NV30_NEW_FRAGPROG;
+ 
+    /* viewport state */
+    BEGIN_NV04(push, NV30_3D(VIEWPORT_TRANSLATE_X), 8);
+@@ -408,8 +435,9 @@ nv30_transfer_rect_blit(XFER_ARGS)
+    if (nv30->screen->base.is_ps3) {
+       struct nv04_fifo *fifo = push->channel->data;
+ 
+-      BEGIN_NV04(push, NV30_3D(DMA_COLOR0), 1);	/* render targets are VRAM elsewhere */
++      BEGIN_NV04(push, NV30_3D(DMA_COLOR0), 2);	/* render targets are VRAM elsewhere */
+       PUSH_DATA (push, fifo->vram);
++      PUSH_DATA (push, fifo->vram);	/* ZETA */
+    }
+ }
+ 

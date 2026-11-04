@@ -41,3 +41,4 @@
 0055-nv30-on-the-PS3-a-texture-that-finds-no-VRAM-goes-to.patch
 0056-nv30-on-the-PS3-a-query-report-that-never-comes-ends.patch
 0057-nv30-staging-inflight-counts-what-is-still-in-flight.patch
+0058-nv30-the-blit-draws-with-its-own-window-state-and-zeta.patch

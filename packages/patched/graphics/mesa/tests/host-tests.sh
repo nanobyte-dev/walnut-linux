@@ -21,6 +21,9 @@
 #                  patch's commit in MESA_WORK), which must fail
 #   transfer-cpu   0049: nv30 texture uploads and reads by the CPU when the GART is full; 0040's small
 #                  staging classes (nv30_miptree.c's pool functions)
+#   blit-state     0058: nv30_transfer_rect_blit sets the window offset 0, the window clip and COORD_CONVENTIONS of
+#                  its destination and points zeta at it, with the dirty bits for the next draw (state); the stream
+#                  the blit writes against the file as it was before 0058: only those words differ (golden)
 #   point-smooth   0050: round GL_POINT_SMOOTH points on Mesa's TGSI interpreter, and their NV40 translation
 # Each part prints "RESULT <suite>:<part> pass|fail|skip" (tools/ladder.py reads them). Exit 0 when every
 # part passed, 77 when the tree lacks what the suite tests (its patch) or a tool is missing, else 1.
@@ -32,9 +35,9 @@ t=${MESA_TESTS:-packages/patched/graphics/mesa/tests}
 S=${1:-}; shift || true
 declare -A PARTS=([forcedxt]="" [staging-pool]="" [vtx-snorm8]="unpack vpsim" [minmax-vmx]="host ppc64"
 	[query-steal]="" [query-lost]="end steal destroy elapsed deadline late x86" [alloc-fail]="upload mm-fallback mm-nomem fence fence-cancel pushbuf-flush pushbuf-destroy fix-off"
-	[transfer-cpu]="" [point-smooth]="")
+	[transfer-cpu]="" [blit-state]="state golden" [point-smooth]="")
 if [ "$S" = --list ]; then
-	for s in forcedxt staging-pool vtx-snorm8 minmax-vmx query-steal query-lost alloc-fail transfer-cpu point-smooth; do
+	for s in forcedxt staging-pool vtx-snorm8 minmax-vmx query-steal query-lost alloc-fail transfer-cpu blit-state point-smooth; do
 		echo "$s ${PARTS[$s]}"; done
 	exit 0
 fi
@@ -205,6 +208,39 @@ alloc-fail)
 transfer-cpu)
 	[ -e $M/src/gallium/drivers/nouveau/nv30/nv30_miptree.c ] || skip "no Mesa tree at $M (make mesa-work)"
 	gen && mcc $T/transfer-cpu-test $t/transfer-cpu-test.c -Wall -Werror && $T/transfer-cpu-test; result "" $?
+	;;
+blit-state)
+	[ -e $M/src/gallium/drivers/nouveau/nv30/nv30_transfer.c ] || skip "no Mesa tree at $M (make mesa-work)"
+	grep -q 'VIEWPORT_TX_ORIGIN' $M/src/gallium/drivers/nouveau/nv30/nv30_transfer.c || {
+		echo "the blit sets no window state in this tree (before 0058)"; wants state && result state 1; wants golden && result golden 77; exit 1; }
+	U=-Wl,--unresolved-symbols=ignore-all
+	gen || exit 1
+	if wants state; then
+		mcc $T/blit-state-test $t/blit-state-test.c -Wall -Werror $U && ASAN_OPTIONS=detect_leaks=0 $T/blit-state-test; result state $?
+	fi
+	if wants golden; then
+		# the stream of three blits (swizzled, linear, GART) with 0058 and with nv30_transfer.c as it was before it
+		D=src/gallium/drivers/nouveau/nv30 O=$T/blit-before
+		rm -rf $O; mkdir -p $O/nv30
+		c=$(git -C $M log --format='%H %s' | grep -F " nv30: the blit draws with its own window state" | head -n 1 | cut -d' ' -f1)
+		if [ -z "$c" ] || ! git -C $M show "$c^:$D/nv30_transfer.c" > $O/nv30/nv30_transfer.c 2>/dev/null; then
+			echo "SKIP mesa-blit-state:golden no commit before 0058 in $M"; result golden 77
+		else
+			mcc $T/blit-state-new $t/blit-state-test.c $U && mcc $T/blit-state-old $t/blit-state-test.c $U -I$O &&
+			ASAN_OPTIONS=detect_leaks=0 $T/blit-state-new dump > $T/blit-new.txt && ASAN_OPTIONS=detect_leaks=0 $T/blit-state-old dump > $T/blit-old.txt
+			rc=$?
+			if [ $rc = 0 ]; then
+				# the words 0058 adds: the window block (2b8..2c4), COORD (1d88), ZETA_PITCH (22c), ZETA_OFFSET (214), DMA_ZETA (198)
+				flt() { grep -v -E '^(02b8|02bc|02c0|02c4|1d88|022c|0214|0198) ' "$1"; }
+				if [ "$(flt $T/blit-new.txt | md5sum)" = "$(flt $T/blit-old.txt | md5sum)" ] && ! cmp -s $T/blit-new.txt $T/blit-old.txt; then
+					echo "ok   golden: $(wc -l < $T/blit-old.txt) words before, $(wc -l < $T/blit-new.txt) after; the others are identical"
+				else
+					diff <(flt $T/blit-old.txt) <(flt $T/blit-new.txt) | head -20; rc=1
+				fi
+			fi
+			result golden $rc
+		fi
+	fi
 	;;
 point-smooth)
 	[ -e $M/src/gallium/drivers/nouveau/nv30/nv30_point_smooth.c ] ||
