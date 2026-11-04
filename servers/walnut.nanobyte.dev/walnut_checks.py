@@ -215,21 +215,20 @@ def _entry_for_source(lists, src):
 	return [e for e in lists.entries.values() if src == e.source or src in e.moved_from]
 
 
-def check_index(rules, suite, sources, text, published=lambda rel: False):
+def check_index(rules, suite, sources, text, published=lambda st: False):
 	"""Checks one Packages (sources=False) or Sources (True) index of suite against the server's ownership
-	copy. Raises Refused (E-OWNER, E-RELATION, E-POOLPATH, E-SOURCE) at the first violation. Only what this bundle
-	introduces is checked: a stanza whose pool file(s) are already published (published(path) is true) was
-	checked when it came in, and its file can no longer change; names since retired stay in the index."""
+	copy. Raises Refused (E-OWNER, E-RELATION, E-POOLPATH, E-SOURCE) at the first violation. The one exception is a
+	stanza the suite already publishes, identical field for field (published(stanza) is true): it was checked when it came
+	in, and names since retired stay listed. A stanza that differs in any field, or that merely points at a published file
+	(of another suite, say), is checked in full."""
 	lists = rules.lists
 	for st in parse_stanzas(text):
 		if sources:
-			d = st.get("Directory", "")
-			names = [l.split()[2] for l in st.get("Files", "").split("\n") if len(l.split()) == 3]
-			if names and all(published(f"{d}/{n}") for n in names):
+			if published(st):
 				continue
 			_check_source_stanza(rules, suite, st)
 			continue
-		if st.get("Filename") and published(st["Filename"]):
+		if published(st):
 			continue
 		name = st.get("Package", "")
 		if not PKG_RE.match(name):

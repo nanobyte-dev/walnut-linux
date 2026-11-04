@@ -277,13 +277,49 @@ def publish_download(bid, staging):
 
 # --- apt / licensed --------------------------------------------------------------------------
 
+def _zstd_open():
+	try:
+		from compression import zstd	# Python 3.14
+		return zstd.open
+	except ImportError:
+		def no(*a, **k):
+			raise Refused("a .zst index cannot be read on this server", "E-INDEX")
+		return no
+
+
 def read_index(path):
-	"""Text of a Packages/Sources index from its uncompressed, .gz or .xz copy."""
-	for ext, op in (("", open), (".gz", gzip.open), (".xz", lzma.open)):
+	"""Text of a Packages/Sources index. Every copy present (plain, .gz, .xz, .bz2, .zst) is read and they must be the
+	same text: apt takes whichever form it likes, so the one that is checked has to be all of them."""
+	import bz2
+	texts = []
+	for ext, op in (("", open), (".gz", gzip.open), (".xz", lzma.open), (".bz2", bz2.open), (".zst", None)):
 		if os.path.isfile(path + ext):
-			with op(path + ext, "rb") as f:
-				return f.read().decode("utf-8", "replace")
-	return None
+			with (op or _zstd_open())(path + ext, "rb") as f:
+				texts.append((ext, f.read().decode("utf-8", "replace")))
+	if any(t != texts[0][1] for _, t in texts):
+		raise Refused(f"{os.path.basename(path)}: the copies of this index ({', '.join(e or 'plain' for e, _ in texts)}) are not the same text", "E-INDEX")
+	return texts[0][1] if texts else None
+
+
+def stanza_key(st):
+	return tuple(sorted(st.items()))
+
+
+def published_stanzas(prefix, suite):
+	"""The stanzas (as stanza_key) of the suite's currently published Packages and Sources."""
+	from walnut_checks import parse_stanzas
+	out = set()
+	top = os.path.realpath(f"{prefix}/dists/{suite}")
+	for d, _, fs in os.walk(top):
+		if "by-hash" in d.split(os.sep):
+			continue
+		for name in {f.split(".")[0] for f in fs} & {"Packages", "Sources"}:
+			try:
+				text = read_index(f"{d}/{name}")
+			except Refused:
+				continue
+			out.update(stanza_key(st) for st in parse_stanzas(text or ""))
+	return out
 
 
 def index_files(text, sources):
@@ -429,11 +465,12 @@ def publish_repo(kind, bid, staging):
 	# every file the new indices name must be there once the pool is in
 	named = {}
 	for s in suites:
+		was = published_stanzas(prefix, s)
 		for d, _, fs in os.walk(f"{staging}/dists/{s}"):
 			for name in {f.split(".")[0] for f in fs} & {"Packages", "Sources"}:
 				text = read_index(f"{d}/{name}")
-				check_index(RULES, s, name == "Sources", text or "",
-				            lambda rel: os.path.isfile(f"{prefix}/{rel}"))	# V2 on what is new: ownership, relations, pool paths
+				# V2: everything is checked except a stanza the suite already publishes, field for field
+				check_index(RULES, s, name == "Sources", text or "", lambda st: stanza_key(st) in was)
 				for ref, h in index_hashes(text or "", name == "Sources").items():
 					if named.setdefault(ref, h) != h:
 						raise Refused(f"dists/{s}: {ref} has two different hashes in the indices")

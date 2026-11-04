@@ -311,7 +311,7 @@ binaries = ["linux-image-@RELEASE@"]
 		p = f"{self.root}/www/{kind}/dists/{suite}/InRelease"
 		return sha(slurp(p, "rb")) if os.path.exists(p) else "none"
 
-	def apt_bundle(self, debs, suite="testing", who=None, base=None, bad_line=None, bad_gz=False, key=None, fields=None, release_files=None, extra_hashed=None):
+	def apt_bundle(self, debs, suite="testing", who=None, base=None, bad_line=None, bad_gz=False, key=None, fields=None, release_files=None, extra_hashed=None, idx_extra=None):
 		who = who or ("ci" if suite.startswith("testing") else "good")
 		base = base or self.base("licensed" if suite == "licensed" else "apt", suite)
 		files, paras = {}, []
@@ -328,6 +328,7 @@ binaries = ["linux-image-@RELEASE@"]
 		idx = {"main/binary-ppc64/Packages": text, "main/binary-ppc64/Packages.gz": gz}
 		if bad_gz:	# only a truncated gzip index, correctly named and signed
 			idx = {"main/binary-ppc64/Packages.gz": gz[:len(gz) // 2]}
+		idx.update(idx_extra or {})	# more forms of the index, named in the signed Release
 		for rel, d in idx.items():
 			files[f"dists/{suite}/{rel}"] = d
 		if not bad_gz:
@@ -668,6 +669,47 @@ binaries = ["linux-image-@RELEASE@"]
 		self.run_watch()
 		self.assertEqual(self.refused_code("apt", "3"), "E-OWNER")
 
+	def test_a_stanza_pointing_at_a_published_file_is_checked_in_full(self):
+		"""H1: a testing stanza naming protected packages in Conflicts, pointed at a deb already published in stable"""
+		self.drop("apt", "st", self.apt_bundle({"bar_1_ppc64.deb": b"b"}, suite="stable"))
+		self.run_watch()
+		fields = {"foo": {"Conflicts": "sudo", "Filename": "pool/stable/main/b/bar/bar_1_ppc64.deb"}}
+		b = self.apt_bundle({"foo_1_ppc64.deb": b"f"}, fields=fields)
+		del b["pool/testing/main/f/foo/foo_1_ppc64.deb"]
+		self.drop("apt", "evil", b)
+		self.run_watch()
+		self.assertEqual(self.refused_code("apt", "evil"), "E-RELATION")
+		# the same stanza as published, unchanged, still goes through: a second testing bundle keeps the first's stanza
+		self.drop("apt", "ok1", self.apt_bundle({"foo_1_ppc64.deb": b"f"}))
+		self.run_watch()
+		b2 = self.apt_bundle({"foo_1_ppc64.deb": b"f", "bar_1_ppc64.deb": b"b"})
+		del b2["pool/testing/main/f/foo/foo_1_ppc64.deb"]
+		self.drop("apt", "ok2", b2)
+		self.run_watch()
+		self.assertTrue(self.status("apt", "ok2").startswith("ok "), self.status("apt", "ok2"))
+		# and the same published stanza with one field changed is checked again
+		b3 = self.apt_bundle({"foo_1_ppc64.deb": b"f", "bar_1_ppc64.deb": b"b"}, fields={"foo": {"Replaces": "bar"}})
+		del b3["pool/testing/main/f/foo/foo_1_ppc64.deb"]
+		del b3["pool/testing/main/b/bar/bar_1_ppc64.deb"]
+		self.drop("apt", "chg", b3)
+		self.run_watch()
+		self.assertEqual(self.refused_code("apt", "chg"), "E-RELATION")
+
+	def test_every_form_of_an_index_is_the_checked_text(self):
+		"""H2: apt reads Packages.xz; a plain Packages that differs from it is refused"""
+		import lzma
+		evil = b"Package: openssh-server\nConflicts: sudo\nFilename: pool/testing/main/o/openssh/openssh_1_ppc64.deb\n"
+		self.drop("apt", "diff", self.apt_bundle({"foo_1_ppc64.deb": b"f"}, idx_extra={"main/binary-ppc64/Packages.xz": lzma.compress(evil)}))
+		self.run_watch()
+		self.assertEqual(self.refused_code("apt", "diff"), "E-INDEX")
+		good = self.apt_bundle({"foo_1_ppc64.deb": b"f"})
+		text = good["dists/testing/main/binary-ppc64/Packages"]
+		import bz2
+		self.drop("apt", "same", self.apt_bundle({"foo_1_ppc64.deb": b"f"}, idx_extra={"main/binary-ppc64/Packages.xz": lzma.compress(text),
+		                                                                                 "main/binary-ppc64/Packages.bz2": bz2.compress(text)}))
+		self.run_watch()
+		self.assertTrue(self.status("apt", "same").startswith("ok "), self.status("apt", "same"))
+
 	def test_relations(self):
 		code = lambda bid: self.refused_code("apt", bid)
 		self.apt_case("prov", {"foo_1_ppc64.deb": b"f"}, fields={"foo": {"Provides": "sudo"}})
@@ -906,6 +948,59 @@ class Fail2ban(unittest.TestCase):
 		self.assertIn("172.16.0.0/12", re.search(r"(?m)^ignoreip\s*=(.*)$", jail).group(1))	# the docker gateway is never banned
 
 
+class CheckHeaders(unittest.TestCase):
+	"""M1: check-headers.sh, run the way deploy.sh runs it (as a program, its exit status the verdict), against a local server"""
+	def serve(self, nosniff=True):
+		import http.server, threading, lzma
+		packages = lzma.compress(b"Package: x\nFilename: pool/stable/main/x/x/x_1_ppc64.deb\n\n" * 50000)	# long: head closes the pipe early
+
+		class H(http.server.BaseHTTPRequestHandler):
+			def log_message(self, *a):
+				pass
+
+			def do_GET(self):
+				code, ctype, body = 200, "application/octet-stream", b"data"
+				if self.path.endswith("Packages.xz"):
+					body = packages
+				elif self.path == "/apt/":
+					ctype, body = "text/html", b"<html>index</html>"
+				elif self.path.startswith("/status/"):
+					code, ctype, body = 403, "text/plain", b"no"
+				self.send_response(code)
+				self.send_header("Content-Type", ctype)
+				if nosniff:
+					self.send_header("X-Content-Type-Options", "nosniff")
+				self.send_header("Content-Security-Policy", "default-src 'none'; sandbox")
+				self.send_header("Content-Length", str(len(body)))
+				self.end_headers()
+				if self.command != "HEAD":
+					self.wfile.write(body)
+			do_HEAD = do_GET
+
+		srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), H)
+		threading.Thread(target=srv.serve_forever, daemon=True).start()
+		self.addCleanup(srv.shutdown)
+		return f"http://127.0.0.1:{srv.server_address[1]}"
+
+	def run_script(self, base):
+		here = os.path.dirname(WATCH)
+		return subprocess.run([f"{here}/check-headers.sh", base], capture_output=True, text=True, timeout=60)
+
+	def test_good_server_exits_zero(self):
+		r = self.run_script(self.serve())
+		self.assertEqual(r.returncode, 0, r.stderr)
+		self.assertIn("headers ok", r.stdout)
+
+	def test_missing_header_exits_one(self):
+		r = self.run_script(self.serve(nosniff=False))
+		self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+		self.assertIn("no nosniff", r.stderr)
+
+	def test_deploy_sh_runs_it_last(self):
+		d = slurp(f"{os.path.dirname(WATCH)}/deploy.sh").rstrip().splitlines()
+		self.assertEqual(d[-1], "./check-headers.sh")
+
+
 class Conf(unittest.TestCase):
 	"""V2: every location of repo.conf carries the headers; the compose file mounts directories; the unit protects rules/"""
 	here = os.path.dirname(WATCH)
@@ -926,6 +1021,12 @@ class Conf(unittest.TestCase):
 		cc = slurp(f"{self.here}/ccache/nginx.conf")
 		self.assertIn("nosniff", cc)
 		self.assertIn("default-src 'none'; sandbox", cc)
+
+	def test_site_csp(self):
+		"""M5 interim: the site allows script from itself only, in the server and in the locations that add their own headers"""
+		c = slurp(f"{self.here}/site.conf")
+		self.assertEqual(c.count("script-src 'self'"), 2)
+		self.assertIn("always", c)
 
 	def test_compose_mounts_directories_for_the_configs(self):
 		c = slurp(f"{self.here}/docker-compose.yml")
