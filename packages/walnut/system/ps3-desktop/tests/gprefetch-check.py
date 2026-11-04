@@ -162,6 +162,23 @@ def fake_sampler(paths, cwd, exe, t0=None):
     return s
 
 
+def walk_order():
+    """a recursive root as long as the file limit does not starve the flat directories (an interpreter's whole library
+    tree on a runner): the game's own directories are listed first"""
+    w = Path(tempfile.mkdtemp(prefix=".gprefetch-walk-", dir=str(BASE_TMP)))
+    try:
+        flat, big = w / "flat", w / "big"
+        flat.mkdir()
+        big.mkdir()
+        for i in range(50):
+            (big / f"f{i}").write_text("x")
+        (flat / "tex.png").write_text("y")
+        out, cut = gp.walk([str(big)], [str(flat)], 10, time.monotonic() + 5)
+        check("walk: the flat directory first, so a big recursive root cannot starve it", str(flat / "tex.png") in out and cut, (out[:3], cut))
+    finally:
+        shutil.rmtree(w, ignore_errors=True)
+
+
 def learning(w):
     data = w / "learn" / "share" / "games" / "fakegame"
     lists = w / "learn" / "lists"
@@ -366,6 +383,9 @@ def end_to_end(w):
     check("game-run without a list: the game runs anyway", p.returncode == 0 and "nothing learnt yet" in p.stderr, p.stderr)
 
 
+BASE_TMP = HERE.parents[4] / "build" / "tmp"
+
+
 def main():
     base = Path(sys.argv[1]) if len(sys.argv) > 1 else None
     if base is None:
@@ -376,6 +396,7 @@ def main():
     home = os.environ.get("HOME")
     try:
         pieces()
+        walk_order()
         real_files(base)
         lists, exe, files = learning(base)
         os.environ["HOME"] = home or "/"
