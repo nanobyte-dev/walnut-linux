@@ -1,0 +1,184 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Wed, 4 Nov 2026 15:07:19 +0200
+Subject: nv30: on the PS3, optional placement of index buffers and fragment
+ programs in GART (NV30_PS3_IDX_GART, NV30_PS3_FP_GART)
+
+A measurement switch pair, both off by default and PS3 only, to find out whether the RSX reads
+index data and fragment programs as fast from GART as from VRAM, and what that does to VRAM
+(which is also the swap) and to the GART area. The default placement is untouched.
+
+NV30_PS3_IDX_GART=1: a buffer bound as an index buffer and not as a vertex buffer is created in GART
+(nouveau_buffer_create_in() with a forced domain) and marked cpu_only. The CPU writes it directly
+through the map, as for any GART buffer. A cpu_only buffer the GPU still reads is waited for when
+the CPU maps it, never given a staging area and a GPU (M2MF) copy into it: the GART index buffer
+gets CPU-written data only (nouveau_buffer_transfer_map). Other GPU writers into buffers
+(nouveau_copy_buffer, clears) are not changed; an index buffer is not a target of them in the games
+tried.
+
+NV30_PS3_FP_GART=1: a fragment program's buffer is a stream-usage buffer (GART) and is not migrated
+to VRAM after the upload (nv30_fragprog_upload). The constant-change path through the stream copy is
+unchanged.
+
+Forwarded: no
+
+diff --git a/src/gallium/drivers/nouveau/nouveau_buffer.c b/src/gallium/drivers/nouveau/nouveau_buffer.c
+--- a/src/gallium/drivers/nouveau/nouveau_buffer.c
++++ b/src/gallium/drivers/nouveau/nouveau_buffer.c
+@@ -581,6 +581,17 @@ nouveau_buffer_transfer_map(struct pipe_context *pipe,
+    if ((usage & PIPE_MAP_UNSYNCHRONIZED) || !buf->mm)
+       return map;
+ 
++   /* a buffer only the CPU writes (an index buffer in GART): never a staging area and a GPU copy
++    * into it, wait for the GPU's use of it instead */
++   if (buf->cpu_only && nouveau_buffer_busy(buf, usage & PIPE_MAP_READ_WRITE)) {
++      if (usage & PIPE_MAP_DONTBLOCK) {
++         FREE(tx);
++         return NULL;
++      }
++      nouveau_buffer_sync(nv, buf, usage & PIPE_MAP_READ_WRITE);
++      return map;
++   }
++
+    /* If the GPU is currently reading/writing this buffer, we shouldn't
+     * interfere with its progress. So instead we either wait for the GPU to
+     * complete its operation, or set up a staging area to perform our work in.
+@@ -771,8 +782,8 @@ nouveau_user_ptr_transfer_unmap(struct pipe_context *pipe,
+ }
+ 
+ struct pipe_resource *
+-nouveau_buffer_create(struct pipe_screen *pscreen,
+-                      const struct pipe_resource *templ)
++nouveau_buffer_create_in(struct pipe_screen *pscreen,
++                         const struct pipe_resource *templ, unsigned force_domain)
+ {
+    struct nouveau_screen *screen = nouveau_screen(pscreen);
+    struct nv04_resource *buffer;
+@@ -786,7 +797,9 @@ nouveau_buffer_create(struct pipe_screen *pscreen,
+    pipe_reference_init(&buffer->base.reference, 1);
+    buffer->base.screen = pscreen;
+ 
+-   if (buffer->base.flags & (PIPE_RESOURCE_FLAG_MAP_PERSISTENT |
++   if (force_domain) {
++      buffer->domain = force_domain;	/* the driver's placement (nv30: NV30_PS3_IDX_GART) */
++   } else if (buffer->base.flags & (PIPE_RESOURCE_FLAG_MAP_PERSISTENT |
+                              PIPE_RESOURCE_FLAG_MAP_COHERENT)) {
+       buffer->domain = NOUVEAU_BO_GART;
+    } else if (buffer->base.bind == 0 || (buffer->base.bind &
+@@ -839,6 +852,13 @@ fail:
+    return NULL;
+ }
+ 
++struct pipe_resource *
++nouveau_buffer_create(struct pipe_screen *pscreen,
++                      const struct pipe_resource *templ)
++{
++   return nouveau_buffer_create_in(pscreen, templ, 0);
++}
++
+ struct pipe_resource *
+ nouveau_buffer_create_from_user(struct pipe_screen *pscreen,
+                                 const struct pipe_resource *templ,
+diff --git a/src/gallium/drivers/nouveau/nouveau_buffer.h b/src/gallium/drivers/nouveau/nouveau_buffer.h
+--- a/src/gallium/drivers/nouveau/nouveau_buffer.h
++++ b/src/gallium/drivers/nouveau/nouveau_buffer.h
+@@ -46,6 +46,9 @@ struct nv04_resource {
+ 
+    uint8_t status;
+    uint8_t domain;
++   /* NV30_PS3_IDX_GART: an index buffer in GART that only the CPU writes: a busy buffer is waited for,
++    * never staged and copied by the GPU (M2MF) */
++   uint8_t cpu_only;
+ 
+    uint16_t cb_bindings[6]; /* per-shader per-slot bindings */
+ 
+@@ -103,6 +106,9 @@ nouveau_resource_mapped_by_gpu(struct pipe_resource *resource)
+ }
+ 
+ struct pipe_resource *
++nouveau_buffer_create_in(struct pipe_screen *pscreen, const struct pipe_resource *templ,
++                         unsigned force_domain);
++extern struct pipe_resource *
+ nouveau_buffer_create(struct pipe_screen *pscreen,
+                       const struct pipe_resource *templ);
+ 
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_fragprog.c b/src/gallium/drivers/nouveau/nv30/nv30_fragprog.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_fragprog.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_fragprog.c
+@@ -75,7 +75,10 @@ nv30_fragprog_upload(struct nv30_context *nv30)
+    struct pipe_context *pipe = &nv30->base.pipe;
+ 
+    if (unlikely(!fp->buffer))
+-      fp->buffer = pipe_buffer_create(pipe->screen, 0, 0, fp->insn_len * 4);
++      /* NV30_PS3_FP_GART: the program stays in GART (a stream buffer), where the CPU writes it
++       * directly, and is never copied to VRAM */
++      fp->buffer = pipe_buffer_create(pipe->screen, 0, nv30_fp_usage(nv30->screen),
++                                      fp->insn_len * 4);
+    if (!fp->buffer)
+       return false;
+ 
+@@ -98,7 +101,7 @@ nv30_fragprog_upload(struct nv30_context *nv30)
+    }
+ #endif
+ 
+-   if (nv04_resource(fp->buffer)->domain != NOUVEAU_BO_VRAM)
++   if (likely(!nv30->screen->fp_gart) && nv04_resource(fp->buffer)->domain != NOUVEAU_BO_VRAM)
+       nouveau_buffer_migrate(nv, nv04_resource(fp->buffer), NOUVEAU_BO_VRAM);
+    return true;
+ }
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_resource.c b/src/gallium/drivers/nouveau/nv30/nv30_resource.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_resource.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_resource.c
+@@ -53,6 +53,15 @@ nv30_resource_create(struct pipe_screen *pscreen,
+ {
+    switch (tmpl->target) {
+    case PIPE_BUFFER:
++      /* NV30_PS3_IDX_GART: an index buffer (not also a vertex buffer) is placed in GART, where the
++       * CPU writes it directly: no staging buffer and M2MF copy into it (nouveau_buffer.c, cpu_only) */
++      if (unlikely(nv30_screen(pscreen)->idx_gart) && (tmpl->bind & PIPE_BIND_INDEX_BUFFER) &&
++          !(tmpl->bind & PIPE_BIND_VERTEX_BUFFER)) {
++         struct pipe_resource *res = nouveau_buffer_create_in(pscreen, tmpl, NOUVEAU_BO_GART);
++         if (res)
++            nv04_resource(res)->cpu_only = 1;
++         return res;
++      }
+       return nouveau_buffer_create(pscreen, tmpl);
+    default:
+       return nv30_miptree_create(pscreen, tmpl);
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_screen.c b/src/gallium/drivers/nouveau/nv30/nv30_screen.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_screen.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_screen.c
+@@ -558,6 +558,9 @@ nv30_screen_create(struct nouveau_device *dev)
+    screen->ps3_vbo_fifo = ps3 && debug_get_bool_option("NV30_PS3_VBO_FIFO", false);
+    screen->gart_textures = ps3 && debug_get_bool_option("NV30_GART_TEXTURES", true);
+    screen->tex_invalidate_always = debug_get_bool_option("NV30_TEX_INVALIDATE_ALWAYS", false);
++   /* placement measurements, PS3 only, off by default: where index buffers and fragment programs live */
++   screen->idx_gart = ps3 && debug_get_bool_option("NV30_PS3_IDX_GART", false);
++   screen->fp_gart = ps3 && debug_get_bool_option("NV30_PS3_FP_GART", false);
+    screen->fp_const_vram = debug_get_bool_option("NV30_FP_CONST_VRAM", !ps3);
+    screen->index_upload = debug_get_num_option("NV30_INDEX_UPLOAD", ps3 ? 32 : 0);
+    screen->ctx_state_keep = debug_get_bool_option("NV30_CTX_STATE_KEEP", false);
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_screen.h b/src/gallium/drivers/nouveau/nv30/nv30_screen.h
+--- a/src/gallium/drivers/nouveau/nv30/nv30_screen.h
++++ b/src/gallium/drivers/nouveau/nv30/nv30_screen.h
+@@ -48,6 +48,8 @@ struct nv30_screen {
+    uint32_t lost_gen;
+ 
+    bool tex_invalidate_always; /* NV30_TEX_INVALIDATE_ALWAYS: before every draw, as before */
++   bool idx_gart;              /* NV30_PS3_IDX_GART: index buffers in GART (CPU-written), not VRAM */
++   bool fp_gart;               /* NV30_PS3_FP_GART: fragment programs in GART, not VRAM */
+    bool fp_const_vram;         /* NV30_FP_CONST_VRAM: constant changes re-upload the VRAM program */
+    unsigned index_upload;      /* NV30_INDEX_UPLOAD: least count of CPU-held indices uploaded */
+    bool ctx_state_keep;        /* NV30_CTX_STATE_KEEP: trust the state after the last context went */
+@@ -123,4 +125,11 @@ nv30_screen(struct pipe_screen *pscreen)
+    return (struct nv30_screen *)pscreen;
+ }
+ 
++/* The usage of a fragment program's buffer: default (VRAM), or stream (GART) with NV30_PS3_FP_GART. */
++static inline unsigned
++nv30_fp_usage(const struct nv30_screen *screen)
++{
++   return unlikely(screen->fp_gart) ? PIPE_USAGE_STREAM : PIPE_USAGE_DEFAULT;
++}
++
+ #endif

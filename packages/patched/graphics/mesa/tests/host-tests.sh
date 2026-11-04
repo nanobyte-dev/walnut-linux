@@ -24,6 +24,10 @@
 #   blit-state     0058: nv30_transfer_rect_blit sets the window offset 0, the window clip and COORD_CONVENTIONS of
 #                  its destination and points zeta at it, with the dirty bits for the next draw (state); the stream
 #                  the blit writes against the file as it was before 0058: only those words differ (golden)
+#   placement      0059: NV30_PS3_IDX_GART and NV30_PS3_FP_GART (state: both off as before, index buffers and
+#                  fragment programs in GART when on, a busy GART index buffer waited for and never staged and
+#                  GPU-copied; golden: the placement of a list of buffers with each switch against the default's:
+#                  only the index buffers' and the fragment program's domains differ)
 #   point-smooth   0050: round GL_POINT_SMOOTH points on Mesa's TGSI interpreter, and their NV40 translation
 # Each part prints "RESULT <suite>:<part> pass|fail|skip" (tools/ladder.py reads them). Exit 0 when every
 # part passed, 77 when the tree lacks what the suite tests (its patch) or a tool is missing, else 1.
@@ -35,9 +39,9 @@ t=${MESA_TESTS:-packages/patched/graphics/mesa/tests}
 S=${1:-}; shift || true
 declare -A PARTS=([forcedxt]="" [staging-pool]="" [vtx-snorm8]="unpack vpsim" [minmax-vmx]="host ppc64"
 	[query-steal]="" [query-lost]="end steal destroy elapsed deadline late x86" [alloc-fail]="upload mm-fallback mm-nomem fence fence-cancel pushbuf-flush pushbuf-destroy fix-off"
-	[transfer-cpu]="" [blit-state]="state golden" [point-smooth]="")
+	[transfer-cpu]="" [blit-state]="state golden" [placement]="state golden" [point-smooth]="")
 if [ "$S" = --list ]; then
-	for s in forcedxt staging-pool vtx-snorm8 minmax-vmx query-steal query-lost alloc-fail transfer-cpu blit-state point-smooth; do
+	for s in forcedxt staging-pool vtx-snorm8 minmax-vmx query-steal query-lost alloc-fail transfer-cpu blit-state placement point-smooth; do
 		echo "$s ${PARTS[$s]}"; done
 	exit 0
 fi
@@ -240,6 +244,31 @@ blit-state)
 			fi
 			result golden $rc
 		fi
+	fi
+	;;
+placement)
+	[ -e $M/src/gallium/drivers/nouveau/nv30/nv30_screen.c ] || skip "no Mesa tree at $M (make mesa-work)"
+	grep -q 'NV30_PS3_IDX_GART' $M/src/gallium/drivers/nouveau/nv30/nv30_screen.c || {
+		echo "no NV30_PS3_IDX_GART in this tree (before 0059)"; wants state && result state 1; wants golden && result golden 77; exit 1; }
+	gen || exit 1
+	mcc $T/placement-test $t/placement-test.c -Wall -Werror -Wno-unused-function || { echo "placement-test.c does not build against $M"; wants state && result state 1; wants golden && result golden 1; exit 1; }
+	export ASAN_OPTIONS=detect_leaks=0
+	if wants state; then $T/placement-test; result state $?; fi
+	if wants golden; then
+		rc=0
+		$T/placement-test dump > $T/placement-off.txt && $T/placement-test dump i > $T/placement-i.txt &&
+			$T/placement-test dump f > $T/placement-f.txt && $T/placement-test dump if > $T/placement-if.txt || rc=1
+		if [ $rc = 0 ]; then
+			# each switch changes only its own lines: IDX_GART the two index buffers that are not also vertex buffers and not stream
+			# (static, dynamic), FP_GART the fragment program
+			d=$(diff $T/placement-off.txt $T/placement-i.txt | grep '^>' | sed 's/:.*//; s/^> //' | tr '\n' ',')
+			[ "$d" = "index static,index dynamic," ] || { echo "IDX_GART changed: $d"; rc=1; }
+			d=$(diff $T/placement-off.txt $T/placement-f.txt | grep '^>' | sed 's/:.*//; s/^> //' | tr '\n' ',')
+			[ "$d" = "fragment program," ] || { echo "FP_GART changed: $d"; rc=1; }
+			[ "$(diff $T/placement-off.txt $T/placement-if.txt | grep -c '^>')" = 3 ] || { echo "both: not three changed lines"; rc=1; }
+			[ $rc != 0 ] || echo "ok   golden: IDX_GART moves the static and dynamic index buffers, FP_GART the fragment program, nothing else"
+		fi
+		result golden $rc
 	fi
 	;;
 point-smooth)
