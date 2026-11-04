@@ -19,7 +19,12 @@ set +f
 last=$(git log -1 --format=%H -- "${paths[@]}")
 n=$(git rev-list --count "$last")
 date=$(git log -1 --format=%cD "$last")
-if [ -n "$(git status --porcelain -- "${paths[@]}")" ]; then
+# LINUX_VARIANT (the lockdep kernel, tools/linux-config.sh): always a test build, so the release names of its
+# kernel packages and of the ps3rsx-modules built for it are its own, never those of the plain debug build of
+# the same commit (a ps3rsx built for another kernel config must not load into it)
+variant=
+[ "$PKG" != linux ] || [ -z "${LINUX_VARIANT:-}" ] || variant=1
+if [ -n "$variant" ] || [ -n "$(git status --porcelain -- "${paths[@]}")" ]; then
 	n="$((n + 1))~dev$(date -u +%Y%m%d%H%M%S)"
 	date=$(date -uR)
 fi

@@ -3,7 +3,8 @@
 # DEFCONFIG, then the flavour's packages/patched/kernel/linux/config/ fragments merged in order (merge_config.sh), then
 # olddefconfig. Fails if a fragment option didn't stick or a REQUIRE_* list of package.conf is not met
 # (tools/linux-config-check.sh).
-# Env: LINUX_VARIANT=<name> (debug flavour only): config/ps3-<name>.config is merged last, e.g. lockdep
+# Env: LINUX_VARIANT=<name> (the debug flavour only; the release one is made as always): config/ps3-<name>.config is
+# merged last, e.g. lockdep
 # (docs/PACKAGING.md "Kernels"); LINUX_CONFIG_CC: the compiler (default powerpc64-linux-gnu-gcc-16, the
 # deb builder's), for a host run of the configuration step.
 # Runs in the deb builder (powerpc64-linux-gnu-gcc-16, the compiler Debian's packaging uses).
@@ -15,8 +16,7 @@ var=FRAGMENTS_${FLAVOUR//-/_}
 [ -n "${!var:-}" ] || { echo "!! packages/patched/kernel/linux/package.conf: no $var" >&2; exit 1; }
 frags=()
 for f in ${!var}; do frags+=("$PWD/packages/patched/kernel/linux/config/$f"); done
-if [ -n "${LINUX_VARIANT:-}" ]; then
-	[ "$FLAVOUR" = debug ] || { echo "!! LINUX_VARIANT=$LINUX_VARIANT: only the debug flavour has variants" >&2; exit 1; }
+if [ -n "${LINUX_VARIANT:-}" ] && [ "$FLAVOUR" = debug ]; then	# the other flavours are built as they are
 	[[ $LINUX_VARIANT =~ ^[a-z]+$ ]] && [ -f "$PWD/packages/patched/kernel/linux/config/ps3-$LINUX_VARIANT.config" ] || \
 		{ echo "!! LINUX_VARIANT=$LINUX_VARIANT: no packages/patched/kernel/linux/config/ps3-$LINUX_VARIANT.config" >&2; exit 1; }
 	frags+=("$PWD/packages/patched/kernel/linux/config/ps3-$LINUX_VARIANT.config")
