@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """apt-repo/walnut-repo.py against the real servers/walnut.nanobyte.dev/walnut-watch: real .deb files, the
 published tree served over local HTTP, throwaway keys (archive, CI). python3 apt-repo/test_walnut_repo.py"""
-import base64, functools, hashlib, http.server, io, lzma, os, shutil, subprocess, tarfile, tempfile, threading, unittest
+import base64, functools, hashlib, http.server, io, lzma, os, shutil, subprocess, sys, tarfile, tempfile, threading, unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = f"{HERE}/walnut-repo.py"
 WATCH = f"{HERE}/../servers/walnut.nanobyte.dev/walnut-watch"
+sys.path.insert(0, f"{HERE}/../servers/walnut.nanobyte.dev")
+import walnut_testrules as testrules
 UPLOAD_ID = iter(range(1, 1000))
 
 
@@ -14,7 +16,11 @@ def make_deb(path, package, version, source=None, arch="ppc64", payload=b"", con
 	"""A .deb. payload: more bytes in the data tar (other bytes, same version). control: the whole control text
 	(for crafted ones); control_tar: the control tar's members [(name, bytes)] instead of one ./control;
 	ar_extra: more ar members [(name, bytes)] after data.tar.xz; control_member: (name, bytes) in place of the
-	control.tar.xz member (corrupt, other compression, a bomb)."""
+	control.tar.xz member (corrupt, other compression, a bomb). A well-formed deb is written under the name dpkg-deb
+	gives it (<package>_<version>_<arch>.deb, in path's directory) and that path is returned: the server checks the
+	pool name against the stanza, and CI's debs always have that name."""
+	if control is None and control_tar is None and not ar_extra and control_member is None and " " not in path:
+		path = os.path.join(os.path.dirname(path), f"{package}_{version.split(':', 1)[-1]}_{arch}.deb")
 	if control is None:
 		control = f"Package: {package}\nVersion: {version}\nArchitecture: {arch}\nMaintainer: T <t@t>\n"
 		if source:
@@ -107,6 +113,7 @@ class Repo(unittest.TestCase):
 				for f in fs:
 					p = os.path.join(d, f)
 					m.write(f"{hashlib.sha256(open(p, 'rb').read()).hexdigest()}  {os.path.relpath(p, bundle)}\n")
+		testrules.prepare(self.root, [bundle])	# the rules deploy.sh --rules would install, for this test's packages and keys
 		r = subprocess.run([WATCH], env=dict(os.environ, WALNUT_ROOT=self.root, WALNUT_NO_DOCKER="1"),
 		                   capture_output=True, text=True)
 		self.assertEqual(r.returncode, 0, r.stderr)
@@ -436,14 +443,15 @@ class Repo(unittest.TestCase):
 				ti.size = len(c)
 				t.addfile(ti, io.BytesIO(c))
 			z = subprocess.run(["zstd", "-q", "-c"], input=b.getvalue(), capture_output=True, check=True).stdout
-			deb = make_deb(f"{d}/z.deb", "zpkg", "1", control_member=("control.tar.zst", z))
+			deb = make_deb(f"{d}/zpkg_1_ppc64.deb", "zpkg", "1", control_member=("control.tar.zst", z))
 			self.assertTrue(self.publish(self.add([deb])).startswith("ok"))
 
 
 	def test_pool_copies_are_plain_files_written_once(self):
 		"""L-4: a link as an argument, and one pool path with two contents, are refused."""
 		d = self.debs
-		real = make_deb(f"{d}/real.deb", "linked", "1")
+		os.makedirs(f"{d}/real")
+		real = make_deb(f"{d}/real/linked_1_ppc64.deb", "linked", "1")
 		os.symlink(real, f"{d}/linked_1_ppc64.deb")
 		r = self.repo("add", "--suite", "testing", "--keyring", self.keys["ci"][2], "--sign-key",
 		              self.keys["ci"][1], "--out", f"{self.root}/o", f"{d}/linked_1_ppc64.deb", ok=False)

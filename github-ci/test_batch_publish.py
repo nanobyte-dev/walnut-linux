@@ -184,6 +184,7 @@ kind=$1 id=$2 dir=$3
 cp -r "$dir" "$WALNUT_ROOT/incoming/$kind/$id"
 (cd "$dir" && find . -type f -printf '%P\\0' | LC_ALL=C sort -z | xargs -0r sha256sum) > "$WALNUT_ROOT/incoming/$kind/$id.ready"
 echo "$id" >> "$WALNUT_ROOT/uploads"
+python3 -I "$(dirname "$WATCH")/walnut_testrules.py" "$WALNUT_ROOT" "$dir"
 WALNUT_NO_DOCKER=1 "$WATCH" >/dev/null
 """
 
