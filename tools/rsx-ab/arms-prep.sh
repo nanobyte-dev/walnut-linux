@@ -9,11 +9,12 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 [ $# -ge 1 ] && [ $# -le 3 ] || { echo "usage: $0 B.deb [C.deb [D.deb]]" >&2; exit 2; }
-O=build/tmp/rsx-ab/arms
+O=${ARMS_OUT:-build/tmp/rsx-ab/arms}
 W=$(mktemp -d build/tmp/rsx-ab-prep.XXXXXX)
 trap 'rm -rf "$W"' EXIT
 mkdir -p "$O"
-URL=https://walnut.nanobyte.dev/apt
+URL=${WALNUT_APT:-https://walnut.nanobyte.dev/apt}
+KEYRING=${ARCHIVE_KEYRING:-apt-repo/keyrings/archive-keyring.gpg}
 
 # the .ko and the control fields of a deb, without dpkg-deb (the PC may not have it)
 deb_x() {	# deb_x DEB DIR
@@ -40,10 +41,12 @@ case $pkg in ps3rsx-modules-6.*) ;; *) echo "!! $1 is $pkg, not a ps3rsx-modules
 
 # arm A: the published stable build of the same package (same kernel release)
 curl -sf -o "$W/InRelease" "$URL/dists/stable/InRelease"
-gpgv --keyring apt-repo/keyrings/archive-keyring.gpg "$W/InRelease" 2>/dev/null ||
+# only what gpgv verified is read (--output is the signed text alone): a line added around the signed part of
+# InRelease is never seen
+gpgv --keyring "$KEYRING" --output "$W/Release" "$W/InRelease" 2>/dev/null ||
 	{ echo "!! stable InRelease: bad or missing signature" >&2; exit 1; }
 curl -sf -o "$W/Packages" "$URL/dists/stable/main/binary-ppc64/Packages"
-[ "$(sha256sum "$W/Packages" | cut -d' ' -f1)" = "$(grep ' main/binary-ppc64/Packages$' "$W/InRelease" | tail -1 | awk '{print $1}')" ] ||
+[ "$(sha256sum "$W/Packages" | cut -d' ' -f1)" = "$(grep ' main/binary-ppc64/Packages$' "$W/Release" | tail -1 | awk '{print $1}')" ] ||
 	{ echo "!! Packages doesn't match InRelease" >&2; exit 1; }
 read -r file sha < <(python3 -I - "$W/Packages" "$pkg" <<'EOF'
 import re, sys

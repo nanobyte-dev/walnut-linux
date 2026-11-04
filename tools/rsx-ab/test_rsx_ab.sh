@@ -208,6 +208,23 @@ if command -v gpg >/dev/null && command -v gpgv >/dev/null; then
 	check "mesa-arms-prep: walnut-stable's debs from a signed index" 'prep "$T/repo" "$T/stable-out" && [ -e "$T/stable-out/A/lib/libgallium-26.2.4-1+ps3.1.so" ]'
 	check "mesa-arms-prep: text appended after the signed part of InRelease is not read (the signed hash is used)" 'prep "$T/repo-appended" "$T/app-out"'
 	check "mesa-arms-prep: an InRelease whose signed text changed is refused" '! prep "$T/repo-forged" "$T/forged-out" && grep -q "bad or missing signature" "$T/forged-out.out"'
+	# the same reading in arms-prep.sh (lane A's, ps3rsx's arm A): an appended line does not decide
+	mkmod() {	# mkmod DEBDIR VERSION: a ps3rsx-modules deb with a module
+		local w=$T/mk-mod-$2 k=6.12.115+ps3.$2
+		rm -rf "$w"; mkdir -p "$w/data/lib/modules/$k/updates" "$w/ctl" "$1"
+		echo "ps3rsx $2 vermagic=$k SMP" > "$w/data/lib/modules/$k/updates/ps3rsx.ko"
+		printf 'Package: ps3rsx-modules-6.12.115+ps3.1\nVersion: 0.%s\nArchitecture: ppc64\n' "$2" > "$w/ctl/control"
+		echo 2.0 > "$w/debian-binary"
+		tar -cJf "$w/control.tar.xz" -C "$w/ctl" ./control; tar -cJf "$w/data.tar.xz" -C "$w/data" .
+		(cd "$w" && ar rc "$1/ps3rsx-modules-6.12.115+ps3.1_0.$2_ppc64.deb" debian-binary control.tar.xz data.tar.xz)
+	}
+	mkmod "$T/modA" 1; mkmod "$T/modB" 2
+	mkrepo "$T/mrepo" "$T/modA" "ps3rsx-modules-6.12.115+ps3.1"
+	cp -r "$T/mrepo" "$T/mrepo-app"
+	printf ' %064d 1 main/binary-ppc64/Packages\n' 0 >> "$T/mrepo-app/dists/stable/InRelease"
+	aprep() { (cd "$here/../.." && WALNUT_APT=file://$1 ARCHIVE_KEYRING=$T/kr.gpg ARMS_OUT=$2 bash "$here/arms-prep.sh" "$(realpath --relative-to=. "$T"/modB/*.deb)" > "$2.out" 2>&1) || { cat "$2.out"; return 1; }; }
+	check "arms-prep: ps3rsx arm A from a signed index" 'aprep "$T/mrepo" "$T/arms-out" && [ -e "$T/arms-out/A/ps3rsx.ko" ] && [ -e "$T/arms-out/B/ps3rsx.ko" ]'
+	check "arms-prep: text appended after the signed part of InRelease is not read" 'aprep "$T/mrepo-app" "$T/arms-out2"'
 else
 	echo "SKIP rsx-ab:inrelease no gpg"
 fi
