@@ -19,7 +19,11 @@
 # MESA_AB=1: a Mesa A/B instead (old Mesa against new, the ps3rsx build unchanged): the arms are two Mesa
 # builds in /var/tmp/rsx-ab/mesa/{A,B} (mesa-arms-prep.sh on the PC), and each run gets its arm's
 # LD_LIBRARY_PATH, LIBGL_DRIVERS_PATH and GBM_BACKENDS_PATH (mesa-arm.sh, MESA_ARM); the same arm
-# letters and log, so abba-report.py reads it the same way. EXTRA is for ps3rsx arms: not with MESA_AB.
+# letters and log, so abba-report.py reads it the same way. The arms cover the CLIENTS only: Xorg is started through
+# the setuid Xorg.wrap, which ignores the environment, so the X server (and the xloop case) runs the installed
+# Mesa. Every arm's files are checked by hash at the switch, and every run afterwards: LD_DEBUG=libs (to tmpfs, loads
+# only, the same for both arms) lists what each process loaded, and a run that loaded a Mesa library from outside
+# the arm's directory, or none, stops the batch (mesa-arm.sh check-run). EXTRA is for ps3rsx arms: not with MESA_AB.
 # Stops at the first failed arm switch, and at a graph exception (nothing reloads after one).
 set -uo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
@@ -32,6 +36,8 @@ cd "$BENCH/harness" || exit 1
 ARMS=${ARMS:-A B B A}
 CASES=${CASES:-luanti neverball supertuxkart trigger-rally openarena mpv xloop}
 [ -z "${MESA_AB:-}" ] || [ -z "${EXTRA:-}" ] || { echo "abba-batch: EXTRA (ps3rsx arms) with MESA_AB" >&2; exit 1; }
+LDDIR=${LDDIR:-/dev/shm/rsx-ab-ld}
+[ -z "${MESA_AB:-}" ] || echo "abba-batch: Mesa A/B: the arms cover the CLIENTS only; Xorg (setuid Xorg.wrap) ignores them and runs the installed Mesa" >&2
 export MESA_BASE_LD=${LD_LIBRARY_PATH-}	# what a Mesa arm's LD_LIBRARY_PATH keeps behind its own
 n_arms=$(( $(wc -w <<<"$ARMS") + $(wc -w <<<"${EXTRA:-}") ))
 export BATCH_NAME=rsxab BATCH_TOTAL=$(( n_arms * $(wc -w <<<"$CASES") ))
@@ -54,13 +60,21 @@ one() {	# one CASE ARM
 arm_run() {	# arm_run ARM [PARAM=VALUE...]
 	local a=$1; shift
 	if [ -n "${MESA_AB:-}" ]; then	# the arm is the Mesa the runs use: no module is reloaded
-		"$MESA_ARM" select "$a" && eval "$("$MESA_ARM" env "$a")" || { echo "abba-batch: Mesa arm $a isn't usable: stopping" >&2; exit 1; }
+		e=$("$MESA_ARM" select "$a" && "$MESA_ARM" env "$a") && eval "$e" || { echo "abba-batch: Mesa arm $a isn't usable: stopping" >&2; exit 1; }
 	else
 		"$RSX_ARM" "$a" "$@" || { echo "abba-batch: arm $a didn't load: stopping" >&2; exit 1; }
 	fi
 	sudo cat /sys/kernel/debug/dri/0/ps3rsx_mm 2>/dev/null | grep -E '^(clear|reuse):' | sed "s/^/arm $a before: /"
 	for c in $CASES; do
+		if [ -n "${MESA_AB:-}" ]; then	# LD_DEBUG=libs on tmpfs, loads only: what each process of the run loaded
+			rm -rf "$LDDIR"; mkdir -p "$LDDIR"
+			export LD_DEBUG=libs LD_DEBUG_OUTPUT="$LDDIR/ld"
+		fi
 		one "$c" "$a"
+		if [ -n "${MESA_AB:-}" ]; then
+			unset LD_DEBUG LD_DEBUG_OUTPUT
+			"$MESA_ARM" check-run "$a" "$LDDIR" || { echo "abba-batch: the $c run did not use Mesa arm $a: stopping" >&2; exit 1; }
+		fi
 		if exception; then echo "abba-batch: graph exception: stopping (no desktop restart)" >&2; exit 1; fi
 	done
 	sudo cat /sys/kernel/debug/dri/0/ps3rsx_mm 2>/dev/null | grep -E '^(clear|reuse):' | sed "s/^/arm $a after: /"

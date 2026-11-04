@@ -53,12 +53,13 @@ check "no harness: refused before any arm" '[ $? != 0 ] && [ ! -s "$LOG" ]'
 mkdir -p "$T/mbench/harness" "$T/mbin"
 cat > "$T/mbench/harness/run.sh" <<'X'
 #!/bin/bash
-echo "run.sh $* LD=${LD_LIBRARY_PATH-} DRI=${LIBGL_DRIVERS_PATH-} GBM=${GBM_BACKENDS_PATH-}" >> "$LOG"
+echo "run.sh $* LD=${LD_LIBRARY_PATH-} DRI=${LIBGL_DRIVERS_PATH-} GBM=${GBM_BACKENDS_PATH-} LDD=${LD_DEBUG-}:${LD_DEBUG_OUTPUT-}" >> "$LOG"
 X
 cat > "$T/marm" <<'X'
 #!/bin/bash
 case $1 in
 select) echo "mesa select $2" >> "$LOG" ;;
+check-run) echo "mesa check-run $2 ${3-}" >> "$LOG"; [ -z "${FAIL_CHECK:-}" ] ;;
 env) if [ "$2" = off ]; then
 		if [ -n "${MESA_BASE_LD:-}" ]; then echo "export LD_LIBRARY_PATH='$MESA_BASE_LD'"; else echo "unset LD_LIBRARY_PATH"; fi
 		echo "unset LIBGL_DRIVERS_PATH GBM_BACKENDS_PATH"
@@ -79,7 +80,9 @@ check "Mesa A/B: no ps3rsx module is reloaded" '! grep -q "^arm " "$LOG"'
 got=$(grep -o '^mesa select .*' "$LOG" | tr '\n' ';')
 check "Mesa A/B: the arms are selected in ABBA order" '[ "$got" = "mesa select A;mesa select B;mesa select B;mesa select A;" ]'
 check "Mesa A/B: each run has its arm's libraries, driver path and gbm path, the system's LD_LIBRARY_PATH behind" \
-	'[ "$(grep "^run.sh" "$LOG" | sed "s/^run.sh bench neverball base 1 //" | tr "\n" ";")" = "LD=/m/A/lib:/sys0 DRI=/m/A/dri GBM=/m/A/lib/gbm;LD=/m/B/lib:/sys0 DRI=/m/B/dri GBM=/m/B/lib/gbm;LD=/m/B/lib:/sys0 DRI=/m/B/dri GBM=/m/B/lib/gbm;LD=/m/A/lib:/sys0 DRI=/m/A/dri GBM=/m/A/lib/gbm;" ]'
+	'[ "$(grep "^run.sh" "$LOG" | sed -e "s/^run.sh bench neverball base 1 //" -e "s/ LDD=.*//" | tr "\n" ";")" = "LD=/m/A/lib:/sys0 DRI=/m/A/dri GBM=/m/A/lib/gbm;LD=/m/B/lib:/sys0 DRI=/m/B/dri GBM=/m/B/lib/gbm;LD=/m/B/lib:/sys0 DRI=/m/B/dri GBM=/m/B/lib/gbm;LD=/m/A/lib:/sys0 DRI=/m/A/dri GBM=/m/A/lib/gbm;" ]'
+check "Mesa A/B: every run has LD_DEBUG=libs on tmpfs, and is checked after it against its arm" \
+	'[ "$(grep -c "^run.sh.* LDD=libs:/dev/shm/rsx-ab-ld/ld$" "$LOG")" = 4 ] && [ "$(grep -o "^mesa check-run .*" "$LOG" | tr "\n" ";")" = "mesa check-run A /dev/shm/rsx-ab-ld;mesa check-run B /dev/shm/rsx-ab-ld;mesa check-run B /dev/shm/rsx-ab-ld;mesa check-run A /dev/shm/rsx-ab-ld;" ]'
 check "Mesa A/B: the desktop comes back on the system's Mesa" '[ "$(tail -1 "$LOG")" = "ps3-bench.sh desktop LD=/sys0 DRI=" ]'
 : > "$LOG"
 PATH=$T/mbin:$PATH BENCH=$T/mbench RSX_ARM=$T/arm MESA_ARM=$T/marm DESK=$T/desk MESA_AB=1 EXTRA="C:test_clear_off=1" \
@@ -91,6 +94,16 @@ cat > "$T/marm-bad" <<'X'
 exec "$(dirname "$0")/marm" "$@"
 X
 chmod +x "$T/marm-bad"
+: > "$LOG"
+PATH=$T/mbin:$PATH BENCH=$T/mbench RSX_ARM=$T/arm MESA_ARM=$T/marm-bad DESK=$T/desk MESA_AB=1 CASES="neverball" \
+	bash "$here/abba-batch.sh" > "$T/out" 2>&1
+rc=$?
+: > "$LOG"
+FAIL_CHECK=1 PATH=$T/mbin:$PATH BENCH=$T/mbench RSX_ARM=$T/arm MESA_ARM=$T/marm DESK=$T/desk MESA_AB=1 CASES="neverball" \
+	bash "$here/abba-batch.sh" > "$T/out" 2>&1
+rc=$?
+check "Mesa A/B: a run that did not use its arm stops the batch" '[ $rc != 0 ] && [ "$(grep -c "^run.sh" "$LOG")" = 1 ] && ! grep -q "ps3-bench.sh desktop" "$LOG" && grep -q "did not use Mesa arm A" "$T/out"'
+check "Mesa A/B: the output says it covers clients only" 'grep -q "CLIENTS only" "$T/out"'
 : > "$LOG"
 PATH=$T/mbin:$PATH BENCH=$T/mbench RSX_ARM=$T/arm MESA_ARM=$T/marm-bad DESK=$T/desk MESA_AB=1 CASES="neverball" \
 	bash "$here/abba-batch.sh" > "$T/out" 2>&1
@@ -130,7 +143,10 @@ check "mesa-arms-prep: the same build twice is called out" \
 mkdir -p "$T/debsC"; cp "$T/debsA"/*.deb "$T/debsC/"; rm "$T/debsC/mesa-libgallium_"*; mkdeb "$T/debsC" mesa-libgallium 26.2.4-1+ps3.9
 check "mesa-arms-prep: debs of two builds mixed in one arm are refused" \
 	'! (cd "$here/../.." && MESA_ARMS_OUT=$T/mesa-out3 bash "$here/mesa-arms-prep.sh" "$T/debsB" "$T/debsC" > "$T/mix.out" 2>&1)'
-check "mesa-arms-prep: ...with the reason" 'grep -q "debs are not of one build" "$T/mix.out"'
+check "mesa-arms-prep: ...with the reason" 'grep -q "not one build" "$T/mix.out"'
+mkdeb "$T/debsD" mesa-libgallium 26.2.4-1+ps3.2; mkdeb "$T/debsD" mesa-libgallium 26.2.4-1+ps3.3
+check "mesa-arms-prep: two versions of a package in an arm's directory are refused" \
+	'! (cd "$here/../.." && MESA_ARMS_OUT=$T/mesa-out4 bash "$here/mesa-arms-prep.sh" "$T/debsD" "$T/debsA" > "$T/two.out" 2>&1) && grep -q "want one" "$T/two.out"'
 export MESA_DIR=$T/mesa-out RSX_ARMS_LOG=$T/arms.log
 check "mesa-arm select: logs the switch like rsx-arm.sh" \
 	'bash "$here/mesa-arm.sh" select B > /dev/null && [ "$(cut -f2- "$T/arms.log")" = "$(printf "B\t26.2.4-1+ps3.2\tmesa")" ]'
@@ -138,10 +154,63 @@ check "mesa-arm env: the three variables, the arm's directories first" \
 	'[ "$(MESA_BASE_LD=/sys0 bash "$here/mesa-arm.sh" env A | tr "\n" ";")" = "export LD_LIBRARY_PATH='"'$T/mesa-out/A/lib:/sys0'"';export LIBGL_DRIVERS_PATH='"'$T/mesa-out/A/dri'"';export GBM_BACKENDS_PATH='"'$T/mesa-out/A/lib/gbm'"';" ]'
 check "mesa-arm env off: the caller's path back, the others unset" \
 	'[ "$(MESA_BASE_LD=/sys0 bash "$here/mesa-arm.sh" env off | tr "\n" ";")" = "export LD_LIBRARY_PATH='"'/sys0'"';unset LIBGL_DRIVERS_PATH GBM_BACKENDS_PATH;" ]'
+check "mesa-arm select: says it covers clients only" 'bash "$here/mesa-arm.sh" select A 2>&1 | grep -q "clients only"'
+for t in glx egl extra link gbm; do rm -rf "$T/m-$t"; cp -a "$T/mesa-out" "$T/m-$t"; done
+echo changed >> "$T/m-glx/A/lib/libGLX_mesa.so.0.0.0"
+echo changed >> "$T/m-egl/A/lib/libEGL_mesa.so.0.0.0"
+echo x > "$T/m-extra/A/lib/extra.so"
+ln -sf libgbm.so.1.0.0 "$T/m-link/A/lib/libgbm.so.1.1"
+echo changed >> "$T/m-gbm/A/lib/gbm/dri_gbm.so"
+for t in glx egl extra link gbm; do
+	check "mesa-arm select: an arm with a changed, extra or relinked file is refused ($t)" '! MESA_DIR=$T/m-$t bash "$here/mesa-arm.sh" select A 2>/dev/null'
+done
+check "mesa-arm select: ...and the untouched arm B still passes" 'MESA_DIR=$T/m-glx bash "$here/mesa-arm.sh" select B 2>/dev/null'
+# check-run: what the processes of a run loaded (LD_DEBUG=libs output)
+mkdir -p "$T/ldok" "$T/ldbad" "$T/ldnone"
+printf '  1234:\tcalling init: %s/A/lib/libgallium-26.2.4-1+ps3.1.so\n  1234:\tcalling init: %s/A/lib/libGLX_mesa.so.0\n  1234:\tcalling init: %s/A/dri/libdril_dri.so\n  1235:\tcalling init: /lib/libc.so.6\n' "$T/mesa-out" "$T/mesa-out" "$T/mesa-out" > "$T/ldok/ld.1234"
+cp "$T/ldok/ld.1234" "$T/ldbad/ld.1234"; printf '  1236:\tcalling init: /usr/lib/powerpc64-linux-gnu/libEGL_mesa.so.0\n' > "$T/ldbad/ld.1236"
+printf '  1237:\tcalling init: /lib/libc.so.6\n' > "$T/ldnone/ld.1237"
+check "mesa-arm check-run: a run whose Mesa libraries are all the arm's passes" 'MESA_DIR=$T/mesa-out bash "$here/mesa-arm.sh" check-run A "$T/ldok" >/dev/null 2>&1'
+check "mesa-arm check-run: a library from outside the arm fails the run" '! MESA_DIR=$T/mesa-out bash "$here/mesa-arm.sh" check-run A "$T/ldbad" 2>"$T/bad.err" && grep -q "from elsewhere" "$T/bad.err"'
+check "mesa-arm check-run: a run that loaded no libgallium fails" '! MESA_DIR=$T/mesa-out bash "$here/mesa-arm.sh" check-run A "$T/ldnone" 2>/dev/null'
+check "mesa-arm check-run: no LD_DEBUG output at all fails" '! MESA_DIR=$T/mesa-out bash "$here/mesa-arm.sh" check-run A "$T/nothere" 2>/dev/null'
 echo changed >> "$T/mesa-out/B/lib/libgallium-26.2.4-1+ps3.2.so"
 check "mesa-arm select: a libgallium that isn't the one prepared is refused" '! bash "$here/mesa-arm.sh" select B 2>/dev/null'
 check "mesa-arm select: a missing arm is refused" '! bash "$here/mesa-arm.sh" select C 2>/dev/null'
 unset MESA_DIR RSX_ARMS_LOG
+
+# M6: only the signed text of InRelease is read. A fake repository signed with a throwaway key.
+if command -v gpg >/dev/null && command -v gpgv >/dev/null; then
+	GH=$T/gh; mkdir -m 700 "$GH"
+	gpg --homedir "$GH" --batch --pinentry-mode loopback --passphrase '' --quick-generate-key "test <t@example.org>" default default never >/dev/null 2>&1
+	gpg --homedir "$GH" --export > "$T/kr.gpg" 2>/dev/null
+	mkrepo() {	# mkrepo DIR DEBDIR PKGS...: pool/, Packages and a signed InRelease of walnut-stable look-alike
+		local r=$1 d=$2 p f
+		shift 2
+		mkdir -p "$r/pool" "$r/dists/stable/main/binary-ppc64"
+		: > "$r/dists/stable/main/binary-ppc64/Packages"
+		for p in "$@"; do
+			f=$(ls "$d"/"${p}"_*.deb | head -1)
+			cp "$f" "$r/pool/"
+			printf 'Package: %s\nFilename: pool/%s\nSHA256: %s\n\n' "$p" "$(basename "$f")" "$(sha256sum "$f" | cut -d' ' -f1)" >> "$r/dists/stable/main/binary-ppc64/Packages"
+		done
+		printf 'Suite: stable\nSHA256:\n %s %s main/binary-ppc64/Packages\n' "$(sha256sum "$r/dists/stable/main/binary-ppc64/Packages" | cut -d' ' -f1)" \
+			"$(stat -c %s "$r/dists/stable/main/binary-ppc64/Packages")" > "$r/Release.txt"
+		gpg --homedir "$GH" --batch --pinentry-mode loopback --passphrase '' --clearsign -o "$r/dists/stable/InRelease" "$r/Release.txt" 2>/dev/null
+	}
+	mkrepo "$T/repo" "$T/debsA" mesa-libgallium libgl1-mesa-dri libegl-mesa0 libglx-mesa0 libgbm1
+	cp -r "$T/repo" "$T/repo-appended"
+	# a line after the signed part, naming another Packages hash: the old reading took the last matching line
+	printf ' %064d 1 main/binary-ppc64/Packages\n' 0 >> "$T/repo-appended/dists/stable/InRelease"
+	cp -r "$T/repo" "$T/repo-forged"
+	sed -i "s|^ \([0-9a-f]\{8\}\)|  \1|" "$T/repo-forged/dists/stable/InRelease"	# the signed text changed
+	prep() { (cd "$here/../.." && WALNUT_APT=file://$1 ARCHIVE_KEYRING=$T/kr.gpg MESA_ARMS_OUT=$2 bash "$here/mesa-arms-prep.sh" "$T/debsB" > "$2.out" 2>&1); }
+	check "mesa-arms-prep: walnut-stable's debs from a signed index" 'prep "$T/repo" "$T/stable-out" && [ -e "$T/stable-out/A/lib/libgallium-26.2.4-1+ps3.1.so" ]'
+	check "mesa-arms-prep: text appended after the signed part of InRelease is not read (the signed hash is used)" 'prep "$T/repo-appended" "$T/app-out"'
+	check "mesa-arms-prep: an InRelease whose signed text changed is refused" '! prep "$T/repo-forged" "$T/forged-out" && grep -q "bad or missing signature" "$T/forged-out.out"'
+else
+	echo "SKIP rsx-ab:inrelease no gpg"
+fi
 
 # desktop-cases.sh's mpv script, extracted from the file, on a fake mp
 lua=$(sed -n "/cat > \"\$lua\" <<'EOF'$/,/^EOF$/p" "$here/desktop-cases.sh" | sed '1d;$d')
