@@ -78,9 +78,11 @@ if [ -z "${WALNUT_SIGN_PASSPHRASE_FILE:-}" ] && [ -z "${WALNUT_SIGN_KEY_FPR:-}" 
 	export WALNUT_SIGN_PASSPHRASE_FILE=$tmp/passphrase
 fi
 
+# "$fpr!" makes gpg sign with exactly the primary key: without the "!" it signs with the newest signing subkey whose secret
+# it holds, and the server (walnut-watch's pins) accepts the licensed suite from the primary key's fingerprint only
 for attempt in 1 2 3 4 5; do
 	b=build/tmp/licensed-bundle
-	apt-repo/walnut-repo.py --url "$URL" add --suite licensed --keyring "$RING" --sign-key "$fpr" --strict \
+	apt-repo/walnut-repo.py --url "$URL" add --suite licensed --keyring "$RING" --sign-key "$fpr!" --strict \
 		--out "$b" "${files[@]}"
 	[ ! -d "$b/dists/licensed-debug" ] || { echo "!! debug symbols have no place in the licensed suite" >&2; exit 1; }
 	if [ "${DRY_RUN:-0}" = 1 ]; then echo ">> DRY_RUN: the bundle is in $b, not uploaded"; exit 0; fi

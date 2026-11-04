@@ -552,6 +552,15 @@ class DeployAptCheck(unittest.TestCase):
         self.assertNotIn("apt-get check: ok", r.stdout)
 
 
+class LicensedSigning(unittest.TestCase):
+    """V4/M4: the licensed publish signs with the primary key itself (fpr!), the one key walnut-watch pins for the suite"""
+
+    def test_sign_key_is_exact(self):
+        text = (REPO / "apt-repo" / "licensed-publish.sh").read_text()
+        self.assertIn('--sign-key "$fpr!"', text)
+        self.assertNotIn('--sign-key "$fpr" ', text)
+
+
 class StagedDebBuild(unittest.TestCase):
     """Q15: tools/deb-build.sh (BUILD=indep, stub dpkg tools) stages its output in build/debs/.new-<pkg>; a failed
     rebuild leaves the previous debs in place, a successful one replaces them"""
