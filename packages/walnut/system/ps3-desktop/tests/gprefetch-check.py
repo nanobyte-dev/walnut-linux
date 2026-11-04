@@ -49,11 +49,14 @@ def drop(*paths):
     for p in paths:
         fd = os.open(p, os.O_RDONLY)
         os.fdatasync(fd)
-        # DONTNEED skips pages that are under writeback or readahead at that moment (a runner's disk is slow, the PC's
-        # is not): look again until none is resident, so the tests start from the state they name
-        for _ in range(100):
+        # DONTNEED skips pages that are under writeback or readahead at that moment, and readahead that is still in
+        # flight lands after it (a runner's disk is slow, the PC's is not): drop again until the file has stayed
+        # out of memory for a short while, so the tests start from the state they name
+        quiet = 0
+        for _ in range(200):
             os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_DONTNEED)
-            if resident_pages(p) == 0:
+            quiet = quiet + 1 if resident_pages(p) == 0 else 0
+            if quiet >= 3:
                 break
             time.sleep(0.05)
         os.close(fd)
