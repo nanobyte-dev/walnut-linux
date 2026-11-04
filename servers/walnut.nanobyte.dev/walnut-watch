@@ -277,6 +277,20 @@ def publish_download(bid, staging):
 
 # --- apt / licensed --------------------------------------------------------------------------
 
+INDEX_MAX = 256 << 20	# one copy of an index, decompressed (a real Packages is a few MiB)
+
+
+def _read_capped(f):
+	"""All of f, or Refused E-INDEX past INDEX_MAX: streamed, so a compression bomb never gets as far as memory"""
+	chunks, total = [], 0
+	while chunk := f.read(1 << 20):
+		total += len(chunk)
+		if total > INDEX_MAX:
+			raise Refused(f"an index is longer than {INDEX_MAX >> 20} MiB decompressed", "E-INDEX")
+		chunks.append(chunk)
+	return b"".join(chunks)
+
+
 def _zstd_open():
 	try:
 		from compression import zstd	# Python 3.14
@@ -295,7 +309,7 @@ def read_index(path):
 	for ext, op in (("", open), (".gz", gzip.open), (".xz", lzma.open), (".bz2", bz2.open), (".zst", None)):
 		if os.path.isfile(path + ext):
 			with (op or _zstd_open())(path + ext, "rb") as f:
-				texts.append((ext, f.read().decode("utf-8", "replace")))
+				texts.append((ext, _read_capped(f).decode("utf-8", "replace")))
 	if any(t != texts[0][1] for _, t in texts):
 		raise Refused(f"{os.path.basename(path)}: the copies of this index ({', '.join(e or 'plain' for e, _ in texts)}) are not the same text", "E-INDEX")
 	return texts[0][1] if texts else None

@@ -10,7 +10,8 @@
 <link rel="stylesheet" href="{{ $css.RelPermalink }}">
 {{/* Walnut's browser (Badwolf, +ps3 patched) says "Walnut" in its User-Agent: the class shows "Open in Walnut
      Games" (.walnut-os-only) before the page is drawn. NetSurf runs no script here; its user stylesheet shows it */}}
-{{ if not site.Params.app }}<script>if (/\bWalnut\b/.test(navigator.userAgent)) document.documentElement.className += " walnut-os";</script>{{ end }}
+{{/* an external script, not inline: the site's CSP is script-src 'self'. Not deferred, so the class is set before the page is drawn */}}
+{{ if not site.Params.app }}{{ $os := resources.Get "walnut-os.js" | minify | fingerprint }}<script src="{{ $os.RelPermalink }}"></script>{{ end }}
 {{ if not site.Params.app }}{{ range .AlternativeOutputFormats }}<link rel="{{ .Rel }}" type="{{ .MediaType.Type }}" href="{{ .Permalink }}" title="{{ site.Title }}">{{ end }}{{ end }}
 </head>
 <body>

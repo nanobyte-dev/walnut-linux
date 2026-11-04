@@ -710,6 +710,25 @@ binaries = ["linux-image-@RELEASE@"]
 		self.run_watch()
 		self.assertTrue(self.status("apt", "same").startswith("ok "), self.status("apt", "same"))
 
+	def test_an_index_bomb_is_refused_while_streaming(self):
+		"""N2: a small .gz that expands past the cap is E-INDEX, read only up to the cap"""
+		import importlib.machinery, importlib.util
+		os.environ["WALNUT_ROOT"] = self.root
+		spec = importlib.util.spec_from_loader("ww2", importlib.machinery.SourceFileLoader("ww2", WATCH))
+		ww = importlib.util.module_from_spec(spec)
+		spec.loader.exec_module(ww)
+		ww.INDEX_MAX = 1 << 20
+		p = f"{self.root}/Packages"
+		with open(p + ".gz", "wb") as f:
+			f.write(gzip.compress(b"Package: x\n" * (1 << 20), 9))		# 11 MiB of text in a few KiB
+		self.assertLess(os.path.getsize(p + ".gz"), 100000)
+		with self.assertRaises(ww.Refused) as cm:
+			ww.read_index(p)
+		self.assertEqual(cm.exception.code, "E-INDEX")
+		with open(p + ".gz", "wb") as f:
+			f.write(gzip.compress(b"Package: x\n", 9))
+		self.assertEqual(ww.read_index(p), "Package: x\n")
+
 	def test_relations(self):
 		code = lambda bid: self.refused_code("apt", bid)
 		self.apt_case("prov", {"foo_1_ppc64.deb": b"f"}, fields={"foo": {"Provides": "sudo"}})
@@ -1028,6 +1047,29 @@ class Conf(unittest.TestCase):
 		self.assertEqual(c.count("script-src 'self'"), 2)
 		self.assertIn("always", c)
 
+	def test_the_site_has_no_inline_script_or_handler(self):
+		"""script-src 'self' drops inline script and handlers silently: none may be in the layouts, pages or site files"""
+		top = os.path.join(self.here, "..", "..", "website")
+		bad = []
+		for d, _, fs in os.walk(top):
+			if "/node_modules" in d or "/resources/_gen" in d:
+				continue
+			for f in fs:
+				if not f.endswith((".html", ".md", ".js")):
+					continue
+				text = slurp(os.path.join(d, f))
+				if f.endswith(".js"):
+					continue
+				for m in re.finditer(r"<script\b([^>]*)>", text):
+					if "src=" not in m.group(1):
+						bad.append((f, "inline <script>"))
+				if re.search(r"(?i)\s on[a-z]+\s*=\s*[\"']", text) or "javascript:" in text.lower():
+					bad.append((f, "event handler or javascript: url"))
+		self.assertEqual(bad, [])
+		base = slurp(os.path.join(top, "gamedb/layouts/baseof.html"))
+		self.assertIn('resources.Get "walnut-os.js"', base)
+		self.assertIn("walnut-os", slurp(os.path.join(top, "gamedb/assets/walnut-os.js")))
+
 	def test_compose_mounts_directories_for_the_configs(self):
 		c = slurp(f"{self.here}/docker-compose.yml")
 		self.assertIn("./repo-conf:/etc/nginx/conf.d:ro", c)
@@ -1040,6 +1082,7 @@ class Conf(unittest.TestCase):
 		self.assertRegex(u, r"(?m)^ReadOnlyPaths=.*Walnut/rules")
 		self.assertIn("RequiresMountsFor=/data/nanobyte/Walnut/incoming", u)
 		self.assertIn("MemoryAccounting=yes", u)
+		self.assertRegex(u, r"(?m)^MemoryMax=[0-9]+[GM]$")
 		p = slurp(f"{self.here}/systemd/walnut-watch.path")
 		sys.path.insert(0, self.here)
 		import walnut_checks as wc
