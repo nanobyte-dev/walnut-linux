@@ -112,6 +112,7 @@ struct spq_s3tc_stats {
 	unsigned long redone;	/* SPU path failed, redone on the PPE */
 	unsigned long jobs;	/* SPU jobs submitted */
 	unsigned long timeouts;	/* images whose SPU jobs didn't end in time: the queue was given up */
+	unsigned long graced;	/* ... that ended in the grace wait after the bound (a frozen process) */
 };
 int spq_s3tc_mode(int mode);	/* overrides SPEQ_S3TC (-1: no change); returns the mode */
 int spq_s3tc_rgb(int mode);	/* overrides SPEQ_S3TC_RGB (OFF, PPE, AUTO; -1: no change) */

@@ -116,6 +116,7 @@ test:
 	SPEQ_FAKE=1 $(TEST_OUT)/pool-test
 	$(TEST_OUT)/s3tc-stuck-test wait
 	$(TEST_OUT)/s3tc-stuck-test wait-spu
+	$(TEST_OUT)/s3tc-stuck-test grace
 	$(TEST_OUT)/s3tc-stuck-test stall
 $(OUT)/dlopen-check: tests/dlopen-check.c lib/dxt-ref.c $(SPEQ_HDR)
 	@mkdir -p $(OUT)

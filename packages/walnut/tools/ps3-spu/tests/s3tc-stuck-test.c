@@ -7,9 +7,12 @@
  *   stall: spq_submit_dl on a ring that is full and not moving (SPEQ_SUBMIT_STALL_MS=300) gives
  *          the queue up: the call fails -EIO in bounded time, what was queued and not taken is
  *          failed, only the running job stays pending, and the next submit fails at once.
+ *   grace: a job that ends after the bound but within the grace wait (the process was frozen, the SPE
+ *          is only slow): the call takes the SPU path, no timeout, the queue is kept
  * Without the fixes both hang: alarm() ends the test with a failure. Exits nonzero on any failure. */
 #define _GNU_SOURCE
 #include <errno.h>
+#include <pthread.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -60,6 +63,35 @@ static double ms_since(double t0)
 #define W	256
 #define H	256
 
+static void *late_release(void *arg)
+{
+	(void)arg;
+	usleep(600000);
+	release = 1;
+	return NULL;
+}
+
+static int test_grace(void)
+{
+	static uint8_t src[W * H * 3], dst[W * H / 2];
+	struct spq_s3tc_stats st;
+	pthread_t th;
+	double t0 = spq_now_us();
+	int ret;
+
+	pthread_create(&th, NULL, late_release, NULL);
+	ret = speq_s3tc_compress_v1(SPEQ_GL_COMPRESSED_RGB_S3TC_DXT1_EXT, 3, src, W, H, dst, 2 * W);
+	spq_s3tc_stats(&st);
+	check(ret == 0, "the call returns 0");
+	check(ms_since(t0) > 550 && ms_since(t0) < 3000, "it waited past the bound (300 ms) for the job: about 600 ms");
+	check(st.spu == 1 && st.timeouts == 0 && st.graced == 1, "stats: one image on the SPEs, no timeout, one grace wait");
+	ret = speq_s3tc_compress_v1(SPEQ_GL_COMPRESSED_RGB_S3TC_DXT1_EXT, 3, src, W, H, dst, 2 * W);
+	spq_s3tc_stats(&st);
+	check(ret == 0 && st.spu == 2, "the queue is still in use");
+	pthread_join(th, NULL);
+	return 0;
+}
+
 static int test_wait(int spu_mode)
 {
 	static uint8_t src[W * H * 3], dst[W * H / 2], want[W * H / 2];
@@ -76,7 +108,7 @@ static int test_wait(int spu_mode)
 	t0 = spq_now_us();
 	ret = speq_s3tc_compress_v1(SPEQ_GL_COMPRESSED_RGB_S3TC_DXT1_EXT, 3, src, W, H, dst, 2 * W);
 	check(ret == 0, "the call returns 0: the image was redone on the PPE");
-	check(ms_since(t0) > 250 && ms_since(t0) < 5000, "it took about the timeout (300 ms), not for ever");
+	check(ms_since(t0) > 350 && ms_since(t0) < 5000, "it took about the timeout and the grace wait (300 + 100 ms), not for ever");
 	check(!memcmp(dst, want, sizeof(dst)), "the bytes are the PPE encoder's");
 	spq_s3tc_stats(&st);
 	check(st.timeouts == 1 && st.redone == 1 && st.spu == 0, "stats: one timeout, one image redone");
@@ -144,11 +176,18 @@ int main(int argc, char **argv)
 	if (!strcmp(argv[1], "wait")) {
 		setenv("SPEQ_S3TC", "auto", 1);
 		setenv("SPEQ_S3TC_TIMEOUT_MS", "300", 1);
+		setenv("SPEQ_S3TC_GRACE_MS", "100", 1);
 		test_wait(0);
 	} else if (!strcmp(argv[1], "wait-spu")) {
 		setenv("SPEQ_S3TC", "spu", 1);
 		setenv("SPEQ_S3TC_TIMEOUT_MS", "300", 1);
+		setenv("SPEQ_S3TC_GRACE_MS", "100", 1);
 		test_wait(1);
+	} else if (!strcmp(argv[1], "grace")) {
+		setenv("SPEQ_S3TC", "auto", 1);
+		setenv("SPEQ_S3TC_TIMEOUT_MS", "300", 1);
+		setenv("SPEQ_S3TC_GRACE_MS", "3000", 1);
+		test_grace();
 	} else if (!strcmp(argv[1], "stall")) {
 		setenv("SPEQ_SUBMIT_STALL_MS", "300", 1);
 		test_stall();

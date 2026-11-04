@@ -573,7 +573,7 @@ int spq_submit_dl(struct speq *q, const struct speq_job *jobs, unsigned n, struc
 {
 	struct speq_ctl *c;
 	uint32_t head, tail, v, space, k, j, i = 0, last_head = UINT32_MAX;
-	double t_moved = 0;
+	double t_moved = 0, t_pass = 0, now = 0;
 
 	if (!q || !done || ((uintptr_t)done & (SPEQ_LINE - 1)) || (n && !jobs))
 		return -EINVAL;
@@ -596,15 +596,19 @@ int spq_submit_dl(struct speq *q, const struct speq_job *jobs, unsigned n, struc
 			if (q->stall_ms) {
 				/* busy is not stuck: the head moves as workers claim jobs. Stuck: it
 				 * doesn't for stall_ms, the queue is given up (the code below fails what
-				 * is queued and what is left of this batch), not waited on for ever */
-				if (head != last_head) {
+				 * is queued and what is left of this batch), not waited on for ever. A
+				 * pass that comes more than 100 ms after the last (the process was stopped
+				 * or frozen) starts the count again: the workers were stopped too. */
+				now = spq_now_us();
+				if (head != last_head || now - t_pass > 100000.0) {
 					last_head = head;
-					t_moved = spq_now_us();
-				} else if (spq_now_us() - t_moved > q->stall_ms * 1000.0) {
+					t_moved = now;
+				} else if (now - t_moved > q->stall_ms * 1000.0) {
 					STORE(&q->dead, 1);
 					break;
 				}
 			}
+			t_pass = now;
 			sched_yield();
 			continue;
 		}
