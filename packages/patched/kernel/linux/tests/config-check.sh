@@ -78,12 +78,15 @@ run "a must-stay-off driver on (common list), debug kernel" 1 debug "$T/c" "$T/f
 # the real package.conf names what the plan requires
 # shellcheck source=/dev/null
 . "$REALPC"
-need_unset="CONFIG_PS3_FLASH CONFIG_PS3_FLASH_NG CONFIG_PS3_NOR_FLASH CONFIG_PS3_STRGMNGR CONFIG_PS3_ENCDEC CONFIG_SPUISO_FS CONFIG_SPULDR_FS CONFIG_PS3_REPOSITORY_WRITE"
+need_unset="CONFIG_PS3_FLASH CONFIG_PS3_FLASH_NG CONFIG_PS3_NOR_FLASH CONFIG_PS3_STRGMNGR CONFIG_PS3_ENCDEC CONFIG_SPUISO_FS CONFIG_SPULDR_FS CONFIG_PS3_REPOSITORY_WRITE CONFIG_PS3_DISP_MANAGER"
 for o in $need_unset; do case " $REQUIRE_UNSET " in *" $o "*) ;; *) echo "FAIL: package.conf REQUIRE_UNSET lacks $o"; fail=1 ;; esac; done
-for o in CONFIG_PS3_LV1CALL CONFIG_PS3_PHYSMEM CONFIG_PS3_DISP_MANAGER; do
+for o in CONFIG_PS3_LV1CALL CONFIG_PS3_PHYSMEM; do
 	case " $REQUIRE_UNSET_release " in *" $o "*) ;; *) echo "FAIL: REQUIRE_UNSET_release lacks $o"; fail=1 ;; esac
 	case " $REQUIRE_SET_debug " in *" $o=m "*) ;; *) echo "FAIL: REQUIRE_SET_debug lacks $o=m"; fail=1 ;; esac
 done
+# H1: the dispatcher manager (a bus alias: udev loads it at boot) is off in every flavour
+case " $REQUIRE_SET_debug $REQUIRE_SET " in *CONFIG_PS3_DISP_MANAGER*) echo "FAIL: a REQUIRE_SET list wants CONFIG_PS3_DISP_MANAGER"; fail=1 ;; esac
+grep -qx "CONFIG_PS3_DISP_MANAGER=m" "$(dirname "$REALPC")"/config/*.config && { echo "FAIL: a config fragment builds CONFIG_PS3_DISP_MANAGER"; fail=1; }
 [ -n "$REQUIRE_SET" ] || { echo "FAIL: no REQUIRE_SET (hardening options)"; fail=1; }
 [ $fail = 0 ] && echo "ok: package.conf lists"
 exit $fail
