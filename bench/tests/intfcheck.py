@@ -188,6 +188,16 @@ def replay_checks(exe, tmp):
 
 
 def live_checks(exe, tmp):
+    # The detector counts commands of *login sessions*, i.e. processes whose cgroup holds the substring given with -S
+    # (here "/user.slice/") and is not a system one; a CI runner or a container runs the test outside any user slice,
+    # so those checks cannot be answered there: they are skipped by name, not passed.
+    login = "/user.slice/" in Path("/proc/self/cgroup").read_text()
+
+    def login_check(name, ok, detail=None):
+        if login:
+            check(name, ok, detail)
+        else:
+            print("SKIP bench-selftest:intfwatch-login-processes %s: this process is in no user.slice cgroup" % name)
     d = tmp / "live"
     (d / "input").mkdir(parents=True)
     (d / "sess").mkdir()
@@ -255,14 +265,14 @@ def live_checks(exe, tmp):
     sm = summary(t)
     flagged = [line for line in t.splitlines() if " ! " in line]
     check("intfwatch live: interfered", sm.get("interfered") == "1", sm)
-    check("intfwatch live: the foreign command counted with its command line",
+    login_check("intfwatch live: the foreign command counted with its command line",
           any("PROC" in line and "sleep 2.51" in line for line in flagged), flagged)
     check("intfwatch live: the harness's children not counted",
           not any("sleep 4.1" in line or "sleep 1.2" in line for line in flagged), flagged)
     check("intfwatch live: an orphan with BENCH_DIR not counted", not any("sleep 2.52" in line for line in flagged), flagged)
     check("intfwatch live: bench-cam's watcher and its children exempt",
           not any("sleep 2.53" in line for line in flagged) and "exempt" in sm.get("info", ""), (flagged, sm))
-    check("intfwatch live: the old pgrep marker and the name in an argument are not exempt (another session is flagged)",
+    login_check("intfwatch live: the old pgrep marker and the name in an argument are not exempt (another session is flagged)",
           any("sleep 2.54" in line for line in flagged) and any("sleep 2.55" in line for line in flagged), flagged)
     vts = [line.split(" VT ", 1)[1] for line in t.splitlines() if " VT " in line]
     exp = [v for v in vts if "(the X server" in v]
@@ -274,9 +284,9 @@ def live_checks(exe, tmp):
     check("intfwatch live: the old kernel line (before the start) not counted", "usb disconnect" not in sm.get("interference", ""), sm)
     check("intfwatch live: the new session 77 counted (its .ref and temp file not)",
           "1 login(s): session 77 (walnut, sshd from 192.0.2.45, user)" in sm.get("interference", ""), sm.get("interference"))
-    check("intfwatch live: the busy older process counted", any("BUSY" in line and "python" in line for line in flagged), flagged)
+    login_check("intfwatch live: the busy older process counted", any("BUSY" in line and "python" in line for line in flagged), flagged)
     check("intfwatch live: own CPU reported", "# self cpu=" in t, t[-200:])
-    check("intfwatch live: the summary has the command and the session",
+    login_check("intfwatch live: the summary has the command and the session",
           # the summary's command list is capped (256 bytes): on a busy host other commands of the
           # login sessions fill it before "sleep 2.51", which the PROC line above already proves
           "command(s) in login sessions: " in sm.get("interference", ""),
