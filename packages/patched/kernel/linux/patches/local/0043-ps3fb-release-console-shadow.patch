@@ -55,7 +55,7 @@ diff --git a/drivers/video/fbdev/ps3fb.c b/drivers/video/fbdev/ps3fb.c
 +#include <linux/workqueue.h>
  #include <linux/uaccess.h>
  #include <linux/fb.h>
- #include <linux/fbcon.h>
+ #include <linux/init.h>
 @@ -181,7 +185,8 @@ struct ps3fb_par {
  
  static struct ps3fb_priv ps3fb;

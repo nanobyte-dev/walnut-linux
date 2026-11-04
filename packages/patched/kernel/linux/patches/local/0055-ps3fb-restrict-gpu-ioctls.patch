@@ -118,8 +118,8 @@ diff --git a/drivers/video/fbdev/ps3fb.c b/drivers/video/fbdev/ps3fb.c
 +#include <linux/pid.h>
 +#include <linux/sched/signal.h>
  #include <linux/fb.h>
- #include <linux/fbcon.h>
  #include <linux/init.h>
+ 
 @@ -206,6 +209,15 @@ EXPORT_SYMBOL_GPL(ps3fb_gpu_handles);
   */
  static DEFINE_MUTEX(gpu_own_lock);
