@@ -1,0 +1,17 @@
+{
+  "_comment": "The signing fingerprints walnut-watch accepts per suite (field 1 of gpgv's VALIDSIG: the key that made the signature). Installed root-owned into rules/ on the server by deploy.sh --rules at a sitting. 8FFE...: the archive primary key (offline; signs the licensed suite on the dev PC). AC79...: its signing subkey (a GitHub secret; signs stable and releases). C902...: the CI key (testing and nightlies). test_walnut_watch.py checks every one is a signing key of its keyring in apt-repo/keyrings.",
+  "suites": {
+    "apt/testing": ["C902FADFC765FE6C12156A13F9C4DD0442CBA6F1"],
+    "apt/testing-debug": ["C902FADFC765FE6C12156A13F9C4DD0442CBA6F1"],
+    "download/nightly": ["C902FADFC765FE6C12156A13F9C4DD0442CBA6F1"],
+    "apt/stable": ["AC79A36489EB7EE1970CB804270E74ED906C508E", "8FFE9D3FC1E24ADC470250BB57011432F8A98072"],
+    "apt/stable-debug": ["AC79A36489EB7EE1970CB804270E74ED906C508E", "8FFE9D3FC1E24ADC470250BB57011432F8A98072"],
+    "download/release": ["AC79A36489EB7EE1970CB804270E74ED906C508E", "8FFE9D3FC1E24ADC470250BB57011432F8A98072"],
+    "licensed/licensed": ["8FFE9D3FC1E24ADC470250BB57011432F8A98072"]
+  },
+  "anchor": [
+    "8FFE9D3FC1E24ADC470250BB57011432F8A98072",
+    "AC79A36489EB7EE1970CB804270E74ED906C508E",
+    "C902FADFC765FE6C12156A13F9C4DD0442CBA6F1"
+  ]
+}

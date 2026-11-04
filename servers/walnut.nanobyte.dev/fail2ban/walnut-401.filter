@@ -1,0 +1,7 @@
+# fail2ban filter for failed logins on the main proxy's access log: 401 on /licensed/ and /ccache/ (basic auth).
+# Matches the combined log format ("$remote_addr - $remote_user [$time_local] "$request" $status ..."); confirm the
+# host's format and that the client address, not the docker gateway, is logged (docs/WALNUT-SERVER.md, deploy runbook)
+# before enabling the jail.
+[Definition]
+failregex = ^<HOST> \S+ \S+ \[[^\]]+\] "(?:GET|HEAD|PUT|DELETE|POST) /(?:licensed|ccache)/\S* HTTP/[0-9.]+" 401 
+ignoreregex =

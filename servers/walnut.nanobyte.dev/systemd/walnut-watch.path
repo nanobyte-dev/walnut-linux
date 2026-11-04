@@ -4,10 +4,18 @@ Description=Walnut: watch for uploaded bundles
 # systemd marks the path unit failed and nothing but the timer ran again (2026-10-26: 6 h of 10-minute verdicts)
 StartLimitIntervalSec=0
 [Path]
+# the legacy root (today's two keys), then each key's own directories (deploy.sh makes them; walnut_checks.POLICY)
 PathChanged=/data/nanobyte/Walnut/incoming/site
 PathChanged=/data/nanobyte/Walnut/incoming/download
 PathChanged=/data/nanobyte/Walnut/incoming/apt
 PathChanged=/data/nanobyte/Walnut/incoming/licensed
+PathChanged=/data/nanobyte/Walnut/incoming/site-key/site
+PathChanged=/data/nanobyte/Walnut/incoming/testing-key/apt
+PathChanged=/data/nanobyte/Walnut/incoming/testing-key/download
+PathChanged=/data/nanobyte/Walnut/incoming/stable-key/apt
+PathChanged=/data/nanobyte/Walnut/incoming/stable-key/download
+PathChanged=/data/nanobyte/Walnut/incoming/pc-key/licensed
+PathChanged=/data/nanobyte/Walnut/incoming/pc-key/site
 Unit=walnut-watch.service
 [Install]
 WantedBy=paths.target

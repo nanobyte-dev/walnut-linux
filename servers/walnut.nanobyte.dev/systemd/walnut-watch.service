@@ -13,3 +13,11 @@ PrivateTmp=yes
 ProtectHome=yes
 ProtectSystem=strict
 ReadWritePaths=/data/nanobyte/Walnut
+# the server's own rules (ownership, protected names, pinned fingerprints, deploy.sh --rules) and the keyrings: this
+# service never writes them, whatever a bundle makes it do
+ReadOnlyPaths=-/data/nanobyte/Walnut/rules -/data/nanobyte/Walnut/keys
+# incoming/ is its own size-limited file system (docs/WALNUT-SERVER.md): never start on the empty directory under it
+RequiresMountsFor=/data/nanobyte/Walnut/incoming
+# CPU time and peak memory per run are in the journal line systemd writes when it ends (the before/after readings)
+CPUAccounting=yes
+MemoryAccounting=yes
