@@ -40,6 +40,19 @@ jobs:
       - name: The commit hooks, so the suite that checks them has them
         run: tools/hooks/install.sh
       - name: The host test suites
+        id: suites
+        continue-on-error: true  # the shell check and the logs below still run; the last step fails the job
         run: tools/run-tests.sh --ci
+      - name: The suites' logs (a failed suite's full output; run-tests.sh prints only its tail)
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-logs
+          path: build/tmp/tests/
+          retention-days: 7
+          if-no-files-found: ignore
       - name: ShellCheck and the shell patterns over every tracked script
         run: python3 -I tools/commit_tests/run.py --all --only shell
+      - name: The suites' verdict
+        if: steps.suites.outcome == 'failure'
+        run: exit 1
