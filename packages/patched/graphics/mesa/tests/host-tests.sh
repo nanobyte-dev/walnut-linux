@@ -28,6 +28,9 @@
 #                  fragment programs in GART when on, a busy GART index buffer waited for and never staged and
 #                  GPU-copied; golden: the placement of a list of buffers with each switch against the default's:
 #                  only the index buffers' and the fragment program's domains differ)
+#   fb-window      0060: nv30_validate_fb's small-surface hack (a 2x2 drawn as a 16x2 block from window origin x)
+#                  clips to the block (state); the stream of four targets against the file before 0060: only
+#                  the hack's clip word differs (golden)
 #   point-smooth   0050: round GL_POINT_SMOOTH points on Mesa's TGSI interpreter, and their NV40 translation
 # Each part prints "RESULT <suite>:<part> pass|fail|skip" (tools/ladder.py reads them). Exit 0 when every
 # part passed, 77 when the tree lacks what the suite tests (its patch) or a tool is missing, else 1.
@@ -39,9 +42,9 @@ t=${MESA_TESTS:-packages/patched/graphics/mesa/tests}
 S=${1:-}; shift || true
 declare -A PARTS=([forcedxt]="" [staging-pool]="" [vtx-snorm8]="unpack vpsim" [minmax-vmx]="host ppc64"
 	[query-steal]="" [query-lost]="end steal destroy elapsed deadline late x86" [alloc-fail]="upload mm-fallback mm-nomem fence fence-cancel pushbuf-flush pushbuf-destroy fix-off"
-	[transfer-cpu]="" [blit-state]="state golden" [placement]="state golden" [point-smooth]="")
+	[transfer-cpu]="" [blit-state]="state golden" [placement]="state golden" [fb-window]="state golden" [point-smooth]="")
 if [ "$S" = --list ]; then
-	for s in forcedxt staging-pool vtx-snorm8 minmax-vmx query-steal query-lost alloc-fail transfer-cpu blit-state placement point-smooth; do
+	for s in forcedxt staging-pool vtx-snorm8 minmax-vmx query-steal query-lost alloc-fail transfer-cpu blit-state placement fb-window point-smooth; do
 		echo "$s ${PARTS[$s]}"; done
 	exit 0
 fi
@@ -269,6 +272,37 @@ placement)
 			[ $rc != 0 ] || echo "ok   golden: IDX_GART moves the static and dynamic index buffers, FP_GART the fragment program, nothing else"
 		fi
 		result golden $rc
+	fi
+	;;
+fb-window)
+	[ -e $M/src/gallium/drivers/nouveau/nv30/nv30_state_validate.c ] || skip "no Mesa tree at $M (make mesa-work)"
+	grep -q 'clip_w' $M/src/gallium/drivers/nouveau/nv30/nv30_state_validate.c || {
+		echo "no small-surface clip fix in this tree (before 0060)"; wants state && result state 1; wants golden && result golden 77; exit 1; }
+	U=-Wl,--unresolved-symbols=ignore-all
+	gen || exit 1
+	export ASAN_OPTIONS=detect_leaks=0
+	if wants state; then mcc $T/fb-window-test $t/fb-window-test.c -Wall -Werror -Wno-unused-function $U && $T/fb-window-test; result state $?; fi
+	if wants golden; then
+		O=$T/fbw-before
+		rm -rf $O; mkdir -p $O/nv30
+		c=$(git -C $M log --format='%H %s' | grep -F " nv30: the small-surface hack's window clip" | head -n 1 | cut -d' ' -f1)
+		if [ -z "$c" ] || ! git -C $M show "$c^:src/gallium/drivers/nouveau/nv30/nv30_state_validate.c" > $O/nv30/nv30_state_validate.c 2>/dev/null; then
+			echo "SKIP mesa-fb-window:golden no commit before 0060 in $M"; result golden 77
+		else
+			rc=0
+			mcc $T/fbw-new $t/fb-window-test.c -Wno-unused-function $U && mcc $T/fbw-old $t/fb-window-test.c -Wno-unused-function $U -I$O &&
+				$T/fbw-new dump > $T/fbw-new.txt && $T/fbw-old dump > $T/fbw-old.txt || rc=1
+			if [ $rc = 0 ]; then
+				n=$(diff $T/fbw-old.txt $T/fbw-new.txt | grep -c '^>')
+				m=$(diff $T/fbw-old.txt $T/fbw-new.txt | grep '^>' | sed 's/^> //; s/ .*//' | sort -u | tr '\n' ' ')
+				if [ "$n" = 1 ] && [ "$m" = "02c0 " ]; then
+					echo "ok   golden: $(wc -l < $T/fbw-old.txt) words of four targets; one differs, the hack's window clip (02c0)"
+				else
+					echo "$n words differ ($m), want only the hack's clip 02c0"; diff $T/fbw-old.txt $T/fbw-new.txt | head; rc=1
+				fi
+			fi
+			result golden $rc
+		fi
 	fi
 	;;
 point-smooth)

@@ -1,0 +1,57 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Wed, 4 Nov 2026 15:22:21 +0200
+Subject: nv30: the small-surface hack's window clip stays inside the block it
+ draws
+
+nv30_validate_fb draws a swizzled render target whose offset is not 64-aligned (a 2x2 mip level
+at half a cache line, 16 bpp) as a 16x2 swizzled block, moving the window origin right by the
+offset's remainder (x = 8 for a 2x2 R5G6B5 at offset & 63 = 32) to land on the real pixels. The
+window clip stayed at the block's whole width (max 15), so origin plus clip spanned x more
+columns than the block: 24 against 16. The draw is inside the 2x2 by the viewport and scissor,
+but a rule that bounds a draw by origin plus clip (ps3rsx's, P4 slice c1) can't know that, and
+Armagetron's draws were refused.
+
+In that hack the window clip is now what is left of the block after the origin: w - x columns
+(max 7 for x = 8), so origin plus clip is the block's width. Every other target keeps its clip
+(the render target's size), the linear unaligned-offset case included, which grows its width the
+other way (w += x) and is left alone.
+
+Forwarded: no
+
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_state_validate.c b/src/gallium/drivers/nouveau/nv30/nv30_state_validate.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_state_validate.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_state_validate.c
+@@ -48,6 +48,7 @@ nv30_validate_fb(struct nv30_context *nv30)
+    int w = fb->width;
+    int x = 0;
+    int y = 0;
++   int clip_w = -1;	/* the window clip's width, when it is not the render target's (the small-surface hack) */
+ 
+    nv30->state.rt_enable = (NV30_3D_RT_ENABLE_COLOR0 << fb->nr_cbufs) - 1;
+    if (nv30->state.rt_enable > 1)
+@@ -99,9 +100,15 @@ nv30_validate_fb(struct nv30_context *nv30)
+          x += off / (util_format_get_blocksize(nv30->fb_cbufs[0]->format) * 2);
+          w  = 16;
+          h  = 2;
++         /* the 2x2 is drawn as a 16-wide swizzled block from the window origin x: a window clip of
++          * the block's whole width would reach x columns past it. Clip to what is left of the block. */
++         clip_w = MAX2(w - x, 1);
+       }
+    }
+ 
++   if (clip_w < 0)
++      clip_w = w;
++
+    if (rt_format & NV30_3D_RT_FORMAT_TYPE_SWIZZLED) {
+       rt_format |= util_logbase2(w) << 16;
+       rt_format |= util_logbase2(h) << 24;
+@@ -123,7 +130,7 @@ nv30_validate_fb(struct nv30_context *nv30)
+    BEGIN_NV04(push, NV30_3D(VIEWPORT_TX_ORIGIN), 4);
+    PUSH_DATA (push, (y << 16) | x);
+    PUSH_DATA (push, 0);
+-   PUSH_DATA (push, ((w - 1) << 16) | 0);
++   PUSH_DATA (push, ((clip_w - 1) << 16) | 0);
+    PUSH_DATA (push, ((h - 1) << 16) | 0);
+ 
+    if ((nv30->state.rt_enable & NV30_3D_RT_ENABLE_COLOR0) || fb->zsbuf.texture) {

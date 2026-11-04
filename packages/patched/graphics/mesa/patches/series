@@ -43,3 +43,4 @@
 0057-nv30-staging-inflight-counts-what-is-still-in-flight.patch
 0058-nv30-the-blit-draws-with-its-own-window-state-and-zeta.patch
 0059-nv30-on-the-PS3-optional-placement-of-index-buffers-and-fragment-programs-in-GART.patch
+0060-nv30-the-small-surface-hack-s-window-clip-stays-inside-the-block.patch
