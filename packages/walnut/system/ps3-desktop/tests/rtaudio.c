@@ -12,6 +12,9 @@
 #include <sys/syscall.h>
 #include <unistd.h>
 
+#ifndef PR_SET_PTRACER
+#define PR_SET_PTRACER 0x59616d61
+#endif
 static int fifo, ev;
 static pid_t tids[4];
 
@@ -33,6 +36,9 @@ static void *sleeper(void *a) { tids[3] = syscall(SYS_gettid); for (;;) sleep(10
 int main(int argc, char **argv) {
 	pthread_t t;
 	struct pollfd p[1];
+	/* ps3-rt-audio reads /proc/<tid>/syscall and /proc/<pid>/mem of this process but is not its ancestor: Yama's
+	 * ptrace_scope=1 (Ubuntu's default, a runner's) would refuse it; allow any process, as a real game under root's scan needs no such thing */
+	prctl(PR_SET_PTRACER, (unsigned long)-1, 0, 0, 0);
 	if (argc != 2 || (fifo = open(argv[1], O_RDWR)) < 0 || (ev = eventfd(0, 0)) < 0) return 2;
 	pthread_create(&t, 0, named, 0); pthread_create(&t, 0, sound, 0);
 	pthread_create(&t, 0, other, 0); pthread_create(&t, 0, sleeper, 0);
