@@ -21,9 +21,14 @@ done
 [ "$(wc -l <"$S/set.tsv")" = 3 ] || fail "set.tsv"
 grep -q $'^0x2\t2\t102\t5\t4321\tsample\trejected\t0\t1\t2$' "$S/submits.tsv" || fail "the rejected submit's line"
 grep -q $'^close\t0x4\t5\t4321\tgart\tgart\t0x200000\t0x1000$' "$S/set.tsv" || fail "the close event"
-grep -q $'\tfp\tgart\t0x100000\t0x1000\tread\t0x6\tcontents/' "$S/contents.tsv" || fail "the program's content line"
-grep -q $'\tindex\tgart\t0x200000\t0x16\tunreadable\t0x0\t-$' "$S/contents.tsv" || fail "the index line"
-[ "$(head -c 5 "$S"/contents/*-fp-*.bin)" = "PROG!" ] || fail "the program's bytes"
+grep -q $'\tfp\tgart\t0x100000\t0x1000\tread\t0x40\tcontents/' "$S/contents.tsv" || fail "the program's content line"
+grep -q $'\tindex\tvram\t0x200000\t0x16\tunreadable\t0x0\t-$' "$S/contents.tsv" || fail "the index line"
+[ "$(stat -c %s "$S"/contents/*-fp-*.bin)" = 64 ] || fail "the program's bytes"
+python3 -I "$here/pushdump-stats.py" "$S" 2 >"$T/stats.txt" || fail "pushdump-stats.py"
+grep -q '^fp     length to END: 1 read, median 48, longest 48 bytes; no END in the bytes read: 0; CAL/RET: 0$' "$T/stats.txt" ||
+	fail "stats, the program: $(cat "$T/stats.txt")"
+grep -q '^index  vram-gpu         1 (0.5 per frame)  22 bytes (11.0 per frame)$' "$T/stats.txt" ||
+	fail "stats, the index range: $(cat "$T/stats.txt")"
 grep -q '^gaps 1, records dropped 7$' "$S/summary.txt" || fail "the gap"
 grep -q '^version 1, vram reserved 0x900000' "$S/summary.txt" || fail "the start record"
 # channel 1's pushes pass as Mesa's would, but for its copy after it closed the destination's

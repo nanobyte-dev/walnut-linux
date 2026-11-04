@@ -254,10 +254,20 @@ static void write_sample(const char *path)
 	put_words(restore, ARRAY_SIZE(restore));
 	sample_push(1, 1, 0, draw, 4);			/* bind, program */
 	sample_push(1, 1, 1, draw + 4, ARRAY_SIZE(draw) - 4 - 2);	/* its END comes later */
-	pd_rec_content(r, 1, 1, PD_FP, PD_DOM_GART, 0x100000, 4096, PD_READ_CPU, 6);
-	put(r, PD_CONTENT_BYTES);
-	put("PROG!\0\0\0", 8);
-	pd_rec_content(r, 1, 1, PD_INDEX, PD_DOM_GART, 0x200000, 0x16, PD_UNREADABLE, 0);
+	/* a program as the RSX keeps it (halfwords swapped): one instruction, then the END with a
+	 * constant source and its 16 bytes of constant, then words past the END */
+	{
+		static const u32 prog[16] = { 0x01000000, 0, 0, 0, 0x00000001, 0x00000002, 0, 0,
+					      0x3f800000, 0, 0, 0, 0xdead, 0xbeef, 0, 0 };
+		u32 sw[16];
+
+		for (u32 i = 0; i < 16; i++)
+			sw[i] = prog[i] >> 16 | prog[i] << 16;
+		pd_rec_content(r, 1, 1, PD_FP, PD_DOM_GART, 0x100000, 4096, PD_READ_CPU, 64);
+		put(r, PD_CONTENT_BYTES);
+		put_words(sw, 16);
+	}
+	pd_rec_content(r, 1, 1, PD_INDEX, PD_DOM_VRAM, 0x200000, 0x16, PD_UNREADABLE, 0);
 	put(r, PD_CONTENT_BYTES);
 	/* channel 2: a rejected submit; records lost; ps3rsx ends channel 1's open primitive */
 	sample_submit(2, 2, PD_REJECTED, 0, 1);
