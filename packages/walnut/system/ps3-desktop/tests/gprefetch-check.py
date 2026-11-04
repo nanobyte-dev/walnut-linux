@@ -340,7 +340,7 @@ def end_to_end(w):
     check("game-run learn: game-learn line", "game-learn" in p.stderr, p.stderr[-400:])
     _, g = gp.find_list(str(lists), ["/usr/games/fake"])
     check("game-run learn: list found through the --key link", g is not None and {str(p1), str(p2), str(tex)} <= set(g.entries),
-          sorted(g.entries) if g else None)
+          (sorted(g.entries) if g else None, p.stderr[-600:]))
     drop(p1, p2, tex)
     before = (resident_pages(p1), resident_pages(p2), resident_pages(tex))
     cmd = [str(SCRIPT), "game-run", "--mode", "fetch", "--key", "/usr/games/fake", "--",
