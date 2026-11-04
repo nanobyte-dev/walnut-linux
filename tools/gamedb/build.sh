@@ -109,6 +109,15 @@ for root, dirs, files in os.walk(sys.argv[2]):
             bad.append(rel + ": not a static site file type")
 if not os.path.isfile(os.path.join(sys.argv[2], "index.html")):
     bad.append("no index.html")
+# the site's CSP is script-src 'self': an inline script or handler would be dropped silently by the browser
+import re
+for root, _, fs in os.walk(sys.argv[2]):
+    for n in fs:
+        if n.endswith(".html"):
+            t = open(os.path.join(root, n), encoding="utf-8", errors="replace").read()
+            if any("src=" not in m.group(1) for m in re.finditer(r"<script\b([^>]*)>", t)) or \
+               re.search(r"(?i)\son[a-z]+\s*=\s*[\"']", t) or "javascript:" in t.lower():
+                bad.append(os.path.relpath(os.path.join(root, n), sys.argv[2]) + ": an inline script or handler (the site's CSP drops it)")
 if bad:
     print("\n".join("site rules: " + b for b in bad), file=sys.stderr)
     sys.exit(1)

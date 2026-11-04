@@ -11,7 +11,7 @@
 {{/* Walnut's browser (Badwolf, +ps3 patched) says "Walnut" in its User-Agent: the class shows "Open in Walnut
      Games" (.walnut-os-only) before the page is drawn. NetSurf runs no script here; its user stylesheet shows it */}}
 {{/* an external script, not inline: the site's CSP is script-src 'self'. Not deferred, so the class is set before the page is drawn */}}
-{{ if not site.Params.app }}{{ $os := resources.Get "walnut-os.js" | minify | fingerprint }}<script src="{{ $os.RelPermalink }}"></script>{{ end }}
+{{ if not site.Params.app }}{{ with resources.Get "walnut-os.js" }}{{ $os := . | minify | fingerprint }}<script src="{{ $os.RelPermalink }}"></script>{{ else }}{{ errorf "assets/walnut-os.js is missing: the Walnut-OS class would silently go (and the site's CSP forbids the inline script it replaced)" }}{{ end }}{{ end }}
 {{ if not site.Params.app }}{{ range .AlternativeOutputFormats }}<link rel="{{ .Rel }}" type="{{ .MediaType.Type }}" href="{{ .Permalink }}" title="{{ site.Title }}">{{ end }}{{ end }}
 </head>
 <body>
