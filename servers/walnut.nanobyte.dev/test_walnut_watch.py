@@ -654,6 +654,20 @@ binaries = ["linux-image-@RELEASE@"]
 		st = self.apt_case("withversion", {"foo_1_ppc64.deb": b"f"}, fields={"foo": {"Source": "foo (1.0-1)"}})
 		self.assertTrue(st.startswith("ok "), st)	# Source: name (version) is read by its name
 
+	def test_retired_names_already_published_stay_in_the_index(self):
+		"""only what a bundle introduces is checked: foo, published, may later be retired and still be listed"""
+		self.drop("apt", "1", self.apt_bundle({"foo_1_ppc64.deb": b"f"}))
+		self.run_watch()
+		self.install_rules(ownership=self.OWNERSHIP.replace('binaries = ["foo"]', 'binaries = []\nretired = ["foo"]'))
+		b = self.apt_bundle({"foo_1_ppc64.deb": b"f", "bar_1_ppc64.deb": b"b"})
+		del b["pool/testing/main/f/foo/foo_1_ppc64.deb"]	# the published file stays where it is
+		self.drop("apt", "2", b)
+		self.run_watch()
+		self.assertTrue(self.status("apt", "2").startswith("ok "), self.status("apt", "2"))
+		self.drop("apt", "3", self.apt_bundle({"foo_2_ppc64.deb": b"f2"}))	# a new foo: retired, refused
+		self.run_watch()
+		self.assertEqual(self.refused_code("apt", "3"), "E-OWNER")
+
 	def test_relations(self):
 		code = lambda bid: self.refused_code("apt", bid)
 		self.apt_case("prov", {"foo_1_ppc64.deb": b"f"}, fields={"foo": {"Provides": "sudo"}})

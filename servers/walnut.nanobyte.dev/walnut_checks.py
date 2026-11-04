@@ -215,13 +215,21 @@ def _entry_for_source(lists, src):
 	return [e for e in lists.entries.values() if src == e.source or src in e.moved_from]
 
 
-def check_index(rules, suite, sources, text):
+def check_index(rules, suite, sources, text, published=lambda rel: False):
 	"""Checks one Packages (sources=False) or Sources (True) index of suite against the server's ownership
-	copy. Raises Refused (E-OWNER, E-RELATION, E-POOLPATH, E-SOURCE) at the first violation."""
+	copy. Raises Refused (E-OWNER, E-RELATION, E-POOLPATH, E-SOURCE) at the first violation. Only what this bundle
+	introduces is checked: a stanza whose pool file(s) are already published (published(path) is true) was
+	checked when it came in, and its file can no longer change; names since retired stay in the index."""
 	lists = rules.lists
 	for st in parse_stanzas(text):
 		if sources:
+			d = st.get("Directory", "")
+			names = [l.split()[2] for l in st.get("Files", "").split("\n") if len(l.split()) == 3]
+			if names and all(published(f"{d}/{n}") for n in names):
+				continue
 			_check_source_stanza(rules, suite, st)
+			continue
+		if st.get("Filename") and published(st["Filename"]):
 			continue
 		name = st.get("Package", "")
 		if not PKG_RE.match(name):
@@ -261,9 +269,9 @@ def _check_source_stanza(rules, suite, st):
 	for b in re.split(r"[,\s]+", st.get("Binary", "").strip()):
 		if not b:
 			continue
-		own = lists.owner(b)
-		if own is None or own[1] or own[0] not in ents:
-			raise Refused(f"{suite}: source {name}: binary {b} is not its own", "E-SOURCE")
+		own = lists.owner(b)	# a Binary: line lists every binary of the source package, built here or not: none may be another's
+		if own is not None and own[0] not in ents:
+			raise Refused(f"{suite}: source {name}: binary {b} belongs to another package", "E-SOURCE")
 	if st.get("Directory") != pool_dir(suite, name):
 		raise Refused(f"{suite}: source {name}: Directory {st.get('Directory')!r}", "E-SOURCE")
 	files = [l.split() for l in st.get("Files", "").split("\n") if l.strip()]

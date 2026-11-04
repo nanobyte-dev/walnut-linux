@@ -432,7 +432,8 @@ def publish_repo(kind, bid, staging):
 		for d, _, fs in os.walk(f"{staging}/dists/{s}"):
 			for name in {f.split(".")[0] for f in fs} & {"Packages", "Sources"}:
 				text = read_index(f"{d}/{name}")
-				check_index(RULES, s, name == "Sources", text or "")	# V2: ownership, relations, pool paths
+				check_index(RULES, s, name == "Sources", text or "",
+				            lambda rel: os.path.isfile(f"{prefix}/{rel}"))	# V2 on what is new: ownership, relations, pool paths
 				for ref, h in index_hashes(text or "", name == "Sources").items():
 					if named.setdefault(ref, h) != h:
 						raise Refused(f"dists/{s}: {ref} has two different hashes in the indices")
