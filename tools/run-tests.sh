@@ -12,6 +12,8 @@
 #            failed recovery's dialog only on the new X), gpu-crash-restart (ps3-system's crash report: the
 #            display-only desktop restart once per boot through logind, the old X waited for, the user's own X only),
 #            render-node (ps3-system's udev rule: the RSX's render node for the render group only),
+#            ps3-firstboot (walnut-firstboot's setup file in a dry run on a fake root: where it came from, the question, a decline or timeout,
+#            the confirm helper's rules),
 #            apt-update-notice (ps3-system's notice after apt update: fixture lists, os-release, fake dpkg; newer release, same release, garbage, missing),
 #            rsx-ab (tools/rsx-ab: the same-boot ps3rsx A/B batch against stubs, the mpv counter script),
 #            ps3-spu, xmoto-glbatch,
@@ -167,6 +169,7 @@ run gpu-recovered python3 -I packages/walnut/system/ps3-desktop/tests/gpu-recove
 run gpu-crash-restart bash packages/walnut/system/ps3-system/tests/gpu-crash-restart-test.sh
 run render-node bash packages/walnut/system/ps3-system/tests/render-node-test.sh
 run apt-update-notice bash packages/walnut/system/ps3-system/tests/apt-update-notice-test.sh
+run ps3-firstboot python3 -I packages/walnut/system/ps3-system/tests/test_firstboot_preseed.py
 run rsx-ab bash tools/rsx-ab/test_rsx_ab.sh
 run ps3rsx-shadow bash -c "$(declare -f need skip_part t_ps3rsx); t_ps3rsx"
 run ps3-spu make -C packages/walnut/tools/ps3-spu test
