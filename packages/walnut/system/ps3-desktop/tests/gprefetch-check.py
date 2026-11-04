@@ -49,7 +49,13 @@ def drop(*paths):
     for p in paths:
         fd = os.open(p, os.O_RDONLY)
         os.fdatasync(fd)
-        os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_DONTNEED)
+        # DONTNEED skips pages that are under writeback or readahead at that moment (a runner's disk is slow, the PC's
+        # is not): look again until none is resident, so the tests start from the state they name
+        for _ in range(100):
+            os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_DONTNEED)
+            if resident_pages(p) == 0:
+                break
+            time.sleep(0.05)
         os.close(fd)
 
 
