@@ -40,15 +40,16 @@ static void t(const char *s, u64 max, u64 want, int warns)
 }
 int main(void)
 {
-	u64 g = 128 * M, c = 256 * M;
+	u64 g = 64 * M, c = 256 * M;
 	t("0", g, 0, 0);
 	t("64M", g, 64 * M, 0);
 	t("64m", g, 64 * M, 0);
-	t("128M", g, 128 * M, 0);
-	t("129M", g, g, 1);
-	t("131072K", g, 128 * M, 0);
-	t("131073K", g, g, 1);
-	t("134217728", g, 128 * M, 0);
+	t("64M", g, 64 * M, 0);
+	t("65M", g, g, 1);
+	t("65536K", g, 64 * M, 0);
+	t("65537K", g, g, 1);
+	t("67108864", g, 64 * M, 0);
+	t("128M", g, g, 1);
 	t("1G", g, g, 1);
 	t("1G", c, c, 1);
 	t("256M", c, 256 * M, 0);
@@ -82,13 +83,24 @@ grep -q '^+struct ps3_prealloc ps3rsx_gart __ro_after_init' "$P7" && ok "ps3rsx_
 grep -q '^+static struct cma \*ps3rsx_cma __ro_after_init' "$P7" && ok "ps3rsx_cma is __ro_after_init" || bad "ps3rsx_cma not __ro_after_init"
 grep -q '^+#define PS3RSX_GART_MAX' "$P7" && ok "ps3rsx_gart has a ceiling" || bad "no ceiling"
 
-# K6
+# K6 (round 3 review M1): remove and shutdown hold the device lock that a started re-probe waits for,
+# so they must never wait for it; the reboot notifier (no device lock) is where a wait is allowed
 rm_fn=$(awk '/^\+\t\/\* no re-probe queued behind a remove/ {on=1} on {print} on && /gelic_card_set_link_mode|^ \t\/\* set auto-negotiation/ {exit}' "$P49")
-echo "$rm_fn" | grep -n 'cancel_delayed_work_sync(&card->rx_watchdog)' >/dev/null && ok "remove cancels the watchdog" || bad "remove does not cancel the watchdog"
+echo "$rm_fn" | grep -q 'cancel_delayed_work_sync(&card->rx_watchdog)' && ok "remove cancels the watchdog" || bad "remove does not cancel the watchdog"
 echo "$rm_fn" | grep -q 'gelic_reprobe_cancel()' && ok "remove cancels the re-probe" || bad "remove does not cancel the re-probe"
 a=$(echo "$rm_fn" | grep -n 'cancel_delayed_work_sync' | head -1 | cut -d: -f1); b=$(echo "$rm_fn" | grep -n 'gelic_reprobe_cancel()' | head -1 | cut -d: -f1)
 [ -n "$a" ] && [ -n "$b" ] && [ "$a" -lt "$b" ] && ok "the watchdog (which queues the re-probe) is cancelled first" || bad "cancel order"
-grep -A4 '^+static void gelic_reprobe_cancel' "$P49" | grep -q 'current_work() == &gelic_reprobe_work' && ok "the re-probe's own remove doesn't wait for itself" || bad "no current_work() guard"
-grep -q '^+	if (cancel_work_sync(&gelic_reprobe_work))' "$P49" && grep -A1 'cancel_work_sync(&gelic_reprobe_work)' "$P49" | grep -q put_device && ok "a cancelled re-probe gives its device reference back" || bad "reference leak on cancel"
+cf=$(awk '/^\+static void gelic_reprobe_cancel\(void\)/ {on=1} on {print} on && /^\+}$/ {exit}' "$P49")
+echo "$cf" | grep -q 'current_work() == &gelic_reprobe_work' && ok "the re-probe's own remove returns at once" || bad "no current_work() guard"
+echo "$cf" | grep -q 'cancel_work(&gelic_reprobe_work)' && ! echo "$cf" | grep -q 'cancel_work_sync' && ok "remove's cancel does not wait (cancel_work, not _sync)" || bad "remove's cancel waits"
+echo "$cf" | grep -A1 'cancel_work(&gelic_reprobe_work)' | grep -q '{' && echo "$cf" | grep -q 'put_device(gelic_reprobe_dev)' && ok "a cancelled re-probe gives its device reference back" || bad "reference leak on cancel"
+# the only cancel_work_sync is in the stop helper that the reboot notifier and the module exit call
+[ "$(grep -c '^+.*cancel_work_sync' "$P49")" = 1 ] && ok "one waiting cancel in the whole patch" || bad "more than one waiting cancel"
+grep -B1 -A8 '^+static void gelic_reprobe_stop_sync' "$P49" | grep -q 'cancel_work_sync(&gelic_reprobe_work)' && ok "...in gelic_reprobe_stop_sync" || bad "stop_sync has no waiting cancel"
+grep -A3 '^+static int gelic_reboot_notify' "$P49" | grep -q 'gelic_reprobe_stop_sync()' && ok "the reboot notifier calls it" || bad "no reboot notifier"
+grep -q '^+	ret = register_reboot_notifier(&gelic_reboot_nb);' "$P49" && ok "registered once, in module init (not in probe: a re-probe would take the notifier lock it holds)" || bad "notifier not registered in init"
+! awk '/^\+static int gelic_probe|ps3_gelic_driver_probe/ {on=1} on && /register_reboot_notifier/ {f=1} END {exit !f}' "$P49" && ok "probe does not register it" || bad "probe registers the notifier"
+grep -A6 '^+static void gelic_reprobe_fn' "$P49" | grep -q 'READ_ONCE(gelic_reprobe_stop)' && ok "a work that starts after the stop does nothing" || bad "work ignores the stop flag"
+grep -q 'test_and_set_bit_lock(0, &gelic_reprobe_busy)' "$P49" && ok "a watchdog firing during a re-probe queues no second one" || bad "no busy bit"
 grep -q 'kzalloc' "$P49" && bad "0049 still allocates a work per fault" || ok "no per-fault allocation (one static work)"
 exit $fail

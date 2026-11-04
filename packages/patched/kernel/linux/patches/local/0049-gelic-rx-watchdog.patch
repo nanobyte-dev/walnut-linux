@@ -17,7 +17,9 @@ time it was tried; the same kernel had received fine on earlier boots.
 So, some seconds after eth0 is opened, a delayed work looks at it: link
 up, at least 3 packets sent and none received means the receive is dead,
 and the device is re-probed (device_reprobe() from a work item of its own,
-since the re-probe frees the card; the remove and the shutdown cancel it).
+since the re-probe frees the card; remove and shutdown drop one that has not started
+without waiting for it, as the re-probe takes the device lock they hold, and a reboot
+notifier stops new ones and waits for a running one before the devices shut down).
 Each re-probe without a frame received doubles the wait (20, 40, 80, 160,
 320 s), up to 5; any received frame resets the count. Any network delivers
 broadcasts within seconds, so a working port never gets there.
@@ -42,15 +44,16 @@ diff --git a/drivers/net/ethernet/toshiba/ps3_gelic_net.h b/drivers/net/ethernet
 diff --git a/drivers/net/ethernet/toshiba/ps3_gelic_net.c b/drivers/net/ethernet/toshiba/ps3_gelic_net.c
 --- a/drivers/net/ethernet/toshiba/ps3_gelic_net.c
 +++ b/drivers/net/ethernet/toshiba/ps3_gelic_net.c
-@@ -19,6 +19,7 @@
+@@ -19,6 +19,8 @@
  #include <linux/kernel.h>
  #include <linux/module.h>
  #include <linux/slab.h>
++#include <linux/reboot.h>
 +#include <linux/workqueue.h>
  
  #include <linux/etherdevice.h>
  #include <linux/ethtool.h>
-@@ -44,6 +45,21 @@
+@@ -44,6 +46,21 @@
  MODULE_DESCRIPTION("Gelic Network driver");
  MODULE_LICENSE("GPL");
  
@@ -72,7 +75,7 @@ diff --git a/drivers/net/ethernet/toshiba/ps3_gelic_net.c b/drivers/net/ethernet
  
  /* set irq_mask */
  int gelic_card_set_irq_mask(struct gelic_card *card, u64 mask)
-@@ -676,6 +692,7 @@
+@@ -676,6 +693,7 @@
  	netif_carrier_off(netdev);
  
  	card = netdev_card(netdev);
@@ -80,7 +83,7 @@ diff --git a/drivers/net/ethernet/toshiba/ps3_gelic_net.c b/drivers/net/ethernet
  	gelic_card_down(card);
  
  	pr_debug("%s: done\n", __func__);
-@@ -1201,6 +1218,96 @@
+@@ -1201,6 +1219,134 @@
  }
  #endif /* CONFIG_NET_POLL_CONTROLLER */
  
@@ -94,10 +97,20 @@ diff --git a/drivers/net/ethernet/toshiba/ps3_gelic_net.c b/drivers/net/ethernet
 +/*
 + * The re-probe runs from a work item of its own, one for the console (there is one gelic), not
 + * the card's, since it frees the card. gelic_reprobe_dev holds a reference on the device while
-+ * the item is queued or running. The remove (and the shutdown, which is the same function)
-+ * cancels it, so no re-probe starts behind an unbind by hand or a shutdown.
++ * the item is queued or running; gelic_reprobe_busy (bit 0) says one is, so a second watchdog
++ * firing meanwhile queues none.
++ *
++ * remove, and the shutdown that is the same function, run with the device lock held, and the
++ * re-probe takes that lock (device_reprobe), so remove never waits for the work: it cancels one
++ * that has not started (cancel_work) and goes on. A re-probe that has already started finishes
++ * after a by-hand unbind and binds the device again, as before this watchdog was cancelled at
++ * all. For a reboot, halt or power-off the reboot notifier below runs first, before
++ * device_shutdown() and with no device lock held: it stops new re-probes and waits for a running
++ * one, so none is left to probe a device that is shutting down.
 + */
 +static struct device *gelic_reprobe_dev;
++static unsigned long gelic_reprobe_busy;
++static bool gelic_reprobe_stop;
 +
 +static void gelic_reprobe_fn(struct work_struct *work)
 +{
@@ -105,22 +118,47 @@ diff --git a/drivers/net/ethernet/toshiba/ps3_gelic_net.c b/drivers/net/ethernet
 +	int ret;
 +
 +	/* the remove inside this re-probe sees this item as the one running and doesn't wait for it */
-+	ret = device_reprobe(dev);
-+	if (ret)
-+		dev_err(dev, "receive watchdog: re-probe failed: %d\n", ret);
++	if (!READ_ONCE(gelic_reprobe_stop)) {
++		ret = device_reprobe(dev);
++		if (ret)
++			dev_err(dev, "receive watchdog: re-probe failed: %d\n", ret);
++	}
 +	put_device(dev);
++	clear_bit_unlock(0, &gelic_reprobe_busy);
 +}
 +
 +static DECLARE_WORK(gelic_reprobe_work, gelic_reprobe_fn);
 +
-+/* cancel a re-probe that hasn't started; one that has is the caller itself, or ends on its own */
++/* remove: drop a re-probe that has not started, without waiting for one that has */
 +static void gelic_reprobe_cancel(void)
 +{
 +	if (current_work() == &gelic_reprobe_work)
 +		return;
-+	if (cancel_work_sync(&gelic_reprobe_work))
++	if (cancel_work(&gelic_reprobe_work)) {
 +		put_device(gelic_reprobe_dev);
++		clear_bit_unlock(0, &gelic_reprobe_busy);
++	}
 +}
++
++/* no device lock held by the caller: no new re-probe, and a running one is waited for */
++static void gelic_reprobe_stop_sync(void)
++{
++	WRITE_ONCE(gelic_reprobe_stop, true);
++	if (cancel_work_sync(&gelic_reprobe_work)) {
++		put_device(gelic_reprobe_dev);
++		clear_bit_unlock(0, &gelic_reprobe_busy);
++	}
++}
++
++static int gelic_reboot_notify(struct notifier_block *nb, unsigned long action, void *data)
++{
++	gelic_reprobe_stop_sync();
++	return NOTIFY_DONE;
++}
++
++static struct notifier_block gelic_reboot_nb = {
++	.notifier_call = gelic_reboot_notify,
++};
 +
 +/* 20 s after the first open, twice as long after each re-probe without a frame received */
 +static unsigned long gelic_rx_watchdog_delay(void)
@@ -166,18 +204,21 @@ diff --git a/drivers/net/ethernet/toshiba/ps3_gelic_net.c b/drivers/net/ethernet
 +	gelic_rx_recoveries++;
 +	netdev_warn(netdev, "receive watchdog: link up, %lu packets sent, none received (port status 0x%llx): re-probing the device, try %u of %u\n",
 +		    tx, card->ether_port_status, gelic_rx_recoveries, GELIC_RX_WATCHDOG_TRIES);
-+	if (work_pending(&gelic_reprobe_work))	/* one is queued already */
++	/* stopping (reboot), or a re-probe is queued or running already */
++	if (READ_ONCE(gelic_reprobe_stop) || test_and_set_bit_lock(0, &gelic_reprobe_busy))
 +		return;
 +	/* not the card's own work: the re-probe frees the card */
 +	gelic_reprobe_dev = get_device(&card->dev->core);
-+	if (!schedule_work(&gelic_reprobe_work))
++	if (!schedule_work(&gelic_reprobe_work)) {
 +		put_device(gelic_reprobe_dev);
++		clear_bit_unlock(0, &gelic_reprobe_busy);
++	}
 +}
 +
  /**
   * gelic_net_open - called upon ifconfig up
   * @netdev: interface device structure
-@@ -1220,6 +1327,8 @@
+@@ -1220,6 +1366,8 @@
  
  	netif_start_queue(netdev);
  	gelic_card_get_ether_port_status(card, 1);
@@ -186,7 +227,7 @@ diff --git a/drivers/net/ethernet/toshiba/ps3_gelic_net.c b/drivers/net/ethernet
  
  	dev_dbg(ctodev(card), " <- %s\n", __func__);
  	return 0;
-@@ -1604,6 +1713,7 @@
+@@ -1604,6 +1752,7 @@
  	atomic_set(&card->users, 0);
  
  	timer_setup(&card->rx_oom_timer, gelic_rx_oom_timer, 0);
@@ -194,15 +235,43 @@ diff --git a/drivers/net/ethernet/toshiba/ps3_gelic_net.c b/drivers/net/ethernet
  
  	return card;
  }
-@@ -1844,6 +1954,11 @@
+@@ -1844,6 +1993,11 @@
  	struct net_device *netdev0;
  	pr_debug("%s: called\n", __func__);
  
 +	/* no re-probe queued behind a remove (an unbind by hand, a shutdown): first the watchdog,
-+	 * which can queue one, then the re-probe itself */
++	 * which can queue one, then the re-probe itself, not waited for (the device lock is held) */
 +	cancel_delayed_work_sync(&card->rx_watchdog);
 +	gelic_reprobe_cancel();
 +
  	/* set auto-negotiation */
  	gelic_card_set_link_mode(card, GELIC_LV1_ETHER_AUTO_NEG);
+ 
+@@ -2000,13 +2154,24 @@
+ 
+ static int __init ps3_gelic_driver_init (void)
+ {
+-	return firmware_has_feature(FW_FEATURE_PS3_LV1)
+-		? ps3_system_bus_driver_register(&ps3_gelic_driver)
+-		: -ENODEV;
++	int ret;
++
++	if (!firmware_has_feature(FW_FEATURE_PS3_LV1))
++		return -ENODEV;
++	WRITE_ONCE(gelic_reprobe_stop, false);
++	ret = register_reboot_notifier(&gelic_reboot_nb);
++	if (ret)
++		return ret;
++	ret = ps3_system_bus_driver_register(&ps3_gelic_driver);
++	if (ret)
++		unregister_reboot_notifier(&gelic_reboot_nb);
++	return ret;
+ }
+ 
+ static void __exit ps3_gelic_driver_exit (void)
+ {
++	unregister_reboot_notifier(&gelic_reboot_nb);
++	gelic_reprobe_stop_sync();
+ 	ps3_system_bus_driver_unregister(&ps3_gelic_driver);
+ }
  

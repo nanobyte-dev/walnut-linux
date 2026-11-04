@@ -23,7 +23,7 @@ experiments. Its default is 0 (it was 64 MiB, so a command line without
 ps3rsx_gart=0 reserved 64 MiB for good next to the CMA area). Without
 either parameter ps3rsx has no GART and says so when it probes.
 
-Both sizes are parsed with a ceiling (ps3rsx_gart= 128 MiB, ps3rsx_cma=
+Both sizes are parsed with a ceiling (ps3rsx_gart= 64 MiB, ps3rsx_cma=
 256 MiB): a larger number, or one that wrapped in memparse(), is clamped
 with a warning, and a ps3rsx_gart= reservation memblock can't satisfy
 turns the fixed GART off with a warning instead of panicking the boot.
@@ -78,8 +78,8 @@ diff --git a/arch/powerpc/platforms/ps3/setup.c b/arch/powerpc/platforms/ps3/set
 +};
 +EXPORT_SYMBOL_GPL(ps3rsx_gart);
 +
-+/* the most ps3rsx_gart= may hold for good: half of the console's 256 MiB */
-+#define PS3RSX_GART_MAX		SZ_128M
++/* the most ps3rsx_gart= may hold for good: 64 MiB, the old default (a quarter of the console's RAM) */
++#define PS3RSX_GART_MAX		SZ_64M
 +
 +/*
 + * memparse() for a size with a ceiling: memparse() shifts the number by its suffix without a
