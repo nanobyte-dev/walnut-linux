@@ -181,6 +181,15 @@ class Decisions(Base):
         self.assertEqual(victim.read_text(), "keep")
 
 
+class Special(Base):
+    def test_a_fifo_named_by_the_environment_is_ignored_not_waited_for(self):
+        f = self.root / "mnt/dev_hdd1/walnut-setup.conf"
+        os.mkfifo(f)
+        p = self.run_fb(env={"PRESEED_FILE": str(f)})
+        self.assertIn("not a regular file", p.stderr)
+        self.assertEqual(self.used(p), "bob")
+
+
 class Cleanup(Base):
     def test_cleanup_never_walks_into_a_mount_that_stayed(self):
         """umount, rmdir, rm -f of our own file, rmdir: a directory that is still full (an unmountable mount) keeps its files"""

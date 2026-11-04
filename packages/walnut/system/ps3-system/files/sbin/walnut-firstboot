@@ -205,6 +205,7 @@ root_trusted() {	# a regular file owned by root, not writable by others, on the 
 # a file from dev_hdd1 is read once, into the private directory, at most 64 KiB: the parser below works on the copy
 take_copy() {	# take_copy FILE: PRESEED_FILE becomes the copy, or "" when the file is too long
 	local f=$1
+	[ -f "$f" ] || { echo "walnut-firstboot: the setup file is not a regular file: ignored" >&2; PRESEED_FILE=""; return 1; }	# a FIFO would block head for good
 	mkdir -p "$WORK"
 	head -c 65537 "$f" > "$WORK/preseed.conf" 2>/dev/null || true
 	if [ "$(stat -c %s "$WORK/preseed.conf")" -gt 65536 ]; then
