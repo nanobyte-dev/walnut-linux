@@ -11,6 +11,11 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+    inputs:
+      only:
+        description: "One suite of tools/run-tests.sh (empty: all of them)"
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -42,7 +47,9 @@ jobs:
       - name: The host test suites
         id: suites
         continue-on-error: true  # the shell check and the logs below still run; the last step fails the job
-        run: tools/run-tests.sh --ci
+        env:
+          ONLY: ${{ inputs.only }}
+        run: tools/run-tests.sh --ci ${ONLY:+--only "$ONLY"}
       - name: The suites' logs (a failed suite's full output; run-tests.sh prints only its tail)
         if: always()
         uses: actions/upload-artifact@v7
