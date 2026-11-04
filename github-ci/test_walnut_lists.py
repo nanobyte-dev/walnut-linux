@@ -20,7 +20,10 @@ class Real(unittest.TestCase):
 		                          cwd=ROOT).stdout.split()
 
 	def test_every_package_has_an_entry(self):
-		self.assertEqual(sorted(os.path.basename(d) for d in self.dirs), sorted(self.lists.entries))
+		have = {os.path.basename(d) for d in self.dirs}
+		self.assertEqual(sorted(have - set(self.lists.entries)), [])	# every package directory has an entry
+		# and every entry has its directory, except the licensed packages' (the public export leaves those out)
+		self.assertEqual(sorted(n for n in set(self.lists.entries) - have if self.lists.entries[n].tier != "licensed"), [])
 		for d in self.dirs:
 			self.assertEqual(self.lists.entries[os.path.basename(d)].dir, d)
 
