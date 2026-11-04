@@ -30,7 +30,8 @@
 #            its value), mesa-alloc-fail (0047-0049's alloc-fail-test: u_upload_mgr,
 #            nouveau_mm and nouveau_fence when buffers cannot be had; 0003's context-pushbuf-test: nv30's flush
 #            before any draw and destroy after a failed init; each fix off too, the file as it was before
-#            its patch, which must fail: 0002, 0003, 0047, 0048; 0053's fence wait after a cancelled submission), mesa-transfer-cpu (0049's
+#            its patch, which must fail: 0002, 0003, 0047, 0048; 0053's fence wait after a cancelled submission), mesa-blit-state (Mesa 0058: nv30_transfer_rect_blit's window offset, clip, COORD_CONVENTIONS and zeta against a fake push buffer, and the golden diff of its stream with the file before the patch),
+#            mesa-transfer-cpu (0049's
 #            transfer-cpu-test: nv30 texture uploads and reads by the CPU when the GART is full), mesa-point-smooth
 #            (Mesa 0050's round GL_POINT_SMOOTH points: the fragment program variant on Mesa's
 #            TGSI interpreter over each point's square, and its NV40 translation),
@@ -183,6 +184,7 @@ run mesa-query-steal packages/patched/graphics/mesa/tests/host-tests.sh query-st
 run mesa-query-lost packages/patched/graphics/mesa/tests/host-tests.sh query-lost
 run mesa-alloc-fail packages/patched/graphics/mesa/tests/host-tests.sh alloc-fail
 run mesa-transfer-cpu packages/patched/graphics/mesa/tests/host-tests.sh transfer-cpu
+run mesa-blit-state packages/patched/graphics/mesa/tests/host-tests.sh blit-state
 run mesa-point-smooth packages/patched/graphics/mesa/tests/host-tests.sh point-smooth
 run sdl2-compat-close-locked bash packages/patched/graphics/sdl2-compat/tests/close-locked-test.sh
 run luajit-low-2gb packages/patched/libs/luajit/tests/low-2gb.sh
