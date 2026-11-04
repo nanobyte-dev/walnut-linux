@@ -24,7 +24,22 @@
  * channel's validator state */
 static bool ctxsw = true;
 module_param(ctxsw, bool, 0444);
-MODULE_PARM_DESC(ctxsw, "Restore a channel's GPU state when switching between channels");
+MODULE_PARM_DESC(ctxsw, "Restore a channel's GPU state when switching between channels "
+		 "(required: the address checks rely on it)");
+
+/*
+ * At load: the address checks (validate.c) take a field the channel set as what the GPU holds
+ * when its words run, which only the state restore at a channel switch makes true. Without it
+ * the module doesn't load.
+ */
+int ps3rsx_submit_params_ok(void)
+{
+	if (!READ_ONCE(ctxsw)) {
+		pr_err("ps3rsx: ctxsw=0 is not supported with the address checks\n");
+		return -EINVAL;
+	}
+	return 0;
+}
 
 static bool trace;
 module_param(trace, bool, 0644);
@@ -190,9 +205,21 @@ static int hw_state_show(struct seq_file *m, void *unused)
 	return 0;
 }
 
+#ifdef PS3RSX_P4_COUNT
+/* debugfs dri/N/ps3rsx_p4 (test builds): what the address checks would have refused */
+static int p4_show(struct seq_file *m, void *unused)
+{
+	ps3rsx_p4_show(m);
+	return 0;
+}
+#endif
+
 void ps3rsx_submit_debugfs_init(struct ps3rsx_device *rsx)
 {
 	drm_debugfs_add_file(&rsx->drm, "ps3rsx_hw_state", hw_state_show, NULL);
+#ifdef PS3RSX_P4_COUNT
+	drm_debugfs_add_file(&rsx->drm, "ps3rsx_p4", p4_show, NULL);
+#endif
 }
 
 /* For kernel copies (kcopy.c): hw_shadow brought up to date; exec_lock held */
@@ -307,6 +334,8 @@ int ps3rsx_ioctl_channel_alloc(struct drm_device *dev, void *data, struct drm_fi
 	ch->id = id;
 	ch->pf = pf;
 	ch->rsx = rsx;
+	ch->vstate.chan_id = id;	/* its fence label and query slice (validate.c) */
+	ch->vstate.set = &pf->set;	/* its file's buffers, under pf->set_lock */
 	kref_init(&ch->ref);
 
 	/* the notifier memory is the context's reports area (labels at 0, reports at 0x1400) */
@@ -436,6 +465,7 @@ int ps3rsx_ioctl_gem_pushbuf(struct drm_device *dev, void *data, struct drm_file
 	struct drm_gem_object **objs = NULL;
 	struct ww_acquire_ctx ticket;
 	struct dma_fence *fence = NULL;
+	bool set_held = false;		/* pf->set_lock (the address checks' set) */
 	struct pd_submit *pds = NULL;		/* the push dump's reads after the fence */
 	bool held = false, switched;
 	struct ps3rsx_chan *ch;
@@ -529,6 +559,12 @@ int ps3rsx_ioctl_gem_pushbuf(struct drm_device *dev, void *data, struct drm_file
 	if (ret)
 		goto out;
 	held = true;
+	/* the file's set stays as checked until the commit: a handle closed meanwhile waits, so its
+	 * BO can't be freed between the checks and the ring (mem.c's bo_close) */
+	ret = mutex_lock_interruptible(&pf->set_lock);
+	if (ret)
+		goto out;
+	set_held = true;
 	mutex_lock(&rsx->exec_lock);
 	if (ch->dead) {			/* freed by another thread meanwhile */
 		mutex_unlock(&rsx->exec_lock);
@@ -542,6 +578,9 @@ int ps3rsx_ioctl_gem_pushbuf(struct drm_device *dev, void *data, struct drm_file
 	}
 	if (ch->lost) {			/* the GPU was recovered under this channel */
 		ch->lost = false;
+		/* none of its fields is what the GPU holds now: here, under exec_lock, so no
+		 * submit of it still in flight can bring them back */
+		ps3rsx_vstate_forget(&ch->vstate);
 		if (chan_recovers(ch)) {
 			ch->cancelled++;
 			ret = -ECANCELED;	/* Mesa (0053) re-sends its whole state */
@@ -567,14 +606,20 @@ int ps3rsx_ioctl_gem_pushbuf(struct drm_device *dev, void *data, struct drm_file
 	while (rsx->prim_owner && rsx->prim_owner != ch) {
 		long t;
 
+		/* the set too: another channel of this file may be the one to continue (and the
+		 * file's GEM closes go on); nothing is checked yet */
 		mutex_unlock(&rsx->exec_lock);
+		mutex_unlock(&pf->set_lock);
+		set_held = false;
 		t = wait_event_interruptible_timeout(rsx->prim_wq, !READ_ONCE(rsx->prim_owner), HZ);
-		mutex_lock(&rsx->exec_lock);
+		if (t >= 0 && mutex_lock_interruptible(&pf->set_lock))
+			t = -EINTR;
 		if (t < 0) {
-			mutex_unlock(&rsx->exec_lock);
 			ret = t;
 			goto out;
 		}
+		set_held = true;
+		mutex_lock(&rsx->exec_lock);
 		if (!t && rsx->prim_owner && rsx->prim_owner != ch) {
 			ret = close_stale_primitive(rsx);
 			if (ret) {
@@ -699,6 +744,8 @@ int ps3rsx_ioctl_gem_pushbuf(struct drm_device *dev, void *data, struct drm_file
 		}
 	}
 	mutex_unlock(&rsx->exec_lock);
+	mutex_unlock(&pf->set_lock);	/* on the ring (or refused): the checks are done */
+	set_held = false;
 	if (IS_ERR(fence)) {
 		ret = PTR_ERR(fence);
 		fence = NULL;
@@ -742,6 +789,8 @@ int ps3rsx_ioctl_gem_pushbuf(struct drm_device *dev, void *data, struct drm_file
 		ret = ps3rsx_wait_result(t, t > 0 ? dma_fence_get_status(fence) : 0, false);
 	}
 out:
+	if (set_held)
+		mutex_unlock(&pf->set_lock);
 	if (held)
 		ps3rsx_console_unhold(rsx);
 	/* the push dump (test builds): what the pushes fetched, once the GPU has passed them */

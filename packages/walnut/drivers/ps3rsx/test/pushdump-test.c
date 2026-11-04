@@ -229,6 +229,10 @@ static void write_sample(const char *path)
 {
 	static const u32 restore[] = { H(1, SC, 0x0300), 0 };
 	static const u32 bad[] = { H(1, SC, 0), 0x31337000, H(1, SC, 0x1808), 0 };	/* END, none open */
+	static const u32 copy[] = {
+		H(1, 2, 0), 0x31337303, H(3, 2, 0x180), 0x66604200, 0xfeed0001, 0xfeed0001,
+		H(8, 2, 0x30c), 0x100000, 0x200000, 0x100, 0x100, 0x100, 4, 0x101, 0,
+	};
 	u8 r[64];
 
 	out = fopen(path, "wb");
@@ -262,8 +266,14 @@ static void write_sample(const char *path)
 	put(r, PD_GAP_BYTES);
 	pd_rec_end(r, 3, 1, H(1, SC, 0x1808));
 	put(r, PD_END_BYTES);
+	/* channel 1 copies between its two buffers; closes the second; copies again (which the
+	 * host replay refuses: the file no longer holds that buffer) */
+	sample_submit(4, 1, PD_ACCEPTED, ~0u, 1);
+	sample_push(4, 1, 0, copy, ARRAY_SIZE(copy));
 	pd_rec_bo_event(r, false, 4, 5, 4321, 2, PD_DOM_GART, 0x200000, 0x1000);
 	put(r, PD_BO_EVENT_BYTES);
+	sample_submit(5, 1, PD_ACCEPTED, ~0u, 1);
+	sample_push(5, 1, 0, copy, ARRAY_SIZE(copy));
 	fclose(out);
 }
 

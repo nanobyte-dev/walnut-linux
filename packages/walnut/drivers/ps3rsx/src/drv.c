@@ -32,6 +32,7 @@ static int ps3rsx_open(struct drm_device *dev, struct drm_file *file)
 		return -ENOMEM;
 	}
 	mutex_init(&pf->lock);
+	mutex_init(&pf->set_lock);
 	INIT_LIST_HEAD(&pf->objects);
 	INIT_LIST_HEAD(&pf->chans);
 	file->driver_priv = pf;
@@ -48,6 +49,7 @@ static void ps3rsx_postclose(struct drm_device *dev, struct drm_file *file)
 	/* its BOs were released before this: what it kept goes to the clear, and a BO freed after
 	 * now (a framebuffer an atomic commit still holds) finds its owner closed */
 	ps3rsx_owner_close(to_rsx(dev), pf->owner);
+	p4set_free(&pf->set);		/* empty: drm_gem_release closed every handle before this */
 	kfree(pf);
 }
 
@@ -215,6 +217,9 @@ static int __init ps3rsx_init(void)
 {
 	int ret;
 
+	ret = ps3rsx_submit_params_ok();
+	if (ret)
+		return ret;
 	ps3rsx_validate_init();
 	ps3rsx_shadow_init();
 	ret = platform_driver_register(&ps3rsx_platform_driver);

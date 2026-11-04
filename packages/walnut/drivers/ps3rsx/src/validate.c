@@ -14,15 +14,25 @@
  * texture units (vtxtex_ok()), SIFM surfaces.
  * Order checks: BEGIN only with no primitive open, END and vertex data only inside one (the
  * channel's primitive state carries over from its accepted submits: Mesa splits draws).
- * Not yet: bounds checks of offsets against BOs at trigger methods.
+ * Address checks (p4_method()): each context DMA slot takes only its own handles; semaphore
+ * releases, reports and the render-enable read stay in the channel's own label and query slice;
+ * M2MF and scaled-image copies and clears stay inside buffers the submitting file holds handles
+ * to (the set, p4.h), with every field they use set by the channel itself. Not yet: draws.
  *
  * Every check reads only the push's own words and the channel's validator state, which only
  * accepted submits change: a rejected submit leaves nothing behind, so the streams that reach
  * the GPU, laid end to end, pass these checks as one stream (docs/DRIVER.md, recovery).
  */
 #include <linux/kernel.h>
+#ifdef __KERNEL__
+#include <linux/moduleparam.h>
+#include <linux/overflow.h>
+#include <linux/sched.h>
+#include <linux/seq_file.h>
+#endif
 
 #include "ps3rsx.h"
+#include "p4.h"
 
 static const u32 object_handles[] = {
 	0x31337000,	/* 3D (0x4097) */
@@ -43,6 +53,649 @@ static const u32 dma_handles[] = {
 	0x66616661,	/* semaphores (FIFO) */
 	0x66626660,	/* reports */
 };
+
+/* --- the address checks (P4): docs/DRIVER.md, the validator ------------------------------- */
+
+#define H_NOTIFY	0x66604200
+#define H_SEM		0x66606660
+#define H_REPORT	0x66626660
+#define H_VRAM		0xfeed0000
+#define H_GART		0xfeed0001
+#define P4_OBJ_3D		0x31337000
+#define P4_OBJ_SURF2D	0x313371c3
+#define P4_OBJ_SWZ		0x31337a73
+
+/* The fields' methods (p4.h's enum p4_field): class and method, the table the checks, the
+ * shadow coverage test and the counters' log share */
+struct p4_fm { u8 cls; u16 m; };
+
+static const struct p4_fm p4_fields[P4F_N] = {
+#define DMA3(i) [P4F_3D_DMA + (i)] = { VC_3D, 0x180 + 4 * (i) }
+	DMA3(0), DMA3(1), DMA3(2), DMA3(3), DMA3(4), DMA3(5), DMA3(6), DMA3(7),
+	DMA3(8), DMA3(9), DMA3(10), DMA3(11), DMA3(12), DMA3(13), DMA3(14), DMA3(15),
+#undef DMA3
+	[P4F_FENCE] = { VC_3D, 0x1d6c },
+	[P4F_RT_HORIZ] = { VC_3D, 0x200 }, [P4F_RT_VERT] = { VC_3D, 0x204 },
+	[P4F_RT_FORMAT] = { VC_3D, 0x208 }, [P4F_C0_PITCH] = { VC_3D, 0x20c },
+	[P4F_C0_OFF] = { VC_3D, 0x210 }, [P4F_Z_OFF] = { VC_3D, 0x214 },
+	[P4F_C1_OFF] = { VC_3D, 0x218 }, [P4F_C1_PITCH] = { VC_3D, 0x21c },
+	[P4F_RT_ENABLE] = { VC_3D, 0x220 }, [P4F_Z_PITCH] = { VC_3D, 0x22c },
+	[P4F_C2_PITCH] = { VC_3D, 0x280 }, [P4F_C3_PITCH] = { VC_3D, 0x284 },
+	[P4F_C2_OFF] = { VC_3D, 0x288 }, [P4F_C3_OFF] = { VC_3D, 0x28c },
+	[P4F_WIN_OFF] = { VC_3D, 0x2b8 }, [P4F_WIN_MODE] = { VC_3D, 0x2bc },
+	[P4F_WIN_H] = { VC_3D, 0x2c0 }, [P4F_WIN_V] = { VC_3D, 0x2c4 },
+	[P4F_COORD] = { VC_3D, 0x1d88 },
+	[P4F_M_NOTIFY] = { VC_M2MF, 0x180 }, [P4F_M_IN_DMA] = { VC_M2MF, 0x184 },
+	[P4F_M_OUT_DMA] = { VC_M2MF, 0x188 }, [P4F_M_OFF_IN] = { VC_M2MF, 0x30c },
+	[P4F_M_OFF_OUT] = { VC_M2MF, 0x310 }, [P4F_M_PITCH_IN] = { VC_M2MF, 0x314 },
+	[P4F_M_PITCH_OUT] = { VC_M2MF, 0x318 }, [P4F_M_LEN] = { VC_M2MF, 0x31c },
+	[P4F_M_COUNT] = { VC_M2MF, 0x320 }, [P4F_M_FORMAT] = { VC_M2MF, 0x324 },
+	[P4F_S_NOTIFY] = { VC_SURF2D, 0x180 }, [P4F_S_SRC_DMA] = { VC_SURF2D, 0x184 },
+	[P4F_S_DST_DMA] = { VC_SURF2D, 0x188 }, [P4F_S_FORMAT] = { VC_SURF2D, 0x300 },
+	[P4F_S_PITCH] = { VC_SURF2D, 0x304 }, [P4F_S_OFF_SRC] = { VC_SURF2D, 0x308 },
+	[P4F_S_OFF_DST] = { VC_SURF2D, 0x30c },
+	[P4F_W_NOTIFY] = { VC_SWZ, 0x180 }, [P4F_W_DMA] = { VC_SWZ, 0x184 },
+	[P4F_W_FORMAT] = { VC_SWZ, 0x300 }, [P4F_W_OFF] = { VC_SWZ, 0x304 },
+	[P4F_F_NOTIFY] = { VC_SIFM, 0x180 }, [P4F_F_DMA] = { VC_SIFM, 0x184 },
+	[P4F_F_SURFACE] = { VC_SIFM, 0x198 }, [P4F_F_FORMAT] = { VC_SIFM, 0x300 },
+	[P4F_F_CLIP_PT] = { VC_SIFM, 0x308 }, [P4F_F_CLIP_SZ] = { VC_SIFM, 0x30c },
+	[P4F_F_OUT_PT] = { VC_SIFM, 0x310 }, [P4F_F_OUT_SZ] = { VC_SIFM, 0x314 },
+	[P4F_F_DUDX] = { VC_SIFM, 0x318 }, [P4F_F_DVDY] = { VC_SIFM, 0x31c },
+	[P4F_F_SIZE] = { VC_SIFM, 0x400 }, [P4F_F_IN_FMT] = { VC_SIFM, 0x404 },
+	[P4F_F_OFF] = { VC_SIFM, 0x408 },
+};
+
+/* field_of[class][method / 4]: its field + 1, or 0 (built at load) */
+static u8 field_of[VC_N][0x2000 / 4];
+
+/* Methods that make the GPU touch memory (their own words, or through the fields), and 3D's
+ * 0x224 and 0x228, which no source names (only 0 passes) */
+static bool p4_trigger(int c, u32 m)
+{
+	switch (c) {
+	case VC_3D:
+		return m == 0x1d70 || m == 0x1d74 || m == 0x1800 || m == 0x1e98 || m == 0x1d94 ||
+		       m == 0x224 || m == 0x228;
+	case VC_M2MF:
+		return m == 0x328;
+	case VC_SIFM:
+		return m == 0x40c;
+	}
+	return false;
+}
+
+/*
+ * The context DMA each slot takes (6.1 of the design): a mask over dma_handles[]. The texture,
+ * vertex buffer, semaphore and report slots have one handle each, so a location bit or an
+ * offset names one domain or one area; the render target slots and the copy objects' buffers
+ * take VRAM or GART; the notifiers only the notifier; slots nothing reads through only 0.
+ */
+#define DM(i)		(1u << (i))
+#define D_0		DM(0)
+#define D_VRAM		DM(1)
+#define D_GART		DM(2)
+#define D_NOTIFY	DM(3)
+#define D_SEM		DM(4)
+#define D_REPORT	DM(6)
+
+static u8 slot_allow(int c, u32 m)
+{
+	if (c == VC_3D) {
+		switch (m) {
+		case 0x180: return D_NOTIFY | D_0;
+		case 0x184: return D_VRAM;		/* textures and programs, location 1 */
+		case 0x188: return D_GART;		/* location 2 */
+		case 0x18c: case 0x194: case 0x198: case 0x1b4: case 0x1b8:
+			return D_VRAM | D_GART;		/* render targets and zeta */
+		case 0x19c: return D_VRAM;		/* vertex and index buffers, location 0 */
+		case 0x1a0: return D_GART;		/* location 1 */
+		case 0x1a4: return D_SEM;
+		case 0x1a8: return D_REPORT;
+		default:    return D_0;		/* 0x190, 0x1ac, 0x1b0, 0x1bc */
+		}
+	}
+	if (m == 0x180)
+		return D_NOTIFY;
+	if (m == 0x184 || (m == 0x188 && (c == VC_M2MF || c == VC_SURF2D)))
+		return D_VRAM | D_GART;
+	return 0;
+}
+
+static int dma_index(u32 handle)
+{
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(dma_handles); i++)
+		if (dma_handles[i] == handle)
+			return i;
+	return -1;
+}
+
+/* The count-only build: a P4 rule that fails counts and lets the word through, per slice */
+#ifdef PS3RSX_P4_COUNT
+#define P4S_A	1u
+#define P4S_B	2u
+#define P4S_P7	4u
+static const u8 p4_rule_slice[P4R_N] = {
+	[P4R_BIND] = P4S_A, [P4R_SLOT] = P4S_A, [P4R_FENCE] = P4S_A, [P4R_QUERY] = P4S_A,
+	[P4R_RENDER] = P4S_A, [P4R_UNSET] = P4S_B, [P4R_FIELD] = P4S_B, [P4R_M2MF] = P4S_B,
+	[P4R_SIFM] = P4S_B, [P4R_CLEAR] = P4S_B, [P4R_P7] = P4S_P7,
+};
+static const char *const p4_rule_name[P4R_N] = {
+	"bind", "slot", "fence", "query", "render-enable", "unset", "field", "m2mf", "sifm",
+	"clear", "p7",
+};
+#ifdef __KERNEL__
+static unsigned int test_p4_enforce;
+module_param(test_p4_enforce, uint, 0644);
+MODULE_PARM_DESC(test_p4_enforce, "TEST BUILD: address check slices that refuse (1 a, 2 b, 4 P7); "
+		 "the others only count (debugfs ps3rsx_p4)");
+#else
+static unsigned int test_p4_enforce;	/* the host tests set it */
+#endif
+static u64 p4_hits[P4R_N];
+static u32 p4_last_m[P4R_N], p4_last_data[P4R_N];
+
+static void p4_count(int rule, u32 m, u32 data, const char *why)
+{
+	if (p4_hits[rule]++ < 16) {
+#ifdef __KERNEL__
+		pr_info("ps3rsx: TEST BUILD: address check %s would refuse: %s (method %#x data %#x, "
+			"pid %d, %s)\n", p4_rule_name[rule], why, m, data, task_pid_nr(current),
+			current->comm);
+#endif
+	}
+	p4_last_m[rule] = m;
+	p4_last_data[rule] = data;
+}
+
+#ifdef __KERNEL__
+/* debugfs dri/N/ps3rsx_p4: what each rule would have refused */
+void ps3rsx_p4_show(struct seq_file *sm)
+{
+	int r;
+
+	seq_printf(sm, "enforcing: %#x (1 a, 2 b, 4 P7)\n", READ_ONCE(test_p4_enforce));
+	for (r = 0; r < P4R_N; r++)
+		seq_printf(sm, "%-14s %10llu  last method %#06x data %#010x\n", p4_rule_name[r],
+			   p4_hits[r], p4_last_m[r], p4_last_data[r]);
+}
+#endif
+#endif
+
+static int p4_fail(int rule, u32 m, u32 data, const char *why, const char **out)
+{
+#ifdef PS3RSX_P4_COUNT
+	if (!(READ_ONCE(test_p4_enforce) & p4_rule_slice[rule])) {
+		p4_count(rule, m, data, why);
+		return 0;
+	}
+#endif
+	*out = why;
+	return -EINVAL;
+}
+
+static __always_inline bool fvalid(const struct ps3rsx_vstate *vs, int f)
+{
+	return (vs->valid[f / 64] >> (f % 64)) & 1;
+}
+
+static __always_inline void fset(struct ps3rsx_vstate *vs, int f, u32 v)
+{
+	vs->f[f] = v;
+	vs->valid[f / 64] |= 1ULL << (f % 64);
+}
+
+/* The channel's fields are no longer what the GPU holds (a recovery under it): none counts */
+void ps3rsx_vstate_forget(struct ps3rsx_vstate *vs)
+{
+	memset(vs->valid, 0, sizeof(vs->valid));
+}
+
+/* Are all these fields set? */
+static bool fall(const struct ps3rsx_vstate *vs, const u8 *f, int n)
+{
+	int i;
+
+	for (i = 0; i < n; i++)
+		if (!fvalid(vs, f[i]))
+			return false;
+	return true;
+}
+
+/* The domain a context DMA handle names, or -1 */
+static int dom_of(u32 handle)
+{
+	return handle == H_VRAM ? P4_VRAM : handle == H_GART ? P4_GART : -1;
+}
+
+/* [lo, lo + len) through the DMA handle inside one of the file's buffers (64-bit, no overflow) */
+static bool in_set(const struct ps3rsx_vstate *vs, u32 handle, u64 lo, u64 len)
+{
+	u64 hi;
+
+	if (!len || check_add_overflow(lo, len, &hi))
+		return false;
+	return p4set_find(vs->set, dom_of(handle), lo, hi);
+}
+
+/* rows · pitch + cols · bpp style extents, in u64 with every step checked: false on overflow */
+static bool ext2(u64 pitch, u64 rows, u64 row_bytes, u64 *len)
+{
+	u64 a;
+
+	if (!rows || !row_bytes)
+		return false;
+	if (check_mul_overflow(pitch, rows - 1, &a) || check_add_overflow(a, row_bytes, len))
+		return false;
+	return true;
+}
+
+/* Bytes per pixel of an RT colour format (RT_FORMAT bits 0-4; libgcm's SURFACE_* codes),
+ * unknown ones the largest (16): a format we don't know refuses more, never less */
+static u32 rt_bpp(u32 c)
+{
+	switch (c) {
+	case 1: case 2: case 3: case 0xa: return 2;
+	case 4: case 5: case 8: case 0xd: case 0xe: case 0xf: case 0x10: return 4;
+	case 9: return 1;
+	case 0xb: return 8;
+	default: return 16;
+	}
+}
+
+/* zeta (bits 5-7): Z16 2, Z24S8 4, anything else 8 */
+static u32 zeta_bpp(u32 z)
+{
+	return z == 1 ? 2 : z == 2 ? 4 : 8;
+}
+
+/* surface 2D and swizzled surface colour formats (nouveau's NV04_SURFACE_*), 0 unknown */
+static u32 surf_bpp(u32 c)
+{
+	switch (c) {
+	case 1: return 1;
+	case 2: case 3: case 4: case 5: return 2;
+	case 6: case 7: case 8: case 9: case 0xa: case 0xb: return 4;
+	default: return 0;
+	}
+}
+
+/* scaled image source formats (NV03_SIFM_COLOR_FORMAT_*, libgcm's TRANSFER_SCALE_FORMAT_*) */
+static u32 sifm_bpp(u32 c)
+{
+	switch (c) {
+	case 1: case 2: case 5: case 6: case 7: case 0xa: case 0xb: return 2;
+	case 3: case 4: case 0xc: case 0xd: return 4;
+	case 8: case 9: return 1;
+	default: return 0;
+	}
+}
+
+#define LO16(v)	((v) & 0xffff)
+#define HI16(v)	((v) >> 16)
+
+/* A field's value at its write (6.x of the design): NULL if fine, else why not */
+static const char *field_check(int f, u32 v)
+{
+	switch (f) {
+	case P4F_RT_HORIZ:
+	case P4F_RT_VERT:	/* x or y, width or height: at most 4096, a size of at least 1 */
+		return LO16(v) > 4096 || HI16(v) > 4096 || !HI16(v) ?
+			"surface clip coordinate or size out of range" : NULL;
+	case P4F_RT_FORMAT: {
+		u32 type = (v >> 8) & 0xf, aa = (v >> 12) & 0xf;
+
+		if (type != 1 && type != 2)
+			return "surface type other than linear or swizzled";
+		if (aa != 0 && aa != 3 && aa != 4 && aa != 5)
+			return "surface antialiasing mode unknown";
+		if (aa && type == 2)
+			return "antialiasing on a swizzled surface";
+		if (((v >> 16) & 0xff) > 12 || (v >> 24) > 12)
+			return "swizzled surface log2 size above 12";
+		return NULL;
+	}
+	case P4F_WIN_OFF:
+		return LO16(v) > 4096 || HI16(v) > 4096 ? "window offset out of range" : NULL;
+	case P4F_WIN_MODE:
+		return v ? "window clip mode other than 0" : NULL;
+	case P4F_WIN_H:
+	case P4F_WIN_V:
+		return LO16(v) > 4095 || HI16(v) > 4095 ? "window clip out of range" : NULL;
+	case P4F_COORD:		/* height 0-11, origin 12-15, centre 16-19 */
+		return v >> 20 ? "coordinate conventions: unknown bits" : NULL;
+	case P4F_M_PITCH_IN:
+	case P4F_M_PITCH_OUT:
+		return v >= 0x80000000u ? "M2MF pitch at or above 2^31" : NULL;
+	case P4F_M_COUNT:
+		return !v || v > 2047 ? "M2MF line count not 1 to 2047" : NULL;
+	case P4F_M_FORMAT:
+		return v != 0x101 ? "M2MF format other than 1-byte increments" : NULL;
+	case P4F_W_FORMAT:
+		return (v & 0xff00) || ((v >> 16) & 0xff) > 12 || (v >> 24) > 12 ?
+			"swizzled surface format out of range" : NULL;
+	case P4F_F_CLIP_PT:
+	case P4F_F_OUT_PT:
+	case P4F_F_CLIP_SZ:
+	case P4F_F_OUT_SZ:
+	case P4F_F_SIZE:
+		return LO16(v) > 4096 || HI16(v) > 4096 ? "scaled image point or size out of range" :
+			NULL;
+	case P4F_F_DUDX:
+	case P4F_F_DVDY:
+		return v >> 31 ? "scaled image step negative" : NULL;
+	case P4F_F_IN_FMT: {
+		u32 origin = (v >> 16) & 0xff, filter = v >> 24;
+
+		return (origin != 1 && origin != 2) || filter > 1 ?
+			"scaled image origin or filter unknown" : NULL;
+	}
+	}
+	return NULL;
+}
+
+/* A render target or zeta buffer [lo, hi) of the current surface: false if outside the set */
+static bool rt_ok(const struct ps3rsx_vstate *vs, u32 handle, u32 off, u32 pitch, u32 bpp,
+		  u64 cols, u64 rows, const char **why)
+{
+	u32 fmt = vs->f[P4F_RT_FORMAT], aa = (fmt >> 12) & 0xf;
+	u64 xs = aa ? 2 : 1, ys = aa == 4 || aa == 5 ? 2 : 1, lo = off & ~63u, len, rb;
+
+	if (aa && aa != 3 && aa != 4 && aa != 5)
+		xs = ys = 2;		/* a value counted at its write: the largest scale */
+	if (((fmt >> 8) & 0xf) == 2) {		/* swizzled: the whole power-of-two block */
+		u32 lw = (fmt >> 16) & 0xff, lh = fmt >> 24;
+
+		if (lw > 12 || lh > 12 || cols > (1ULL << lw) || rows > (1ULL << lh)) {
+			*why = "drawing outside a swizzled surface";
+			return false;
+		}
+		len = (1ULL << lw) * (1ULL << lh) * bpp;
+	} else {
+		if (!pitch) {
+			*why = "render target pitch 0";
+			return false;
+		}
+		if (check_mul_overflow(cols * xs, (u64)bpp, &rb) ||
+		    !ext2(pitch, rows * ys, rb, &len)) {
+			*why = "render target extent overflows";
+			return false;
+		}
+	}
+	if (!in_set(vs, handle, lo, len)) {
+		*why = "render target outside the file's buffers";
+		return false;
+	}
+	return true;
+}
+
+/* CLEAR_BUFFERS (0x1d94): the cleared targets inside the file's buffers */
+static int clear_check(const struct ps3rsx_vstate *vs, u32 data, const char **why)
+{
+	static const u8 need[] = { P4F_RT_HORIZ, P4F_RT_VERT, P4F_RT_FORMAT, P4F_WIN_OFF,
+				   P4F_WIN_H, P4F_WIN_V, P4F_COORD };
+	static const struct { u8 off, pitch, slot; } t[4] = {
+		{ P4F_C0_OFF, P4F_C0_PITCH, P4F_3D_DMA + 5 },	/* 0x194 */
+		{ P4F_C1_OFF, P4F_C1_PITCH, P4F_3D_DMA + 3 },	/* 0x18c */
+		{ P4F_C2_OFF, P4F_C2_PITCH, P4F_3D_DMA + 13 },	/* 0x1b4 */
+		{ P4F_C3_OFF, P4F_C3_PITCH, P4F_3D_DMA + 14 },	/* 0x1b8 */
+	};
+	u32 h = vs->f[P4F_RT_HORIZ], v = vs->f[P4F_RT_VERT], wo = vs->f[P4F_WIN_OFF];
+	u32 fmt = vs->f[P4F_RT_FORMAT];
+	u64 cols, rows;
+	int i;
+
+	if (data & ~0xf3u) {
+		*why = "clear of unknown buffers";
+		return P4R_CLEAR;
+	}
+	if (!data)
+		return -1;
+	if (!fall(vs, need, ARRAY_SIZE(need))) {
+		*why = "clear with a surface field not set by this channel";
+		return P4R_UNSET;
+	}
+	cols = max_t(u64, LO16(h) + HI16(h), LO16(wo) + HI16(vs->f[P4F_WIN_H]) + 1);
+	rows = max_t(u64, LO16(v) + HI16(v), HI16(wo) + HI16(vs->f[P4F_WIN_V]) + 1);
+	rows = max_t(u64, rows, vs->f[P4F_COORD] & 0xfff);
+	if (data & 0xf0) {
+		u32 en;
+
+		if (!fvalid(vs, P4F_RT_ENABLE)) {
+			*why = "colour clear with RT_ENABLE not set by this channel";
+			return P4R_UNSET;
+		}
+		en = (vs->f[P4F_RT_ENABLE] & 0xf) | 1;		/* target 0 whatever it says */
+		for (i = 0; i < 4; i++) {
+			if (!(en & (1u << i)))
+				continue;
+			if (!fvalid(vs, t[i].off) || !fvalid(vs, t[i].pitch) || !fvalid(vs, t[i].slot)) {
+				*why = "colour clear of a target not set by this channel";
+				return P4R_UNSET;
+			}
+			if (!rt_ok(vs, vs->f[t[i].slot], vs->f[t[i].off], vs->f[t[i].pitch],
+				   rt_bpp(fmt & 0x1f), cols, rows, why))
+				return P4R_CLEAR;
+		}
+	}
+	if (data & 3) {
+		if (!fvalid(vs, P4F_Z_OFF) || !fvalid(vs, P4F_Z_PITCH) ||
+		    !fvalid(vs, P4F_3D_DMA + 6)) {
+			*why = "depth clear with zeta not set by this channel";
+			return P4R_UNSET;
+		}
+		if (!rt_ok(vs, vs->f[P4F_3D_DMA + 6], vs->f[P4F_Z_OFF], vs->f[P4F_Z_PITCH],
+			   zeta_bpp((fmt >> 5) & 7), cols, rows, why))
+			return P4R_CLEAR;
+	}
+	return -1;
+}
+
+/* M2MF BUF_NOTIFY (0x328): the copy's source and destination inside the file's buffers */
+static int m2mf_check(const struct ps3rsx_vstate *vs, u32 data, const char **why)
+{
+	static const u8 need[] = { P4F_M_NOTIFY, P4F_M_IN_DMA, P4F_M_OUT_DMA, P4F_M_OFF_IN,
+				   P4F_M_OFF_OUT, P4F_M_PITCH_IN, P4F_M_PITCH_OUT, P4F_M_LEN,
+				   P4F_M_COUNT, P4F_M_FORMAT };
+	u64 in, out;
+
+	if (data) {
+		*why = "M2MF notify other than 0";
+		return P4R_M2MF;
+	}
+	if (!fall(vs, need, ARRAY_SIZE(need))) {
+		*why = "M2MF copy with a field not set by this channel";
+		return P4R_UNSET;
+	}
+	if (vs->f[P4F_M_FORMAT] != 0x101 || vs->f[P4F_M_COUNT] - 1 > 2046 ||
+	    (vs->f[P4F_M_PITCH_IN] | vs->f[P4F_M_PITCH_OUT]) >> 31) {
+		*why = "M2MF format, line count or pitch out of range";
+		return P4R_M2MF;
+	}
+	if (!ext2(vs->f[P4F_M_PITCH_IN], vs->f[P4F_M_COUNT], vs->f[P4F_M_LEN], &in) ||
+	    !ext2(vs->f[P4F_M_PITCH_OUT], vs->f[P4F_M_COUNT], vs->f[P4F_M_LEN], &out)) {
+		*why = "M2MF line length 0";
+		return P4R_M2MF;
+	}
+	if (!in_set(vs, vs->f[P4F_M_IN_DMA], vs->f[P4F_M_OFF_IN], in)) {
+		*why = "M2MF source outside the file's buffers";
+		return P4R_M2MF;
+	}
+	if (!in_set(vs, vs->f[P4F_M_OUT_DMA], vs->f[P4F_M_OFF_OUT], out)) {
+		*why = "M2MF destination outside the file's buffers";
+		return P4R_M2MF;
+	}
+	return -1;
+}
+
+/* SIFM POINT (0x40c): the scaled image's source and its destination surface */
+static int sifm_check(const struct ps3rsx_vstate *vs, u32 point, const char **why)
+{
+	static const u8 need[] = { P4F_F_DMA, P4F_F_SURFACE, P4F_F_FORMAT, P4F_F_CLIP_PT,
+				   P4F_F_CLIP_SZ, P4F_F_OUT_PT, P4F_F_OUT_SZ, P4F_F_DUDX,
+				   P4F_F_DVDY, P4F_F_SIZE, P4F_F_IN_FMT, P4F_F_OFF };
+	static const u8 need2d[] = { P4F_S_DST_DMA, P4F_S_FORMAT, P4F_S_PITCH, P4F_S_OFF_DST };
+	static const u8 needswz[] = { P4F_W_DMA, P4F_W_FORMAT, P4F_W_OFF };
+	u32 size = vs->f[P4F_F_SIZE], osz = vs->f[P4F_F_OUT_SZ], csz = vs->f[P4F_F_CLIP_SZ];
+	u32 opt = vs->f[P4F_F_OUT_PT], cpt = vs->f[P4F_F_CLIP_PT];
+	u32 bpp = sifm_bpp(vs->f[P4F_F_FORMAT]), pitch = LO16(vs->f[P4F_F_IN_FMT]);
+	u64 uend, vend, cols, rows, xmax, ymax, len, rb;
+
+	if (!fall(vs, need, ARRAY_SIZE(need))) {
+		*why = "scaled image with a field not set by this channel";
+		return P4R_UNSET;
+	}
+	if (!bpp || !pitch || !LO16(size) || !HI16(size) || !LO16(osz) || !HI16(osz) ||
+	    !LO16(csz) || !HI16(csz) || field_check(P4F_F_SIZE, size) ||
+	    field_check(P4F_F_OUT_SZ, osz) || field_check(P4F_F_CLIP_SZ, csz) ||
+	    field_check(P4F_F_OUT_PT, opt) || field_check(P4F_F_CLIP_PT, cpt) ||
+	    field_check(P4F_F_DUDX, vs->f[P4F_F_DUDX]) || field_check(P4F_F_DVDY, vs->f[P4F_F_DVDY])) {
+		*why = "scaled image format, pitch, size or point out of range";
+		return P4R_SIFM;
+	}
+	/* the source: the larger of the declared size and the span the steps sample, plus one
+	 * texel for filtering (u, v in 12.4, the steps in 12.20) */
+	uend = (LO16(point) >> 4) + (((u64)vs->f[P4F_F_DUDX] * LO16(osz)) >> 20) + 1;
+	vend = (HI16(point) >> 4) + (((u64)vs->f[P4F_F_DVDY] * HI16(osz)) >> 20) + 1;
+	cols = max_t(u64, LO16(size), uend) + 1;
+	rows = max_t(u64, HI16(size), vend) + 1;
+	if (!ext2(pitch, rows, cols * bpp, &len) ||
+	    !in_set(vs, vs->f[P4F_F_DMA], vs->f[P4F_F_OFF], len)) {
+		*why = "scaled image source outside the file's buffers";
+		return P4R_SIFM;
+	}
+	/* the destination: the output and clip rectangles' union, in the bound surface */
+	xmax = max_t(u64, LO16(opt) + LO16(osz), LO16(cpt) + LO16(csz));
+	ymax = max_t(u64, HI16(opt) + HI16(osz), HI16(cpt) + HI16(csz));
+	if (vs->f[P4F_F_SURFACE] == P4_OBJ_SURF2D) {
+		u32 dbpp = surf_bpp(vs->f[P4F_S_FORMAT]), dpitch = HI16(vs->f[P4F_S_PITCH]);
+
+		if (!fall(vs, need2d, ARRAY_SIZE(need2d))) {
+			*why = "scaled image into a surface not set by this channel";
+			return P4R_UNSET;
+		}
+		if (!dbpp || !dpitch || !ext2(dpitch, ymax, xmax * dbpp, &len) ||
+		    !in_set(vs, vs->f[P4F_S_DST_DMA], vs->f[P4F_S_OFF_DST], len)) {
+			*why = "scaled image destination outside the file's buffers";
+			return P4R_SIFM;
+		}
+	} else {
+		u32 wf = vs->f[P4F_W_FORMAT], dbpp = surf_bpp(LO16(wf));
+		u32 lu = (wf >> 16) & 0xff, lv = wf >> 24;
+
+		if (!fall(vs, needswz, ARRAY_SIZE(needswz))) {
+			*why = "scaled image into a swizzled surface not set by this channel";
+			return P4R_UNSET;
+		}
+		if (!dbpp || lu > 12 || lv > 12 || xmax > (1ULL << lu) || ymax > (1ULL << lv)) {
+			*why = "scaled image outside its swizzled surface";
+			return P4R_SIFM;
+		}
+		rb = (1ULL << lu) * (1ULL << lv) * dbpp;	/* at most 2^26 */
+		if (!in_set(vs, vs->f[P4F_W_DMA], vs->f[P4F_W_OFF], rb)) {
+			*why = "scaled image destination outside the file's buffers";
+			return P4R_SIFM;
+		}
+	}
+	return -1;
+}
+
+/*
+ * The address checks of one method write (called by check_method() after its own checks): the
+ * field's value rule, the triggers, then the write recorded. In the count-only build a failed
+ * rule counts and the write is taken as if it passed (state included), so the build measures
+ * what the release will do.
+ */
+static int p4_method(struct ps3rsx_vstate *vs, int c, u32 m, u32 data, const char **why)
+{
+	u8 f = field_of[c][m / 4];
+	const char *bad = NULL;
+	int rule = -1, ret;
+
+	if (f) {
+		bad = field_check(f - 1, data);
+		if (bad)
+			rule = P4R_FIELD;
+		if (f - 1 == P4F_FENCE) {
+			u32 lo = 0x20 + 32 * vs->chan_id;
+
+			if (data < lo || (u64)data + 4 > lo + 32 || (data & 3)) {
+				bad = "semaphore offset outside the channel's fence label";
+				rule = P4R_FENCE;
+			}
+		}
+	} else if (c == VC_3D) {
+		u32 lo = 0x1000 * vs->chan_id, off = data & 0xffffff;
+		bool slice = off >= lo && off + 16 <= lo + 0x1000 && !(off & 15);
+
+		switch (m) {
+		case 0x1d70:
+		case 0x1d74:
+			if (!fvalid(vs, P4F_FENCE) || !fvalid(vs, P4F_3D_DMA + 9)) {
+				bad = "semaphore release with its offset or DMA not set by this channel";
+				rule = P4R_UNSET;
+			}
+			break;
+		case 0x1800:
+			if ((data >> 24) < 1 || (data >> 24) > 5 || !slice) {
+				bad = "report outside the channel's query slice or of an unknown type";
+				rule = P4R_QUERY;
+			} else if (!fvalid(vs, P4F_3D_DMA + 10)) {
+				bad = "report with its DMA not set by this channel";
+				rule = P4R_UNSET;
+			}
+			break;
+		case 0x1e98:
+			if (data == 0 || data == 0x01000000)
+				break;
+			if ((data >> 24) != 2 || !slice) {
+				bad = "render enable reading outside the channel's query slice";
+				rule = P4R_RENDER;
+			} else if (!fvalid(vs, P4F_3D_DMA + 10)) {
+				bad = "render enable with its DMA not set by this channel";
+				rule = P4R_UNSET;
+			}
+			break;
+		case 0x1d94:
+			rule = clear_check(vs, data, &bad);
+			break;
+		case 0x224:
+		case 0x228:
+			if (data) {
+				bad = "a surface method no source names, other than 0";
+				rule = P4R_FIELD;
+			}
+			break;
+		}
+	} else if (c == VC_M2MF && m == 0x328) {
+		rule = m2mf_check(vs, data, &bad);
+	} else if (c == VC_SIFM && m == 0x40c) {
+		rule = sifm_check(vs, data, &bad);
+	}
+	if (rule >= 0) {
+		ret = p4_fail(rule, m, data, bad, why);
+		if (ret)
+			return ret;
+	}
+	if (f)
+		fset(vs, f - 1, data);
+	return 0;
+}
+
+#ifdef PS3RSX_P4_COUNT
+#define PS3RSX_P7	/* P7 is compiled into the count-only build until slice c1 */
+#endif
+#ifdef PS3RSX_P7
+/* P7: inside an open primitive only vertex data, immediate attributes, END and NOP */
+static bool p7_ok(int c, u32 m)
+{
+	return c == VC_3D && (m == 0x100 || m == 0x1808 || (m >= 0x180c && m <= 0x1818) ||
+				   m == 0x1824 || (m >= 0x1500 && m <= 0x15fc) ||
+				   (m >= 0x1880 && m <= 0x19fc) || (m >= 0x1c00 && m <= 0x1cfc) ||
+				   (m >= 0x1e40 && m <= 0x1e7c));
+}
+#endif
 
 /* Allowed method ranges [lo, hi] per class */
 struct mrange { u16 lo, hi; };
@@ -94,7 +747,6 @@ static const struct mrange m_sifm[] = {
  * every word of every push, and searching the ranges was the driver's largest cost in a game
  * (OpenArena, 2026-10-15). VC_NONE: no object bound, or one without methods (image from CPU).
  */
-enum { VC_NONE, VC_3D, VC_M2MF, VC_SURF2D, VC_SWZ, VC_SIFM, VC_N };
 static unsigned long allowed[VC_N][BITS_TO_LONGS(0x2000 / 4)];
 
 /*
@@ -277,6 +929,8 @@ void ps3rsx_validate_init(void)
 	allow(VC_SURF2D, m_surf2d, ARRAY_SIZE(m_surf2d));
 	allow(VC_SWZ, m_swz, ARRAY_SIZE(m_swz));
 	allow(VC_SIFM, m_sifm, ARRAY_SIZE(m_sifm));
+	for (c = 0; c < P4F_N; c++)
+		field_of[p4_fields[c].cls][p4_fields[c].m / 4] = c + 1;
 	for (c = VC_NONE + 1; c < VC_N; c++)
 		for (m = 0x100; m < 0x2000; m += 4)
 			fast[c][m / 4] = test_bit(m / 4, allowed[c]) ? fast_kind(c, m) : F_SLOW;
@@ -354,6 +1008,8 @@ static u8 fast_kind(int c, u32 m)
 {
 	if (m >= 0x180 && m <= 0x1bc)
 		return F_SLOW;			/* context DMAs; SIFM 0x198 surface */
+	if (field_of[c][m / 4] || p4_trigger(c, m))
+		return F_SLOW;			/* the address checks' fields and triggers */
 	if (c != VC_3D)
 		return F_OK;
 	if (m == 0x1808 || m == 0x208 || m == 0x220)
@@ -379,6 +1035,11 @@ static int check_method(struct ps3rsx_vstate *vs, u32 subch, u32 mthd, u32 data,
 			*why = "bind of an unknown object handle";
 			return -EINVAL;
 		}
+		/* one object per class (the second M2MF; image from CPU has no methods): per-object
+		 * and per-class PGRAPH state then agree, whichever the RSX keeps */
+		if ((data == 0x3137c0de || data == 0x31337808) &&
+		    p4_fail(P4R_BIND, 0, data, "bind of an object no client uses", why))
+			return -EINVAL;
 		vs->bound[subch] = data;
 		vs->cls[subch] = vclass(data);
 		return 0;
@@ -454,13 +1115,20 @@ static int check_method(struct ps3rsx_vstate *vs, u32 subch, u32 mthd, u32 data,
 			*why = "SIFM surface is not a surface object";
 			return -EINVAL;
 		}
-		return 0;
+		return p4_method(vs, VC_SIFM, mthd, data, why);
 	}
-	if (mthd >= 0x180 && mthd <= 0x1bc && !known_dma(data)) {
-		*why = "unknown context DMA handle";
-		return -EINVAL;
+	if (mthd >= 0x180 && mthd <= 0x1bc) {
+		int d = dma_index(data);
+
+		if (d < 0 || !known_dma(data)) {
+			*why = "unknown context DMA handle";
+			return -EINVAL;
+		}
+		if ((d < 0 || !(slot_allow(vs->cls[subch], mthd) & DM(d))) &&
+		    p4_fail(P4R_SLOT, mthd, data, "context DMA not taken by this slot", why))
+			return -EINVAL;
 	}
-	return 0;
+	return p4_method(vs, vs->cls[subch], mthd, data, why);
 }
 
 /*
@@ -500,6 +1168,13 @@ int ps3rsx_validate(struct ps3rsx_vstate *vs, const u32 *w, u32 nwords)
 			goto bad;
 		}
 		ok = fast[vs->cls[subch]];
+#ifdef PS3RSX_P7
+		/* a non-incrementing burst: one method, and only BEGIN_END (allowed) changes the
+		 * primitive state, so one check covers its words */
+		if (noninc && count && vs->prim_open && !p7_ok(vs->cls[subch], mthd) &&
+		    p4_fail(P4R_P7, mthd, data[0], "method or bind inside an open primitive", &why))
+			goto bad;
+#endif
 		if (noninc) {
 			/* the same method for every word: one lookup when its data isn't checked */
 			u8 f = ok[mthd / 4];
@@ -525,6 +1200,12 @@ int ps3rsx_validate(struct ps3rsx_vstate *vs, const u32 *w, u32 nwords)
 					why = "method burst past 0x1ffc";
 					goto bad;
 				}
+#ifdef PS3RSX_P7
+				if (vs->prim_open && !p7_ok(vs->cls[subch], m) &&
+				    p4_fail(P4R_P7, m, data[k], "method or bind inside an open primitive",
+					    &why))
+					goto bad;
+#endif
 				if (fast_ok(ok[m / 4], data[k]))
 					continue;
 				ret = check_method(vs, subch, m, data[k], &why);

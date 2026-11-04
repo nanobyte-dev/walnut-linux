@@ -110,24 +110,53 @@ static struct dma_buf *bo_export(struct drm_gem_object *obj, int flags)
 /* A handle in a file: one other than the creator's (GEM_OPEN of a flink name, a PRIME import,
  * GETFB) makes the BO shared for good. The creator's own first handle is made after bo_new set
  * the owner (vkeep.c). */
+/* The set's domain of a BO with a GPU range, or -1 (the reports BO: no node; p4.h) */
+static int set_dom(struct ps3rsx_bo *bo)
+{
+	if (bo->kind == BO_REPORTS || !drm_mm_node_allocated(&bo->node))
+		return -1;
+	return bo->kind == BO_GART ? P4_GART : P4_VRAM;
+}
+
 static int bo_open(struct drm_gem_object *obj, struct drm_file *file)
 {
 	struct ps3rsx_bo *bo = to_bo(obj);
 	struct ps3rsx_file *pf = file->driver_priv;
+	int dom = set_dom(bo), ret = 0;
 
 	if (!bo->owner || !pf || pf->owner != bo->owner)
 		WRITE_ONCE(bo->shared, true);
+	/* the file may now use the BO in its copies and clears (validate.c) */
+	if (pf && dom >= 0) {
+		mutex_lock(&pf->set_lock);
+		ret = p4set_insert(&pf->set, dom, bo->offset, bo->base.size);
+		mutex_unlock(&pf->set_lock);
+		WARN_ON_ONCE(ret == -EINVAL);	/* BOs don't overlap */
+		if (ret)
+			return ret;
+	}
 	ps3rsx_pd_bo_event(bo, file, true);	/* the push dump (test builds) */
 	return 0;
 }
 
-#ifdef PS3RSX_PUSH_DUMP
-/* A handle deleted: the push dump records the files' buffer sets (test builds only) */
+/*
+ * A handle deleted. The set_lock waits for a submit of the file between its checks and its
+ * commit, so a BO freed after this was on the ring before its range can go back (vclear.c
+ * stamps the free with the last submitted reference).
+ */
 static void bo_close(struct drm_gem_object *obj, struct drm_file *file)
 {
-	ps3rsx_pd_bo_event(to_bo(obj), file, false);
+	struct ps3rsx_bo *bo = to_bo(obj);
+	struct ps3rsx_file *pf = file->driver_priv;
+	int dom = set_dom(bo);
+
+	if (pf && dom >= 0) {
+		mutex_lock(&pf->set_lock);
+		p4set_remove(&pf->set, dom, bo->offset);
+		mutex_unlock(&pf->set_lock);
+	}
+	ps3rsx_pd_bo_event(bo, file, false);	/* the push dump (test builds) */
 }
-#endif
 
 static void bo_free(struct drm_gem_object *obj)
 {
@@ -223,9 +252,7 @@ static int bo_mmap(struct drm_gem_object *obj, struct vm_area_struct *vma)
 static const struct drm_gem_object_funcs bo_funcs = {
 	.free = bo_free,
 	.open = bo_open,
-#ifdef PS3RSX_PUSH_DUMP
 	.close = bo_close,
-#endif
 	.export = bo_export,
 	.mmap = bo_mmap,
 	.vm_ops = &ps3rsx_vm_ops,

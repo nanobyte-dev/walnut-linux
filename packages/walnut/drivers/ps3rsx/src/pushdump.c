@@ -174,9 +174,11 @@ void ps3rsx_pd_bo_event(struct ps3rsx_bo *bo, struct drm_file *file, bool open)
 	u8 r[PD_BO_EVENT_BYTES];
 	struct pd_piece pc = { r, sizeof(r) };
 
-	if (!READ_ONCE(test_push_dump) || !pd.rsx)
+	if (!READ_ONCE(test_push_dump))
 		return;
-	pd_rec_bo_event(r, open, READ_ONCE(pd.rsx->seqno),
+	/* the device from the BO, not pd.rsx: an event racing the unload's ps3rsx_pd_fini() then
+	 * finds recording off under pd.lock (emit()) instead of a NULL device */
+	pd_rec_bo_event(r, open, READ_ONCE(to_rsx(bo->base.dev)->seqno),
 			pf && pf->owner ? lower_32_bits(pf->owner->id) : 0, task_tgid_nr(current),
 			bo->kind, dom_of(bo->domain), bo->offset, bo->base.size);
 	emit(&pc, 1);

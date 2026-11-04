@@ -12,6 +12,11 @@
  *					every word must pass; prints the draws (BEGINs) in it.
  *   validate-capture --state FILE	the 3D state the GPU holds after a .gpu dump (shadow.c):
  *					"method value" per line, to compare two runs with diff.
+ * Two more record kinds, from the kernel's push dump (pushdump-split.py writes them): 'CHAN' (one
+ * word: the channel id, for its fence label and query slice; the mesa-shim's channel 1 when
+ * absent) and 'BOEV' (open 1 or close 0, the domain, then the offset's two halves and the size):
+ * the file's buffers as they came and went, against which copies and clears are checked. A file
+ * with no BOEV record (a mesa-shim capture) checks them against no set: every range counts.
  * The exit status is 1 if anything was refused. Built by the Makefile next to validate-test.
  */
 #include "shim.h"
@@ -22,11 +27,17 @@ static char last_warn[256];
 #define pr_warn_ratelimited pr_warn
 #define RESTORE_MAX_WORDS	(16 * 1024)	/* as in ps3rsx.h */
 
-struct ps3rsx_vstate {
-	u32 bound[8];
-	u8 cls[8];
-	bool prim_open;
-};
+#include "../src/p4.h"
+/* The mesa-shim's answers (channel 1's fence label and query slice) and no buffer set: captures
+ * made before the dump carry none, so every range counts as one of the file's (host only) */
+static struct p4set all_set = { .all = true };
+
+static inline void vs_reset(struct ps3rsx_vstate *vs)
+{
+	memset(vs, 0, sizeof(*vs));
+	vs->chan_id = 1;
+	vs->set = &all_set;
+}
 bool ps3rsx_known_object(u32 handle);
 int ps3rsx_validate(struct ps3rsx_vstate *vs, const u32 *w, u32 nwords);
 void ps3rsx_validate_init(void);
@@ -34,13 +45,17 @@ void ps3rsx_validate_init(void);
 #include "../src/validate.c"
 #include "../src/shadow.c"
 
+#define R_PUSH	0x50555348	/* "PUSH" */
+#define R_CHAN	0x4348414e	/* "CHAN" */
+#define R_BOEV	0x424f4556	/* "BOEV" */
+
 static u32 be32(const unsigned char *p)
 {
 	return (u32)p[0] << 24 | (u32)p[1] << 16 | (u32)p[2] << 8 | p[3];
 }
 
 /* The words of every record of a dump, in order (one stream); *n words */
-static u32 *read_all(const char *path, u32 *n)
+static u32 *read_all(const char *path, u32 *n, u32 *chan)
 {
 	FILE *f = fopen(path, "rb");
 	unsigned char hdr[16];
@@ -54,7 +69,18 @@ static u32 *read_all(const char *path, u32 *n)
 	while (fread(hdr, 1, 16, f) == 16) {
 		u32 k = be32(hdr + 12);
 
-		if (be32(hdr) != 0x50555348) {
+		if (be32(hdr) == R_CHAN && k == 1 && chan) {
+			unsigned char b[4];
+
+			if (fread(b, 1, 4, f) == 4)
+				*chan = be32(b);
+			continue;
+		}
+		if (be32(hdr) == R_CHAN || be32(hdr) == R_BOEV) {	/* not GPU words */
+			fseek(f, 4L * k, SEEK_CUR);
+			continue;
+		}
+		if (be32(hdr) != R_PUSH) {
 			printf("%s: bad record after %u words\n", path, *n);
 			break;
 		}
@@ -78,13 +104,14 @@ static u32 *read_all(const char *path, u32 *n)
 static int check_gpu(const char *path)
 {
 	struct ps3rsx_vstate vs;
-	u32 n, i = 0, begins = 0;
-	u32 *w = read_all(path, &n);
+	u32 n, i = 0, begins = 0, chan = 1;
+	u32 *w = read_all(path, &n, &chan);
 	int r;
 
 	if (!w)
 		return -1;
-	memset(&vs, 0, sizeof(vs));
+	vs_reset(&vs);
+	vs.chan_id = chan;
 	last_warn[0] = 0;
 	r = ps3rsx_validate(&vs, w, n);
 	/* the draws: BEGIN_END with a primitive, on the 3D object's subchannel (any here) */
@@ -105,7 +132,7 @@ static int check_gpu(const char *path)
 static int print_state(const char *path)
 {
 	struct ps3rsx_shadow *sh = ps3rsx_shadow_new();
-	u32 n, *w = read_all(path, &n);
+	u32 n, *w = read_all(path, &n, NULL);
 
 	if (!w || !sh)
 		return -1;
@@ -120,6 +147,20 @@ static int print_state(const char *path)
 	return 0;
 }
 
+/* Does the file carry its buffer set (any BOEV record)? */
+static bool has_set(FILE *f)
+{
+	unsigned char hdr[16];
+	bool any = false;
+
+	while (!any && fread(hdr, 1, 16, f) == 16) {
+		any = be32(hdr) == R_BOEV;
+		fseek(f, 4L * be32(hdr + 12), SEEK_CUR);
+	}
+	rewind(f);
+	return any;
+}
+
 static int check_file(const char *path)
 {
 	FILE *f = fopen(path, "rb");
@@ -128,17 +169,37 @@ static int check_file(const char *path)
 	u32 *w = NULL, cap = 0, cur = ~0u, pushes = 0, submits = 0, refused = 0;
 	unsigned long long words = 0;
 	bool bad_submit = false;
+	struct p4set fset = { 0 };
 
 	if (!f) {
 		perror(path);
 		return -1;
 	}
-	memset(&vs, 0, sizeof(vs));
+	vs_reset(&vs);
+	if (has_set(f))
+		vs.set = &fset;		/* the file's own buffers, as they come and go */
 	before = vs;
 	while (fread(hdr, 1, 16, f) == 16) {
 		u32 magic = be32(hdr), sub = be32(hdr + 4), idx = be32(hdr + 8), n = be32(hdr + 12);
 
-		if (magic != 0x50555348) {
+		if (magic == R_CHAN || magic == R_BOEV) {
+			unsigned char b[12];
+
+			if (n != (magic == R_CHAN ? 1 : 3) || fread(b, 4, n, f) != n) {
+				printf("%s: bad %s record\n", path, magic == R_CHAN ? "CHAN" : "BOEV");
+				break;
+			}
+			if (magic == R_CHAN) {
+				vs.chan_id = before.chan_id = be32(b);
+			} else if (sub) {
+				if (p4set_insert(&fset, idx, (u64)be32(b) << 32 | be32(b + 4), be32(b + 8)))
+					printf("%s: BOEV open refused by the set\n", path);
+			} else {
+				p4set_remove(&fset, idx, (u64)be32(b) << 32 | be32(b + 4));
+			}
+			continue;
+		}
+		if (magic != R_PUSH) {
 			printf("%s: bad record after %u pushes\n", path, pushes);
 			break;
 		}
@@ -171,8 +232,9 @@ static int check_file(const char *path)
 	}
 	fclose(f);
 	free(w);
-	printf("%s: %u submits, %u pushes, %llu words, %u refused\n", path, submits, pushes, words,
-	       refused);
+	p4set_free(&fset);
+	printf("%s: %u submits, %u pushes, %llu words, %u refused%s\n", path, submits, pushes, words,
+	       refused, vs.set == &all_set ? " (no buffer set in the file: every range counted)" : "");
 	return refused;
 }
 

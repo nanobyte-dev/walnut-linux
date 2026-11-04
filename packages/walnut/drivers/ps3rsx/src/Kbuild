@@ -7,4 +7,6 @@ ps3rsx-y := drv.o abi16.o mem.o gart.o exec.o validate.o submit.o kms.o shadow.o
 # the push dump (pushdump.c, test_push_dump): a corpus of real streams for the address checks'
 # host tests, test builds only
 ccflags-$(PS3RSX_PUSH_DUMP) += -DPS3RSX_PUSH_DUMP
+# the address checks counting instead of refusing (test_p4_enforce): test builds only
+ccflags-$(PS3RSX_P4_COUNT) += -DPS3RSX_P4_COUNT
 ps3rsx-$(PS3RSX_PUSH_DUMP) += pushdump.o

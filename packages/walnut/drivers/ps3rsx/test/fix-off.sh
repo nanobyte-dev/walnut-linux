@@ -71,9 +71,92 @@ off host-method "FAIL: host method 68 accepted (semaphore acquire)" \
 off host-reference "FAIL: host method 50 accepted (SET_REFERENCE)" \
 	'if (mthd < 0x100) {' 'if (mthd < 0x100) { if (mthd == 0x50 || mthd == 0x60 || mthd == 0x64 || mthd == 0x6c) return 0;'
 off context-dma "FAIL: 3D context DMA feed0002 accepted" \
-	'mthd <= 0x1bc && !known_dma(data)' 'mthd <= 0x1bc && 0'
+	'if (d < 0 || !known_dma(data)) {' 'if (0) {' \
+	'(d < 0 || !(slot_allow(vs->cls[subch], mthd) & DM(d)))' '0'
 off sifm-surface "FAIL: SIFM surface feed0000 accepted" \
 	'if (data != 0x313371c3 && data != 0x31337a73) {' 'if (0) {'
+# the address checks (src/validate.c, src/p4.h): each rule off, its p4-test case fails
+P4=(-T p4-test.c)
+off p4-bind "FAIL: bind of 3137c0de accepted" "${P4[@]}" \
+	'if ((data == 0x3137c0de || data == 0x31337808) &&' 'if (0 &&'
+off p4-slot "FAIL: slot: class 1 slot 184 handle feed0001 accepted" "${P4[@]}" \
+	'(d < 0 || !(slot_allow(vs->cls[subch], mthd) & DM(d)))' '(d < 0)'
+off p4-fence "FAIL: fence: channel 1 offset 00000060 accepted" "${P4[@]}" \
+	'if (data < lo || (u64)data + 4 > lo + 32 || (data & 3)) {' 'if (data < lo || (data & 3)) {'
+off p4-fence-wrap "FAIL: fence: channel 0 offset fffffffc accepted" "${P4[@]}" \
+	'(u64)data + 4 > lo + 32' 'data + 4 > lo + 32'
+off p4-fence-unset "FAIL: fence: release with no offset accepted" "${P4[@]}" \
+	'if (!fvalid(vs, P4F_FENCE) || !fvalid(vs, P4F_3D_DMA + 9)) {' 'if (0) {'
+off p4-query "FAIL: query: channel 1 type 0 offset 1000 accepted" "${P4[@]}" \
+	'if ((data >> 24) < 1 || (data >> 24) > 5 || !slice) {' 'if (0) {'
+off p4-render "FAIL: render enable: channel 1 offset 2000 accepted" "${P4[@]}" \
+	'if ((data >> 24) != 2 || !slice) {' 'if (0) {'
+off p4-m2mf-src "FAIL: m2mf: source one byte past A accepted" "${P4[@]}" \
+	'if (!in_set(vs, vs->f[P4F_M_IN_DMA], vs->f[P4F_M_OFF_IN], in)) {' 'if (0) {'
+off p4-m2mf-dst "FAIL: m2mf: destination across A and B accepted" "${P4[@]}" \
+	'if (!in_set(vs, vs->f[P4F_M_OUT_DMA], vs->f[P4F_M_OFF_OUT], out)) {' 'if (0) {'
+off p4-m2mf-unset "FAIL: m2mf: a launch without its own OFFSET_OUT accepted" "${P4[@]}" \
+	$'\t\t*why = "M2MF copy with a field not set by this channel";\n\t\treturn P4R_UNSET;' ''
+off p4-m2mf-pitch "FAIL: m2mf: pitch 2^31 accepted" "${P4[@]}" \
+	'return v >= 0x80000000u ? "M2MF pitch at or above 2^31" : NULL;' 'return NULL;' \
+	'(vs->f[P4F_M_PITCH_IN] | vs->f[P4F_M_PITCH_OUT]) >> 31' '0'
+off p4-m2mf-notify "FAIL: m2mf: notify 1 accepted" "${P4[@]}" \
+	$'\tif (data) {\n\t\t*why = "M2MF notify other than 0";' $'\tif (0) {\n\t\t*why = "M2MF notify other than 0";'
+off p4-sifm-src "FAIL: sifm: a source one texel past G accepted" "${P4[@]}" \
+	'!in_set(vs, vs->f[P4F_F_DMA], vs->f[P4F_F_OFF], len)) {' '0) {'
+off p4-sifm-span "FAIL: sifm: a step sampling past the source accepted" "${P4[@]}" \
+	'cols = max_t(u64, LO16(size), uend) + 1;' 'cols = LO16(size) + 1; (void)uend;'
+off p4-sifm-dst "FAIL: sifm: a clip one pixel past A accepted" "${P4[@]}" \
+	'xmax = max_t(u64, LO16(opt) + LO16(osz), LO16(cpt) + LO16(csz));' 'xmax = LO16(opt) + LO16(osz);'
+off p4-sifm-swz "FAIL: sifm: a rectangle outside its swizzled block accepted" "${P4[@]}" \
+	'xmax > (1ULL << lu) || ymax > (1ULL << lv)) {' '0) {'
+off p4-sifm-surface "FAIL: sifm: into a surface not set by this channel accepted" "${P4[@]}" \
+	$'\t\t\t*why = "scaled image into a surface not set by this channel";\n\t\t\treturn P4R_UNSET;' ''
+off p4-coords "FAIL: sifm: an output point y of 0x8000 accepted" "${P4[@]}" \
+	$'return LO16(v) > 4096 || HI16(v) > 4096 ? "scaled image point or size out of range" :\n\t\t\tNULL;' 'return NULL;'
+off p4-clear-extent "FAIL: clear: one row past A accepted" "${P4[@]}" \
+	$'\tif (!in_set(vs, handle, lo, len)) {\n\t\t*why = "render target outside' $'\tif (0) {\n\t\t*why = "render target outside'
+off p4-clear-round "FAIL: clear: an offset the hardware rounds down to A refused" "${P4[@]}" \
+	'lo = off & ~63u, len, rb;' 'lo = off, len, rb;'
+off p4-clear-aa "FAIL: clear: a 4x surface one row past A accepted" "${P4[@]}" \
+	'u64 xs = aa ? 2 : 1, ys = aa == 4 || aa == 5 ? 2 : 1,' 'u64 xs = 1, ys = 1,'
+off p4-clear-window "FAIL: clear: a window offset past A accepted" "${P4[@]}" \
+	'rows = max_t(u64, LO16(v) + HI16(v), HI16(wo) + HI16(vs->f[P4F_WIN_V]) + 1);' 'rows = LO16(v) + HI16(v);'
+off p4-clear-coord "FAIL: clear: a coordinate height past A accepted" "${P4[@]}" \
+	'rows = max_t(u64, rows, vs->f[P4F_COORD] & 0xfff);' ''
+off p4-clear-rt1 "FAIL: clear: target 1 enabled with no offset accepted" "${P4[@]}" \
+	'en = (vs->f[P4F_RT_ENABLE] & 0xf) | 1;' 'en = 1;'
+off p4-clear-swz "FAIL: clear: a 1024x512 swizzled block past A accepted" "${P4[@]}" \
+	'len = (1ULL << lw) * (1ULL << lh) * bpp;' 'len = 1;'
+off p4-shift "FAIL: clear: RT_FORMAT log2 13 accepted" "${P4[@]}" \
+	$'\t\tif (((v >> 16) & 0xff) > 12 || (v >> 24) > 12)\n\t\t\treturn "swizzled surface log2 size above 12";\n' ''
+off p4-clear-unset "FAIL: clear: without its coordinate conventions accepted" "${P4[@]}" \
+	$'\t\t*why = "clear with a surface field not set by this channel";\n\t\treturn P4R_UNSET;' ''
+off p4-lost "FAIL: m2mf: launch after a lost channel accepted" "${P4[@]}" \
+	'memset(vs->valid, 0, sizeof(vs->valid));' ''
+off p4-set-find "FAIL: set: range across two BOs found" "${P4[@]}" -E p4.h P4_H \
+	'return lo < hi && i >= 0 && hi <= d->e[i].hi;' 'return lo < hi && i >= 0;'
+off p4-set-overlap "FAIL: set: overlap at the end" "${P4[@]}" -E p4.h P4_H \
+	'if ((i >= 0 && d->e[i].hi > lo) || (i + 1 < (int)d->n && d->e[i + 1].lo < hi))' 'if (0)'
+off p4-set-handles "FAIL: set: first of two handles removed the BO" "${P4[@]}" -E p4.h P4_H \
+	'		d->e[i].handles++;' ''
+off p4-coverage "FAIL: coverage: field 16 (class 1 method 1d6c) not restored" "${P4[@]}" -E shadow.c SHADOW_C \
+	'case 0x1d70: case 0x1d74:			/* semaphore releases */' 'case 0x1d6c: case 0x1d70: case 0x1d74:'
+off p4-p7 "FAIL: p7: a state write inside a primitive accepted" "${P4[@]}" -DPS3RSX_P4_COUNT \
+	$'\t\t\t\tif (vs->prim_open && !p7_ok(vs->cls[subch], m) &&' $'\t\t\t\tif (0 &&'
+off p4-count "FAIL: count: slice a enforcing let a wrong slot through" "${P4[@]}" -DPS3RSX_P4_COUNT \
+	'if (!(READ_ONCE(test_p4_enforce) & p4_rule_slice[rule])) {' 'if (1) {'
+# the property fuzz (p4-fuzz.c, its default seed): its independent model finds the accesses a rule
+# off lets through
+F=(-T p4-fuzz.c)
+off fuzz-m2mf-dst ": M2MF destination" "${F[@]}" \
+	'if (!in_set(vs, vs->f[P4F_M_OUT_DMA], vs->f[P4F_M_OFF_OUT], out)) {' 'if (0) {'
+off fuzz-sifm-src ": scaled image source" "${F[@]}" \
+	'!in_set(vs, vs->f[P4F_F_DMA], vs->f[P4F_F_OFF], len)) {' '0) {'
+off fuzz-clear-window ": colour target" "${F[@]}" \
+	'rows = max_t(u64, LO16(v) + HI16(v), HI16(wo) + HI16(vs->f[P4F_WIN_V]) + 1);' 'rows = LO16(v) + HI16(v);'
+off fuzz-unset ": M2MF copy with a value this channel never wrote" "${F[@]}" \
+	$'\t\t*why = "M2MF copy with a field not set by this channel";\n\t\treturn P4R_UNSET;' ''
 # the model of submit.c in validate-test.c, as it was before each change
 off no-switch-in-primitive "FAIL: 7: channel 1's submit reached the GPU inside channel 0's primitive" \
 	-DOLD_SWITCH

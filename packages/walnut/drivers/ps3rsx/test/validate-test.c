@@ -46,11 +46,17 @@ static char last_warn[256];
 			  if (verbose) printf("%s", last_warn); } while (0)
 #define pr_warn_ratelimited pr_warn
 
-struct ps3rsx_vstate {
-	u32 bound[8];
-	u8 cls[8];
-	bool prim_open;
-};
+#include "../src/p4.h"
+/* The mesa-shim's answers (channel 1's fence label and query slice) and no buffer set: captures
+ * made before the dump carry none, so every range counts as one of the file's (host only) */
+static struct p4set all_set = { .all = true };
+
+static inline void vs_reset(struct ps3rsx_vstate *vs)
+{
+	memset(vs, 0, sizeof(*vs));
+	vs->chan_id = 1;
+	vs->set = &all_set;
+}
 bool ps3rsx_known_object(u32 handle);
 int ps3rsx_validate(struct ps3rsx_vstate *vs, const u32 *w, u32 nwords);
 void ps3rsx_validate_init(void);
@@ -94,7 +100,7 @@ static int run(const u32 *w, u32 n)
 {
 	struct ps3rsx_vstate vs;
 
-	memset(&vs, 0, sizeof(vs));
+	vs_reset(&vs);
 	last_warn[0] = 0;
 	return ps3rsx_validate(&vs, w, n);
 }
@@ -105,7 +111,7 @@ static int run_mpv(const u32 *frame, u32 n)
 	struct ps3rsx_vstate vs;
 	int r;
 
-	memset(&vs, 0, sizeof(vs));
+	vs_reset(&vs);
 	r = ps3rsx_validate(&vs, mpv_init, ARRAY_SIZE(mpv_init));
 	if (r)
 		return 1000 + r;
@@ -119,7 +125,7 @@ static int push(const u32 *words, u32 n)
 	struct ps3rsx_vstate vs;
 	u32 w[64];
 
-	memset(&vs, 0, sizeof(vs));
+	vs_reset(&vs);
 	last_warn[0] = 0;
 	w[0] = HDR(1, 0);
 	w[1] = 0x31337000;
@@ -336,12 +342,19 @@ static void allowlist_cases(void)
 		CHECK(push(past_top, 5) != 0, "a burst past 0x1ffc accepted");
 	}
 
-	/* binds: the hypervisor's handles on any subchannel, nothing else */
+	/* binds: the hypervisor's handles on any subchannel, nothing else, and not the second
+	 * M2MF or image from CPU (one object per class, which no client uses: the address checks) */
 	for (i = 0; i < ARRAY_SIZE(handles); i++)
 		for (u32 sc = 0; sc < 8; sc++) {
 			u32 w[2] = { HDRS(1, sc, 0), handles[i] };
+			bool unused = handles[i] == 0x3137c0de || handles[i] == 0x31337808;
 
-			CHECK(run(w, 2) == 0, "bind of %08x on subchannel %u refused", handles[i], sc);
+			if (unused)
+				CHECK(run(w, 2) != 0 && strstr(last_warn, "no client uses"),
+				      "bind of %08x on subchannel %u accepted", handles[i], sc);
+			else
+				CHECK(run(w, 2) == 0, "bind of %08x on subchannel %u refused",
+				      handles[i], sc);
 		}
 	for (i = 0; i < ARRAY_SIZE(bad_handles); i++) {
 		u32 w[2] = { HDRS(1, 2, 0), bad_handles[i] };
@@ -360,13 +373,19 @@ static void allowlist_cases(void)
 		      m == 0x50 ? " (SET_REFERENCE)" : "");
 	}
 
-	/* context DMA slots: the hypervisor's context DMAs only, on 3D and M2MF */
+	/* context DMA slots: the hypervisor's context DMAs only, on 3D and M2MF, each in the slots
+	 * that take it (3D's texture slot 0x184 only VRAM, M2MF's input VRAM or GART; every slot
+	 * of every class in p4-test) */
 	for (i = 0; i < ARRAY_SIZE(dmas); i++) {
 		u32 w3d[2] = { HDR(1, 0x184), dmas[i] };
 		u32 wcp[4] = { HDRS(1, 1, 0), 0x31337303, HDRS(1, 1, 0x184), dmas[i] };
+		bool ok3d = dmas[i] == 0xfeed0000;
+		bool okcp = dmas[i] == 0xfeed0000 || dmas[i] == 0xfeed0001;
 
-		CHECK(push(w3d, 2) == 0, "3D context DMA %08x refused (%s)", dmas[i], last_warn);
-		CHECK(run(wcp, 4) == 0, "M2MF context DMA %08x refused (%s)", dmas[i], last_warn);
+		CHECK((push(w3d, 2) == 0) == ok3d, "3D context DMA %08x in 0x184: %s (%s)", dmas[i],
+		      ok3d ? "refused" : "accepted", last_warn);
+		CHECK((run(wcp, 4) == 0) == okcp, "M2MF context DMA %08x in 0x184: %s (%s)", dmas[i],
+		      okcp ? "refused" : "accepted", last_warn);
 	}
 	for (i = 0; i < ARRAY_SIZE(bad_dmas); i++) {
 		u32 w3d[2] = { HDR(1, 0x184), bad_dmas[i] };
@@ -378,11 +397,12 @@ static void allowlist_cases(void)
 		      "M2MF context DMA %08x accepted (%s)", bad_dmas[i], last_warn);
 	}
 
-	/* image from CPU (0x308a): bound fine, every method refused (Mesa doesn't use it) */
+	/* image from CPU (0x308a): its bind refused, and every method too (Mesa doesn't use it) */
 	for (m = 0x100; m < 0x2000; m += 4) {
 		u32 w[4] = { HDRS(1, 2, 0), 0x31337808, HDRS(1, 2, m), 0 };
 
-		CHECK(run(w, 4) != 0 && strstr(last_warn, "allowlist"),
+		CHECK(run(w, 4) != 0 && (strstr(last_warn, "allowlist") ||
+					 strstr(last_warn, "no client uses")),
 		      "image-from-CPU method %04x accepted (%s)", m, last_warn);
 	}
 
@@ -547,7 +567,7 @@ static int gpu_whole(void)
 {
 	struct ps3rsx_vstate vs;
 
-	memset(&vs, 0, sizeof(vs));
+	vs_reset(&vs);
 	last_warn[0] = 0;
 	return ps3rsx_validate(&vs, gpu, ngpu);
 }
@@ -601,6 +621,7 @@ static const u32 bind3d[] = { HDR(1, 0), 0x31337000 };
 static void tchan_init(struct tchan *ch, bool recover)
 {
 	memset(ch, 0, sizeof(*ch));
+	vs_reset(&ch->vs);
 	ch->recover = recover;
 	ngpu = 0;
 	last_chan = -1;
@@ -777,7 +798,7 @@ static void recover_cases(void)
 	/* 6. mpv's first frame as captured (X16 dither texture) cancelled, then from Mesa 0052 */
 	tchan_init(&ch, true);
 	ngpu = 0;
-	memset(&ch.vs, 0, sizeof(ch.vs));
+	vs_reset(&ch.vs);
 	CHECK(SUB1(&ch, mpv_init) == 0, "6: mpv's binds refused (%s)", last_warn);
 	before = ngpu;
 	CHECK(SUB1(&ch, mpv_frame1) == -ECANCELED, "6: mpv's X16 frame not cancelled");
@@ -989,7 +1010,7 @@ int main(int argc, char **argv)
 		struct ps3rsx_vstate vs;
 		int r;
 
-		memset(&vs, 0, sizeof(vs));
+		vs_reset(&vs);
 		r = ps3rsx_validate(&vs, webkit_init, ARRAY_SIZE(webkit_init));
 		CHECK(r == 0, "WebKit's channel binds: %d (%s)", r, last_warn);
 		r = ps3rsx_validate(&vs, webkit_frame, ARRAY_SIZE(webkit_frame));
@@ -1051,7 +1072,7 @@ int main(int argc, char **argv)
 		const u32 vtx[] = { HDRS(1, 0, 0x1740), 0, HDRS(1, 0, 0x1740), 2 };
 		struct ps3rsx_vstate vs, t;
 
-		memset(&vs, 0, sizeof(vs));
+		vs_reset(&vs);
 		t = vs;
 		CHECK(ps3rsx_validate(&t, nop, ARRAY_SIZE(nop)) == 0, "quirks: the M2MF NOP refused");
 		vs = t;
@@ -1065,7 +1086,8 @@ int main(int argc, char **argv)
 
 	/* 0x109: the M2MF launch burst sent to the surface-2D object */
 	{
-		const u32 m2mf[] = { HDRS(1, 2, 0), 0x31337303, HDRS(8, 2, 0x30c), 0x2fc000, 0x1945000,
+		const u32 m2mf[] = { HDRS(1, 2, 0), 0x31337303, HDRS(3, 2, 0x180), 0x66604200,
+				     0xfeed0000, 0xfeed0001, HDRS(8, 2, 0x30c), 0x2fc000, 0x1945000,
 				     0x1f0, 0x1f0, 0x1f0, 1, 0x101, 0 };
 		u32 sf2d[ARRAY_SIZE(m2mf)];
 
