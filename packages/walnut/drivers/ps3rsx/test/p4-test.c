@@ -464,18 +464,34 @@ static void test_sifm(void)
 	n = sifm(false, 0xa, 256, A_LO, 0, 0, 3, 0, XY(64, 64), 0, XY(64, 64), one, one,
 		 XY(64, 64), inf, G_LO, 0);
 	CHECK(run(fw, n) == 0, "sifm: a 64x64 copy refused");
-	/* the source at G's end: the sampled 64 texels plus one each way for filtering (66 rows and
-	 * columns from the start, the design's 7.6) must fit */
+	/* the source at G's end: point sampling from the centre origin reads exactly the 64 x 64
+	 * texels (the design's 7.6) */
 	n = sifm(false, 0xa, 256, A_LO, 0, 0, 3, 0, XY(64, 64), 0, XY(64, 64), one, one,
-		 XY(64, 64), inf, G_LO + G_SZ - 65 * 256 - 66 * 4, 0);
+		 XY(64, 64), inf, G_LO + G_SZ - 63 * 256 - 64 * 4, 0);
 	CHECK(run(fw, n) == 0, "sifm: a source ending at G's last byte refused");
 	n = sifm(false, 0xa, 256, A_LO, 0, 0, 3, 0, XY(64, 64), 0, XY(64, 64), one, one,
-		 XY(64, 64), inf, G_LO + G_SZ - 65 * 256 - 66 * 4 + 4, 0);
+		 XY(64, 64), inf, G_LO + G_SZ - 63 * 256 - 64 * 4 + 4, 0);
 	CHECK(run(fw, n) != 0, "sifm: a source one texel past G accepted");
 	/* the steps sample past the declared size: the span counts */
 	n = sifm(false, 0xa, 256, A_LO, 0, 0, 3, 0, XY(64, 64), 0, XY(64, 64), 8 * one, one,
-		 XY(64, 64), inf, G_LO + G_SZ - 65 * 256 - 66 * 4, 0);
+		 XY(64, 64), inf, G_LO + G_SZ - 63 * 256 - 64 * 4, 0);
 	CHECK(run(fw, n) != 0, "sifm: a step sampling past the source accepted");
+	/* Neverball's copies as captured (2026-11-04): a 256x256 A8R8G8B8 source of pitch 1024
+	 * filling its 256 KiB buffer exactly (G here), nearest; the same copy bilinear reads one
+	 * texel row and column more, past the buffer */
+	{
+		const u32 nb_off = G_LO + G_SZ - 256 * 1024;
+
+		n = sifm(false, 0xa, 1024, A_LO, 0, 0, 3, 0, XY(256, 256), 0, XY(256, 256), one, one,
+			 XY(256, 256), 0x10000 | 1024, nb_off, 0);
+		CHECK(run(fw, n) == 0, "sifm: Neverball's 256x256 nearest copy refused");
+		n = sifm(false, 0xa, 1024, A_LO, 0, 0, 3, 0, XY(256, 256), 0, XY(256, 256), one, one,
+			 XY(256, 256), 0x01020000 | 1024, nb_off, 0);
+		CHECK(run(fw, n) != 0, "sifm: the same copy bilinear accepted");
+		n = sifm(false, 0xa, 1024, A_LO, 0, 0, 3, 0, XY(256, 256), 0, XY(256, 256), one, one,
+			 XY(256, 256), 0x10000 | 1024, nb_off, XY(16, 0));
+		CHECK(run(fw, n) != 0, "sifm: the nearest copy from one texel further accepted");
+	}
 	/* destination: the clip or output rectangle reaching past A */
 	n = sifm(false, 0xa, 256, A_LO + A_SZ - 63 * 256 - 64 * 4, 0, 0, 3, 0, XY(64, 64), 0,
 		 XY(64, 64), one, one, XY(64, 64), inf, G_LO, 0);
@@ -741,7 +757,49 @@ static void test_classification(void)
 
 /* --- the count-only build (-DPS3RSX_P4_COUNT) ---------------------------------------------- */
 
-#ifdef PS3RSX_P4_COUNT
+#ifdef PS3RSX_P4_NO_ENFORCE
+/* The push dump build (Kbuild: PS3RSX_PUSH_DUMP brings PS3RSX_P4_COUNT and _NO_ENFORCE): every
+ * address check counts, none refuses, and there is no switch to make one refuse */
+static void test_dump(void)
+{
+	u64 total = 0, before = 0;
+	u32 n;
+
+	for (int r = 0; r < P4R_N; r++)
+		before += p4_hits[r];
+	{
+		u32 w[] = { H(1, S3D, 0), 0x31337000, H(1, S3D, 0x184), 0xfeed0001,
+			    H(1, 1, 0), 0x3137c0de };
+
+		CHECK(run(w, ARRAY_SIZE(w)) == 0, "dump: a slice a violation refused");
+	}
+	n = m2mf(V, G, A_LO + 1, G_LO, 0x1000, 0x1000, 0x1000, 0x100, 0x101, 0);
+	CHECK(run(mw, n) == 0, "dump: a copy past A refused");
+	n = sifm(false, 0xa, 256, A_LO, 0, 0, 3, 0, XY(64, 64), 0, XY(64, 64), 1u << 20, 1u << 20,
+		 XY(64, 64), 0x10100, G_LO + G_SZ - 0x100, 0);
+	CHECK(run(fw, n) == 0, "dump: a scaled image past G refused");
+	CHECK(clear(surface(512, 513, LIN, 2048, A_LO, C_LO, 1, 513, 0), 0xf0) == 0,
+	      "dump: a clear past A refused");
+	{
+		u32 p[] = { H(1, S3D, 0), 0x31337000, H(1, S3D, 0x1808), 5, H(1, S3D, 0x0300), 1,
+			    H(1, S3D, 0x1808), 0 };
+
+		CHECK(run(p, ARRAY_SIZE(p)) == 0, "dump: P7 refused a state write");
+	}
+	for (int r = 0; r < P4R_N; r++)
+		total += p4_hits[r];
+	CHECK(total >= before + 6, "dump: the violations not counted (%llu)",
+	      (unsigned long long)(total - before));
+	/* the stable rules still refuse */
+	{
+		u32 w[] = { H(1, S3D, 0), 0x31337000, 0x20001000 };
+
+		CHECK(run(w, 3) != 0, "dump: a JMP accepted");
+	}
+}
+#endif
+
+#if defined(PS3RSX_P4_COUNT) && !defined(PS3RSX_P4_NO_ENFORCE)
 static void test_count(void)
 {
 	struct ps3rsx_vstate vs;
@@ -781,7 +839,8 @@ static void test_count(void)
 		CHECK(run(ok, ARRAY_SIZE(ok)) == 0, "p7: vertex data, attributes and NOP refused");
 	}
 }
-#else
+#endif
+#ifndef PS3RSX_P4_COUNT
 static void test_release_no_p7(void)
 {
 	u32 p[] = { H(1, S3D, 0), 0x31337000, H(1, S3D, 0x1808), 5, H(1, S3D, 0x0300), 1,
@@ -795,10 +854,18 @@ int main(void)
 {
 	ps3rsx_validate_init();
 	ps3rsx_shadow_init();
-#ifdef PS3RSX_P4_COUNT
+	set_init();
+#ifdef PS3RSX_P4_NO_ENFORCE
+	test_set();
+	test_dump();
+	test_coverage();
+	test_classification();
+	p4set_free(&set);
+	printf("p4-test (push dump build): %d checks, %d failed\n", checks, fails);
+	return fails ? 1 : 0;
+#elif defined(PS3RSX_P4_COUNT)
 	test_p4_enforce = P4S_A | P4S_B | P4S_P7;	/* every slice refusing: the release's rules */
 #endif
-	set_init();
 	test_set();
 	test_slots();
 	test_slots_own();
@@ -807,9 +874,9 @@ int main(void)
 	test_clear();
 	test_coverage();
 	test_classification();
-#ifdef PS3RSX_P4_COUNT
+#if defined(PS3RSX_P4_COUNT) && !defined(PS3RSX_P4_NO_ENFORCE)
 	test_count();
-#else
+#elif !defined(PS3RSX_P4_COUNT)
 	test_release_no_p7();
 #endif
 	p4set_free(&set);

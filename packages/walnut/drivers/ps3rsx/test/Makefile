@@ -25,7 +25,7 @@ PPCFLAGS := --sysroot=$(SYSROOT) -isystem $(SYSROOT)/usr/include/powerpc64-linux
 
 all: $(O)/shadow-equiv $(O)/shadow-equiv-fast $(O)/shadow-equiv-ppc64 $(O)/zero-test $(O)/zero-test-ppc64 \
 	$(O)/validate-test $(O)/validate-capture $(O)/blame-test $(O)/pushbuf-test $(O)/vclear-test \
-	$(O)/pushdump-test $(O)/p4-test $(O)/p4-test-count $(O)/p4-fuzz
+	$(O)/pushdump-test $(O)/p4-test $(O)/p4-test-count $(O)/p4-test-dump $(O)/p4-fuzz
 $(O)/shadow-equiv: $(SRC)
 	@mkdir -p $(O)
 	gcc $(CFLAGS) -fsanitize=address,undefined -fno-sanitize-recover=undefined -o $@ $<
@@ -77,6 +77,10 @@ $(O)/pushdump-test: pushdump-test.c ../src/pushdump_scan.h inc/shim.h
 $(O)/p4-test: p4-test.c ../src/validate.c ../src/p4.h ../src/shadow.c inc/shim.h
 	@mkdir -p $(O)
 	gcc $(CFLAGS) -Wno-unused-function -fsanitize=address,undefined -fno-sanitize-recover=undefined -o $@ $<
+# the push dump build's flags (src/Kbuild): the checks count, nothing new refused
+$(O)/p4-test-dump: p4-test.c ../src/validate.c ../src/p4.h ../src/shadow.c inc/shim.h
+	@mkdir -p $(O)
+	gcc $(CFLAGS) -DPS3RSX_PUSH_DUMP -DPS3RSX_P4_COUNT -DPS3RSX_P4_NO_ENFORCE -Wno-unused-function -fsanitize=address,undefined -fno-sanitize-recover=undefined -o $@ $<
 # the property fuzz of the address checks against an independent model (fixed seeds)
 $(O)/p4-fuzz: p4-fuzz.c ../src/validate.c ../src/p4.h inc/shim.h
 	@mkdir -p $(O)
@@ -103,6 +107,7 @@ run: all
 	./pushdump-test.sh $(O)
 	$(O)/p4-test
 	$(O)/p4-test-count
+	$(O)/p4-test-dump
 	$(O)/p4-fuzz 1 50000 && $(O)/p4-fuzz 2 50000 && $(O)/p4-fuzz 3 50000
 	./fix-off.sh $(O)
 clean:

@@ -171,13 +171,24 @@ static void copy_sifm(u32 point)
 		violation("scaled image of an unknown form");
 		return;
 	}
-	/* the sampled span, one texel more for the filter, and the declared size: the larger */
-	u1 = (point & 0xffff) / 16 + (G(MSF, 0x318) * ow >> 20) + 2;
-	v1 = (point >> 16) / 16 + (G(MSF, 0x31c) * oh >> 20) + 2;
-	if (u1 < w + 1)
-		u1 = w + 1;
-	if (v1 < h + 1)
-		v1 = h + 1;
+	/* the texels the last output samples: its position (12.20) from the point, plus half a step
+	 * from the centre origin, one more texel with bilinear filtering; or the declared size */
+	{
+		u32 f = G(MSF, 0x404);
+		u64 pu = ((u64)(point & 0xffff) << 16) + G(MSF, 0x318) * (ow - 1);
+		u64 pv = ((u64)(point >> 16) << 16) + G(MSF, 0x31c) * (oh - 1);
+
+		if (((f >> 16) & 0xff) == 1) {
+			pu += G(MSF, 0x318) / 2;
+			pv += G(MSF, 0x31c) / 2;
+		}
+		u1 = (pu >> 20) + 1 + (f >> 24 == 1);
+		v1 = (pv >> 20) + 1 + (f >> 24 == 1);
+	}
+	if (u1 < w)
+		u1 = w;
+	if (v1 < h)
+		v1 = h;
 	access(G(MSF, 0x184), G(MSF, 0x408), (G(MSF, 0x404) & 0xffff) * (v1 - 1) + u1 * bpp,
 	       "scaled image source");
 	x1 = (opt & 0xffff) + ow;

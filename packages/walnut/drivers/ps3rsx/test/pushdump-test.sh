@@ -42,4 +42,7 @@ grep -q 'END with no primitive open' "$T/v2.log" || fail "chan2's reason"
 "$O/validate-capture" --gpu "$S/chan1-s101.gpu" >"$T/g1.log" || { cat "$T/g1.log"; fail "channel 1 GPU stream refused"; }
 grep -q '1 draws: every word passes' "$T/g1.log" || fail "channel 1's GPU stream: $(cat "$T/g1.log")"
 
+# the dump build counts the address checks and refuses nothing new (p4-test-dump has its flags)
+grep -qx 'ccflags-$(PS3RSX_PUSH_DUMP) += -DPS3RSX_PUSH_DUMP -DPS3RSX_P4_COUNT -DPS3RSX_P4_NO_ENFORCE' \
+	"$here/../src/Kbuild" || fail "src/Kbuild: the dump build doesn't count the address checks"
 echo "pushdump-test.sh: ok"

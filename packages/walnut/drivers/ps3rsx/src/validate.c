@@ -185,7 +185,10 @@ static const char *const p4_rule_name[P4R_N] = {
 	"bind", "slot", "fence", "query", "render-enable", "unset", "field", "m2mf", "sifm",
 	"clear", "p7",
 };
-#ifdef __KERNEL__
+#ifdef PS3RSX_P4_NO_ENFORCE
+/* the push dump build: it records what clients send, so nothing new is ever refused */
+static const unsigned int test_p4_enforce;
+#elif defined(__KERNEL__)
 static unsigned int test_p4_enforce;
 module_param(test_p4_enforce, uint, 0644);
 MODULE_PARM_DESC(test_p4_enforce, "TEST BUILD: address check slices that refuse (1 a, 2 b, 4 P7); "
@@ -529,6 +532,20 @@ static int m2mf_check(const struct ps3rsx_vstate *vs, u32 data, const char **why
 	return -1;
 }
 
+/*
+ * One past the last source texel a scaled image reads along an axis: from the point p (12.4),
+ * the step d (12.20) and n outputs; the centre origin (FORMAT bits 16-23 = 1) samples half a step
+ * further, bilinear filtering (bits 24-31 = 1) the next texel too
+ */
+static u64 sifm_end(u32 p, u32 d, u32 n, u32 infmt)
+{
+	u64 last = ((u64)p << 16) + (u64)d * (n - 1);
+
+	if (((infmt >> 16) & 0xff) == 1)
+		last += d / 2;
+	return (last >> 20) + 1 + ((infmt >> 24) == 1);
+}
+
 /* SIFM POINT (0x40c): the scaled image's source and its destination surface */
 static int sifm_check(const struct ps3rsx_vstate *vs, u32 point, const char **why)
 {
@@ -554,12 +571,15 @@ static int sifm_check(const struct ps3rsx_vstate *vs, u32 point, const char **wh
 		*why = "scaled image format, pitch, size or point out of range";
 		return P4R_SIFM;
 	}
-	/* the source: the larger of the declared size and the span the steps sample, plus one
-	 * texel for filtering (u, v in 12.4, the steps in 12.20) */
-	uend = (LO16(point) >> 4) + (((u64)vs->f[P4F_F_DUDX] * LO16(osz)) >> 20) + 1;
-	vend = (HI16(point) >> 4) + (((u64)vs->f[P4F_F_DVDY] * HI16(osz)) >> 20) + 1;
-	cols = max_t(u64, LO16(size), uend) + 1;
-	rows = max_t(u64, HI16(size), vend) + 1;
+	/* the source: the larger of the declared size and the texels the steps sample. Positions
+	 * in 12.20 fixed point: the point (12.4) plus i steps, plus half a step with the centre
+	 * origin; the last output's texel is the last read, and bilinear filtering also reads the
+	 * next one. (Mesa's NEAREST copies, centre origin and point sampling, read exactly their
+	 * source: Neverball's 256x256 sources fill their buffers to the byte.) */
+	uend = sifm_end(LO16(point), vs->f[P4F_F_DUDX], LO16(osz), vs->f[P4F_F_IN_FMT]);
+	vend = sifm_end(HI16(point), vs->f[P4F_F_DVDY], HI16(osz), vs->f[P4F_F_IN_FMT]);
+	cols = max_t(u64, LO16(size), uend);
+	rows = max_t(u64, HI16(size), vend);
 	if (!ext2(pitch, rows, cols * bpp, &len) ||
 	    !in_set(vs, vs->f[P4F_F_DMA], vs->f[P4F_F_OFF], len)) {
 		*why = "scaled image source outside the file's buffers";

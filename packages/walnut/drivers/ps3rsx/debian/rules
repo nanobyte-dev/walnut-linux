@@ -28,6 +28,10 @@ TEST_P4COUNT := $(if $(filter ps3rsx-p4count,$(DEB_BUILD_OPTIONS)),y)
 ifneq ($(if $(findstring p4count,$(DEB_VERSION)),y),$(TEST_P4COUNT))
 $(error the version ($(DEB_VERSION)) and DEB_BUILD_OPTIONS disagree about ps3rsx-p4count)
 endif
+# the dump build counts the address checks itself (Kbuild), without the switch p4count has
+ifeq ($(TEST_DUMP)$(TEST_P4COUNT),yy)
+$(error ps3rsx-pushdump and ps3rsx-p4count are separate test builds)
+endif
 ifneq ($(TEST_CLEAR)$(TEST_DUMP)$(TEST_P4COUNT),)
 ifeq ($(findstring ~dev,$(DEB_VERSION)),)
 $(error a test build ($(DEB_BUILD_OPTIONS)) needs ~dev in its version ($(DEB_VERSION)))

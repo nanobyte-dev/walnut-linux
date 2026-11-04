@@ -105,7 +105,9 @@ off p4-m2mf-notify "FAIL: m2mf: notify 1 accepted" "${P4[@]}" \
 off p4-sifm-src "FAIL: sifm: a source one texel past G accepted" "${P4[@]}" \
 	'!in_set(vs, vs->f[P4F_F_DMA], vs->f[P4F_F_OFF], len)) {' '0) {'
 off p4-sifm-span "FAIL: sifm: a step sampling past the source accepted" "${P4[@]}" \
-	'cols = max_t(u64, LO16(size), uend) + 1;' 'cols = LO16(size) + 1; (void)uend;'
+	'cols = max_t(u64, LO16(size), uend);' 'cols = LO16(size); (void)uend;'
+off p4-sifm-bilinear "FAIL: sifm: the same copy bilinear accepted" "${P4[@]}" \
+	'return (last >> 20) + 1 + ((infmt >> 24) == 1);' 'return (last >> 20) + 1;'
 off p4-sifm-dst "FAIL: sifm: a clip one pixel past A accepted" "${P4[@]}" \
 	'xmax = max_t(u64, LO16(opt) + LO16(osz), LO16(cpt) + LO16(csz));' 'xmax = LO16(opt) + LO16(osz);'
 off p4-sifm-swz "FAIL: sifm: a rectangle outside its swizzled block accepted" "${P4[@]}" \
@@ -144,6 +146,8 @@ off p4-coverage "FAIL: coverage: field 16 (class 1 method 1d6c) not restored" "$
 	'case 0x1d70: case 0x1d74:			/* semaphore releases */' 'case 0x1d6c: case 0x1d70: case 0x1d74:'
 off p4-p7 "FAIL: p7: a state write inside a primitive accepted" "${P4[@]}" -DPS3RSX_P4_COUNT \
 	$'\t\t\t\tif (vs->prim_open && !p7_ok(vs->cls[subch], m) &&' $'\t\t\t\tif (0 &&'
+off p4-dump-counts "FAIL: dump: a copy past A refused" "${P4[@]}" -DPS3RSX_P4_COUNT -DPS3RSX_P4_NO_ENFORCE \
+	'static const unsigned int test_p4_enforce;' 'static const unsigned int test_p4_enforce = 3;'
 off p4-count "FAIL: count: slice a enforcing let a wrong slot through" "${P4[@]}" -DPS3RSX_P4_COUNT \
 	'if (!(READ_ONCE(test_p4_enforce) & p4_rule_slice[rule])) {' 'if (1) {'
 # the property fuzz (p4-fuzz.c, its default seed): its independent model finds the accesses a rule
