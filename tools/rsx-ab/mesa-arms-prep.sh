@@ -115,6 +115,16 @@ unpack A "$A"
 unpack B "$1"
 lay_out A
 lay_out B
+# MESA_ARM_ALIASES="C:B D:B ...": more arms that are the same Mesa as an existing one (a symlink, the same manifest), to
+# run it with a driver switch on (abba-batch.sh ARM_ENV_<arm>); the arm letters stay the report's columns
+for al in ${MESA_ARM_ALIASES:-}; do
+	a=${al%%:*} base=${al#*:}
+	[[ $a =~ ^[C-Z]$ && $base =~ ^[AB]$ ]] || { echo "!! MESA_ARM_ALIASES: $al is not <C-Z>:<A|B>" >&2; exit 1; }
+	rm -rf "${O:?}/$a"; ln -s "$base" "$O/$a"
+	cp "$O/manifest-$base.txt" "$O/manifest-$a.txt"; cp "$O/links-$base.txt" "$O/links-$a.txt"
+	awk -F'\t' -v a="$a" -v b="$base" -v OFS='\t' '$1 == b { $1 = a; print }' "$O/mesa-arms.txt" >> "$O/mesa-arms.txt.new"
+done
+[ ! -f "$O/mesa-arms.txt.new" ] || { cat "$O/mesa-arms.txt.new" >> "$O/mesa-arms.txt"; rm "$O/mesa-arms.txt.new"; }
 column -t "$O/mesa-arms.txt"
 echo "?? the A/B covers the clients only: Xorg runs through the setuid Xorg.wrap and ignores the arm's Mesa (the server runs the installed one)" >&2
 [ "$(cut -f2 "$O/mesa-arms.txt" | sort -u | wc -l)" = 2 ] || echo "?? both arms are the same Mesa version: the A/B compares a build with itself" >&2

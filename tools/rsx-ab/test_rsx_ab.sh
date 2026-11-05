@@ -131,6 +131,19 @@ PATH=$T/mbin:$PATH BENCH=$T/mbench RSX_ARM=$T/arm MESA_ARM=$T/marm-bad DESK=$T/d
 rc=$?
 check "Mesa A/B: an unusable arm stops the batch" '[ $rc != 0 ] && [ "$(grep -c "^run.sh" "$LOG")" = 1 ] && ! grep -q "ps3-bench.sh desktop" "$LOG"'
 
+# ARM_ENV_<arm>: the arm's switches reach its runs as BENCH_ tokens, and only its runs
+mkdir -p "$T/ebench/harness"
+cat > "$T/ebench/harness/run.sh" <<'X'
+#!/bin/bash
+echo "run.sh $* IDX=${BENCH_NV30_PS3_IDX_GART-} FP=${BENCH_NV30_PS3_FP_GART-}" >> "$LOG"
+X
+chmod +x "$T/ebench/harness/run.sh"
+: > "$LOG"
+PATH=$T/mbin:$PATH BENCH=$T/ebench RSX_ARM=$T/arm MESA_ARM=$T/marm DESK=$T/desk MESA_AB=1 ARMS="A B C D" CASES="neverball" \
+	ARM_ENV_C="NV30_PS3_IDX_GART=1" ARM_ENV_D="NV30_PS3_IDX_GART=1 NV30_PS3_FP_GART=1" bash "$here/abba-batch.sh" > "$T/out" 2>&1
+check "ARM_ENV: A and B run with no switch, C with IDX, D with both" \
+	'[ "$(grep "^run.sh" "$LOG" | sed "s/^run.sh bench neverball base 1 //" | tr "\n" ";")" = "IDX= FP=;IDX= FP=;IDX=1 FP=;IDX=1 FP=1;" ]'
+
 # mesa-arms-prep.sh and mesa-arm.sh on fake debs: the layout, the hashes, the arm check
 mkdeb() {	# mkdeb DIR PKG VERSION: a deb with PKG's files of the fake build VERSION
 	local d=$1 p=$2 v=$3 w=$T/mk-$2-$3 t=usr/lib/powerpc64-linux-gnu
@@ -176,6 +189,11 @@ check "mesa-arm env: the three variables, the arm's directories first" \
 check "mesa-arm env off: the caller's path back, the others unset" \
 	'[ "$(MESA_BASE_LD=/sys0 bash "$here/mesa-arm.sh" env off | tr "\n" ";")" = "export LD_LIBRARY_PATH='"'/sys0'"';unset LIBGL_DRIVERS_PATH GBM_BACKENDS_PATH;" ]'
 check "mesa-arm select: says it covers clients only" 'bash "$here/mesa-arm.sh" select A 2>&1 | grep -q "clients only"'
+(cd "$here/../.." && MESA_ARMS_OUT=$T/alias-out MESA_ARM_ALIASES="C:B D:B" bash "$here/mesa-arms-prep.sh" "$T/debsB" "$T/debsA" > "$T/alias.out" 2>&1)
+check "mesa-arms-prep: alias arms are the same Mesa as their base, in the arm list" \
+	'[ "$(cut -f1,2 "$T/alias-out/mesa-arms.txt" | tr "\t\n" " :")" = "A 26.2.4-1+ps3.1:B 26.2.4-1+ps3.2:C 26.2.4-1+ps3.2:D 26.2.4-1+ps3.2:" ]'
+check "mesa-arm: an alias arm passes select and gives its own paths" \
+	'MESA_DIR=$T/alias-out RSX_ARMS_LOG=$T/alias.log bash "$here/mesa-arm.sh" select C 2>/dev/null && MESA_DIR=$T/alias-out MESA_BASE_LD= bash "$here/mesa-arm.sh" env C | grep -q "alias-out/C/lib"'
 for t in glx egl extra link gbm; do rm -rf "$T/m-$t"; cp -a "$T/mesa-out" "$T/m-$t"; done
 echo changed >> "$T/m-glx/A/lib/libGLX_mesa.so.0.0.0"
 echo changed >> "$T/m-egl/A/lib/libEGL_mesa.so.0.0.0"

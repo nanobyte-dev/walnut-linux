@@ -16,6 +16,8 @@
 # build with clearing off, to attribute a cost to it). CASES="..." runs a subset (names as above).
 # Then the desktop comes back. Read the results on the PC: make bench-pull, then
 # tools/rsx-ab/abba-report.py build/tmp/rsx-ab/rsx-arms.log build/bench/ps3-bench-<stamp>-*.
+# ARM_ENV_<arm>="NAME=VALUE ...": environment of one arm's runs, as the bench harness's BENCH_<NAME> tokens (an arm
+# that is the same Mesa as another with a switch on: mesa-arms-prep.sh MESA_ARM_ALIASES="C:B D:B").
 # MESA_AB=1: a Mesa A/B instead (old Mesa against new, the ps3rsx build unchanged): the arms are two Mesa
 # builds in /var/tmp/rsx-ab/mesa/{A,B} (mesa-arms-prep.sh on the PC), and each run gets its arm's
 # LD_LIBRARY_PATH, LIBGL_DRIVERS_PATH and GBM_BACKENDS_PATH (mesa-arm.sh, MESA_ARM); the same arm
@@ -64,6 +66,10 @@ arm_run() {	# arm_run ARM [PARAM=VALUE...]
 	else
 		"$RSX_ARM" "$a" "$@" || { echo "abba-batch: arm $a didn't load: stopping" >&2; exit 1; }
 	fi
+	# ARM_ENV_<arm>="NAME=VALUE ...": driver switches of this arm (e.g. ARM_ENV_C="NV30_PS3_IDX_GART=1" for the
+	# Mesa under test with that switch on), handed to the games as the harness's BENCH_<NAME> tokens
+	local ev=ARM_ENV_$a kv armenv=()
+	for kv in ${!ev:-}; do export "BENCH_$kv"; armenv+=("BENCH_${kv%%=*}"); echo "abba-batch: arm $a: $kv" >&2; done
 	sudo cat /sys/kernel/debug/dri/0/ps3rsx_mm 2>/dev/null | grep -E '^(clear|reuse):' | sed "s/^/arm $a before: /"
 	for c in $CASES; do
 		if [ -n "${MESA_AB:-}" ]; then	# LD_DEBUG=libs on tmpfs, loads only: what each process of the run loaded
@@ -78,6 +84,7 @@ arm_run() {	# arm_run ARM [PARAM=VALUE...]
 		if exception; then echo "abba-batch: graph exception: stopping (no desktop restart)" >&2; exit 1; fi
 	done
 	sudo cat /sys/kernel/debug/dri/0/ps3rsx_mm 2>/dev/null | grep -E '^(clear|reuse):' | sed "s/^/arm $a after: /"
+	[ ${#armenv[@]} = 0 ] || unset "${armenv[@]}"
 }
 
 for a in $ARMS; do arm_run "$a"; done
