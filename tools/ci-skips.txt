@@ -15,6 +15,9 @@ mesa-query-lost         needs build/work/mesa
 mesa-alloc-fail         needs build/work/mesa
 mesa-transfer-cpu       needs build/work/mesa
 mesa-point-smooth       needs build/work/mesa
+mesa-blit-state         needs build/work/mesa
+mesa-placement          needs build/work/mesa
+mesa-fb-window          needs build/work/mesa
 fix-ladder              needs the Mesa clone (make mesa-work)
 # other work trees and built packages
 xmoto-glbatch           needs build/work/xmoto (make xmoto-work)
