@@ -4,9 +4,9 @@
  * origin x = 8), for an ordinary swizzled target, and for a linear target with an unaligned offset, and the
  * stream is decoded:
  *   the hack: origin 8 and a clip of 8 columns (max 7), so origin + clip = 16, the block's width (before:
- *   clip max 15, origin + clip = 24); every other target keeps its clip (w - 1), the linear one included;
+ *   clip max 15, origin + clip = 24); the linear branch the same: the target grows by x (72 for 64), the clip is the original 64 columns; every other target keeps its clip (w - 1);
  * "dump" prints the stream (method value) for the golden diff in host-tests.sh against the file as it was
- * before 0060: only the hack's clip word differs.
+ * before 0060: only the two hacks' clip words differ.
  * (tools/run-tests.sh --only mesa-fb-window; skipped without build/work/mesa) */
 #include "nv30/nv30_state_validate.c"
 
@@ -157,10 +157,11 @@ int main(int argc, char **argv)
 	run_fb(nv30, &t, 2, 2, 0x40, true);
 	if (!dump)
 		CHECK(R(0x2b8) == 0 && (R(0x2c0) >> 16) == 1, "swizzled 2x2 aligned: origin %08x clip %08x", R(0x2b8), R(0x2c0));
-	/* a linear target with an unaligned offset: unchanged (the hack's linear sibling) */
+	/* a linear target with an unaligned offset (the hack's linear sibling): grown by x, clipped to the original width */
 	run_fb(nv30, &t, 64, 32, 0x10, false);
 	if (!dump)
-		CHECK(R(0x2b8) == 8 && (R(0x2c0) >> 16) == 71, "linear, offset 16 bytes: origin %08x clip %08x (unchanged)", R(0x2b8), R(0x2c0));
+		CHECK(R(0x2b8) == 8 && (R(0x2c0) >> 16) == 63 && ((R(0x200) >> 16) & 0xffff) == 72,
+		      "linear, offset 16 bytes: origin %08x clip %08x RT_HORIZ %08x, want origin 8, clip max 63 (64 columns) in a 72-wide target", R(0x2b8), R(0x2c0), R(0x200));
 	if (dump)
 		return 0;
 	printf("%s: %d checks, %d failed\n", fails ? "FAIL" : "ok", checks, fails);

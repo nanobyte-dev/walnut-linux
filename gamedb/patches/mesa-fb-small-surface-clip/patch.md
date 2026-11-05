@@ -19,9 +19,9 @@ real pixels. The window clip stayed at the block's whole width (max 15), so the 
 spanned x more columns than the block: 24 against 16. The writes stay inside the 2x2 (viewport and scissor), but
 ps3rsx's draw rule (P4 slice c1) bounds a draw by origin plus clip and refused the draw (Armagetron, 2 draws).
 
-In the hack the window clip is now `w - x` columns wide (max 7 for x = 8). Every other target keeps its clip.
-The linear sibling (an unaligned linear target grows its width by x) has the same shape and is left alone: no
-refusal for it in the corpus.
+In the hack the window clip is now `w - x` columns wide (max 7 for x = 8). The linear sibling (an unaligned linear
+target grows its width by x, `w += x`) had the same shape and gets the same clip, `w - x`, the original width.
+Every other target keeps its clip.
 
 ## Investigation
 
@@ -30,7 +30,7 @@ refusal for it in the corpus.
 - **Minimal repro:** `packages/patched/graphics/mesa/tests/fb-window-test.c` (`tools/run-tests.sh --only
   mesa-fb-window`): nv30_validate_fb against a fake push buffer for the 2x2 hack, an ordinary swizzled target, an
   aligned 2x2 and a linear unaligned one; `golden` compares the stream of the four with the file before the patch:
-  one word differs, the hack's clip.
+  two words differ, the clip of each hack.
 
 ## Validation
 

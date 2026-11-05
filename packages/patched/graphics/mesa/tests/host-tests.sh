@@ -30,7 +30,7 @@
 #                  only the index buffers' and the fragment program's domains differ)
 #   fb-window      0060: nv30_validate_fb's small-surface hack (a 2x2 drawn as a 16x2 block from window origin x)
 #                  clips to the block (state); the stream of four targets against the file before 0060: only
-#                  the hack's clip word differs (golden)
+#                  the two hacks' clip words differ (golden)
 #   point-smooth   0050: round GL_POINT_SMOOTH points on Mesa's TGSI interpreter, and their NV40 translation
 # Each part prints "RESULT <suite>:<part> pass|fail|skip" (tools/ladder.py reads them). Exit 0 when every
 # part passed, 77 when the tree lacks what the suite tests (its patch) or a tool is missing, else 1.
@@ -295,10 +295,10 @@ fb-window)
 			if [ $rc = 0 ]; then
 				n=$(diff $T/fbw-old.txt $T/fbw-new.txt | grep -c '^>')
 				m=$(diff $T/fbw-old.txt $T/fbw-new.txt | grep '^>' | sed 's/^> //; s/ .*//' | sort -u | tr '\n' ' ')
-				if [ "$n" = 1 ] && [ "$m" = "02c0 " ]; then
-					echo "ok   golden: $(wc -l < $T/fbw-old.txt) words of four targets; one differs, the hack's window clip (02c0)"
+				if [ "$n" = 2 ] && [ "$m" = "02c0 " ]; then
+					echo "ok   golden: $(wc -l < $T/fbw-old.txt) words of four targets; two differ, the window clip (02c0) of the swizzled and the linear small-surface hack"
 				else
-					echo "$n words differ ($m), want only the hack's clip 02c0"; diff $T/fbw-old.txt $T/fbw-new.txt | head; rc=1
+					echo "$n words differ ($m), want only the two hacks' clips 02c0"; diff $T/fbw-old.txt $T/fbw-new.txt | head; rc=1
 				fi
 			fi
 			result golden $rc

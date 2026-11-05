@@ -13,9 +13,10 @@ but a rule that bounds a draw by origin plus clip (ps3rsx's, P4 slice c1) can't 
 Armagetron's draws were refused.
 
 In that hack the window clip is now what is left of the block after the origin: w - x columns
-(max 7 for x = 8), so origin plus clip is the block's width. Every other target keeps its clip
-(the render target's size), the linear unaligned-offset case included, which grows its width the
-other way (w += x) and is left alone.
+(max 7 for x = 8), so origin plus clip is the block's width. The linear branch of the same code
+(an unaligned linear target, `x += off / bpp; w += x`) has the same shape: the target grew by x to
+the right of the origin and the clip kept the grown width. Its clip is now w - x too, the original
+width. Every other target keeps its clip (the render target's size).
 
 Forwarded: no
 
@@ -26,11 +27,17 @@ diff --git a/src/gallium/drivers/nouveau/nv30/nv30_state_validate.c b/src/galliu
     int w = fb->width;
     int x = 0;
     int y = 0;
-+   int clip_w = -1;	/* the window clip's width, when it is not the render target's (the small-surface hack) */
++   int clip_w = -1;	/* the window clip's width, when it is not the render target's (the small-surface hacks) */
  
     nv30->state.rt_enable = (NV30_3D_RT_ENABLE_COLOR0 << fb->nr_cbufs) - 1;
     if (nv30->state.rt_enable > 1)
-@@ -99,9 +100,15 @@ nv30_validate_fb(struct nv30_context *nv30)
+@@ -95,13 +96,21 @@ nv30_validate_fb(struct nv30_context *nv30)
+           * (nv30_miptree_surface_new): the offset's remainder is exact in x */
+          x += off / util_format_get_blocksize(nv30->fb_cbufs[0]->format);
+          w += x;
++         /* the target grew by x to the right of the origin: the clip is what is left after it */
++         clip_w = w - x;
+       } else if (off) {
           x += off / (util_format_get_blocksize(nv30->fb_cbufs[0]->format) * 2);
           w  = 16;
           h  = 2;
@@ -46,7 +53,7 @@ diff --git a/src/gallium/drivers/nouveau/nv30/nv30_state_validate.c b/src/galliu
     if (rt_format & NV30_3D_RT_FORMAT_TYPE_SWIZZLED) {
        rt_format |= util_logbase2(w) << 16;
        rt_format |= util_logbase2(h) << 24;
-@@ -123,7 +130,7 @@ nv30_validate_fb(struct nv30_context *nv30)
+@@ -123,7 +132,7 @@ nv30_validate_fb(struct nv30_context *nv30)
     BEGIN_NV04(push, NV30_3D(VIEWPORT_TX_ORIGIN), 4);
     PUSH_DATA (push, (y << 16) | x);
     PUSH_DATA (push, 0);
