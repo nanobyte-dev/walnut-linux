@@ -40,6 +40,13 @@ CASES=${CASES:-luanti neverball supertuxkart trigger-rally openarena mpv xloop}
 [ -z "${MESA_AB:-}" ] || [ -z "${EXTRA:-}" ] || { echo "abba-batch: EXTRA (ps3rsx arms) with MESA_AB" >&2; exit 1; }
 LDDIR=${LDDIR:-/dev/shm/rsx-ab-ld}
 [ -z "${MESA_AB:-}" ] || echo "abba-batch: Mesa A/B: the arms cover the CLIENTS only; Xorg (setuid Xorg.wrap) ignores them and runs the installed Mesa" >&2
+if [ -n "${MESA_AB:-}" ]; then	# an arm's switches are the driver's NV30_* names, nothing else (no kernel parameter writes)
+	for v in $(compgen -v ARM_ENV_); do
+		for kv in ${!v}; do
+			[[ $kv =~ ^NV30_[A-Z0-9_]+=[A-Za-z0-9_.-]*$ ]] || { echo "abba-batch: $v: '$kv' is not an NV30_NAME=VALUE switch" >&2; exit 1; }
+		done
+	done
+fi
 export MESA_BASE_LD=${LD_LIBRARY_PATH-}	# what a Mesa arm's LD_LIBRARY_PATH keeps behind its own
 n_arms=$(( $(wc -w <<<"$ARMS") + $(wc -w <<<"${EXTRA:-}") ))
 export BATCH_NAME=rsxab BATCH_TOTAL=$(( n_arms * $(wc -w <<<"$CASES") ))

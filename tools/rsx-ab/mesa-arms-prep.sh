@@ -9,7 +9,8 @@
 #           the archive key, each deb with the index's sha256 (the way arms-prep.sh gets ps3rsx's arm A)
 # Writes build/tmp/rsx-ab/mesa/{A,B}/{lib,dri} (lib: libgallium-<version>.so, libEGL_mesa, libGLX_mesa, libgbm,
 # gbm/; dri: the driver stub and its links) and mesa-arms.txt (arm, version, libgallium's sha256 prefix), then
-# copy the directory to the PS3:  scp -r build/tmp/rsx-ab/mesa PS3:/var/tmp/rsx-ab/
+# copy the directory to the PS3 with tar or rsync -a (scp -r turns the dri/ symlinks into files, and the PS3 then refuses the arms):
+#   tar -C build/tmp/rsx-ab -c mesa | ssh PS3 'tar -C /var/tmp/rsx-ab -x'
 # libgallium's file name carries the package version, and libGLX_mesa, libEGL_mesa and libgbm need exactly that
 # name (the driver stub, dri/libdril_dri.so, finds libgallium's symbols in the process): an arm is only whole when
 # it is used with its own lib/ in front, and with its own dri/ and gbm/, so no file of the other build is used;
@@ -128,4 +129,5 @@ done
 column -t "$O/mesa-arms.txt"
 echo "?? the A/B covers the clients only: Xorg runs through the setuid Xorg.wrap and ignores the arm's Mesa (the server runs the installed one)" >&2
 [ "$(cut -f2 "$O/mesa-arms.txt" | sort -u | wc -l)" = 2 ] || echo "?? both arms are the same Mesa version: the A/B compares a build with itself" >&2
-echo ">> $O: copy to the PS3's /var/tmp/rsx-ab/mesa"
+echo ">> $O: copy to the PS3 with tar or rsync -a, not scp -r (it turns the symlinks into files):"
+echo ">>   tar -C $(dirname "$O") -c $(basename "$O") | ssh PS3 'mkdir -p /var/tmp/rsx-ab && tar -C /var/tmp/rsx-ab -x'"

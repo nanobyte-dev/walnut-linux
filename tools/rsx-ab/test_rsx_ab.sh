@@ -143,6 +143,12 @@ PATH=$T/mbin:$PATH BENCH=$T/ebench RSX_ARM=$T/arm MESA_ARM=$T/marm DESK=$T/desk 
 	ARM_ENV_C="NV30_PS3_IDX_GART=1" ARM_ENV_D="NV30_PS3_IDX_GART=1 NV30_PS3_FP_GART=1" bash "$here/abba-batch.sh" > "$T/out" 2>&1
 check "ARM_ENV: A and B run with no switch, C with IDX, D with both" \
 	'[ "$(grep "^run.sh" "$LOG" | sed "s/^run.sh bench neverball base 1 //" | tr "\n" ";")" = "IDX= FP=;IDX= FP=;IDX=1 FP=;IDX=1 FP=1;" ]'
+for bad in "PS3RSX_CLEAR_OFF=1" "NV30_X=1;reboot" "LD_PRELOAD=/x.so" "NV30_X"; do
+	: > "$LOG"
+	PATH=$T/mbin:$PATH BENCH=$T/ebench RSX_ARM=$T/arm MESA_ARM=$T/marm DESK=$T/desk MESA_AB=1 ARMS="A C" CASES="neverball" \
+		ARM_ENV_C="$bad" bash "$here/abba-batch.sh" > "$T/out" 2>&1
+	check "ARM_ENV with MESA_AB accepts NV30_ names only: '$bad' is refused before any arm" '[ $? != 0 ] && [ ! -s "$LOG" ] && grep -q "not an NV30_NAME=VALUE" "$T/out"'
+done
 
 # mesa-arms-prep.sh and mesa-arm.sh on fake debs: the layout, the hashes, the arm check
 mkdeb() {	# mkdeb DIR PKG VERSION: a deb with PKG's files of the fake build VERSION
@@ -203,6 +209,10 @@ echo changed >> "$T/m-gbm/A/lib/gbm/dri_gbm.so"
 for t in glx egl extra link gbm; do
 	check "mesa-arm select: an arm with a changed, extra or relinked file is refused ($t)" '! MESA_DIR=$T/m-$t bash "$here/mesa-arm.sh" select A 2>/dev/null'
 done
+rm -rf "$T/m-scp"; cp -a "$T/mesa-out" "$T/m-scp"
+for l in $(find "$T/m-scp/A/dri" -type l); do t=$(readlink -f "$l"); rm "$l"; cp "$t" "$l"; done	# scp -r: links become files
+check "mesa-arm select: an arm copied with scp -r (symlinks turned into files) is refused, saying so" \
+	'! MESA_DIR=$T/m-scp bash "$here/mesa-arm.sh" select A 2>"$T/scp.err" && grep -q "symlinks lost" "$T/scp.err"'
 check "mesa-arm select: ...and the untouched arm B still passes" 'MESA_DIR=$T/m-glx bash "$here/mesa-arm.sh" select B 2>/dev/null'
 # check-run: what the processes of a run loaded (LD_DEBUG=libs output)
 mkdir -p "$T/ldok" "$T/ldbad" "$T/ldnone"

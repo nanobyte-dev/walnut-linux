@@ -41,8 +41,8 @@ check() {	# check ARM: all the arm's files by hash, no extra file, the links
 	[ -e "$D/$a/dri/nouveau_dri.so" ] || die "arm $a: no dri/nouveau_dri.so"
 	[ -s "$D/manifest-$a.txt" ] && [ -f "$D/links-$a.txt" ] || die "arm $a: no manifest-$a.txt / links-$a.txt (mesa-arms-prep.sh makes them)"
 	(cd "$D/$a" && sha256sum -c --quiet "$D/manifest-$a.txt" >/dev/null 2>&1) || die "arm $a: a file is missing or differs from manifest-$a.txt (copy again)"
-	[ "$(cd "$D/$a" && find . -type f | LC_ALL=C sort)" = "$(sed 's/^[0-9a-f]*  //' "$D/manifest-$a.txt")" ] || die "arm $a: a file that is not in manifest-$a.txt"
-	[ "$(cd "$D/$a" && find . -type l -printf '%p -> %l\n' | LC_ALL=C sort)" = "$(cat "$D/links-$a.txt")" ] || die "arm $a: its links differ from links-$a.txt"
+	[ "$(cd "$D/$a" && find . -type f | LC_ALL=C sort)" = "$(sed 's/^[0-9a-f]*  //' "$D/manifest-$a.txt")" ] || die "arm $a: a file that is not in manifest-$a.txt (symlinks lost? copy with tar or rsync -a, never scp -r: it turns the dri links into files)"
+	[ "$(cd "$D/$a" && find . -type l -printf '%p -> %l\n' | LC_ALL=C sort)" = "$(cat "$D/links-$a.txt")" ] || die "arm $a: its symlinks differ from links-$a.txt (symlinks lost: copy with tar or rsync -a, never scp -r)"
 }
 
 case ${1:-} in
