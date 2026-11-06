@@ -87,6 +87,9 @@ done
 # H1: the dispatcher manager (a bus alias: udev loads it at boot) is off in every flavour
 case " $REQUIRE_SET_debug $REQUIRE_SET " in *CONFIG_PS3_DISP_MANAGER*) echo "FAIL: a REQUIRE_SET list wants CONFIG_PS3_DISP_MANAGER"; fail=1 ;; esac
 grep -qx "CONFIG_PS3_DISP_MANAGER=m" "$(dirname "$REALPC")"/config/*.config && { echo "FAIL: a config fragment builds CONFIG_PS3_DISP_MANAGER"; fail=1; }
+# the raw AV manager device (ps3/0070, 0420) has no Kconfig switch, so the series must not carry it (round 3 review U1 M2)
+if grep -qE '^ps3/(0070|0420)' "$(dirname "$REALPC")/patches/series"; then echo "FAIL: the series carries the /dev/ps3avmngr patches (0070, 0420)"; fail=1; fi
+if [ -e "$(dirname "$REALPC")/patches/ps3/0070-ps3avmgr-char-device.patch" ]; then echo "FAIL: 0070 is still in patches/ps3"; fail=1; fi
 [ -n "$REQUIRE_SET" ] || { echo "FAIL: no REQUIRE_SET (hardening options)"; fail=1; }
 [ $fail = 0 ] && echo "ok: package.conf lists"
 exit $fail

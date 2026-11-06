@@ -40,7 +40,7 @@ Config states are from the shipped `config-6.12.111+ps3.419`.
 | 0040 ps3-partition | PS3 partition table parser | SAFE | compiled out (`PS3_PARTITION` unset) |
 | 0050 ps3sysmgr-lpar-reboot | reboot asks the SM for an LPAR reboot instead of a system reboot | CAREFUL (SM request, run time) | keep |
 | 0060 ps3sysmgr-char-device | `/dev/ps3sysmngr`: raw System Manager packets from userspace. Built in; while open, the kernel stops handling power-button and thermal events | FORBIDDEN-capable (any SM service; the SM fronts SYSCON; glevand's ps3sm-utils drive LEDs and the buzzer through it) | **dropped 2026-10-18** (decision 2) |
-| 0070 ps3avmgr-char-device | `/dev/ps3avmgr`: raw AV manager packets. Built in, no use today | CAREFUL | keep, unused |
+| 0070 ps3avmgr-char-device | `/dev/ps3avmngr`: raw AV manager packets, sent without a lock against ps3av's own traffic; built into every kernel with no Kconfig switch, used by nothing | CAREFUL | **dropped 2026-11-05** (round 3 review U1 M2) |
 | 0080 ps3dispmgr | `/dev/ps3dispmngr`: raw dispatcher manager (update manager, storage manager, secure RTC). `=m`, autoloaded by its bus alias | FORBIDDEN-capable (update manager = firmware update and EEPROM writes) | **`PS3_DISP_MANAGER` off 2026-10-18** (decision 3); off in every flavour, debug included (round 3 review H1: its bus alias would make udev load it at every boot); a research session would need a never-published variant with the module blacklisted |
 | 0090 ps3rom-vendor-specific-command | SCSI pass-through of vendor commands to the BD drive. Built in | CAREFUL, FORBIDDEN-capable (BD drive firmware commands) | **dropped 2026-10-18** (decision 4) |
 | 0100 spu-enum-shared-param | enumerate the shared SPE as well (the parameter is `spu_base.enum_shared`) | SAFE | keep |
@@ -60,7 +60,7 @@ Config states are from the shipped `config-6.12.111+ps3.419`.
 | 0314 repository | 0110's new hcall signature in `repository.c` (write functions stay under `PS3_REPOSITORY_WRITE`) | SAFE | keep |
 | 0316 jupiter-module-alias | module alias for 0160 | SAFE | dropped with 0160 |
 | 0410 mmzone | relax the MAX_PAGE_ORDER vs SECTION_SIZE_BITS build check | SAFE | keep |
-| 0420 ps3av_add | missing `#include <linux/fs.h>` for 0070 | SAFE | keep |
+| 0420 ps3av_add | missing `#include <linux/fs.h>` for 0070 | SAFE | dropped with 0070 |
 | 0430 gelic-wireless-miss-kfree | free the command on scan failure (T2's 0175 is the same) | SAFE | keep |
 | 0440, 0450 lv1call/interrupt SRR clobber | mark SRR0/1 clobbered on every lv1 call; stability (bogus SRR warnings). Posted by René Rebe ([V2](https://patchwork.ozlabs.org/project/linuxppc-dev/patch/20251118.184901.486820791149579338.rene@exactco.de/), 2025-11-18, not merged); ours is identical to V2 | SAFE | keep |
 
@@ -138,7 +138,7 @@ Taken on kernel 6.12.111+ps3.4xx~dev, compile-tested at the time. Each item says
 
 Every candidate in the survey has a decision, and nothing here waits on the user. These are worth knowing for later:
 
-- `/dev/ps3avmgr` (0070, CAREFUL) is built in and unused. It is the one raw manager channel left built in; the survey kept it.
+- `/dev/ps3avmngr` (0070, CAREFUL) was the one raw manager channel left built in, unused, and is dropped from the series with 0420 (2026-11-05, round 3 review U1 M2): no Kconfig switch, and its packets bypass ps3av's own locking.
 - `ps3lv1call` (0250) and `ps3physmem` (0140) are modules that nothing loads. The survey's rule is to keep them manual-load only and, as [research/FLASH-SYSCON.md](research/FLASH-SYSCON.md) says, keep lv1call manual-load only. There is no blacklist file in the tree (the claim in earlier docs was wrong); the debug kernel's lv1call has no bus alias, so nothing loads it.
 - Decision 6's reworked ps3fb-in-VRAM (a 9 MB VRAM variant) is a design job nobody has started, and `local/0043` is measured only when its switch is turned on ([TESTS.md](TESTS.md), [KERNEL-MEMORY.md](KERNEL-MEMORY.md)).
 - The 7th SPE needs no patch (0100 is in the series): boot with `spu_base.enum_shared=1`. Not tried yet; see [backlog/hardware.md](backlog/hardware.md).
