@@ -3,10 +3,6 @@
 # Each entry: due = "YYYY-MM-DD", what = "...".
 
 [[reminder]]
-due = "2026-11-06"
-what = "Delete the two ccache-data.flushed-2026-11-03-* folders on the server (/data/nanobyte/Walnut)."
-
-[[reminder]]
 due = "2026-11-10"
 what = "Review the apt cache's \"outside the snapshot allowlist\" log lines, then switch the allowlist to refusing (servers/walnut.nanobyte.dev/repo.conf)."
 
