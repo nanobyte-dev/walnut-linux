@@ -74,6 +74,9 @@ for k in ssh scp rsync; do
 	expect 1 "tools/ps3 $k refuses under another's lease" $ps3 $k x
 	ok "tools/ps3 $k names the holder" test "${out#*someone else}" != "$out"
 done
+for t in bench-push bench-pull ps3-reboot; do
+	no "make $t is `tools/ps3 ssh`" bash -c "cd '$root' && make -n $t | grep -E '(^| )(ssh|scp) ' | grep -v 'tools/ps3 ssh'"
+done
 ok "no ssh, scp or rsync ran" test ! -e "$T/ssh.calls"
 # with the lease ours, ssh runs once, with the project's options and USER@IP
 expect 1 "the holder gets in (the stub exits 1)" env PS3_LEASE=$C $ps3 ssh uptime
