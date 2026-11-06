@@ -326,11 +326,18 @@ class NorDumpContent(Base):
                 self.stage("t/" + name, data)
                 self.assertTrue(any("the NOR dump by content" in f[3] for f in self.r.errors(["private"])), name)
 
+    def _zstd_cases(self):
+        try:
+            from compression import zstd
+        except ImportError:
+            return ()
+        return (("g.zst", zstd.compress(self.dump) + b"junk" * 50),)
+
     def test_trailing_padding_or_garbage_keeps_earlier_hits(self):
         import bz2, gzip, lzma
         for name, data in (("p.gz", gzip.compress(self.dump) + b"\0" * 512), ("g.gz", gzip.compress(self.dump) + b"junk" * 50),
                            ("p.xz", lzma.compress(self.dump) + b"\0" * 512), ("p.bz2", bz2.compress(self.dump) + b"\0" * 512),
-                           ("two.xz", lzma.compress(os.urandom(70000)) + b"\0" * 8 + lzma.compress(self.dump))):
+                           ("two.xz", lzma.compress(os.urandom(70000)) + b"\0" * 8 + lzma.compress(self.dump))) + self._zstd_cases():
             with self.subTest(name):
                 self.r.git("reset", "-q")
                 self.stage("t/" + name, data)

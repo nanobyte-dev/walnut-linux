@@ -87,6 +87,14 @@ def _take(read, budget):
     return b
 
 
+_DECODE_ERRORS = (zlib.error, OSError, EOFError, lzma.LZMAError, ValueError)
+try:
+    from compression.zstd import ZstdError as _ZstdError
+    _DECODE_ERRORS += (_ZstdError,)
+except ImportError:
+    pass
+
+
 def _loop(make_dec, data, budget):
     """multi-member / multi-stream decompression with a bounded output: [bytes] one entry per member or stream
     (each is checked on its own: a dump behind another member starts at that member's offset 0)"""
@@ -95,7 +103,7 @@ def _loop(make_dec, data, budget):
         dec = make_dec()
         try:
             chunk = dec.decompress(data, budget.left + 1)
-        except (zlib.error, OSError, EOFError, lzma.LZMAError, ValueError):
+        except _DECODE_ERRORS:
             if out:   # padding or garbage after a good member ends the stream; what was decoded stays checked
                 break
             raise
