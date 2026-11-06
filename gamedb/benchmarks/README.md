@@ -168,9 +168,7 @@ matrix: one row per run batch in order, columns `test` (the title), `date` (YYYY
 `observations`, then `<game>-<variant>` sorted by name (`openarena-tc1`, `dsda-doom-playspu`, ...), only
 the columns with a value; a cell is the record's value. They are build output, not kept: until
 2026-10-26 these files were the records themselves (`bench/results/*.csv`, "fps.csv row N" in older
-docs is the batch with `order = N`). `tools/gamedb/bench-import.py` turned them into these records and
-`--verify DIR` checks a directory of them against the records: each of the 4870 cells found in exactly
-one record with the same value, and the matrices made from the records byte for byte the old files.
+docs is the batch with `order = N`). The import into these records (and its byte-for-byte check of 4870 cells) is done; the script is in git history.
 
 ## The technical pages
 

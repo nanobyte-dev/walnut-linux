@@ -250,7 +250,7 @@ class Calibration(unittest.TestCase):
 
 class Records(unittest.TestCase):
     """the benchmark records (gamedb/benchmarks/README.md): check.py's rules on them, the CSV matrices they
-    make, bench-import.py's column split, the README's generated suite table"""
+    make, the README's generated suite table"""
 
     def setUp(self):
         self.br = load_tool("benchrecords", REPO / "bench" / "analysis" / "benchrecords.py")
@@ -330,16 +330,6 @@ class Records(unittest.TestCase):
         self.assertNotIn("batch b1", warns)
         self.assertIn("batch b2: no tested and no conclusion", warns)
         self.assertEqual(check.records_warnings(self.tmp), self.br.check_warnings(self.tmp))
-
-    def test_import_split(self):
-        imp = load_tool("bench-import")
-        names = imp.names_map(REPO / "gamedb")
-        self.assertEqual(imp.split("sauerbraten-base@rec10", names), ("bananabread", "sauerbraten", "base@rec10"))
-        self.assertEqual(imp.split("sauerbraten-edition-base", names), ("sauerbraten", "sauerbraten-edition", "base"))
-        self.assertEqual(imp.split("supertuxkart-lean--@rec10", names), ("supertuxkart", "supertuxkart", "lean--@rec10"))
-        self.assertEqual(imp.split("dsda-doom-gl@wkkick10", names), ("dsda-doom", "dsda-doom", "gl@wkkick10"))
-        self.assertEqual(imp.stack("batch ssdroot1+2 A: baseline on the SSD root (kernel .472 Mesa .476 ps3rsx 0.443)"),
-                         {"kernel": "ps3.472", "mesa": "ps3.476", "ps3rsx": "0.443"})
 
     def test_suite_table_matches_readme(self):
         blocks = load_tool("blocks")

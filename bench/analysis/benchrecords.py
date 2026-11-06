@@ -1,5 +1,5 @@
 """benchrecords.py: the benchmark result records in gamedb (gamedb/benchmarks/README.md), for matrix.py,
-tools/gamedb/bench-import.py, check.py, score.py and blocks.py. stdlib only.
+check.py, score.py and blocks.py. stdlib only.
 
 The records, under a gamedb root (the repository's gamedb/; BENCH_GAMEDB=<dir> names another, the
 self-tests' scratch copies):
@@ -62,7 +62,7 @@ _KEYS = {}
 
 
 def __getattr__(name):
-    """BATCH_KEYS, ENTRY_KEYS, ... as module attributes (bench-import.py reads ENTRY_KEYS)"""
+    """BATCH_KEYS, ENTRY_KEYS, ... as module attributes"""
     if name.isupper() and name in _schema_keys():
         return _KEYS[name]
     raise AttributeError(name)

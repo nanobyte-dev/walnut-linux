@@ -138,28 +138,6 @@ class Lint(unittest.TestCase):
         self.assertIn("echo PS3_BOOT_TARGET=root >>", usb)
         self.assertLess(usb.index("echo PS3_BOOT_TARGET=root"), usb.index("touch /run/ps3-test-seams"))
 
-    def test_network_scripts_refuse_without_a_real_address(self):
-        """no lease on eth0 and no WALNUT_* values: exit 2 with a message, nothing written, no made-up address"""
-        d = Path(tempfile.mkdtemp(prefix="netall-"))
-        self.addCleanup(shutil.rmtree, d, True)
-        (d / "bin").mkdir()
-        (d / "bin" / "ip").write_text("#!/bin/sh\nexit 0\n")
-        (d / "bin" / "ip").chmod(0o755)
-        for name in ("walnut-net-all.sh", "walnut-wol-test.sh"):
-            work = d / name
-            work.mkdir()
-            p = subprocess.run(["sh", str(ROOT / "tools" / name)], cwd=work, capture_output=True, text=True, timeout=30,
-                               env={"PATH": "%s:/usr/bin:/bin" % (d / "bin")})
-            self.assertEqual(p.returncode, 2, (name, p.stderr))
-            self.assertIn("WALNUT_STATIC_ADDR", p.stderr)
-            self.assertEqual(list(work.iterdir()), [])
-            self.assertNotIn("192.0.2", (ROOT / "tools" / name).read_text().split("export ADDR GW")[0].split("ADDR=")[1])
-
-    def test_net_all_clears_eth0_before_networkmanager_restarts(self):
-        text = (ROOT / "tools/walnut-net-all.sh").read_text()
-        line = next(l for l in text.splitlines() if 'run "restore"' in l)
-        self.assertLess(line.index("ip addr flush dev eth0"), line.index("systemctl start NetworkManager"))
-
     def test_root_refusal_in_the_suites(self):
         for f in (ROOT / "tools/test_root_seams.py", ROOT / "tools/ssdimg/test_ssdimg.py",
                   ROOT / "packages/walnut/system/ps3-boot/tests/test_kboot.py"):

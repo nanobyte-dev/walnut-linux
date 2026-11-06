@@ -595,8 +595,7 @@ matrix.py leave out. Written by `bench/analysis/matrix.py` (a batch's runs, from
 `tools/gamedb/check.py` (validates: closed keys, every result's batch exists, metric names known),
 `tools/gamedb/score.py` (the summary batch `suite-summary-2026-10`: the rules-1 calibration) and
 `tools/gamedb/blocks.py` (docs/GAMEDB.md's calibration table, README.md's suite table).
-`tools/gamedb/bench-import.py` made them from the old CSV matrices (the files under bench/ until
-2026-10-26, removed after its `--verify`).
+They were made from the old CSV matrices (the files under bench/ until 2026-10-26; the import script is in git history).
 
 ### research/<slug>.md
 
@@ -632,7 +631,5 @@ and platform research (EMULATORS, CLASSIC-MACOS, DARLING-PPC) stay in docs/resea
 fixtures, and every gamedb file against its schema), `tools/licensed.py check`, `github-ci/gen-workflows.py --check`,
 `tools/gamedb/blocks.py --check`, `tools/doclinks.py` (report only) and `tools/gamedb/game-mentions.py`
 (a warning: the sections of docs/ and README.md that name a game without a link into its bundle;
-`--list` shows them, `--fix` links each one's first mention of the title). During the
-migration, `tools/gamedb/baseline-check.py check` compares a phase's result with the baseline saved
-before it started (build/tmp/gamedb-baseline/), and `tools/gamedb/catalog.py --diff OLD` lists every
+`--list` shows them, `--fix` links each one's first mention of the title). `tools/gamedb/catalog.py --diff OLD` lists every
 field of the catalog that changed against an older catalog.json (games and tests matched by id).
