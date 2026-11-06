@@ -1,0 +1,117 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Sat, 7 Nov 2026 12:00:00 +0200
+Subject: ps3fb: remember that the RSX driver gave the GPU up not idle
+
+ps3fb keeps the lv1 GPU context across loads of the RSX driver (ps3rsx).
+When ps3rsx unloads with a job still running or the GPU stalled, it keeps
+the GPU from ps3fb ("keeping it from ps3fb until reboot"): PGRAPH may run
+on. A module loaded afterwards would run FIFO_SETUP on that context under
+the old job, a hardware state nobody has tested (round 3 review, R4).
+
+The state has to outlive the module, so it lives in ps3fb next to
+gpu_recovered:
+
+- ps3fb_gpu_release_busy(): ps3rsx calls it when it gives the GPU up not
+  idle. Refused (-EPERM) unless someone
+  holds the GPU, and after ps3fb has shut down. Sticky, once; only a reboot clears it. No lv1 call.
+- ps3fb_gpu_released_busy(): tells a later ps3rsx, which refuses to load.
+- ps3fb_gpu_takeover() answers -EBUSY from then on, true or false, so a
+  driver that doesn't ask is stopped too, and ps3fb's FIFO is never
+  restored under the old job (as after a recovery).
+- ps3fb's shutdown leaves the contexts to lv1 when the flag is set, as it
+  does after a recovery, instead of freeing a context PGRAPH may still use.
+
+Nothing on a hot path changes: the flag is read and written under
+gpu_own_lock at load, unload and takeover only. ps3rsx looks the two
+calls up at run time (symbol_get), so a ps3rsx built for an older kernel
+without them still loads.
+
+Forwarded: no
+---
+diff --git a/arch/powerpc/include/asm/ps3gpu.h b/arch/powerpc/include/asm/ps3gpu.h
+--- a/arch/powerpc/include/asm/ps3gpu.h
++++ b/arch/powerpc/include/asm/ps3gpu.h
+@@ -116,4 +116,8 @@ int ps3fb_gpu_ctx_leak(const struct ps3fb_gpu_hook *hook);
+ int ps3fb_gpu_ctx_realloc(const struct ps3fb_gpu_hook *hook, u64 handle, struct ps3fb_gpu_ctx *ctx);
+ bool ps3fb_gpu_recovered(void);
+ 
++/* The RSX driver gave the GPU up not idle: no new owner until reboot (see ps3fb.c) */
++int ps3fb_gpu_release_busy(void);
++bool ps3fb_gpu_released_busy(void);
++
+ #endif /* _ASM_POWERPC_PS3GPU_H */
+diff --git a/drivers/video/fbdev/ps3fb.c b/drivers/video/fbdev/ps3fb.c
+--- a/drivers/video/fbdev/ps3fb.c
++++ b/drivers/video/fbdev/ps3fb.c
+@@ -227,6 +227,7 @@ static u64 gpu_ctx_iomap[256];		/* lpar mapped at each 1 MiB IO page of gpu_ctx,
+  * after a recovery shut the console down (2026-11-01), and lv1 cleans up the LPAR at reboot.
+  */
+ static bool gpu_recovered;	/* under gpu_own_lock: a recovery began (once per boot) */
++static bool gpu_released_busy;	/* under gpu_own_lock: ps3rsx gave the GPU up not idle; sticky until reboot */
+ static bool gpu_ctx_leaked;	/* under both locks: the driver context was leaked */
+ static u64 gpu_ctx_leaked_handle;	/* under gpu_own_lock: never freed, never reallocated */
+ static unsigned int gpu_ctx_reallocs;	/* under gpu_own_lock: at most one per boot */
+@@ -2599,6 +2600,10 @@ int ps3fb_gpu_takeover(bool own)
+ 		ret = -EBUSY;		/* after a recovery ps3fb's channel 0 is never run again */
+ 		goto out;
+ 	}
++	if (gpu_released_busy) {
++		ret = -EBUSY;		/* the last owner left a job or a stall behind: no new FIFO setup, no handback */
++		goto out;
++	}
+ 	if (own == gpu_owned)
+ 		goto out;
+ 	if (own && gpu_direct && ps3gpu_direct_owner_gone())
+@@ -2792,6 +2797,42 @@ bool ps3fb_gpu_recovered(void)
+ }
+ EXPORT_SYMBOL_GPL(ps3fb_gpu_recovered);
+ 
++/*
++ * ps3rsx gave the GPU up without having it idle (its drain timed out, or the GPU was wedged) and
++ * keeps it from ps3fb: the old job may still run in PGRAPH. A module loaded later must not run
++ * FIFO_SETUP on this context under it, and the flag has to outlive the module, so it lives here,
++ * next to gpu_recovered. Pure software state, no lv1 call. Sticky: only a reboot clears it. The
++ * call is refused (-EPERM) unless someone holds the GPU (gpu_owned); there is no check of who
++ * calls, as the hook is already cleared by then. Any GPL module could set the flag, and all it
++ * does is make ps3fb_gpu_takeover() refuse, so it is no way to get at the GPU.
++ */
++int ps3fb_gpu_release_busy(void)
++{
++	int ret = 0;
++
++	mutex_lock(&gpu_own_lock);
++	if (shadow.dead || !gpu_owned) {
++		ret = -EPERM;
++	} else if (!gpu_released_busy) {
++		gpu_released_busy = true;
++		pr_warn("%s: the GPU was released not idle: no new owner until reboot\n", __func__);
++	}
++	mutex_unlock(&gpu_own_lock);
++	return ret;
++}
++EXPORT_SYMBOL_GPL(ps3fb_gpu_release_busy);
++
++bool ps3fb_gpu_released_busy(void)
++{
++	bool r;
++
++	mutex_lock(&gpu_own_lock);
++	r = gpu_released_busy;
++	mutex_unlock(&gpu_own_lock);
++	return r;
++}
++EXPORT_SYMBOL_GPL(ps3fb_gpu_released_busy);
++
+ static void ps3fb_gpu_vma_open(struct vm_area_struct *vma) {}
+ static void ps3fb_gpu_vma_close(struct vm_area_struct *vma) {}
+ 
+@@ -3152,7 +3193,7 @@ static void ps3fb_shutdown(struct ps3_system_bus_device *dev)
+ 	mutex_unlock(&shadow_lock);
+ 	mutex_lock(&gpu_own_lock);
+ 	shadow.dead = true;
+-	recovered = gpu_recovered;
++	recovered = gpu_recovered || gpu_released_busy;
+ 	put_pid(gpu_direct_owner);	/* a direct session just stops: the context goes */
+ 	gpu_direct_owner = NULL;
+ 	mutex_unlock(&gpu_own_lock);

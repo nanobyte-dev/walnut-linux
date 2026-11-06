@@ -111,3 +111,4 @@ local/0053-ps3fb-validate-setmode.patch
 local/0054-ps3fb-fullscreen-default.patch
 local/0055-ps3fb-restrict-gpu-ioctls.patch
 local/0056-ps3fb-gpu-recovery.patch
+local/0057-ps3fb-gpu-released-busy.patch
