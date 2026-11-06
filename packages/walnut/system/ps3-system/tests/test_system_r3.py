@@ -3,7 +3,7 @@
 ds3-pair writes BlueZ's storage and asks for a bluetooth restart only when the pairing changed;
 ps3-vswap.service is ordered after what it needs; DRIVER.md says who can hold the escape hatch.
   python3 -I packages/walnut/system/ps3-system/tests/test_system_r3.py"""
-import importlib.machinery, importlib.util, shutil, tempfile, unittest
+import importlib.machinery, importlib.util, re, shutil, subprocess, tempfile, unittest
 from pathlib import Path
 
 PKG = Path(__file__).resolve().parent.parent
@@ -83,6 +83,47 @@ class Docs(unittest.TestCase):
         text = (ROOT / "docs/DRIVER.md").read_text()
         line = [l for l in text.splitlines() if l.startswith("- **The escape hatch:**")][0]
         self.assertIn("`input` group", line)
+
+
+class SudoersPostinst(unittest.TestCase):
+    """The three postinsts that drop their own sudoers file when it does not parse."""
+    PKGS = {"ps3-desktop": "packages/walnut/system/ps3-desktop", "walnut-rate": "packages/walnut/apps/walnut-rate",
+            "walnut-games": "packages/walnut/apps/walnut-games"}
+
+    def block(self, name):
+        text = (ROOT / self.PKGS[name] / "debian/postinst").read_text()
+        m = re.search(r"\t# The sudoers drop-in.*?\n\tfi\n", text, re.S)
+        self.assertTrue(m, name)
+        return m.group(0)
+
+    def run_block(self, name, visudo_rc):
+        t = Path(tempfile.mkdtemp(prefix="sudoers-"))
+        self.addCleanup(shutil.rmtree, t, True)
+        (t / "d").mkdir()
+        (t / "d" / name).write_text("x\n")
+        (t / "d" / "other").write_text("y\n")
+        b = t / "bin"
+        b.mkdir()
+        (b / "rm").symlink_to(shutil.which("rm"))
+        if visudo_rc is not None:
+            (b / "visudo").write_text("#!/bin/sh\nexit %d\n" % visudo_rc)
+            (b / "visudo").chmod(0o755)
+        script = self.block(name).replace("/etc/sudoers.d", str(t / "d"))
+        subprocess.run(["/bin/sh", "-c", script], env={"PATH": "%s:/usr/bin:/bin" % b if visudo_rc is not None else str(b)},
+                       capture_output=True, text=True)
+        return sorted(x.name for x in (t / "d").iterdir())
+
+    def test_a_file_that_parses_stays(self):
+        for n in self.PKGS:
+            self.assertEqual(self.run_block(n, 0), sorted([n, "other"]), n)
+
+    def test_a_file_that_does_not_parse_goes_alone(self):
+        for n in self.PKGS:
+            self.assertEqual(self.run_block(n, 1), ["other"], n)
+
+    def test_no_visudo_leaves_the_file(self):
+        for n in self.PKGS:
+            self.assertEqual(self.run_block(n, None), sorted([n, "other"]), n)
 
 
 if __name__ == "__main__":
