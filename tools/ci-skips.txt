@@ -35,3 +35,5 @@ bench-selftest:intfwatch-login-processes   the detector counts commands in login
 # Git LFS objects are not fetched in this job
 walnut-rate:unittest    skips the tests that need a gamedb session's LFS objects
 gamedb:unittest         skips a test that needs LFS objects
+commit-tests:unittest   the LAN-identifier check needs the private, untracked tools/commit-warn.local.txt
+root-seams:unittest     faking root needs unshare -r, which Ubuntu 24.04's AppArmor refuses for unprivileged users (the suites refuse real root)
