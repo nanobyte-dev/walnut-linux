@@ -61,6 +61,7 @@ import json
 import mmap
 import os
 import re
+import stat
 import struct
 import subprocess
 import sys
@@ -84,15 +85,32 @@ UFS2_SBLOCK = 65536
 UFS2_MAGIC = 0x19540119
 CHUNK = 4 << 20                  # verify's read size
 
-# test seams (never set on the PS3): the device, the whole-disk device, state dir, mountinfo, commands
-DEVICE = os.environ.get("PS3_IMGMAP_TEST_DEVICE") or "/dev/ps3db"
-WHOLE = os.environ.get("PS3_IMGMAP_TEST_WHOLE") or "/dev/ps3da"
-STATE = os.environ.get("PS3_IMGMAP_STATE") or "/var/lib/ps3-imgmap"
-MOUNTINFO = os.environ.get("PS3_IMGMAP_MOUNTINFO") or "/proc/self/mountinfo"
-DMSETUP = (os.environ.get("PS3_IMGMAP_DMSETUP") or "dmsetup").split()
-BLOCKDEV = (os.environ.get("PS3_IMGMAP_BLOCKDEV") or "blockdev").split()
-SYSBLOCK = os.environ.get("PS3_IMGMAP_SYSBLOCK") or "/sys/class/block"
-BOOT_ID = os.environ.get("PS3_IMGMAP_BOOT_ID_FILE") or "/proc/sys/kernel/random/boot_id"
+# test seams (never set on the PS3): the device, the whole-disk device, state dir, mountinfo, commands.
+# Honoured only for a caller that is not root, or while a root-owned /run/ps3-test-seams exists (the VM
+# tests make it); a root process otherwise reads none of them, so nothing in its environment can
+# repoint it at another device, state directory or command.
+def _seams_ok():
+    if os.geteuid() != 0:
+        return True
+    try:
+        st = os.lstat("/run/ps3-test-seams")
+    except OSError:
+        return False
+    return stat.S_ISREG(st.st_mode) and st.st_uid == 0 and not st.st_mode & 0o022
+
+
+def _seam(name):
+    return (os.environ.get(name) or "") if _seams_ok() else ""
+
+
+DEVICE = _seam("PS3_IMGMAP_TEST_DEVICE") or "/dev/ps3db"
+WHOLE = _seam("PS3_IMGMAP_TEST_WHOLE") or "/dev/ps3da"
+STATE = _seam("PS3_IMGMAP_STATE") or "/var/lib/ps3-imgmap"
+MOUNTINFO = _seam("PS3_IMGMAP_MOUNTINFO") or "/proc/self/mountinfo"
+DMSETUP = (_seam("PS3_IMGMAP_DMSETUP") or "dmsetup").split()
+BLOCKDEV = (_seam("PS3_IMGMAP_BLOCKDEV") or "blockdev").split()
+SYSBLOCK = _seam("PS3_IMGMAP_SYSBLOCK") or "/sys/class/block"
+BOOT_ID = _seam("PS3_IMGMAP_BOOT_ID_FILE") or "/proc/sys/kernel/random/boot_id"
 # the kernel's write guard (local/0045): /sys/class/block/ps3db/write_guard is /sys/block/ps3db/write_guard
 GUARD = os.path.join(SYSBLOCK, "ps3db", "write_guard")
 GUARD_CHUNK = 4096               # sysfs takes at most a page per write(2); the smallest page
@@ -743,7 +761,7 @@ def cmd_create(a):
 def cmd_remove(a):
     rc = 0
     for n in (a.name + "-swap", a.name):
-        if os.path.exists("/dev/mapper/" + n) or os.environ.get("PS3_IMGMAP_DMSETUP"):
+        if os.path.exists("/dev/mapper/" + n) or _seam("PS3_IMGMAP_DMSETUP"):
             try:
                 run(DMSETUP + ["remove", n])
                 say("removed /dev/mapper/%s" % n)

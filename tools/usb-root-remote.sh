@@ -116,7 +116,12 @@ finish)
 		grep -q "^PS3_ROOT_ARGS=.*root=PARTUUID=$ID-02" "$MNT/etc/default/ps3-boot" ||
 			fail "couldn't set the root in $MNT/etc/default/ps3-boot"
 		if [ -x "$MNT/usr/sbin/ps3-update-kboot" ]; then
-			PS3_BOOT_ROOT="$MNT" sh "$MNT/usr/sbin/ps3-update-kboot"
+			# a root process reads PS3_BOOT_ROOT only while this root-owned marker exists
+			touch /run/ps3-test-seams
+			rc=0
+			PS3_BOOT_ROOT="$MNT" sh "$MNT/usr/sbin/ps3-update-kboot" || rc=$?
+			rm -f /run/ps3-test-seams
+			[ $rc = 0 ] || exit $rc
 		fi
 	fi
 	# The machine's own state: SSH host keys, Bluetooth pairings, Wi-Fi connections. From the

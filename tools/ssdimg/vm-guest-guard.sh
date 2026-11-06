@@ -18,6 +18,7 @@ ROOT=$(arg e2e_root); W=$(arg e2e_work); PART=$(arg e2e_part)
 T=$ROOT/tools/ssdimg
 OUT=/tmp/out
 export PATH=/usr/sbin:/usr/bin:/sbin:/bin
+: > /run/ps3-test-seams	# root-owned: ps3-imgmap then reads its PS3_IMGMAP_* test seams
 export PS3_IMGMAP_STATE=/tmp/state DM_DISABLE_UDEV=1 PYTHONDONTWRITEBYTECODE=1
 export PS3_IMGMAP_DMSETUP="dmsetup --noudevsync"
 fails=0

@@ -7,6 +7,7 @@ arg() { sed -n "s/.*$1=\([^ ]*\).*/\1/p" /proc/cmdline; }
 ROOT=$(arg e2e_root); W=$(arg e2e_work); FSIZE=$(arg e2e_fsize); BSIZE=$(arg e2e_bsize)
 T=$ROOT/tools/ssdimg
 export PATH=/usr/sbin:/usr/bin:/sbin:/bin
+: > /run/ps3-test-seams	# root-owned: ps3-imgmap then reads its PS3_IMGMAP_* test seams
 export PS3_IMGMAP_TEST_DEVICE=/dev/vda PS3_IMGMAP_TEST_WHOLE=/dev/vdb PS3_IMGMAP_STATE=/tmp/state
 export PS3_IMGMAP_DMSETUP="dmsetup --noudevsync" DM_DISABLE_UDEV=1 PYTHONDONTWRITEBYTECODE=1
 fails=0

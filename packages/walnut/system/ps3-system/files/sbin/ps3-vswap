@@ -7,6 +7,13 @@
 # docs/GAMEOS-HDD.md "Test drive, Phase A"). Without dmsetup or dm-mod, or if the device fails,
 # the partition as before. PS3_VSWAP_ROOT: a prefix for /etc, /sys and /proc, PS3_VSWAP_BIN: a directory
 # searched before the fixed PATH (host tests only; only root sets either).
+# Test seams (PS3_VSWAP_ROOT PS3_VSWAP_BIN) are honoured only for a caller that is not root, or while a root-owned
+# /run/ps3-test-seams exists (made by a root caller that means it: an offline install into a mounted
+# target, the VM tests); a root process otherwise ignores them, so nothing in its environment can
+# repoint it.
+if [ "$(id -u)" = 0 ] && ! { [ -f /run/ps3-test-seams ] && [ ! -L /run/ps3-test-seams ] && [ -O /run/ps3-test-seams ]; }; then
+	unset PS3_VSWAP_ROOT PS3_VSWAP_BIN
+fi
 PATH=${PS3_VSWAP_BIN:+$PS3_VSWAP_BIN:}/usr/sbin:/usr/bin:/sbin:/bin
 R=${PS3_VSWAP_ROOT:-}
 dev=$(awk '$3 == "swap" && $1 !~ "zram" { print $1; exit }' $R/etc/fstab)

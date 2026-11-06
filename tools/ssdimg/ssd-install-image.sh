@@ -319,7 +319,12 @@ boot_entry() {
 # initramfs from this USB disk, root from dev_hdd0:$IMAGE through the initramfs's dm devices.
 ssd-$REL='/boot/vmlinux-$REL initrd=$dst root=/dev/mapper/ps3root rootfstype=ext4 ro ps3ssd.image=$IMAGE ${PS3_EXTRA_ARGS:-} $args'
 EOF
-	do_ env PS3_BOOT_ROOT="$R" sh "$UPDATE_KBOOT"
+	# a root process reads PS3_BOOT_ROOT only while this root-owned marker exists
+	do_ touch /run/ps3-test-seams
+	rc=0
+	do_ env PS3_BOOT_ROOT="$R" sh "$UPDATE_KBOOT" || rc=$?
+	do_ rm -f /run/ps3-test-seams
+	[ $rc = 0 ] || exit $rc
 	[ $DRY = 1 ] || { say "/etc/kboot.conf:"; sed 's/^/    /' $R/etc/kboot.conf; }
 	[ $DRY = 1 ] || grep -q "^ssd-$REL=" $R/etc/kboot.conf || die "ps3-update-kboot left the entry out (see above)"
 	say "in Petitboot: the entry ssd-$REL (the USB entries are unchanged)"

@@ -13,6 +13,7 @@ ROOT=$(arg e2e_root); W=$(arg e2e_work)
 T=$ROOT/tools/ssdimg
 OUT=/tmp/out
 export PATH=/usr/sbin:/usr/bin:/sbin:/bin
+: > /run/ps3-test-seams	# root-owned: ps3-imgmap then reads its PS3_IMGMAP_* test seams
 export PS3_IMGMAP_STATE=/tmp/state PS3_IMGMAP_SYSBLOCK=/tmp/sysb
 export PS3_IMGMAP_DMSETUP="dmsetup --noudevsync" DM_DISABLE_UDEV=1 PYTHONDONTWRITEBYTECODE=1
 export PS3SSD_TEST_ROOT=$OUT/usbroot PS3SSD_STATE=/tmp/state PS3SSD_UPDATE_KBOOT=$ROOT/ps3-boot/ps3-update-kboot
