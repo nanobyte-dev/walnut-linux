@@ -453,9 +453,9 @@ sudo 1.9.17, with and without a terminal), so the sudoers rule stays one line.
 
 A licensed source package lives in its game's bundle, `gamedb/games/<id>/licensed/<pkg>/` (licensed by its place: text only, never public); its `debian/control` gives the binary its `XB-X-Walnut-Edition` and `XB-X-Walnut-Release`, the same as build.toml (`check.py`). Its tarball is made by its `orig.mk` or the builder script there (the upstream archive downloaded once and checked, the listed files with a fixed owner and mtime, `gzip -n`), so the same files give the same deb for a given commit; `make <pkg>-src` and `make <pkg>-deb` (indep builder) build it. A builder script without a `package.conf` (`builder = "script"`) makes the deb itself from the owner's own copy. As with game-data-packager's output, once a version is published, never build it again under that version: take the published file.
 
-## Migration from the old image scripts
+## The old image scripts
 
-`ps3-system` and `ps3-desktop` took over the files `system/image/customize.sh` and `image/desktop-setup.sh` used to write. Their preinsts archive each legacy file that no package owns to `/var/backups/ps3-legacy-{system,desktop}-<date>.tar` and remove it (and its enable links). `ps3-migrate-home` deletes home-directory copies identical to the packaged defaults and moves the rest to `~/.local/share/ps3-legacy/`. Done on the PS3 on 2026-10-16.
+`ps3-system` and `ps3-desktop` took over the files `system/image/customize.sh` and `image/desktop-setup.sh` used to write. Their preinsts once archived each legacy file that no package owned; that migration is removed, since every install starts from the 0.1.0 image or later. `ps3-migrate-home` still deletes home-directory copies identical to the packaged defaults and moves the rest to `~/.local/share/ps3-legacy/`.
 
 ## History
 

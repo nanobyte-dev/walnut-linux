@@ -1,56 +1,9 @@
 #!/bin/sh
-# Takes over from the files the image's desktop setup wrote (before ps3-desktop existed): each one
-# that no package owns is archived to /var/backups/ps3-legacy-desktop-<date>.tar and removed;
-# dpkg then installs the packaged versions. Diversions: gvfs's iPhone and online-accounts volume
-# monitors (moved aside, ~1.3 MB each per session for nothing on a PS3). The games' own menu entries this
+# Diversions: gvfs's iPhone and online-accounts volume monitors (moved aside, ~1.3 MB each per session for nothing on a PS3).
+# The games' own menu entries this
 # package diverted before 0.893 are ps3-games-integration's now (its preinst takes them over; postinst
 # gives back any it hasn't taken yet).
 set -e
-LEGACY="
-/etc/systemd/system/getty@tty1.service.d/autologin.conf
-/usr/local/bin/ps3-session
-/usr/local/bin/ps3-game
-/usr/local/bin/ps3-power
-/usr/local/sbin/ps3-game-mode
-/etc/systemd/user/ps3-display.slice
-/etc/systemd/user/ps3-desktop.slice
-/etc/systemd/user/ps3-game.slice
-/etc/systemd/system/user-.slice.d/50-ps3-game-mode.conf
-/etc/systemd/system/user@.service.d/50-ps3-game-mode.conf
-/etc/systemd/user/gvfs-daemon.service.d/50-ps3-desktop.conf
-/etc/systemd/user/gvfs-metadata.service.d/50-ps3-desktop.conf
-/etc/systemd/user/gvfs-udisks2-volume-monitor.service.d/50-ps3-desktop.conf
-/etc/systemd/user/gvfs-mtp-volume-monitor.service.d/50-ps3-desktop.conf
-/etc/systemd/user/gvfs-gphoto2-volume-monitor.service.d/50-ps3-desktop.conf
-/etc/systemd/user/gvfs-afc-volume-monitor.service.d/50-ps3-desktop.conf
-/etc/systemd/user/gvfs-goa-volume-monitor.service.d/50-ps3-desktop.conf
-/etc/sudoers.d/ps3-game-mode
-/etc/xdg/pcmanfm/default/desktop-items-0.conf
-/usr/share/applications/ps3-poweroff.desktop
-/usr/share/applications/ps3-reboot.desktop
-/etc/X11/xorg.conf.d/20-ps3rsx.conf
-/etc/X11/xorg.conf.d/40-joystick-pointer.conf
-"
-migrate() {
-	# the autologin user of the old drop-in becomes /etc/default/ps3-desktop's (the generator's)
-	a=/etc/systemd/system/getty@tty1.service.d/autologin.conf
-	if [ -e "$a" ] && [ ! -e /etc/default/ps3-desktop ]; then
-		u=$(sed -n 's/.*--autologin \([^ ]*\).*/\1/p' "$a" | head -1)
-		[ -z "$u" ] || printf '%s\n' '# The user that gets the desktop on tty1 (ps3-desktop; empty: a normal login prompt)' \
-			"PS3_DESKTOP_USER=$u" > /etc/default/ps3-desktop
-	fi
-	found=
-	for f in $LEGACY; do
-		[ -e "$f" ] || [ -L "$f" ] || continue
-		dpkg-query -S "$f" >/dev/null 2>&1 && continue
-		found="$found ${f#/}"
-	done
-	[ -n "$found" ] || return 0
-	mkdir -p /var/backups
-	tar -C / -cf "/var/backups/ps3-legacy-desktop-$(date +%Y%m%d%H%M%S).tar" $found
-	for f in $found; do rm -f "/$f"; done
-	echo "ps3-desktop: legacy files archived in /var/backups and removed:$found" | fold -s -w 100
-}
 divert() {	# <file> <diverted name>: the file moves to the diverted name (a package installing it later lands there)
 	f=$1 t=$2
 	mkdir -p "$(dirname "$t")"
@@ -71,8 +24,6 @@ divert() {	# <file> <diverted name>: the file moves to the diverted name (a pack
 }
 case "$1" in
 install|upgrade)
-	# the legacy files only on the first install (on an upgrade they are this package's own)
-	if [ "$1" = install ] && [ -z "${2:-}" ]; then migrate; fi
 	for m in afc goa; do
 		divert /usr/share/gvfs/remote-volume-monitors/$m.monitor /usr/share/gvfs/remote-volume-monitors/$m.monitor.disabled
 	done
