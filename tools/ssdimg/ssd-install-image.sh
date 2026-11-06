@@ -179,6 +179,7 @@ write() {	# write FILE: stdin into FILE (printed with --dry-run)
 
 MOUNTED=0
 cleanup() {	# on any failure after the mount: the new root unmounted again (synced), never left mounted
+	[ "${SEAMS_MARK:-0}" = 1 ] && rm -f /run/ps3-test-seams
 	if [ $MOUNTED = 1 ] && findmnt -M "$MNT" >/dev/null 2>&1; then
 		sync; umount "$MNT" && echo "!! ssd-install-image: stopped; $DEV unmounted again" >&2
 	fi
@@ -319,11 +320,15 @@ boot_entry() {
 # initramfs from this USB disk, root from dev_hdd0:$IMAGE through the initramfs's dm devices.
 ssd-$REL='/boot/vmlinux-$REL initrd=$dst root=/dev/mapper/ps3root rootfstype=ext4 ro ps3ssd.image=$IMAGE ${PS3_EXTRA_ARGS:-} $args'
 EOF
-	# a root process reads PS3_BOOT_ROOT only while this root-owned marker exists
-	do_ touch /run/ps3-test-seams
+	# a root process reads PS3_BOOT_ROOT only while this root-owned marker exists: made only for an offline
+	# root ($R, the tests), never on the PS3 itself, and removed by cleanup (the EXIT trap) however this ends
+	if [ -n "$R" ]; then
+		do_ touch /run/ps3-test-seams
+		SEAMS_MARK=1
+	fi
 	rc=0
 	do_ env PS3_BOOT_ROOT="$R" sh "$UPDATE_KBOOT" || rc=$?
-	do_ rm -f /run/ps3-test-seams
+	[ -z "$R" ] || { do_ rm -f /run/ps3-test-seams; SEAMS_MARK=0; }
 	[ $rc = 0 ] || exit $rc
 	[ $DRY = 1 ] || { say "/etc/kboot.conf:"; sed 's/^/    /' $R/etc/kboot.conf; }
 	[ $DRY = 1 ] || grep -q "^ssd-$REL=" $R/etc/kboot.conf || die "ps3-update-kboot left the entry out (see above)"

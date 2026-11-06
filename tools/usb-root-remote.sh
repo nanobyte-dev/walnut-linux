@@ -117,10 +117,14 @@ finish)
 			fail "couldn't set the root in $MNT/etc/default/ps3-boot"
 		if [ -x "$MNT/usr/sbin/ps3-update-kboot" ]; then
 			# a root process reads PS3_BOOT_ROOT only while this root-owned marker exists
+			# (removed again by the traps if this shell is killed in between: this runs on the PS3)
+			trap 'rm -f /run/ps3-test-seams' EXIT
+			trap 'rm -f /run/ps3-test-seams; exit 1' HUP INT TERM
 			touch /run/ps3-test-seams
 			rc=0
 			PS3_BOOT_ROOT="$MNT" sh "$MNT/usr/sbin/ps3-update-kboot" || rc=$?
 			rm -f /run/ps3-test-seams
+			trap - EXIT HUP INT TERM
 			[ $rc = 0 ] || exit $rc
 		fi
 	fi

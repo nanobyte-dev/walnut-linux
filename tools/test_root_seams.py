@@ -120,6 +120,19 @@ class Lint(unittest.TestCase):
         first = next(i for i, l in enumerate(lines) if "id -u" in l)
         self.assertLess(path, first)
 
+    def test_marker_makers_remove_it_on_every_exit(self):
+        """both scripts run on the PS3 as root: the marker is made only around the call and a killed shell removes it"""
+        usb = (ROOT / "tools/usb-root-remote.sh").read_text()
+        i = usb.index("touch /run/ps3-test-seams")
+        before = usb[:i]
+        self.assertIn("trap 'rm -f /run/ps3-test-seams' EXIT", before)
+        self.assertIn("HUP INT TERM", before.split("trap 'rm -f /run/ps3-test-seams' EXIT")[1])
+        ssd = (ROOT / "tools/ssdimg/ssd-install-image.sh").read_text()
+        j = ssd.index("touch /run/ps3-test-seams")
+        self.assertIn('if [ -n "$R" ]; then', ssd[j - 80:j])          # never made on the PS3 itself
+        cleanup = ssd[ssd.index("cleanup() {"):ssd.index("trap cleanup EXIT")]
+        self.assertIn("rm -f /run/ps3-test-seams", cleanup)
+
     def test_root_refusal_in_the_suites(self):
         for f in (ROOT / "tools/test_root_seams.py", ROOT / "tools/ssdimg/test_ssdimg.py",
                   ROOT / "packages/walnut/system/ps3-boot/tests/test_kboot.py"):
