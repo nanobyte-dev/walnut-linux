@@ -1,6 +1,7 @@
 [Unit]
 Description=Walnut: publish uploaded bundles (walnut.nanobyte.dev)
 After=docker.service
+RequiresMountsFor=/data/nanobyte/Walnut/incoming
 StartLimitIntervalSec=0
 [Service]
 Type=oneshot
@@ -17,7 +18,9 @@ ReadWritePaths=/data/nanobyte/Walnut
 # service never writes them, whatever a bundle makes it do
 ReadOnlyPaths=-/data/nanobyte/Walnut/rules -/data/nanobyte/Walnut/keys
 # incoming/ is its own size-limited file system (docs/WALNUT-SERVER.md): never start on the empty directory under it
-RequiresMountsFor=/data/nanobyte/Walnut/incoming
+# (RequiresMountsFor= is a [Unit] setting; systemd ignores it in [Service]). Only this unit and walnut-upload
+# depend on the mount: a failed mount (fstab nofail) stops these two, never docker or the main proxy
+ExecStartPre=/usr/bin/mountpoint -q /data/nanobyte/Walnut/incoming
 # CPU time and peak memory per run are in the journal line systemd writes when it ends (the before/after readings)
 # a runaway run is stopped by the kernel, not by the machine running out (indices are capped at 256 MiB each)
 MemoryMax=2G

@@ -78,7 +78,8 @@ services:
     user: "1000:1000"
     mem_limit: 64m
     pids_limit: 64
-    restart: unless-stopped
+    # started by walnut-upload.service (systemd/), which refuses to start when incoming/ is not a mount point
+    restart: "no"
     read_only: true
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]

@@ -1080,7 +1080,6 @@ class Conf(unittest.TestCase):
 	def test_the_unit(self):
 		u = slurp(f"{self.here}/systemd/walnut-watch.service")
 		self.assertRegex(u, r"(?m)^ReadOnlyPaths=.*Walnut/rules")
-		self.assertIn("RequiresMountsFor=/data/nanobyte/Walnut/incoming", u)
 		self.assertIn("MemoryAccounting=yes", u)
 		self.assertRegex(u, r"(?m)^MemoryMax=[0-9]+[GM]$")
 		p = slurp(f"{self.here}/systemd/walnut-watch.path")
@@ -1089,6 +1088,39 @@ class Conf(unittest.TestCase):
 		for d in wc.POLICY:
 			for k in wc.POLICY[d]:
 				self.assertIn(f"incoming/{d}/{k}\n", p)
+
+	def unit_sections(self, name):
+		"""{section: [lines]} of a unit file"""
+		out, cur = {}, None
+		for line in slurp(f"{self.here}/systemd/{name}").splitlines():
+			if line.startswith("[") and line.endswith("]"):
+				cur = line
+				out[cur] = []
+			elif cur and line.strip() and not line.startswith("#"):
+				out[cur].append(line)
+		return out
+
+	def test_incoming_mount_units(self):
+		"""RequiresMountsFor= is a [Unit] setting (systemd ignores it in [Service]); only walnut-watch and
+		walnut-upload depend on the incoming/ mount, each also checks mountpoint before it starts, and nothing
+		makes docker.service or the main proxy depend on it"""
+		mount = "/data/nanobyte/Walnut/incoming"
+		for name in ("walnut-watch.service", "walnut-upload.service"):
+			sec = self.unit_sections(name)
+			self.assertIn("RequiresMountsFor=" + mount, sec["[Unit]"], name)
+			self.assertNotIn("RequiresMountsFor=" + mount, sec["[Service]"], name)
+			self.assertIn("ExecStartPre=/usr/bin/mountpoint -q " + mount, sec["[Service]"], name)
+		up = self.unit_sections("walnut-upload.service")
+		self.assertIn("ExecStart=/usr/bin/docker start -a walnut-upload", up["[Service]"])
+		self.assertIn("Requires=docker.service", up["[Unit]"])
+		self.assertIn("WantedBy=multi-user.target", up["[Install]"])
+		# nothing in the repository makes docker.service require the mount
+		for f in os.listdir(f"{self.here}/systemd"):
+			self.assertNotIn("docker.service.d", f)
+		c = slurp(f"{self.here}/docker-compose.yml")
+		block = c[c.index("  walnut-upload:"):]
+		self.assertIn('restart: "no"', block.split("\nnetworks:")[0])
+		self.assertIn("systemd/walnut-upload.service", slurp(f"{self.here}/deploy.sh"))
 
 	def test_deploy_sh_order(self):
 		d = slurp(f"{self.here}/deploy.sh")

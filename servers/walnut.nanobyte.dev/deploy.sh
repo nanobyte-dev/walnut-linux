@@ -128,11 +128,11 @@ ssh "$host" "cd $DIR
 ssh "$host" "cd $DIR && docker compose build -q walnut-upload walnut-aptcache && docker compose up -d walnut-repo walnut-upload walnut-aptcache walnut-ccache && docker compose up -d --force-recreate walnut-repo walnut-ccache"
 
 # the watcher's units
-for u in systemd/walnut-watch.{service,path,timer} systemd/walnut-ccache-trim.{service,timer}; do
+for u in systemd/walnut-watch.{service,path,timer} systemd/walnut-upload.service systemd/walnut-ccache-trim.{service,timer}; do
 	rsync -t "$u" "$host:$DIR/state/"
 done
 ssh "$host" "set -e
-	for u in walnut-watch.service walnut-watch.path walnut-watch.timer walnut-ccache-trim.service walnut-ccache-trim.timer; do
+	for u in walnut-watch.service walnut-watch.path walnut-watch.timer walnut-upload.service walnut-ccache-trim.service walnut-ccache-trim.timer; do
 		cmp -s $DIR/state/\$u /etc/systemd/system/\$u || sudo -n install -m 644 $DIR/state/\$u /etc/systemd/system/\$u
 		rm $DIR/state/\$u
 	done
@@ -140,7 +140,10 @@ ssh "$host" "set -e
 	sudo -n systemctl reset-failed walnut-watch.path walnut-watch.service || true
 	sudo -n systemctl restart walnut-watch.path
 	sudo -n systemctl enable --now walnut-watch.path walnut-watch.timer walnut-ccache-trim.timer >/dev/null
-	systemctl is-active walnut-watch.path walnut-watch.timer walnut-ccache-trim.timer | xargs echo '>> watcher, trim:'"
+	systemctl is-active walnut-watch.path walnut-watch.timer walnut-ccache-trim.timer | xargs echo '>> watcher, trim:'
+	# walnut-upload.service is installed, not enabled here: the runbook's 2d (the incoming/ loop mount) enables it;
+	# the container has restart: no, so until then it does not come back by itself after a reboot
+	systemctl is-enabled -q walnut-upload.service || echo '!! walnut-upload.service is not enabled: the upload container will not restart by itself (docs: runbook 2d)'"
 # fail2ban's walnut-upload jail (bans in DOCKER-USER, like nginx-scanners)
 rsync -t fail2ban/walnut-upload.filter fail2ban/walnut-upload.jail fail2ban/walnut-401.filter fail2ban/walnut-401.jail "$host:$DIR/state/"
 ssh "$host" "set -e
