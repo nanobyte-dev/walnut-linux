@@ -72,7 +72,8 @@ paths=$(git log --all --name-only --format= | sort -u)
 # quake-data before 2026-10-26)
 lic_re=$(printf '%s\n' $licensed game-data quake-data | sed 's/[.+]/\\&/g' | paste -sd'|')
 hits=$(printf '%s\n' "$paths" | grep -Ei "^(backups|firmware)/|\\.(bin|img|pup|nor|nand)\$|(^|/)($lic_re)/.*\\.(pk3|ogz|cfg|dat|zip|ogg|wav|png|jpg)\$" || true)
-gdhits=$(printf '%s\n' "$paths" | python3 -I "$SRC/tools/game_data.py" || true)	# one list with the commit hook
+# one list with the commit hook; a crash of the check stops the export (no hits is not "it did not run")
+gdhits=$(printf '%s\n' "$paths" | python3 -I "$SRC/tools/game_data.py") || { echo "!! tools/game_data.py failed: the game data paths were not checked"; bad=1; gdhits=; }
 hits=$(printf '%s\n%s\n' "$hits" "$gdhits" | sed '/^$/d')
 [ -z "$hits" ] || { echo "!! private or licensed paths in the history:"; printf '   %s\n' $hits | head -40; bad=1; }
 lic=$({ printf '%s\n' "$paths" | grep -E '^(packages/licensed|gamedb/[^/]+/[^/]+/licensed)/'

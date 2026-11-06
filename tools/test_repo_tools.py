@@ -376,6 +376,28 @@ class PublicExport(unittest.TestCase):
             self.assertNotEqual(r.returncode, 0, r.stdout)
             self.assertIn("the NOR dump by content", r.stdout)
 
+    def test_a_crashed_game_data_check_stops_the_export(self):
+        if not shutil.which("git-filter-repo") and not os.path.exists(os.path.expanduser("~/.local/bin/git-filter-repo")):
+            self.skipTest("no git-filter-repo")
+        with tempfile.TemporaryDirectory() as tmp:
+            src, out = os.path.join(tmp, "src"), os.path.join(tmp, "out")
+            os.makedirs(os.path.join(src, "tools", "commit_tests", "checks"))
+            self.git(src, "init", "-q", "-b", "main")
+            for f in ("public-export.sh", "licensed.py", "licensed-files.txt", "public-scan.py", "nor_fingerprint.py", "public-scan-allow.txt"):
+                shutil.copy(HERE / f, os.path.join(src, "tools", f))
+            Path(src, "tools", "game_data.py").write_text("raise SystemExit(3)\n")
+            shutil.copy(HERE / "commit_tests" / "checks" / "private.py", os.path.join(src, "tools", "commit_tests", "checks", "private.py"))
+            Path(src, "tools", "public-strip-blobs.txt").write_text("")
+            Path(src, "tools", "public-replace.local.txt").write_text("literal:NOT-IN-THIS-REPO\n")
+            Path(src, "a.txt").write_text("a\n")
+            self.git(src, "add", "-A")
+            self.git(src, "commit", "-qm", "c")
+            env = dict(os.environ, PATH=os.path.expanduser("~/.local/bin") + ":" + os.environ["PATH"])
+            r = subprocess.run(["bash", os.path.join(src, "tools", "public-export.sh"), out], env=env, cwd=src,
+                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            self.assertNotEqual(r.returncode, 0, r.stdout)
+            self.assertIn("game_data.py failed", r.stdout)
+
     def test_game_data_names_refused_in_any_case(self):
         """the export's path check refuses game data formats by name, upper case too"""
         if not shutil.which("git-filter-repo") and not os.path.exists(os.path.expanduser("~/.local/bin/git-filter-repo")):
@@ -527,6 +549,22 @@ class PublicScan(unittest.TestCase):
         self.assertIn("FOUND y/z.gz: the NOR dump by content", out)
         self.assertIn("WARN data/blob.bin: looks like", out)
         self.assertNotIn("ok/other.dat", out)
+
+    def test_dump_in_backups_without_a_fingerprint_warns_loudly(self):
+        """a copy of the scanner in a temporary repository root whose backups/ holds a 1 MiB file, no fingerprint"""
+        root = Path(self.tmp.name, "root")
+        (root / "tools" / "commit_tests" / "checks").mkdir(parents=True)
+        (root / "backups").mkdir()
+        (root / "backups" / "d.bin").write_bytes(os.urandom(1 << 20))
+        for f in ("public-scan.py", "nor_fingerprint.py"):
+            shutil.copy(HERE / f, root / "tools" / f)
+        shutil.copy(HERE / "commit_tests" / "checks" / "private.py", root / "tools" / "commit_tests" / "checks" / "private.py")
+        self.commit({})
+        r = subprocess.run([sys.executable, "-I", str(root / "tools" / "public-scan.py"), self.repo, "--replace", self.repl,
+                            "--allow", self.allow, "--fingerprint", str(root / "none")], stdout=subprocess.PIPE,
+                           stderr=subprocess.PIPE, text=True)
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertIn("content guard is OFF", r.stderr)
 
     def test_other_findings_stay_warn_only(self):
         _, fp = self.fake_dump()

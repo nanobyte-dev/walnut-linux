@@ -93,7 +93,12 @@ def _loop(make_dec, data, budget):
     out = []
     while data and not budget.over:
         dec = make_dec()
-        chunk = dec.decompress(data, budget.left + 1)
+        try:
+            chunk = dec.decompress(data, budget.left + 1)
+        except (zlib.error, OSError, EOFError, lzma.LZMAError, ValueError):
+            if out:   # padding or garbage after a good member ends the stream; what was decoded stays checked
+                break
+            raise
         if len(chunk) > budget.left:
             chunk = chunk[:budget.left]
             budget.over = True
@@ -101,7 +106,7 @@ def _loop(make_dec, data, budget):
         out.append(chunk)
         if not dec.eof:
             break
-        data = dec.unused_data
+        data = dec.unused_data.lstrip(b"\0")   # xz stream padding, gzip zero fill
     return out
 
 
@@ -208,7 +213,7 @@ def check_blob(fps, data, name="", depth=DEPTH, budget=None, game_data=None):
         hits += h2
         notes += n2
     if budget.over:
-        notes.append("%s: more than %d MB decompressed, the rest not looked into" % (name or "the file", CAP >> 20))
+        notes.append("%s: the walk stopped after %d MB decompressed in all (members and levels together); the rest was not looked into" % (name or "the file", CAP >> 20))
     return hits, notes
 
 
