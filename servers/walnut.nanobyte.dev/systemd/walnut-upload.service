@@ -1,0 +1,24 @@
+[Unit]
+Description=Walnut: the upload container (sshd + rrsync into incoming/)
+Requires=docker.service
+After=docker.service
+# incoming/ is its own size-limited file system; the container must never bind the empty directory under the
+# mount. Only this unit and walnut-watch depend on the mount (fstab nofail): a failed loop mount stops these two
+# and nothing else, never docker.service or the main proxy. Nothing requires this unit.
+RequiresMountsFor=/data/nanobyte/Walnut/incoming
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+# refuse to start when incoming/ is not a mount point (also after a restart)
+ExecStartPre=/usr/bin/mountpoint -q /data/nanobyte/Walnut/incoming
+# the container itself is created by docker compose (restart: "no"); this unit starts it, stays attached and
+# starts it again when it exits
+ExecStart=/usr/bin/docker start -a walnut-upload
+ExecStop=/usr/bin/docker stop walnut-upload
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target
