@@ -5,11 +5,18 @@
 # The old ~/.bash_profile (it started X itself; /etc/profile.d/ps3-desktop.sh does now) is
 # moved there too, and so are the games' files /usr/share/ps3-games/migrate-home.list names
 # (ps3-games-integration, from gamedb: "<path in the home> [<packaged default>]" per line).
-# Safe to run more than once. Run as root or as the user.
+# Safe to run more than once. Run as root or as the user; as root it starts over as the user
+# (setpriv --reuid/--regid/--clear-groups), so everything below touches the home with the user's
+# own rights only, and what it creates is the user's without a chown.
 set -e
 u=${1:?usage: ps3-migrate-home <user>}
-h=$(getent passwd "$u" | cut -d: -f6)
+pw=$(getent passwd "$u")
+h=$(echo "$pw" | cut -d: -f6)
 [ -d "$h" ] || exit 0
+if [ "$(id -u)" = 0 ]; then
+	uid=$(echo "$pw" | cut -d: -f3) gid=$(echo "$pw" | cut -d: -f4)
+	[ "$uid" = 0 ] || exec setpriv --reuid="$uid" --regid="$gid" --clear-groups sh "$0" "$u"
+fi
 backup="$h/.local/share/ps3-legacy"
 # once per user: afterwards the files in ~/.config are the user's own settings
 [ ! -e "$backup/.migrated" ] || exit 0
@@ -40,5 +47,4 @@ if [ -r "$L" ]; then
 	done < "$L"
 fi
 mkdir -p "$backup" && : > "$backup/.migrated"
-chown -R "$u:" "$backup" 2>/dev/null || true
 [ -z "$moved" ] || echo "ps3-migrate-home: moved to $backup:$moved"
