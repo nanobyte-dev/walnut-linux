@@ -15,7 +15,7 @@
 #            render-node (ps3-system's udev rule: the RSX's render node for the render group only),
 #            ps3-firstboot (walnut-firstboot's setup file in a dry run on a fake root: where it came from, the question, a decline or timeout,
 #            the confirm helper's rules),
-#            ps3-system-r3 (ds3-pair restarting bluetooth only for a new pairing, ps3-vswap.service's order, the three sudoers-file postinst blocks, the escape hatch's docs line), migrate-home (ps3-migrate-home dropping to the user with setpriv), root-seams (the root helpers' test seams ignored by a root process),
+#            ps3-system-r3 (ds3-pair restarting bluetooth only for a new pairing, ps3-vswap.service's order, the three sudoers-file postinst blocks, the escape hatch's docs line), migrate-home (ps3-migrate-home dropping to the user with setpriv), root-seams (the root helpers' test seams ignored by a root process), game-mode-on (ps3-game-mode on: only the guard's own service, once),
 #            apt-update-notice (ps3-system's notice after apt update: fixture lists, os-release, fake dpkg; newer release, same release, garbage, missing),
 #            rsx-ab (tools/rsx-ab: the same-boot ps3rsx A/B batch against stubs, the mpv counter script),
 #            ps3-spu, xmoto-glbatch,
@@ -187,6 +187,7 @@ run apt-update-notice bash packages/walnut/system/ps3-system/tests/apt-update-no
 run ps3-firstboot python3 -I packages/walnut/system/ps3-system/tests/test_firstboot_preseed.py
 run ps3-system-r3 python3 -I packages/walnut/system/ps3-system/tests/test_system_r3.py
 run migrate-home python3 -I packages/walnut/system/ps3-desktop/tests/test_migrate_home.py
+run game-mode-on python3 -I packages/walnut/system/ps3-desktop/tests/test_game_mode_on.py
 run root-seams python3 -I tools/test_root_seams.py
 run rsx-ab bash tools/rsx-ab/test_rsx_ab.sh
 run ps3rsx-shadow bash -c "$(declare -f need skip_part t_ps3rsx); t_ps3rsx"
