@@ -69,7 +69,7 @@ meaning = "whether and where it went upstream (`no`, a URL, `not-needed: why`)"
 [keys.tests]
 type = "list"
 items = { type = "str", pattern = '(ps3:\S.*|[a-z0-9][a-z0-9-]*(:[a-z0-9][a-z0-9-]*)?)' }
-meaning = "what exercises it: a host suite (a tools/run-tests.sh name), one part of it (`suite:part`, the part its fix's repro is; tools/ladder.py's expectations), or `ps3:<program>` (and its arguments) run on the PS3"
+meaning = "what exercises it: a host suite (a name in tools/tests.toml), one part of it (`suite:part`, the part its fix's repro is; tools/ladder.py's expectations), or `ps3:<program>` (and its arguments) run on the PS3"
 
 [keys.batches]
 type = "list"

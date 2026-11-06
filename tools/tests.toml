@@ -1,0 +1,400 @@
+[[suite]]
+name = "bench-selftest"
+what = "bench/tests/selftest.py"
+run = ["python3", "bench/tests/selftest.py"]
+ci_skip = { "bench-selftest:intfwatch-login-processes" = "the detector counts commands in login sessions (a user.slice cgroup); a runner has none" }
+
+[[suite]]
+name = "bench-launcher"
+what = "bench/tests/test_launcher.py: launcher.py and session.sh's choice of a menu launcher"
+run = ["python3", "-I", "bench/tests/test_launcher.py"]
+
+[[suite]]
+name = "gprefetch"
+what = "ps3-game-prefetch's checks (packages/walnut/system/ps3-desktop/tests/gprefetch-check.py)"
+run = ["python3", "packages/walnut/system/ps3-desktop/tests/gprefetch-check.py"]
+alone = true
+
+[[suite]]
+name = "rt-audio"
+what = "ps3-rt-audio's choice of threads, a stand-in game: packages/walnut/system/ps3-desktop/tests/rt-audio-check.sh"
+run = ["sh", "packages/walnut/system/ps3-desktop/tests/rt-audio-check.sh"]
+
+[[suite]]
+name = "game-menu"
+what = "ps3-game-menu's choice of entries (packages/walnut/system/ps3-desktop/tests/game-menu-check.sh)"
+run = ["sh", "packages/walnut/system/ps3-desktop/tests/game-menu-check.sh"]
+
+[[suite]]
+name = "gpu-recovered"
+what = "ps3-desktop's recovery dialog: its stamp only after the window maps on a live X, a failed recovery's dialog only on the new X"
+run = ["python3", "-I", "packages/walnut/system/ps3-desktop/tests/gpu-recovered-test.py"]
+
+[[suite]]
+name = "gpu-crash-restart"
+what = "ps3-system's crash report: the display-only desktop restart once per boot through logind, the old X waited for, the user's own X only"
+run = ["bash", "packages/walnut/system/ps3-system/tests/gpu-crash-restart-test.sh"]
+
+[[suite]]
+name = "render-node"
+what = "ps3-system's udev rule: the RSX's render node for the render group only"
+run = ["bash", "packages/walnut/system/ps3-system/tests/render-node-test.sh"]
+
+[[suite]]
+name = "apt-update-notice"
+what = "ps3-system's notice after apt update: fixture lists, os-release, fake dpkg; newer release, same release, garbage, missing"
+run = ["bash", "packages/walnut/system/ps3-system/tests/apt-update-notice-test.sh"]
+
+[[suite]]
+name = "ps3-firstboot"
+what = "walnut-firstboot's setup file in a dry run on a fake root: where it came from, the question, a decline or timeout, the confirm helper's rules"
+run = ["python3", "-I", "packages/walnut/system/ps3-system/tests/test_firstboot_preseed.py"]
+
+[[suite]]
+name = "ps3-system-r3"
+what = "ds3-pair restarting bluetooth only for a new pairing, ps3-vswap.service's order, the three sudoers-file postinst blocks, the escape hatch's docs line"
+run = ["python3", "-I", "packages/walnut/system/ps3-system/tests/test_system_r3.py"]
+
+[[suite]]
+name = "migrate-home"
+what = "ps3-migrate-home dropping to the user with setpriv"
+run = ["python3", "-I", "packages/walnut/system/ps3-desktop/tests/test_migrate_home.py"]
+
+[[suite]]
+name = "game-mode-on"
+what = "ps3-game-mode on: only the guard's own service, once"
+run = ["python3", "-I", "packages/walnut/system/ps3-desktop/tests/test_game_mode_on.py"]
+
+[[suite]]
+name = "xwrapper"
+what = "ps3-desktop's Xwrapper.config: console only"
+run = ["python3", "-I", "packages/walnut/system/ps3-desktop/tests/test_xwrapper.py"]
+
+[[suite]]
+name = "root-seams"
+what = "the root helpers' test seams ignored by a root process"
+run = ["python3", "-I", "tools/test_root_seams.py"]
+ci_skip = { "root-seams:unittest" = "faking root needs unshare -r, which Ubuntu 24.04's AppArmor refuses for unprivileged users (the suites refuse real root)" }
+
+[[suite]]
+name = "rsx-ab"
+what = "tools/rsx-ab: the same-boot ps3rsx A/B batch against stubs, the mpv counter script"
+run = ["bash", "tools/rsx-ab/test_rsx_ab.sh"]
+
+[[suite]]
+name = "ps3rsx-shadow"
+what = "and ps3rsx's clear_dcbz zeroing, the validator's vertex format checks, blame-test: the recovery's choice of the trapping commit, pushbuf-test: GEM_PUSHBUF's offset and length checks, vclear-test: freed VRAM cleared before reuse, on a model heap and GPU, pushdump-test: the push dump's scanner and records, p4-test and p4-fuzz: the address checks"
+run = ["bash", "tools/suites/ps3rsx-shadow.sh"]
+ci_skip = { "ps3rsx-shadow:ppc64" = "needs the ppc64 cross compiler, qemu-ppc64-static and build/mesa/sysroot" }
+
+[[suite]]
+name = "ps3-spu"
+what = "libspeq and the SPU programs' host tests (make test in packages/walnut/tools/ps3-spu)"
+run = ["make", "-C", "packages/walnut/tools/ps3-spu", "test"]
+
+[[suite]]
+name = "xmoto-glbatch"
+what = "X-Moto's GLBatch against the patched source tree (needs build/work/xmoto)"
+run = ["bash", "tools/suites/xmoto-glbatch.sh"]
+ci_skip = { "xmoto-glbatch" = "needs build/work/xmoto (make xmoto-work)" }
+
+[[suite]]
+name = "mesa-forcedxt"
+what = "Mesa 0038's NV30_FORCE_DXT decision; every mesa-* suite is packages/patched/graphics/mesa/tests/ host-tests.sh against build/work/mesa, or MESA_WORK"
+run = ["packages/patched/graphics/mesa/tests/host-tests.sh", "forcedxt"]
+group = "mesa"
+ci_skip = { "mesa-forcedxt" = "needs build/work/mesa" }
+
+[[suite]]
+name = "mesa-staging-pool"
+what = "Mesa 0040's NV30_STAGING_POOL_MB decisions and a model of the pool, packages/patched/graphics/mesa/tests"
+run = ["packages/patched/graphics/mesa/tests/host-tests.sh", "staging-pool"]
+group = "mesa"
+ci_skip = { "mesa-staging-pool" = "needs build/work/mesa" }
+
+[[suite]]
+name = "mesa-vtx-snorm8"
+what = "Mesa 0043's NV30_VTX_SNORM8 vertex program normalization against util_format's unpack, every byte; the per-input key; the translator's output run on an NV40 vertex program interpreter with and without it"
+run = ["packages/patched/graphics/mesa/tests/host-tests.sh", "vtx-snorm8"]
+group = "mesa"
+ci_skip = { "mesa-vtx-snorm8" = "needs build/work/mesa" }
+
+[[suite]]
+name = "mesa-minmax-vmx"
+what = "Mesa 0044's AltiVec index min/max against the scalar loops, on the host and as ppc64 under qemu"
+run = ["packages/patched/graphics/mesa/tests/host-tests.sh", "minmax-vmx"]
+group = "mesa"
+ci_skip = { "mesa-minmax-vmx" = "needs build/work/mesa" }
+
+[[suite]]
+name = "mesa-query-steal"
+what = "Mesa 0046: nv30's queries when the report slots run out, against a fake GPU, under AddressSanitizer"
+run = ["packages/patched/graphics/mesa/tests/host-tests.sh", "query-steal"]
+group = "mesa"
+ci_skip = { "mesa-query-steal" = "needs build/work/mesa" }
+
+[[suite]]
+name = "mesa-query-lost"
+what = "Mesa 0056: a query whose report never lands after a cancelled submission, or ever: its wait must end, not hang; a late one keeps its value"
+run = ["packages/patched/graphics/mesa/tests/host-tests.sh", "query-lost"]
+group = "mesa"
+ci_skip = { "mesa-query-lost" = "needs build/work/mesa" }
+
+[[suite]]
+name = "mesa-alloc-fail"
+what = "0047-0049's alloc-fail-test: u_upload_mgr, nouveau_mm and nouveau_fence when buffers cannot be had; 0003's context-pushbuf-test: nv30's flush before any draw and destroy after a failed init; each fix off too, the file as it was before its patch, which must fail: 0002, 0003, 0047, 0048; 0053's fence wait after a cancelled submission"
+run = ["packages/patched/graphics/mesa/tests/host-tests.sh", "alloc-fail"]
+group = "mesa"
+ci_skip = { "mesa-alloc-fail" = "needs build/work/mesa" }
+
+[[suite]]
+name = "mesa-transfer-cpu"
+what = "0049's transfer-cpu-test: nv30 texture uploads and reads by the CPU when the GART is full"
+run = ["packages/patched/graphics/mesa/tests/host-tests.sh", "transfer-cpu"]
+group = "mesa"
+ci_skip = { "mesa-transfer-cpu" = "needs build/work/mesa" }
+
+[[suite]]
+name = "mesa-blit-state"
+what = "Mesa 0058: nv30_transfer_rect_blit's window offset, clip, COORD_CONVENTIONS and zeta against a fake push buffer, and the golden diff of its stream with the file before the patch"
+run = ["packages/patched/graphics/mesa/tests/host-tests.sh", "blit-state"]
+group = "mesa"
+ci_skip = { "mesa-blit-state" = "needs build/work/mesa" }
+
+[[suite]]
+name = "mesa-placement"
+what = "Mesa 0059: NV30_PS3_IDX_GART and NV30_PS3_FP_GART place index buffers and fragment programs in GART, off they change nothing; a busy GART index buffer is waited for, never GPU-copied into"
+run = ["packages/patched/graphics/mesa/tests/host-tests.sh", "placement"]
+group = "mesa"
+ci_skip = { "mesa-placement" = "needs build/work/mesa" }
+
+[[suite]]
+name = "mesa-fb-window"
+what = "Mesa 0060: nv30_validate_fb's small-surface hack clips to its 16-wide block; the golden diff of four targets' streams against the file before the patch"
+run = ["packages/patched/graphics/mesa/tests/host-tests.sh", "fb-window"]
+group = "mesa"
+ci_skip = { "mesa-fb-window" = "needs build/work/mesa" }
+
+[[suite]]
+name = "mesa-point-smooth"
+what = "Mesa 0050's round GL_POINT_SMOOTH points: the fragment program variant on Mesa's TGSI interpreter over each point's square, and its NV40 translation"
+run = ["packages/patched/graphics/mesa/tests/host-tests.sh", "point-smooth"]
+group = "mesa"
+ci_skip = { "mesa-point-smooth" = "needs build/work/mesa" }
+
+[[suite]]
+name = "sdl2-compat-close-locked"
+what = "sdl2-compat 0001: SDL_CloseAudio while locked, SDL 1.2's and SDL2's API, dummy driver, a timeout; our build passes, the stock tarball's hangs"
+run = ["bash", "packages/patched/graphics/sdl2-compat/tests/close-locked-test.sh"]
+ci_skip = { "sdl2-compat:all" = "needs the sdl2-compat source tarball (build/work) and SDL3 development files" }
+
+[[suite]]
+name = "luajit-low-2gb"
+what = "luajit 0001: luaL_newstate() 100 times under qemu-ppc64, ours never fails, stock does"
+run = ["packages/patched/libs/luajit/tests/low-2gb.sh"]
+ci_skip = { "luajit-low-2gb:all" = "needs qemu-ppc64-static and the luajit trees" }
+
+[[suite]]
+name = "ssdimg"
+what = "the SSD test drive's stamp.py, ps3-imgmap on a fake UFS layer, ps3-vswap's device-mapper backing; ps3-imgmap-boot's maps and tables against ps3-imgmap's; both tools' write guard registration against a model of the kernel's side"
+run = ["python3", "tools/ssdimg/test_ssdimg.py"]
+
+[[suite]]
+name = "ps3-boot"
+what = "ps3-update-kboot's entries and its /etc/kboot.d extras on a fake root"
+run = ["python3", "packages/walnut/system/ps3-boot/tests/test_kboot.py"]
+
+[[suite]]
+name = "walnut-install"
+what = "system/installer/test_walnut_install.py: the release checks, the USB install's plan, and that only the typed model name confirms a live USB install"
+run = ["python3", "-I", "system/installer/test_walnut_install.py"]
+
+[[suite]]
+name = "agent-guard"
+what = "tools/hooks/agent-guard.py, the PreToolUse hook: refused and allowed commands"
+run = ["python3", "-I", "tools/hooks/test_agent_guard.py"]
+
+[[suite]]
+name = "commit-tests"
+what = "tools/commit_tests/tests: each commit check on good and bad cases, then the hooks end to end on a clone in build/tmp"
+run = [["python3", "-I", "tools/commit_tests/tests/test_checks.py"], ["python3", "-I", "tools/commit_tests/tests/test_e2e.py"]]
+ci_skip = { "commit-tests:unittest" = "the LAN-identifier check needs the private, untracked tools/commit-warn.local.txt" }
+
+[[suite]]
+name = "commit-hooks"
+what = "make hooks's stubs are installed in .git/hooks"
+run = ["tools/hooks/install.sh", "--check"]
+
+[[suite]]
+name = "ps3-lease"
+what = "tools/ps3's lease, and deploy.sh and play-test.sh refusing under someone else's"
+run = ["bash", "tools/test_ps3_lease.sh"]
+
+[[suite]]
+name = "run-tests"
+what = "tools/run-tests.py and this file: how a suite's exit and log become pass, skip, FAIL or xfail, the --ci rule, the registry's checks, every file it runs exists"
+run = ["python3", "-I", "tools/test_run_tests.py"]
+
+[[suite]]
+name = "leak-check"
+what = "tools/leak-check.py on synthetic packages and sources"
+run = ["python3", "tools/test_leak_check.py"]
+
+[[suite]]
+name = "image-check"
+what = "tools/image-check.py on fabricated rootfs tars"
+run = ["python3", "-I", "tools/test_image_check.py"]
+
+[[suite]]
+name = "ps3-sudoers"
+what = "ps3-desktop's sudoers file parses and grants what it should (sudoers-check.sh)"
+run = ["bash", "packages/walnut/system/ps3-desktop/tests/sudoers-check.sh"]
+
+[[suite]]
+name = "repo-tools"
+what = "tools/test_repo_tools.py: pkg-dir.sh, licensed.py, deb-version.sh's patterns, doclinks.py, blocks.py, image-packages.sh on small fake trees"
+run = ["python3", "-I", "tools/test_repo_tools.py"]
+
+[[suite]]
+name = "licensed"
+what = "tools/licensed.py check on this tree"
+run = ["python3", "-I", "tools/licensed.py", "check"]
+
+[[suite]]
+name = "workflows"
+what = "github-ci/gen-workflows.py --check: .github/workflows is what it writes"
+run = ["python3", "-I", "github-ci/gen-workflows.py", "--check"]
+
+[[suite]]
+name = "blocks"
+what = "tools/gamedb/blocks.py --check: no stale generated block"
+run = [["python3", "-I", "tools/gamedb/blocks.py", "--check"]]
+needs_path = ["gamedb/games/classicube/licensed"]
+skip_note = "the licensed package directories are not in this checkout (the public export), and two generated blocks list them"
+ci_skip = { "blocks" = "two generated blocks list the licensed packages' directories" }
+
+[[suite]]
+name = "doclinks"
+what = "tools/doclinks.py: the links that don't resolve, a warning only for now"
+run = ["python3", "-I", "tools/doclinks.py", "--report"]
+warn_unless = " 0 unresolved"
+
+[[suite]]
+name = "game-mentions"
+what = "tools/gamedb/game-mentions.py: sections of the docs that name a game without a GameDB link, a warning only"
+run = ["python3", "-I", "tools/gamedb/game-mentions.py"]
+warn_unless = ": 0 sections"
+
+[[suite]]
+name = "walnut-repo"
+what = "apt-repo/walnut-repo.py against the real walnut-watch: testing, stable and the password-protected licensed suite"
+run = ["python3", "apt-repo/test_walnut_repo.py"]
+
+[[suite]]
+name = "walnut-watch"
+what = "the server's publisher on good and hostile uploads"
+run = ["python3", "servers/walnut.nanobyte.dev/test_walnut_watch.py"]
+
+[[suite]]
+name = "batch-publish"
+what = "github-ci/batch-publish.py, testing's one publisher: its plan, and whole runs through publish.sh against a fake GitHub API and the real walnut-watch"
+run = ["python3", "-I", "github-ci/test_batch_publish.py"]
+
+[[suite]]
+name = "walnut-lists"
+what = "github-ci/walnut_lists.py (test_walnut_lists.py): the publisher's package lists"
+run = ["python3", "-I", "github-ci/test_walnut_lists.py"]
+
+[[suite]]
+name = "gen-workflows"
+what = "github-ci/gen-workflows.py's own tests (test_gen_workflows.py)"
+run = ["python3", "-I", "github-ci/test_gen_workflows.py"]
+
+[[suite]]
+name = "gamedb"
+what = "Walnut Games' scoring against the calibration table in docs/GAMEDB.md, check.py, import-run.py, catalog.py"
+run = ["python3", "-I", "tools/gamedb/test_gamedb.py"]
+ci_skip = { "gamedb:unittest" = "skips a test that needs LFS objects" }
+
+[[suite]]
+name = "gamedb-evidence"
+what = "a played session's evidence: tools/gamedb/test_evidence.py, the scrub and scan, import and re-import; then reimport.py --check: every record of the repository derived again from its evidence alone, unchanged"
+run = [["python3", "-I", "tools/gamedb/test_evidence.py"], ["python3", "-I", "tools/gamedb/reimport.py", "--check"]]
+needs_cmd = ["magick"]
+skip_note = "no ImageMagick 7 (magick)"
+ci_skip = { "gamedb-evidence" = "needs ImageMagick 7 (magick); Ubuntu has 6, whose output differs and breaks the byte-for-byte reimport check" }
+
+[[suite]]
+name = "gamedb-technical"
+what = "tools/gamedb/technical.py: the site's technical pages, drafts left out, links, the benchmark tables, the public-safe scan"
+run = ["python3", "-I", "tools/gamedb/test_technical.py"]
+
+[[suite]]
+name = "gamedb-schema"
+what = "tools/gamedb/test_schema.py: each gamedb/schemas kind's good and bad fixtures, every gamedb file against its schema and of exactly one kind"
+run = ["python3", "-I", "tools/gamedb/test_schema.py"]
+
+[[suite]]
+name = "patch-register"
+what = "tools/gamedb/patches.py: the patch register (gamedb/patches) against the series, the suites and the batches"
+run = ["python3", "-I", "tools/gamedb/patches.py"]
+
+[[suite]]
+name = "fix-ladder"
+what = "tools/ladder.py --top: the fix ladder's top rung, every Mesa stability fix in, each test of the register must pass; make ladder FULL=1 is every rung, docs/VALIDATION.md"
+run = ["python3", "-I", "tools/ladder.py", "--top"]
+ci_skip = { "fix-ladder" = "needs the Mesa clone (make mesa-work)" }
+
+[[suite]]
+name = "walnut-games"
+what = "the app and its root helper: validation, remove-cascade refusal, Exec parsing, a window smoke test"
+run = ["python3", "-I", "packages/walnut/apps/walnut-games/tests/test_walnut_games.py"]
+
+[[suite]]
+name = "walnut-data"
+what = "the data import: the helper's import-data against tar fixtures and its lock, remove-data, install-repo-data, walnut-data with a stubbed game-data-packager"
+run = ["python3", "-I", "packages/walnut/apps/walnut-games/tests/test_walnut_data.py"]
+
+[[suite]]
+name = "walnut-rate"
+what = "its root helper's refusals and protocol, ps3-bench.sh's helper mode with a fake sudo, the clean-system check and the watch on made-up process lists and windows, the export's scrub and an export -> import-run.py round trip, the submission check's refusals and a submit -> pull request -> submissions.py show/accept round trip with gh stubbed"
+run = ["python3", "-I", "packages/walnut/apps/walnut-rate/tests/test_walnut_rate.py"]
+ci_skip = { "walnut-rate:unittest" = "skips the tests that need a gamedb session's LFS objects" }
+
+[[suite]]
+name = "ps3disk-guard"
+what = "kernel local/0045's range checks, packages/patched/kernel/linux/tests/ps3disk-guard.sh"
+run = ["packages/patched/kernel/linux/tests/ps3disk-guard.sh"]
+
+[[suite]]
+name = "kernel-config-check"
+what = "tools/linux-config-check.sh: a dropped or changed config option, the hardening and must-stay-off lists of the kernel's package.conf, the research drivers per flavour"
+run = ["packages/patched/kernel/linux/tests/config-check.sh"]
+
+[[suite]]
+name = "kernel-gart-parse"
+what = "local/0007's size parser against the memparse wraps, no panic on an oversized reservation, local/0049's re-probe cancel in remove"
+run = ["packages/patched/kernel/linux/tests/ps3rsx-gart-parse.sh"]
+
+[[suite]]
+name = "kernel-lockdep-variant"
+what = "LINUX_VARIANT=lockdep: a test-build version of its own, the release flavour unaffected, PROVE_LOCKING in the debug config; the config half needs a patched tree in build/tmp/lane-km/t115 or LINUX_TREE"
+run = ["packages/patched/kernel/linux/tests/lockdep-variant.sh"]
+
+[[suite]]
+name = "game-data-packager"
+what = "our patches' --progress-fd and --no-launchers on the built deb, in the deb builder image: packages/patched/tools/ game-data-packager/tests; skipped without build/debs/game-data-packager"
+run = ["packages/patched/tools/game-data-packager/tests/run-in-builder.sh"]
+ci_skip = { "game-data-packager" = "needs build/debs/game-data-packager (a ppc64 build in the deb builder image)" }
+
+[[suite]]
+name = "autogm"
+what = "packages/walnut/system/ps3-desktop/tests/autogm-check.sh: needs Xvfb+openbox or docker/podman"
+run = ["bash", "tools/suites/autogm.sh"]
+slow = true
+
+[[suite]]
+name = "ssdimg-vm"
+what = "tools/ssdimg/vm-e2e.sh: ps3-imgmap on a real big-endian UFS2 image in a KVM guest of the host's kernel, then Phase B: ps3-imgmap-boot's devices, the initramfs booting root from the image, refused boots; the second Phase B geometry behind the kernel guard, simulated by a module built from local/0045 for the host kernel (needs its headers, else that part is skipped); needs docker, qemu-system-x86_64, /dev/kvm"
+run = ["tools/ssdimg/vm-e2e.sh"]
+slow = true

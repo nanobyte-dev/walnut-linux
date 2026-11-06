@@ -13,7 +13,7 @@ What it checks (each an error, exit 1):
     "patches/0046-....patch", "patches/local/0004-....patch", "packaging/0001-....patch");
   - the front matter parses, `component` is known and `category` one of CATEGORIES; a Mesa entry has
     `gating`, a kernel-ps3 entry `authors`; only ps3rsx (our own driver, no series) has no patches;
-  - `tests` names suites of tools/run-tests.sh (PS3 tests are written "ps3:<program>") and `batches`
+  - `tests` names suites of tools/tests.toml (PS3 tests are written "ps3:<program>") and `batches`
     names batches of gamedb/benchmarks/batches.toml;
   - a slug is lower-case words joined by "-", never a patch number (no word like 0046).
 Unknown front matter keys are warnings (gamedb/schemas/patch.toml is the schema), and so are (the fix ladder,
@@ -152,7 +152,7 @@ def read_register(errors, warnings, suites, batches):
             errors.append(f"{rel}: a kernel-ps3 entry needs authors (credit the OtherOS++ and psx-place authors)")
         for t in fm.get("tests", []):
             if not t.startswith("ps3:") and t.split(":", 1)[0] not in suites:
-                errors.append(f"{rel}: test {t!r} is no suite of tools/run-tests.sh (one part of it 'suite:part'; a PS3 test is 'ps3:<program>')")
+                errors.append(f"{rel}: test {t!r} is no suite of tools/tests.toml (one part of it 'suite:part'; a PS3 test is 'ps3:<program>')")
         for b in fm.get("batches", []):
             if b not in batches:
                 errors.append(f"{rel}: batch {b!r} not in gamedb/benchmarks/batches.toml")
@@ -165,8 +165,7 @@ def main():
     ap.add_argument("--list", action="store_true", help="print every entry")
     a = ap.parse_args()
     errors, warnings = [], []
-    rt = (REPO / "tools" / "run-tests.sh").read_text()
-    suites = set(re.findall(r"^(?:\[[^\]]*\] && )?run ([A-Za-z0-9_-]+) ", rt, re.M))
+    suites = {s["name"] for s in tomllib.loads((REPO / "tools" / "tests.toml").read_text())["suite"]}
     batches = {b["name"] for b in tomllib.loads((REPO / "gamedb" / "benchmarks" / "batches.toml").read_text())["batch"]}
     series = read_series(errors)
     entries = read_register(errors, warnings, suites, batches)
