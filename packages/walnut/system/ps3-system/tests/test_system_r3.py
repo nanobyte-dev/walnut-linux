@@ -126,5 +126,16 @@ class SudoersPostinst(unittest.TestCase):
             self.assertEqual(self.run_block(n, None), sorted([n, "other"]), n)
 
 
+class ResearchModules(unittest.TestCase):
+    def test_modprobe_refuses_the_research_modules(self):
+        lines = [l.split() for l in (PKG / "debian/walnut-research.conf").read_text().splitlines()
+                 if l.strip() and not l.startswith("#")]
+        self.assertEqual(sorted(lines), [["install", "ps3lv1call", "/bin/false"], ["install", "ps3physmem", "/bin/false"]])
+
+    def test_installed_and_override_documented(self):
+        self.assertIn("debian/walnut-research.conf $(P)/usr/lib/modprobe.d/walnut-research.conf", (PKG / "debian/rules").read_text())
+        self.assertIn("/etc/modprobe.d/walnut-research.conf", (PKG / "debian/walnut-research.conf").read_text())
+
+
 if __name__ == "__main__":
     unittest.main()
