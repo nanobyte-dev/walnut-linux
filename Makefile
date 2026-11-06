@@ -566,7 +566,7 @@ $(BUILD)/chroot/sid-ppc64.tar:
 # make <pkg>-src: fetch Debian's source and make ours; make <pkg>-deb: build it natively (qemu)
 %-src: | $(REPO_BUILDER_STAMP)
 	@[ -n '$(call pkgdir,$*)' ] || { echo 'no package $* (packages/**/$*/package.conf)'; exit 1; }
-	@if grep -q '^TYPE=debsrc' $(call pkgdir,$*)/package.conf; then \
+	@t=$$(python3 -I tools/pkgconf.py get $* TYPE) || exit 1; if [ "$$t" = debsrc ]; then \
 		docker run --rm -v $(CURDIR):/work -w /work $(DEB_ENV) $(REPO_BUILDER_TAG) tools/deb-fetch.sh $*; fi
 	@set -e; v=$$(tools/deb-version.sh $*); \
 	docker run --rm -v $(CURDIR):/work -w /work --user $(UID_GID) $(DEB_ENV) $(REPO_BUILDER_TAG) \
@@ -599,7 +599,7 @@ gamedb-integration:
 ps3-games-src: gamedb-integration
 %-deb: %-src | $(BUILD)/chroot/sid-ppc64.tar
 	@tools/disk-check.sh
-	@if grep -q '^BUILD=xcc' $(call pkgdir,$*)/package.conf; then \
+	@b=$$(python3 -I tools/pkgconf.py get $* BUILD) || exit 1; if [ "$$b" = xcc ]; then \
 		$(MAKE) --no-print-directory xcc-toolchain && \
 		used=$$(df --output=pcent $(XCC_ROOT) | tail -1 | tr -dc 0-9) && \
 		{ [ "$$used" -le 90 ] || { echo "!! $(XCC_ROOT) is $$used% full (less than 10% free): stopping."; exit 1; }; } && \
