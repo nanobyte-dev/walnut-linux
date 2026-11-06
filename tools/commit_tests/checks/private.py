@@ -265,7 +265,7 @@ def fingerprints(ctx):
         except (OSError, ValueError) as e:
             ctx.error(None, "the NOR fingerprint list can't be read: %s" % e)
     if not paths:
-        ctx.warn(None, "no %s: the NOR dump is only recognised by its path and extension, not by its content "
+        ctx.notice(None, "no %s: the NOR dump is only recognised by its path and extension, not by its content "
                  "(python3 -I tools/nor_fingerprint.py make backups/<dump>)" % FINGERPRINT)
     return nf, fps
 
