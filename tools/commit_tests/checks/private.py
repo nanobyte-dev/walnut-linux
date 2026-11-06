@@ -16,13 +16,12 @@
     export refuses by name (.bin, .img, .pup, .nor, .nand: flash dumps and disk images);
   - images under gamedb/games/**/rating/ committed as files instead of Git LFS pointers;
   - paths of licensed game data (tools/licensed.py file: the leak globs, matched case-insensitively), and the
-    game data formats the gamedb's licensed and data_setup games use (DATA_GLOBS: WAD, MPQ, AGG, PK3, PAK, GRP, the
+    game data formats the gamedb's licensed and data_setup games use (tools/game_data.py: WAD, MPQ, AGG, PK3, PAK, GRP, the
     SCUMM files, ...) by name in any case, and by magic bytes (IWAD/PWAD, MPQ, Quake's PACK), unless the exact
     path is in tools/game-data-allow.txt (our own files)."""
 import fnmatch
 import os
 import re
-import struct
 import subprocess
 import sys
 from pathlib import Path, PurePath
@@ -33,12 +32,6 @@ SHARED_INPUTS = ()
 REPLACE = "tools/public-replace.local.txt"
 FINGERPRINT = "tools/nor-fingerprint.local.txt"
 DATA_ALLOW = "tools/game-data-allow.txt"
-# formats of the games' own data (gamedb data_setup / [[licensed]]); matched on the lower-cased path
-DATA_GLOBS = ("*.wad", "*.mpq", "*.agg", "*.pk3", "*.pak", "*.grp", "*.lfl", "*.lec", "*.sou", "*.grf",
-              "*/g1.dat", "g1.dat", "*/csg1.dat", "csg1.dat", "*/tyrian*.lvl", "tyrian*.lvl", "*/tyrian.hdt", "tyrian.hdt",
-              "*/sample.cat", "sample.cat", "*/heroes2*.agg",
-              "*/tentacle.00[01]", "*/monkey.00[01]", "*/monkey2.00[01]", "*/atlantis.00[01]", "*/monster.sou")
-DATA_MAGIC_MIN = 12
 MIN_CONTENT = 64 << 10     # smaller files can't hold a dump, or an archive of one
 LOCAL = "tools/commit-private.local.txt"
 PRIVATE_DIRS = ("backups/", "firmware/", ".local/")
@@ -281,20 +274,6 @@ def fingerprints(ctx):
     return nf, fps
 
 
-def data_magic(b):
-    """the kind of game data a file's first bytes say it is, else None: Doom WADs, Blizzard MPQs, Quake PAKs
-    (PACK + the directory's offset and size, which must fit the file: plain text starting with PACK doesn't)"""
-    if b[:4] in (b"IWAD", b"PWAD"):
-        return "a Doom WAD"
-    if b[:4] == b"MPQ\x1a":
-        return "a Blizzard MPQ"
-    if b[:4] == b"PACK" and len(b) >= DATA_MAGIC_MIN:
-        off, ln = struct.unpack("<ii", b[4:12])
-        if 12 <= off <= len(b) and ln > 0 and ln % 64 == 0 and off + ln <= len(b):
-            return "a Quake PAK"
-    return None
-
-
 def data_allowed(ctx):
     out = set()
     if ctx.exists(DATA_ALLOW):
@@ -305,47 +284,97 @@ def data_allowed(ctx):
     return out
 
 
-def data_checks(ctx, files):
+def game_data_module():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("game_data", str(Path(__file__).resolve().parents[2] / "game_data.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def lfs_dir(ctx):
+    r = subprocess.run(["git", "-C", str(ctx.root), "rev-parse", "--path-format=absolute", "--git-common-dir"],
+                       capture_output=True, text=True)
+    return os.path.join(r.stdout.strip(), "lfs", "objects") if r.returncode == 0 and r.stdout.strip() else None
+
+
+def content_of(ctx, nf, path, b):
+    """the bytes to look at for path: an LFS pointer is followed to the local object (None: not there)"""
+    oid = nf.lfs_oid(b)
+    if oid is None:
+        return b
+    d = lfs_dir(ctx)
+    obj = nf.lfs_read(d, oid) if d else None
+    if obj is None:
+        ctx.warn(path, "a Git LFS pointer whose object is not in this clone's LFS store (or is over 64 MB): its content was not looked into")
+    return obj
+
+
+def data_checks(ctx, files, nf=None, fps=()):
+    """game data formats: by name (new paths), by first bytes (new and changed files, LFS objects followed), and
+    inside archives (member names and first bytes); the exact paths of tools/game-data-allow.txt are ours"""
+    gd = game_data_module()
+    nf = nf or nor_module()
     allow = data_allowed(ctx)
     for c in files:
-        if c.status not in ("A", "R", "*") or c.path in allow:
+        if c.status not in ("A", "R", "*", "M") or c.path in allow:
             continue
-        low = c.path.lower()
-        g = next((g for g in DATA_GLOBS if fnmatch.fnmatchcase(low, g)), None)
-        if g:
-            ctx.error(c.path, "game data by its name (%s, in any case): never in the repository "
-                      "(our own file: list the exact path in %s)" % (g, DATA_ALLOW))
-            continue
+        if c.status != "M":
+            g = gd.match(c.path)
+            if g:
+                ctx.error(c.path, "game data by its name (%s, in any case): never in the repository "
+                          "(our own file: list the exact path in %s)" % (g, DATA_ALLOW))
+                continue
         b = ctx.staged_bytes(c.path)
-        what = data_magic(b[:1 << 20]) if b else None
+        if not b:
+            continue
+        b = content_of(ctx, nf, c.path, b)
+        if not b:
+            continue
+        what = gd.magic(b[:1 << 20])
         if what:
             ctx.error(c.path, "%s by its first bytes: never in the repository (our own file: list the exact path in %s)"
                       % (what, DATA_ALLOW))
+            continue
+        if len(b) >= MIN_CONTENT and len(b) <= 64 << 20:
+            hits, notes = nf.check_blob(list(fps), b, c.path, game_data=gd)
+            for where, w, kind in hits:
+                if kind == "data":
+                    ctx.error(c.path, "%s: %s (our own file: list the exact path in %s)" % (where, w, DATA_ALLOW))
+            for n in notes:
+                ctx.warn(c.path, n)
 
 
-def content_checks(ctx, files):
-    nf, fps = fingerprints(ctx)
+def content_checks(ctx, files, nf, fps):
     if not fps:
         return
     for c in files:
         if c.status not in ("A", "M", "R", "*"):
             continue
         b = ctx.staged_bytes(c.path)
+        if b is None:
+            continue
+        b = content_of(ctx, nf, c.path, b)
         if b is None or len(b) < MIN_CONTENT:
             continue
         if len(b) > 64 << 20:
             ctx.warn(c.path, "larger than 64 MB: not looked into for the NOR dump's content")
             continue
         hits, notes = nf.check_blob(fps, b, c.path)
-        for where, what in hits:
-            ctx.error(c.path, "the NOR dump by content (%s: %s): it never goes into the repository" % (where, what))
+        for where, what, kind in hits:
+            if kind == "nor":
+                ctx.error(c.path, "the NOR dump by content (%s: %s): it never goes into the repository" % (where, what))
         for n in notes:
             ctx.warn(c.path, n)
 
 
+LOCAL_RE = re.compile(r"(^|/)[^/]*\.local\.[^/]*$")
+
+
 def run(ctx, files):
-    data_checks(ctx, files)
-    content_checks(ctx, files)
+    nf, fps = fingerprints(ctx)
+    data_checks(ctx, files, nf, fps)
+    content_checks(ctx, files, nf, fps)
     pats = patterns(ctx)
     if pats is not None:
         for path, lines in sorted(added_lines(ctx).items()):
@@ -357,6 +386,9 @@ def run(ctx, files):
     for p in new:
         if any(("/" + p).find("/" + d) >= 0 for d in PRIVATE_DIRS):
             ctx.error(p, "a private path (%s never go into the repository)" % ", ".join(PRIVATE_DIRS))
+        elif LOCAL_RE.search(p) and not p.endswith(".example"):
+            ctx.error(p, "a private local file (*.local.*: the replace list, the NOR fingerprint and the like are untracked "
+                      "on purpose; git add -f does not make them committable)")
         elif DUMP_RE.search(p):
             ctx.error(p, "a flash dump or disk image by its name (the public export refuses .bin, .img, .pup, .nor, .nand)")
         if any(PurePath(p).full_match(g) for g in LFS_IMAGES):

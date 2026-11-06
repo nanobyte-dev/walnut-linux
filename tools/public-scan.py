@@ -14,7 +14,8 @@ a pattern is refused) are skipped for SECRETS only, and only when every path the
 is listed: the files that hold the patterns themselves and the fixtures that plant fake secrets. A
 private-list match is never allowed. File and directory names are scanned too.
 
-Exit status: 0 clean, or findings in the default warn-only mode (printed as WARN); 1 findings with
+Exit status: 0 clean, or findings in the default warn-only mode (printed as WARN); 1 for a NOR dump found by content
+in any mode (the dump is never uploaded), and for any finding with
 --enforce; 2 the repository or a list can't be read. tools/public-export.sh passes --enforce when
 WALNUT_EXPORT_SCAN=enforce.
 Run it as python3 -I tools/public-scan.py.
@@ -129,7 +130,7 @@ def batch(repo, shas):
     p.wait()
 
 
-def scan(repo, patterns, secrets, allow, nor=None, fps=()):
+def scan(repo, patterns, secrets, allow, nor=None, fps=(), lfs=None):
     findings = []
     seen = set()
     objs = objects(repo)
@@ -160,12 +161,21 @@ def scan(repo, patterns, secrets, allow, nor=None, fps=()):
         for label, rx in patterns:
             if rx.search(data):
                 findings.append((where, "matches a private pattern (%s)" % label, "private"))
-        if fps and len(data) >= 64 << 10:
-            hits, notes = nor.check_blob(fps, data, where)
-            for w, h in hits:
-                findings.append((where, "the NOR dump by content (%s: %s)" % (w, h), "private"))
-            for n in notes:
-                findings.append((where, "not looked into: " + n, "private"))
+        if fps:
+            body = data
+            oid = nor.lfs_oid(data)
+            if oid is not None:   # a Git LFS pointer: the object is what gets pushed
+                body = nor.lfs_read(lfs, oid) if lfs else None
+                if body is None:
+                    findings.append((where, "not looked into: a Git LFS pointer whose object is not in the LFS store "
+                                     "(or is over 64 MB)", "private"))
+                    body = b""
+            if len(body) >= 64 << 10:
+                hits, notes = nor.check_blob(fps, body, where)
+                for w, h, _ in hits:
+                    findings.append((where, "the NOR dump by content (%s: %s)" % (w, h), "nor"))
+                for n in notes:
+                    findings.append((where, "not looked into: " + n, "private"))
         every = set(where_added.get(sha, ())) | ({paths[sha]} if paths[sha] else set())
         if every and all(q in allow for q in every):
             continue
@@ -182,6 +192,7 @@ def main(argv):
     ap.add_argument("--replace", default=os.environ.get("WALNUT_PUBLIC_REPLACE") or os.path.join(HERE, "public-replace.local.txt"))
     ap.add_argument("--allow", default=os.path.join(HERE, "public-scan-allow.txt"))
     ap.add_argument("--fingerprint", default=None, help="the NOR fingerprint (default: tools/nor-fingerprint.local.txt)")
+    ap.add_argument("--lfs", default=None, help="the Git LFS object store to follow pointers into (default: SRC's .git/lfs/objects)")
     ap.add_argument("--enforce", action="store_true")
     a = ap.parse_args(argv)
     try:
@@ -200,15 +211,17 @@ def main(argv):
         if not fps:
             print("public-scan: note: no NOR fingerprint (tools/nor-fingerprint.local.txt): the dump is not looked for by content",
                   file=sys.stderr)
-        findings = scan(a.repo, patterns, private.SECRETS, read_allow(a.allow), nor, fps)
+        lfs = a.lfs or os.path.join(os.path.dirname(HERE), ".git", "lfs", "objects")
+        findings = scan(a.repo, patterns, private.SECRETS, read_allow(a.allow), nor, fps, lfs)
     except (OSError, ValueError) as e:  # ValueError: a bad allow file
         print("!! public-scan: %s" % e, file=sys.stderr)
         return 2
-    for where, what, _ in sorted(set(findings)):
-        print("%s %s: %s" % ("FOUND" if a.enforce else "WARN", where, what))
+    fatal = [f for f in findings if f[2] == "nor"]   # the dump is never uploaded: not an E-switch
+    for where, what, kind in sorted(set(findings)):
+        print("%s %s: %s" % ("FOUND" if a.enforce or kind == "nor" else "WARN", where, what))
     print("public-scan: %d object(s) read, %d finding(s)%s" % (len(set(o for o, _ in objects(a.repo))), len(set(findings)),
                                                                "" if a.enforce or not findings else " (warn-only)"))
-    return 1 if findings and a.enforce else 0
+    return 1 if (findings and a.enforce) or fatal else 0
 
 
 if __name__ == "__main__":

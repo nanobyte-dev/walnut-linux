@@ -316,6 +316,51 @@ class NorDumpContent(Base):
         self.stage("t/part.dat", self.dump[:1 << 21])
         self.bad("private", "the NOR dump by content")
 
+    def test_every_member_of_multi_member_files_is_read(self):
+        import bz2, gzip, lzma
+        a = os.urandom(70000)
+        for name, data in (("m.gz", gzip.compress(a) + gzip.compress(self.dump)), ("m.xz", lzma.compress(a) + lzma.compress(self.dump)),
+                           ("m.bz2", bz2.compress(a) + bz2.compress(self.dump))):
+            with self.subTest(name):
+                self.r.git("reset", "-q")
+                self.stage("t/" + name, data)
+                self.assertTrue(any("the NOR dump by content" in f[3] for f in self.r.errors(["private"])), name)
+
+    def test_walk_budget_covers_all_members_and_levels(self):
+        """a small zip that expands far past the cap: the walk stops with a note and never holds more than the cap"""
+        import io, tracemalloc, zipfile
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+            for i in range(40):
+                z.writestr("m%d" % i, b"\0" * (4 << 20))
+        self.assertLess(len(buf.getvalue()), 400 << 10)
+        nf = self.nf
+        tracemalloc.start()
+        hits, notes = nf.check_blob([], buf.getvalue(), "bomb.zip", budget=nf.Budget(4 << 20))
+        peak = tracemalloc.get_traced_memory()[1]
+        tracemalloc.stop()
+        self.assertLess(peak, 24 << 20, peak)
+        self.assertTrue(any("decompressed, the rest not looked into" in n for n in notes), notes)
+        # the same through the hook: a warning, not a crash
+        self.stage("t/bomb.zip", buf.getvalue())
+        self.assertEqual(self.r.errors(["private"]), [])
+
+    def test_lfs_pointer_follows_the_object(self):
+        import hashlib
+        oid = hashlib.sha256(self.dump).hexdigest()
+        obj = self.r.dir / ".git/lfs/objects" / oid[:2] / oid[2:4] / oid
+        obj.parent.mkdir(parents=True)
+        obj.write_bytes(self.dump)
+        ptr = "version https://git-lfs.github.com/spec/v1\noid sha256:%s\nsize %d\n" % (oid, len(self.dump))
+        self.stage("gamedb/games/g/rating/sessions/s/shots/a.jpg", ptr)
+        self.bad("private", "the NOR dump by content")
+
+    def test_lfs_pointer_without_object_warns(self):
+        ptr = "version https://git-lfs.github.com/spec/v1\noid sha256:%s\nsize 9\n" % ("ab" * 32)
+        self.stage("gamedb/games/g/rating/sessions/s/shots/a.jpg", ptr)
+        self.assertEqual(self.r.errors(["private"]), [])
+        self.assertTrue(any("LFS store" in f[3] for f in self.r.run(["private"])))
+
     def test_other_binary_is_fine(self):
         self.stage("t/other.dat", os.urandom(2 << 20))
         self.assertEqual(self.r.errors(["private"]), [])
@@ -346,6 +391,45 @@ class GameData(Base):
                 self.r.git("reset", "-q")
                 self.stage(n, data)
                 self.assertTrue(any("first bytes" in f[3] for f in self.r.errors(["private"])), n)
+
+    def test_new_names(self):
+        for n in ("a/GM_TT00.GM", "a/fm/9_tt_a.fm", "rct2/Data/CSS1.DAT", "rct2/ObjData/X.DAT", "saves/park.SV6", "saves/p.td6"):
+            with self.subTest(n):
+                self.r.git("reset", "-q")
+                self.stage(n)
+                self.assertTrue(any("game data" in f[3] for f in self.r.errors(["private"])), n)
+
+    def test_changed_file_gets_the_magic_check(self):
+        self.stage("a/blob.dat", b"just data\n")
+        self.r.commit("base data")
+        self.stage("a/blob.dat", b"IWAD" + b"\0" * 20)
+        self.assertTrue(any("first bytes" in f[3] for f in self.r.errors(["private"])))
+
+    def test_inside_archives(self):
+        import io, zipfile
+        pack = b"PACK" + struct.pack("<ii", 12, 64) + b"\0" * 64
+        for label, members in (("by name", {"ID1/PAK0.PAK": b"x"}), ("by magic", {"q/a.bin": pack}), ("name and magic", {"w.wad": b"IWAD0000"})):
+            with self.subTest(label):
+                buf = io.BytesIO()
+                with zipfile.ZipFile(buf, "w") as z:
+                    for k, v in members.items():
+                        z.writestr(k, v)
+                    z.writestr("pad.bin", os.urandom(70000))
+                data = buf.getvalue()
+                self.r.git("reset", "-q")
+                self.stage("t/%s.zip" % label.replace(" ", "-"), data)
+                self.assertTrue(any("game data" in f[3] or "first bytes" in f[3] for f in self.r.errors(["private"])), label)
+
+    def test_local_files_cannot_be_forced_in(self):
+        self.r.write("tools/public-replace.local.txt", "x\n")
+        self.r.write("tools/other.local.txt", "x\n")
+        self.r.git("add", "-f", "tools/other.local.txt")
+        errs = self.bad("private", "a private local file")
+        self.assertTrue(any(e[2] == "tools/other.local.txt" for e in errs))
+        self.r.git("reset", "-q")
+        self.r.write("config.local.mk.example", "x\n")
+        self.r.add("config.local.mk.example")
+        self.assertFalse(any("private local file" in e[3] for e in self.r.errors(["private"])))
 
     def test_text_starting_with_pack_is_fine(self):
         self.stage("a/notes.txt", b"PACKAGING notes\n")

@@ -51,7 +51,7 @@ grep -Eo '^[0-9a-f]{40}' "$SRC/tools/public-strip-blobs.txt" > "$DIR/.git/strip-
 # tools/licensed.py fails closed: no list, no export
 licensed=$(python3 -I "$SRC/tools/licensed.py" names) && [ -n "$licensed" ] ||
 	{ echo "!! tools/licensed.py names failed: nothing exported" >&2; exit 2; }
-drop=(--path packages/licensed/ --path-glob 'gamedb/*/*/licensed/*' --path-regex '^gamedb/(.+/)?raw/')
+drop=(--path-glob '*.local.txt' --path packages/licensed/ --path-glob 'gamedb/*/*/licensed/*' --path-regex '^gamedb/(.+/)?raw/')
 for n in $licensed; do drop+=(--path-glob "packages/*/$n/*" --path-glob "packages/*/*/$n/*"); done
 git filter-repo --quiet --force --prune-empty never --invert-paths "${drop[@]}" --strip-blobs-with-ids "$DIR/.git/strip-blobs" \
 	--replace-text "$REPL" --replace-message "$REPL" --message-callback '
@@ -71,7 +71,9 @@ paths=$(git log --all --name-only --format= | sort -u)
 # game data under a directory named for a licensed package (or game-data, game-data-packager's output directory;
 # quake-data before 2026-10-26)
 lic_re=$(printf '%s\n' $licensed game-data quake-data | sed 's/[.+]/\\&/g' | paste -sd'|')
-hits=$(printf '%s\n' "$paths" | grep -Ei "^(backups|firmware)/|\\.(bin|img|pup|nor|nand)\$|\\.(wad|mpq|agg|pk3|pak|grp|lfl|lec|grf)\$|(^|/)(g1|csg1)\\.dat\$|(^|/)($lic_re)/.*\\.(pk3|ogz|cfg|dat|zip|ogg|wav|png|jpg)\$" || true)
+hits=$(printf '%s\n' "$paths" | grep -Ei "^(backups|firmware)/|\\.(bin|img|pup|nor|nand)\$|(^|/)($lic_re)/.*\\.(pk3|ogz|cfg|dat|zip|ogg|wav|png|jpg)\$" || true)
+gdhits=$(printf '%s\n' "$paths" | python3 -I "$SRC/tools/game_data.py" || true)	# one list with the commit hook
+hits=$(printf '%s\n%s\n' "$hits" "$gdhits" | sed '/^$/d')
 [ -z "$hits" ] || { echo "!! private or licensed paths in the history:"; printf '   %s\n' $hits | head -40; bad=1; }
 lic=$({ printf '%s\n' "$paths" | grep -E '^(packages/licensed|gamedb/[^/]+/[^/]+/licensed)/'
 	for n in $licensed; do printf '%s\n' "$paths" | grep -E "^packages/([^/]+/){1,2}$n/"; done; } || true)
@@ -96,7 +98,8 @@ keys=$(git log --all -p -G '^[+-]?-----BEGIN [A-Z ]*PRIVATE KEY-----' --format=%
 # every object of every ref (binary blobs too) for the private replace list and secrets: warn-only until the
 # dry runs stay quiet; WALNUT_EXPORT_SCAN=enforce makes a finding stop the export
 scanmode=(); [ "${WALNUT_EXPORT_SCAN:-warn}" != enforce ] || scanmode=(--enforce)
-python3 -I "$SRC/tools/public-scan.py" "$DIR" --replace "$REPL" --allow "$SRC/tools/public-scan-allow.txt" "${scanmode[@]}" || bad=1
+lfsdir=$(git -C "$SRC" rev-parse --path-format=absolute --git-common-dir)/lfs/objects
+python3 -I "$SRC/tools/public-scan.py" "$DIR" --lfs "$lfsdir" --replace "$REPL" --allow "$SRC/tools/public-scan-allow.txt" "${scanmode[@]}" || bad=1
 n=$(git rev-list --count main)
 echo ">> $DIR: $n commits, $(git rev-parse --short main), attribution trailers removed"
 if [ $bad = 1 ]; then echo "!! not ready to publish (see above)"; exit 1; fi

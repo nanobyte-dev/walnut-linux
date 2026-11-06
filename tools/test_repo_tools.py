@@ -346,6 +346,36 @@ class PublicExport(unittest.TestCase):
         return subprocess.run(["git", "-C", d, "-c", "user.name=t", "-c", "user.email=t@example.org", *a],
                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, check=True).stdout
 
+    def test_nor_dump_stops_the_export(self):
+        """public-export.sh without WALNUT_EXPORT_SCAN=enforce: a renamed fake dump in the history still stops it"""
+        if not shutil.which("git-filter-repo") and not os.path.exists(os.path.expanduser("~/.local/bin/git-filter-repo")):
+            self.skipTest("no git-filter-repo")
+        sys.path.insert(0, str(HERE))
+        import nor_fingerprint
+        with tempfile.TemporaryDirectory() as tmp:
+            src, out = os.path.join(tmp, "src"), os.path.join(tmp, "out")
+            os.makedirs(os.path.join(src, "tools", "commit_tests", "checks"))
+            self.git(src, "init", "-q", "-b", "main")
+            for f in ("public-export.sh", "licensed.py", "licensed-files.txt", "public-scan.py", "nor_fingerprint.py", "game_data.py", "public-scan-allow.txt"):
+                shutil.copy(HERE / f, os.path.join(src, "tools", f))
+            shutil.copy(HERE / "commit_tests" / "checks" / "private.py", os.path.join(src, "tools", "commit_tests", "checks", "private.py"))
+            Path(src, "tools", "public-strip-blobs.txt").write_text("")
+            Path(src, "tools", "public-replace.local.txt").write_text("literal:NOT-IN-THIS-REPO\n")
+            dump = os.urandom(2 << 20)
+            Path(tmp, "dump").write_bytes(dump)
+            fpp = Path(src, "tools", "nor-fingerprint.local.txt")
+            fpp.write_text(nor_fingerprint.make(os.path.join(tmp, "dump")))
+            Path(src, "x").mkdir()
+            Path(src, "x", "flash.dat").write_bytes(dump)
+            self.git(src, "add", "-A")
+            self.git(src, "commit", "-qm", "c")
+            env = {k: v for k, v in os.environ.items() if k != "WALNUT_EXPORT_SCAN"}
+            env["PATH"] = os.path.expanduser("~/.local/bin") + ":" + os.environ["PATH"]
+            r = subprocess.run(["bash", os.path.join(src, "tools", "public-export.sh"), out], env=env, cwd=src,
+                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            self.assertNotEqual(r.returncode, 0, r.stdout)
+            self.assertIn("the NOR dump by content", r.stdout)
+
     def test_game_data_names_refused_in_any_case(self):
         """the export's path check refuses game data formats by name, upper case too"""
         if not shutil.which("git-filter-repo") and not os.path.exists(os.path.expanduser("~/.local/bin/git-filter-repo")):
@@ -354,7 +384,7 @@ class PublicExport(unittest.TestCase):
             src, out = os.path.join(tmp, "src"), os.path.join(tmp, "out")
             os.makedirs(os.path.join(src, "tools", "commit_tests", "checks"))
             self.git(src, "init", "-q", "-b", "main")
-            for f in ("public-export.sh", "licensed.py", "licensed-files.txt", "public-scan.py", "nor_fingerprint.py", "public-scan-allow.txt"):
+            for f in ("public-export.sh", "licensed.py", "licensed-files.txt", "public-scan.py", "nor_fingerprint.py", "game_data.py", "public-scan-allow.txt"):
                 shutil.copy(HERE / f, os.path.join(src, "tools", f))
             shutil.copy(HERE / "commit_tests" / "checks" / "private.py", os.path.join(src, "tools", "commit_tests", "checks", "private.py"))
             Path(src, "tools", "public-strip-blobs.txt").write_text("")
@@ -376,7 +406,7 @@ class PublicExport(unittest.TestCase):
             src, out = os.path.join(tmp, "src"), os.path.join(tmp, "out")
             os.makedirs(os.path.join(src, "tools"))
             self.git(src, "init", "-q", "-b", "main")
-            for f in ("public-export.sh", "licensed.py", "licensed-files.txt", "public-scan.py", "nor_fingerprint.py", "public-scan-allow.txt"):
+            for f in ("public-export.sh", "licensed.py", "licensed-files.txt", "public-scan.py", "nor_fingerprint.py", "game_data.py", "public-scan-allow.txt"):
                 shutil.copy(HERE / f, os.path.join(src, "tools", f))
             os.makedirs(os.path.join(src, "tools", "commit_tests", "checks"))
             shutil.copy(HERE / "commit_tests" / "checks" / "private.py", os.path.join(src, "tools", "commit_tests", "checks", "private.py"))
@@ -406,7 +436,7 @@ class PublicExport(unittest.TestCase):
             src, out = os.path.join(tmp, "src"), os.path.join(tmp, "out")
             os.makedirs(os.path.join(src, "tools", "commit_tests", "checks"))
             self.git(src, "init", "-q", "-b", "main")
-            for f in ("public-export.sh", "licensed.py", "licensed-files.txt", "public-scan.py", "nor_fingerprint.py", "public-scan-allow.txt"):
+            for f in ("public-export.sh", "licensed.py", "licensed-files.txt", "public-scan.py", "nor_fingerprint.py", "game_data.py", "public-scan-allow.txt"):
                 shutil.copy(HERE / f, os.path.join(src, "tools", f))
             shutil.copy(HERE / "commit_tests" / "checks" / "private.py", os.path.join(src, "tools", "commit_tests", "checks", "private.py"))
             Path(src, "tools", "public-strip-blobs.txt").write_text("")
@@ -473,9 +503,7 @@ class PublicScan(unittest.TestCase):
                             "--allow", self.allow, *extra], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         return r.returncode, r.stdout
 
-    def test_nor_dump_by_content(self):
-        """a renamed or compressed fake dump in the history: found by its hashed windows, binary blobs included"""
-        import gzip
+    def fake_dump(self):
         sys.path.insert(0, str(HERE))
         import nor_fingerprint
         dump = os.urandom(2 << 20)
@@ -483,14 +511,45 @@ class PublicScan(unittest.TestCase):
         d.write_bytes(dump)
         fp = os.path.join(self.tmp.name, "fp.txt")
         Path(fp).write_text(nor_fingerprint.make(str(d)))
-        self.commit({"x/flash.dat": dump, "y/z.gz": gzip.compress(dump), "ok/other.dat": os.urandom(2 << 20)})
+        return dump, fp
+
+    def test_nor_dump_by_content_is_fatal_without_enforce(self):
+        """a renamed or compressed fake dump in the history: found by its hashed windows, binary blobs included,
+        and it stops the export in the default warn-only mode too (the dump is never uploaded); other findings
+        stay warnings"""
+        import gzip
+        dump, fp = self.fake_dump()
+        self.commit({"x/flash.dat": dump, "y/z.gz": gzip.compress(dump), "ok/other.dat": os.urandom(2 << 20),
+                     "data/blob.bin": self.SECRET_BLOB})
+        rc, out = self.scan("--fingerprint", fp)
+        self.assertEqual(rc, 1, out)
+        self.assertIn("FOUND x/flash.dat: the NOR dump by content", out)
+        self.assertIn("FOUND y/z.gz: the NOR dump by content", out)
+        self.assertIn("WARN data/blob.bin: looks like", out)
+        self.assertNotIn("ok/other.dat", out)
+
+    def test_other_findings_stay_warn_only(self):
+        _, fp = self.fake_dump()
+        self.commit({"data/blob.bin": self.SECRET_BLOB})
         rc, out = self.scan("--fingerprint", fp)
         self.assertEqual(rc, 0, out)
-        self.assertIn("WARN x/flash.dat: the NOR dump by content", out)
-        self.assertIn("WARN y/z.gz: the NOR dump by content", out)
-        self.assertNotIn("ok/other.dat", out)
-        rc, out = self.scan("--fingerprint", fp, "--enforce")
+
+    def test_lfs_object_content_is_checked(self):
+        """a dump renamed into an LFS-tracked path: the pointer is followed to the object in the store"""
+        import hashlib
+        dump, fp = self.fake_dump()
+        oid = hashlib.sha256(dump).hexdigest()
+        store = Path(self.tmp.name, "lfs")
+        (store / oid[:2] / oid[2:4]).mkdir(parents=True)
+        (store / oid[:2] / oid[2:4] / oid).write_bytes(dump)
+        ptr = ("version https://git-lfs.github.com/spec/v1\noid sha256:%s\nsize %d\n" % (oid, len(dump))).encode()
+        self.commit({"gamedb/games/g/rating/sessions/s/shots/a.jpg": ptr})
+        rc, out = self.scan("--fingerprint", fp, "--lfs", str(store))
         self.assertEqual(rc, 1, out)
+        self.assertIn("FOUND gamedb/games/g/rating/sessions/s/shots/a.jpg: the NOR dump by content", out)
+        rc, out = self.scan("--fingerprint", fp, "--lfs", str(store / "nowhere"))
+        self.assertEqual(rc, 0, out)
+        self.assertIn("WARN gamedb/games/g/rating/sessions/s/shots/a.jpg: not looked into: a Git LFS pointer", out)
 
     def test_clean(self):
         self.commit({})
