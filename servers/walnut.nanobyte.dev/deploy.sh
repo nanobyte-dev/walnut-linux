@@ -103,7 +103,7 @@ ssh "$host" "umask 022; mkdir -p $DIR/aptcache-data
 # walnut-watch refuses everything without the server's rules (deploy.sh --rules): do not install a server that would
 ssh "$host" "[ -s $DIR/rules/ownership.toml ] && [ -s $DIR/rules/protected-names.txt ] && [ -s $DIR/rules/pins.json ]" ||
 	{ echo "!! no rules/ownership.toml (or protected-names.txt, pins.json) on the server: run deploy.sh --rules COMMIT first" >&2; exit 1; }
-rsync -t --chmod=755 walnut-watch walnut_checks.py ../../github-ci/walnut_lists.py "$host:$DIR/bin/"
+rsync -t --chmod=755 walnut-watch walnut_checks.py server-apply.sh ../../github-ci/walnut_lists.py "$host:$DIR/bin/"
 # the public keys: archive (releases, stable, licensed) and CI (testing only); a suite whose key is
 # missing is refused
 for k in ../../apt-repo/keyrings/{archive,testing}-keyring.gpg; do
@@ -157,44 +157,14 @@ if [ $MODE = managed ]; then
 	rsync -t systemd/walnut-upload.service "$host:$DIR/state/"
 	units="$units walnut-upload.service"
 fi
-ssh "$host" "set -e
-	for u in $units; do
-		cmp -s $DIR/state/\$u /etc/systemd/system/\$u || sudo -n install -m 644 $DIR/state/\$u /etc/systemd/system/\$u
-		rm $DIR/state/\$u
-	done
-	sudo -n systemctl daemon-reload
-	sudo -n systemctl reset-failed walnut-watch.path walnut-watch.service || true
-	sudo -n systemctl restart walnut-watch.path
-	sudo -n systemctl enable --now walnut-watch.path walnut-watch.timer walnut-ccache-trim.timer >/dev/null
-	systemctl is-active walnut-watch.path walnut-watch.timer walnut-ccache-trim.timer | xargs echo '>> watcher, trim:'
-	if [ $MODE = managed ]; then
-		sudo -n systemctl enable walnut-upload.service >/dev/null
-		sudo -n systemctl restart walnut-upload.service
-		systemctl is-active walnut-upload.service | xargs echo '>> upload:'
-	fi"
+ssh "$host" "DIR=$DIR MODE=$MODE UNITS='$units' $DIR/bin/server-apply.sh units"
 # fail2ban's walnut-upload jail (bans in DOCKER-USER, like nginx-scanners)
 rsync -t fail2ban/walnut-upload.filter fail2ban/walnut-upload.jail fail2ban/walnut-401.filter fail2ban/walnut-401.jail "$host:$DIR/state/"
-ssh "$host" "set -e
-	cmp -s $DIR/state/walnut-upload.filter /etc/fail2ban/filter.d/walnut-upload.conf || sudo -n install -m 644 $DIR/state/walnut-upload.filter /etc/fail2ban/filter.d/walnut-upload.conf
-	cmp -s $DIR/state/walnut-upload.jail /etc/fail2ban/jail.d/walnut-upload.conf || sudo -n install -m 644 $DIR/state/walnut-upload.jail /etc/fail2ban/jail.d/walnut-upload.conf
-	cmp -s $DIR/state/walnut-401.filter /etc/fail2ban/filter.d/walnut-401.conf || sudo -n install -m 644 $DIR/state/walnut-401.filter /etc/fail2ban/filter.d/walnut-401.conf
-	[ -e /etc/fail2ban/jail.d/walnut-401.conf ] || sudo -n install -m 644 $DIR/state/walnut-401.jail /etc/fail2ban/jail.d/walnut-401.conf   # shipped disabled; never overwritten once the sitting has set it up
-	rm $DIR/state/walnut-upload.filter $DIR/state/walnut-upload.jail $DIR/state/walnut-401.filter $DIR/state/walnut-401.jail
-	sudo -n fail2ban-client reload >/dev/null
-	sudo -n fail2ban-client status walnut-upload | grep -E 'Currently (failed|banned)' | xargs echo '>> fail2ban walnut-upload:'"
+ssh "$host" "DIR=$DIR $DIR/bin/server-apply.sh fail2ban"
 # a site already published: rebuild it with this config (else the first `make walnut-site` starts it)
 ssh "$host" "grep -q WALNUT_SITE_TAG= $DIR/.env 2>/dev/null && $DIR/bin/walnut-watch --rebuild || echo '>> no site yet: make walnut-site'"
 
 rsync -t "$CONF" "$host:$DIR/$CONF"
-ssh "$host" "set -e
-	[ ! -e $PROXY/$CONF ] || cp -p $PROXY/$CONF $PROXY/$CONF.bak
-	cp $DIR/$CONF $PROXY/$CONF
-	if docker exec main-proxy nginx -t 2>&1 | tail -1; then
-		docker exec main-proxy nginx -s reload && echo '>> main-proxy reloaded'
-	else
-		echo '!! nginx -t failed: the old config is back, nothing reloaded' >&2
-		if [ -e $PROXY/$CONF.bak ]; then mv $PROXY/$CONF.bak $PROXY/$CONF; else rm -f $PROXY/$CONF; fi
-		exit 1
-	fi"
+ssh "$host" "DIR=$DIR PROXY=$PROXY CONF=$CONF $DIR/bin/server-apply.sh proxy"
 # what the headers promise, from outside: a failed check fails the deploy
 ./check-headers.sh

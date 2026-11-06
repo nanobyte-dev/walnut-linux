@@ -291,6 +291,11 @@ run = ["python3", "-I", "tools/gamedb/game-mentions.py"]
 warn_unless = ": 0 sections"
 
 [[suite]]
+name = "server-apply"
+what = "servers/walnut.nanobyte.dev/server-apply.sh in its dry mode (fail2ban, units, proxy: what it would install and restart), its refusals, and that deploy.sh runs those steps from the uploaded file"
+run = ["python3", "-I", "servers/walnut.nanobyte.dev/test_server_apply.py"]
+
+[[suite]]
 name = "walnut-repo"
 what = "apt-repo/walnut-repo.py against the real walnut-watch: testing, stable and the password-protected licensed suite"
 run = ["python3", "apt-repo/test_walnut_repo.py"]

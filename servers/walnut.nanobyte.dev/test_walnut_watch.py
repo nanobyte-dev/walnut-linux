@@ -1157,7 +1157,9 @@ class Conf(unittest.TestCase):
 		# the upload unit is installed and enabled only in managed mode, and compose never starts the container then
 		self.assertIn("if [ $MODE = managed ]; then\n\trsync -t systemd/walnut-upload.service", d)
 		self.assertIn("docker compose create walnut-upload", d)
-		self.assertIn("sudo -n systemctl enable walnut-upload.service", d)
+		self.assertIn("MODE=$MODE UNITS='$units' $DIR/bin/server-apply.sh units", d)
+		apply = slurp(f"{self.here}/server-apply.sh")
+		self.assertIn('if [ "$MODE" = managed ]; then\n\t\troot systemctl enable walnut-upload.service', apply)
 		self.assertNotIn("systemd/walnut-upload.service systemd/walnut-ccache-trim", d)
 
 	def test_deploy_sh_order(self):
