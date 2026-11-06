@@ -21,3 +21,15 @@ what = "Monthly pin check: the Debian snapshot date, the 6.12 kernel point relea
 [[reminder]]
 due = "2027-08-21"
 what = "The archive signing subkey expires 2027-10-21: extend it with the offline primary key, publish the new keyring (apt-repo/keyrings and ps3-system's copy), and update the GitHub secret."
+
+[[reminder]]
+due = "2026-11-13"
+what = "Delete the V1/V2 deploy's leftovers: ~/.ssh/walnut-deploy-github and the server backups in /data/nanobyte/Walnut/backups/."
+
+[[reminder]]
+due = "2026-11-20"
+what = "After the first real stable publish (the next Walnut release; this date if none by then): check the walnut-watch journal for the stable-key/apt line."
+
+[[reminder]]
+due = "2026-11-20"
+what = "At the next sitting: run the licensed path's V1 dry run (it needs the archive key's passphrase)."
