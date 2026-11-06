@@ -1,10 +1,12 @@
 #!/bin/sh
 set -e
 if [ "$1" = configure ]; then
-	# The sudoers drop-in must parse, or it would break sudo for everyone (no sudo, no check: the file is inert)
-	if command -v visudo >/dev/null && ! visudo -cf /etc/sudoers.d/ps3-desktop >/dev/null; then
-		echo "ps3-desktop: /etc/sudoers.d/ps3-desktop does not parse: removed" >&2
-		rm -f /etc/sudoers.d/ps3-desktop
+	# The sudoers drop-in must parse, or it would break sudo for everyone. If it doesn't (a sudo that
+	# disagrees with the build's visudo check), it is renamed, not deleted: sudo skips names with a dot, and
+	# dpkg (it is a conffile) would not put a deleted one back.
+	if [ -e /etc/sudoers.d/ps3-desktop ] && ! visudo -cf /etc/sudoers.d/ps3-desktop >/dev/null; then
+		mv -f /etc/sudoers.d/ps3-desktop /etc/sudoers.d/ps3-desktop.disabled
+		echo "ps3-desktop: /etc/sudoers.d/ps3-desktop does not parse: moved to ps3-desktop.disabled (sudo ignores it). Put it back with mv once it parses, or: apt install --reinstall -o Dpkg::Options::=--force-confmiss ps3-desktop" >&2
 	fi
 	# Any console user may start X; the legacy wrapper runs it with root rights (KMS, input)
 	echo "xserver-xorg-legacy xserver-xorg-legacy/xwrapper/allowed_users select anybody" | debconf-set-selections

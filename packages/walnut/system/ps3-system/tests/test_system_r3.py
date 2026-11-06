@@ -86,7 +86,8 @@ class Docs(unittest.TestCase):
 
 
 class SudoersPostinst(unittest.TestCase):
-    """The three postinsts that drop their own sudoers file when it does not parse."""
+    """The three postinsts: a drop-in that does not parse is renamed to <pkg>.disabled (never deleted: it is a
+    conffile, dpkg would not restore it), and only that one; a missing file says nothing."""
     PKGS = {"ps3-desktop": "packages/walnut/system/ps3-desktop", "walnut-rate": "packages/walnut/apps/walnut-rate",
             "walnut-games": "packages/walnut/apps/walnut-games"}
 
@@ -96,34 +97,37 @@ class SudoersPostinst(unittest.TestCase):
         self.assertTrue(m, name)
         return m.group(0)
 
-    def run_block(self, name, visudo_rc):
+    def run_block(self, name, visudo_rc, present=True):
         t = Path(tempfile.mkdtemp(prefix="sudoers-"))
         self.addCleanup(shutil.rmtree, t, True)
         (t / "d").mkdir()
-        (t / "d" / name).write_text("x\n")
+        if present:
+            (t / "d" / name).write_text("x\n")
         (t / "d" / "other").write_text("y\n")
         b = t / "bin"
         b.mkdir()
-        (b / "rm").symlink_to(shutil.which("rm"))
-        if visudo_rc is not None:
-            (b / "visudo").write_text("#!/bin/sh\nexit %d\n" % visudo_rc)
-            (b / "visudo").chmod(0o755)
+        for tool in ("mv", "rm"):
+            (b / tool).symlink_to(shutil.which(tool))
+        (b / "visudo").write_text("#!/bin/sh\nexit %d\n" % visudo_rc)
+        (b / "visudo").chmod(0o755)
         script = self.block(name).replace("/etc/sudoers.d", str(t / "d"))
-        subprocess.run(["/bin/sh", "-c", script], env={"PATH": "%s:/usr/bin:/bin" % b if visudo_rc is not None else str(b)},
-                       capture_output=True, text=True)
-        return sorted(x.name for x in (t / "d").iterdir())
+        p = subprocess.run(["/bin/sh", "-c", script], env={"PATH": str(b)}, capture_output=True, text=True)
+        return sorted(x.name for x in (t / "d").iterdir()), p.stderr
 
     def test_a_file_that_parses_stays(self):
         for n in self.PKGS:
-            self.assertEqual(self.run_block(n, 0), sorted([n, "other"]), n)
+            self.assertEqual(self.run_block(n, 0)[0], sorted([n, "other"]), n)
 
-    def test_a_file_that_does_not_parse_goes_alone(self):
+    def test_a_file_that_does_not_parse_is_renamed_alone(self):
         for n in self.PKGS:
-            self.assertEqual(self.run_block(n, 1), ["other"], n)
+            files, err = self.run_block(n, 1)
+            self.assertEqual(files, sorted([n + ".disabled", "other"]), n)
+            self.assertIn("force-confmiss", err)
 
-    def test_no_visudo_leaves_the_file(self):
+    def test_a_missing_file_says_nothing(self):
         for n in self.PKGS:
-            self.assertEqual(self.run_block(n, None), sorted([n, "other"]), n)
+            files, err = self.run_block(n, 1, present=False)
+            self.assertEqual((files, err), (["other"], ""), n)
 
 
 class ResearchModules(unittest.TestCase):
