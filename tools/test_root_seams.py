@@ -7,6 +7,10 @@ root half is skipped. python3 -I tools/test_root_seams.py"""
 import os, shutil, subprocess, sys, tempfile, unittest
 from pathlib import Path
 
+# The root helpers ignore their test seams as root (they would act on this host's /etc and swap): never run as root.
+if os.geteuid() == 0:
+    sys.exit("%s: refuses to run as root (the scripts under test ignore their test seams as root and would touch this host)" % __file__)
+
 ROOT = Path(__file__).resolve().parent.parent
 IMGMAP = ROOT / "tools/ssdimg/ps3-imgmap"
 VSWAP = ROOT / "packages/walnut/system/ps3-system/files/sbin/ps3-vswap"
@@ -107,6 +111,19 @@ class Seams(unittest.TestCase):
         b, r, log = self.vswap_fixture()
         self.run_cmd(["sh", str(VSWAP)], True, {"PS3_VSWAP_BIN": str(b), "PS3_VSWAP_ROOT": str(r)})
         self.assertFalse(log.exists())
+
+
+class Lint(unittest.TestCase):
+    def test_vswap_fixes_its_path_before_it_runs_anything(self):
+        lines = VSWAP.read_text().splitlines()
+        path = next(i for i, l in enumerate(lines) if l.startswith("PATH=/usr/sbin"))
+        first = next(i for i, l in enumerate(lines) if "id -u" in l)
+        self.assertLess(path, first)
+
+    def test_root_refusal_in_the_suites(self):
+        for f in (ROOT / "tools/test_root_seams.py", ROOT / "tools/ssdimg/test_ssdimg.py",
+                  ROOT / "packages/walnut/system/ps3-boot/tests/test_kboot.py"):
+            self.assertIn("os.geteuid() == 0", f.read_text(), str(f))
 
 
 if __name__ == "__main__":

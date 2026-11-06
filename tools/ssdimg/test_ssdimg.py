@@ -18,6 +18,10 @@ import sys
 import unittest
 import uuid
 import zlib
+
+# The root helpers ignore their test seams as root (they would act on this host's /etc and swap): never run as root.
+if os.geteuid() == 0:
+    sys.exit("%s: refuses to run as root (the scripts under test ignore their test seams as root and would touch this host)" % __file__)
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
