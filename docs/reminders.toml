@@ -4,7 +4,7 @@
 
 [[reminder]]
 due = "2026-11-10"
-what = "Review the apt cache's \"outside the snapshot allowlist\" log lines, then switch the allowlist to refusing (servers/walnut.nanobyte.dev/repo.conf)."
+what = "Review the apt cache's \"outside the snapshot allowlist\" log lines and fix the allowlist (servers/walnut.nanobyte.dev/repo.conf); it stays log-only until the switch to refusing on docs/release/ALPHA.md's before-release list."
 
 [[reminder]]
 due = "2027-03-01"
