@@ -269,6 +269,64 @@ class Shell(Base):
         self.good("shell")
 
 
+class NorDumpContent(Base):
+    """the NOR dump by content: a fake dump (random, 2 MiB) renamed, compressed, zipped or tarred"""
+
+    @classmethod
+    def setUpClass(cls):
+        sys.path.insert(0, str(REPO / "tools"))
+        import nor_fingerprint
+        cls.nf = nor_fingerprint
+        cls.dump = os.urandom(2 << 20)
+
+    def setUp(self):
+        super().setUp()
+        d = Path(tempfile.mkdtemp(prefix="nor-fp-"))
+        self.addCleanup(shutil.rmtree, d, True)
+        (d / "dump").write_bytes(self.dump)
+        (self.r.dir / "tools/nor-fingerprint.local.txt").write_text(self.nf.make(str(d / "dump")))
+
+    def stage(self, name, data):
+        self.r.write(name, data)
+        self.r.add(name)
+
+    def test_renamed_copy(self):
+        self.stage("tests/fixtures/flash.dat", self.dump)
+        self.bad("private", "the NOR dump by content")
+
+    def test_compressed_and_archived_copies(self):
+        import bz2, gzip, io, lzma, tarfile, zipfile
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+            z.writestr("x/nor", self.dump)
+        tb = io.BytesIO()
+        with tarfile.open(fileobj=tb, mode="w:gz") as t:
+            ti = tarfile.TarInfo("backups/nor")
+            ti.size = len(self.dump)
+            t.addfile(ti, io.BytesIO(self.dump))
+        for name, data in (("a.gz", gzip.compress(self.dump)), ("a.xz", lzma.compress(self.dump)), ("a.bz2", bz2.compress(self.dump)),
+                           ("a.zip", buf.getvalue()), ("a.tgz", tb.getvalue()), ("noext", gzip.compress(self.dump))):
+            with self.subTest(name):
+                self.r.git("reset", "-q")
+                self.stage("t/" + name, data)
+                errs = self.r.errors(["private"])
+                self.assertTrue(any("the NOR dump by content" in f[3] and f[2] == "t/" + name for f in errs), (name, errs))
+
+    def test_truncated_copy_with_a_window(self):
+        self.stage("t/part.dat", self.dump[:1 << 21])
+        self.bad("private", "the NOR dump by content")
+
+    def test_other_binary_is_fine(self):
+        self.stage("t/other.dat", os.urandom(2 << 20))
+        self.assertEqual(self.r.errors(["private"]), [])
+
+    def test_no_fingerprint_only_warns(self):
+        (self.r.dir / "tools/nor-fingerprint.local.txt").unlink()
+        self.stage("t/flash.dat", self.dump)
+        self.assertEqual(self.r.errors(["private"]), [])
+        self.assertTrue(any("no tools/nor-fingerprint.local.txt" in f[3] for f in self.r.run(["private"])))
+
+
 class Private(Base):
     def test_added_line(self):
         self.r.write("doc.md", "the console's id is %s\n" % self.r.token)

@@ -9,6 +9,9 @@
     commit is refused. Binary files are scanned as bytes (up to 64 MB each).
     A finding names the list and its line, never the text it matched;
   - secrets: private key blocks, GitHub, GitLab, AWS, Slack, Google and Anthropic/OpenAI API tokens;
+  - the NOR dump by content: a blob (or a .gz/.xz/.bz2/.zst/.zip/.tar member of one, two levels deep, up to
+    64 MB out) whose hashed windows or SHA-256 match tools/nor-fingerprint.local.txt (untracked, mode 600, made
+    by tools/nor_fingerprint.py make; hashes only). Without that file a warning says the content check is off;
   - new paths under backups/ (the NOR dump), firmware/ or .local/ (at any depth), and files the public
     export refuses by name (.bin, .img, .pup, .nor, .nand: flash dumps and disk images);
   - images under gamedb/games/**/rating/ committed as files instead of Git LFS pointers;
@@ -24,6 +27,8 @@ NAME = "private"
 TARGETS = ("**",)
 SHARED_INPUTS = ()
 REPLACE = "tools/public-replace.local.txt"
+FINGERPRINT = "tools/nor-fingerprint.local.txt"
+MIN_CONTENT = 64 << 10     # smaller files can't hold a dump, or an archive of one
 LOCAL = "tools/commit-private.local.txt"
 PRIVATE_DIRS = ("backups/", "firmware/", ".local/")
 DUMP_RE = re.compile(r"\.(bin|img|pup|nor|nand)$", re.I)
@@ -232,7 +237,61 @@ def licensed_hits(ctx, paths):
     return hits
 
 
+def nor_module():
+    """tools/nor_fingerprint.py, found beside this check's own tools/ (a scratch repository has none)"""
+    import importlib.util
+    path = Path(__file__).resolve().parents[2] / "nor_fingerprint.py"
+    spec = importlib.util.spec_from_file_location("nor_fingerprint", str(path))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def fingerprints(ctx):
+    """(module, [fingerprints]): this worktree's (else the main worktree's) list and $WALNUT_NOR_FINGERPRINT;
+    ([], warns) when there is none"""
+    nf = nor_module()
+    paths = []
+    own = private_list(ctx, FINGERPRINT)
+    if own:
+        paths.append(own)
+    extra = os.environ.get("WALNUT_NOR_FINGERPRINT")
+    if extra and os.path.isfile(extra) and not (own and os.path.samefile(own, extra)):
+        paths.append(extra)
+    fps = []
+    for path in paths:
+        try:
+            fps.append(nf.load(path))
+        except (OSError, ValueError) as e:
+            ctx.error(None, "the NOR fingerprint list can't be read: %s" % e)
+    if not paths:
+        ctx.warn(None, "no %s: the NOR dump is only recognised by its path and extension, not by its content "
+                 "(python3 -I tools/nor_fingerprint.py make backups/<dump>)" % FINGERPRINT)
+    return nf, fps
+
+
+def content_checks(ctx, files):
+    nf, fps = fingerprints(ctx)
+    if not fps:
+        return
+    for c in files:
+        if c.status not in ("A", "M", "R", "*"):
+            continue
+        b = ctx.staged_bytes(c.path)
+        if b is None or len(b) < MIN_CONTENT:
+            continue
+        if len(b) > 64 << 20:
+            ctx.warn(c.path, "larger than 64 MB: not looked into for the NOR dump's content")
+            continue
+        hits, notes = nf.check_blob(fps, b, c.path)
+        for where, what in hits:
+            ctx.error(c.path, "the NOR dump by content (%s: %s): it never goes into the repository" % (where, what))
+        for n in notes:
+            ctx.warn(c.path, n)
+
+
 def run(ctx, files):
+    content_checks(ctx, files)
     pats = patterns(ctx)
     if pats is not None:
         for path, lines in sorted(added_lines(ctx).items()):

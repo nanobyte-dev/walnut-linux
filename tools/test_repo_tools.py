@@ -449,6 +449,25 @@ class PublicScan(unittest.TestCase):
                             "--allow", self.allow, *extra], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         return r.returncode, r.stdout
 
+    def test_nor_dump_by_content(self):
+        """a renamed or compressed fake dump in the history: found by its hashed windows, binary blobs included"""
+        import gzip
+        sys.path.insert(0, str(HERE))
+        import nor_fingerprint
+        dump = os.urandom(2 << 20)
+        d = Path(self.tmp.name, "dump")
+        d.write_bytes(dump)
+        fp = os.path.join(self.tmp.name, "fp.txt")
+        Path(fp).write_text(nor_fingerprint.make(str(d)))
+        self.commit({"x/flash.dat": dump, "y/z.gz": gzip.compress(dump), "ok/other.dat": os.urandom(2 << 20)})
+        rc, out = self.scan("--fingerprint", fp)
+        self.assertEqual(rc, 0, out)
+        self.assertIn("WARN x/flash.dat: the NOR dump by content", out)
+        self.assertIn("WARN y/z.gz: the NOR dump by content", out)
+        self.assertNotIn("ok/other.dat", out)
+        rc, out = self.scan("--fingerprint", fp, "--enforce")
+        self.assertEqual(rc, 1, out)
+
     def test_clean(self):
         self.commit({})
         rc, out = self.scan("--enforce")

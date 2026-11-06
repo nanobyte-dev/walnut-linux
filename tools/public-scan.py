@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """public-scan.py REPO [--replace FILE] [--allow FILE] [--enforce]: the public export's post-scan. It
 reads every object of every ref in REPO (blobs of any kind, binary ones too, commit and tag messages)
-and looks for what must never be public: a match of the private replace list (tools/public-replace.local.txt,
+and looks for what must never be public: the NOR dump by content (tools/nor-fingerprint.local.txt, made by tools/nor_fingerprint.py: hashed windows and
+the SHA-256 of the dump, looked for in every blob and inside .gz/.xz/.bz2/.zst/.zip/.tar members, binary blobs
+filter-repo never rewrites included; --fingerprint FILE, $WALNUT_NOR_FINGERPRINT adds one; none: a note on stderr),
+a match of the private replace list (tools/public-replace.local.txt,
 the same patterns the commit hook reads, tools/commit_tests/checks/private.py load_patterns) and a secret
 (the hook's SECRETS: key blocks, tokens, passwords in URLs, netrc logins).
 
@@ -28,6 +31,13 @@ MAX_BLOB = 64 << 20
 
 def load_private():
     spec = importlib.util.spec_from_file_location("private", os.path.join(HERE, "commit_tests", "checks", "private.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def load_nor():
+    spec = importlib.util.spec_from_file_location("nor_fingerprint", os.path.join(HERE, "nor_fingerprint.py"))
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
@@ -119,7 +129,7 @@ def batch(repo, shas):
     p.wait()
 
 
-def scan(repo, patterns, secrets, allow):
+def scan(repo, patterns, secrets, allow, nor=None, fps=()):
     findings = []
     seen = set()
     objs = objects(repo)
@@ -150,6 +160,12 @@ def scan(repo, patterns, secrets, allow):
         for label, rx in patterns:
             if rx.search(data):
                 findings.append((where, "matches a private pattern (%s)" % label, "private"))
+        if fps and len(data) >= 64 << 10:
+            hits, notes = nor.check_blob(fps, data, where)
+            for w, h in hits:
+                findings.append((where, "the NOR dump by content (%s: %s)" % (w, h), "private"))
+            for n in notes:
+                findings.append((where, "not looked into: " + n, "private"))
         every = set(where_added.get(sha, ())) | ({paths[sha]} if paths[sha] else set())
         if every and all(q in allow for q in every):
             continue
@@ -165,6 +181,7 @@ def main(argv):
     ap.add_argument("repo")
     ap.add_argument("--replace", default=os.environ.get("WALNUT_PUBLIC_REPLACE") or os.path.join(HERE, "public-replace.local.txt"))
     ap.add_argument("--allow", default=os.path.join(HERE, "public-scan-allow.txt"))
+    ap.add_argument("--fingerprint", default=None, help="the NOR fingerprint (default: tools/nor-fingerprint.local.txt)")
     ap.add_argument("--enforce", action="store_true")
     a = ap.parse_args(argv)
     try:
@@ -174,7 +191,16 @@ def main(argv):
         patterns = private.load_patterns(a.replace, "the private replace list")
         if not patterns:
             raise OSError("the private replace list has no pattern")
-        findings = scan(a.repo, patterns, private.SECRETS, read_allow(a.allow))
+        nor = load_nor()
+        fpaths = [a.fingerprint or os.path.join(HERE, "nor-fingerprint.local.txt")]
+        extra = os.environ.get("WALNUT_NOR_FINGERPRINT")
+        if extra and extra not in fpaths:
+            fpaths.append(extra)
+        fps = [nor.load(q) for q in fpaths if os.path.isfile(q)]
+        if not fps:
+            print("public-scan: note: no NOR fingerprint (tools/nor-fingerprint.local.txt): the dump is not looked for by content",
+                  file=sys.stderr)
+        findings = scan(a.repo, patterns, private.SECRETS, read_allow(a.allow), nor, fps)
     except (OSError, ValueError) as e:  # ValueError: a bad allow file
         print("!! public-scan: %s" % e, file=sys.stderr)
         return 2
