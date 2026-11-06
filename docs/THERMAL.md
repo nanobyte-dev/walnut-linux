@@ -88,7 +88,7 @@ Still upstream behaviour: `final_power_off` does not send `set_attr(0)` first (r
 
 Each temperature read is one SM request. At one read per zone per second that is two small messages a second on a port that otherwise carries a few events per boot.
 
-`ps3-sm-temp.sh` prints the temperatures from hwmon. Its `--raw` mode used `/dev/ps3sysmngr`, which our kernels no longer have (see [History](#history)).
+`ps3-sm-temp.sh` prints the temperatures from hwmon. (The `--raw` mode that used `/dev/ps3sysmngr` is gone with the device, see [History](#history).)
 
 ## The fan driver (local/0042)
 

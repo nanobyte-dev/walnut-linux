@@ -9,6 +9,14 @@ set -euo pipefail
 # execute a shifted fragment.
 {
 PKG=$1 N=$2 DATE=$3 HASH=${4:-}
+MAINTAINER_EMAIL="chibicitiberiu@gmail.com" MAINTAINER_NAME="Tiberiu Chibici"
+dch_in() {	# dch_in TREE DCH_ARGS...: a changelog entry in TREE by the project's maintainer
+	local t=$1; shift
+	(cd "$t" && DEBEMAIL=$MAINTAINER_EMAIL DEBFULLNAME=$MAINTAINER_NAME dch "$@" 2>/dev/null)
+}
+changelog_date() {	# the newest entry of TREE's changelog dated with DATE (the commit's)
+	python3 -I tools/changelog-date.py "$1/debian/changelog" "$DATE"
+}
 PD=$(tools/pkg-dir.sh "$PKG")	# its directory under packages/
 . "$PD/package.conf"
 OUT=build/src/$PKG
@@ -43,16 +51,9 @@ if [ "$TYPE" = native ]; then
 			rm "$f"
 		done
 	fi
-	(cd "$T" && DEBEMAIL="chibicitiberiu@gmail.com" DEBFULLNAME="Tiberiu Chibici" \
-		dch --create --package "$SOURCE" -v "$NEWVER" --distribution ps3 --force-distribution \
-		"Built from the ps3 project, ${HASH:-local}." 2>/dev/null)
-	python3 - "$T/debian/changelog" "$DATE" <<'PY2'
-import re, sys
-p, date = sys.argv[1:]
-s = open(p).read()
-s = re.sub(r'^( -- .*>)  .*$', lambda m: m.group(1) + '  ' + date, s, count=1, flags=re.M)
-open(p, 'w').write(s)
-PY2
+	dch_in "$T" --create --package "$SOURCE" -v "$NEWVER" --distribution ps3 --force-distribution \
+		"Built from the ps3 project, ${HASH:-local}."
+	changelog_date "$T"
 	(cd "$OUT" && dpkg-source -q -b "$SOURCE-$NEWVER" >/dev/null)
 	echo ">> $OUT/${SOURCE}_${NEWVER}.dsc"
 	exit 0
@@ -106,16 +107,9 @@ if [ "$TYPE" = upstream ]; then
 			patch -d "$T" -p1 -s --no-backup-if-mismatch < "$PD/patches/$p"
 		done < "$PD/patches/series"
 	fi
-	(cd "$T" && DEBEMAIL="chibicitiberiu@gmail.com" DEBFULLNAME="Tiberiu Chibici" \
-		dch --create --package "$SOURCE" -v "$NEWVER" --distribution ps3 --force-distribution \
-		"Built from the ps3 project, ${HASH:-local}." 2>/dev/null)
-	python3 - "$T/debian/changelog" "$DATE" <<'PY2'
-import re, sys
-p, date = sys.argv[1:]
-s = open(p).read()
-s = re.sub(r'^( -- .*>)  .*$', lambda m: m.group(1) + '  ' + date, s, count=1, flags=re.M)
-open(p, 'w').write(s)
-PY2
+	dch_in "$T" --create --package "$SOURCE" -v "$NEWVER" --distribution ps3 --force-distribution \
+		"Built from the ps3 project, ${HASH:-local}."
+	changelog_date "$T"
 	(cd "$OUT" && dpkg-source -q -b "$(basename "$T")" >/dev/null)
 	echo ">> $OUT/${SOURCE}_${NEWVER}.dsc"
 	exit 0
@@ -153,17 +147,10 @@ if [ "$SOURCE" = mesa ]; then make -s -C "$T" -f debian/rules regen_control; fi
 
 # --preserve: a native source (format 3.0 (native), e.g. game-data-packager) has no revision, so
 # its whole version changes and dch would rename the tree to <source>-<new version>
-(cd "$T" && DEBEMAIL="chibicitiberiu@gmail.com" DEBFULLNAME="Tiberiu Chibici" \
-	dch -v "$NEWVER" --preserve --distribution ps3 --force-distribution --no-auto-nmu --force-bad-version \
-	"PS3 build: patches from the ps3 project, ${HASH:-local}." 2>/dev/null)
+dch_in "$T" -v "$NEWVER" --preserve --distribution ps3 --force-distribution --no-auto-nmu --force-bad-version \
+	"PS3 build: patches from the ps3 project, ${HASH:-local}."
 # the entry's date: the commit's, so the same checkout gives the same SOURCE_DATE_EPOCH
-python3 - "$T/debian/changelog" "$DATE" <<'PY2'
-import re, sys
-p, date = sys.argv[1:]
-s = open(p).read()
-s = re.sub(r'^( -- .*>)  .*$', lambda m: m.group(1) + '  ' + date, s, count=1, flags=re.M)
-open(p, 'w').write(s)
-PY2
+changelog_date "$T"
 # Package-specific: the kernel (packages/patched/kernel/linux/package.conf FLAVOURS). The ABI name gets +ps3.<N> (package
 # names can't have '~': a test build's <n>~dev<stamp> becomes <n>.dev<stamp>), the debug release
 # -debug<stamp> (the date of the commit the version stands for, or of now for a dirty tree, as

@@ -67,7 +67,7 @@ of another handler (apport) is only noted.
 
 Analysis on the PC: `bench/analysis/dumpana.sh <run dir copied from the PS3>` builds a sysroot in
 `build/tmp/dumpana/` (base libraries from `build/chroot/sid-ppc64.tar`, then the packages and `-dbgsym` debs
-at the versions in the run's `versions` file, from build/debs, build/aptly/pool, build/apt-cache; libc6
+at the versions in the run's `versions` file, from build/debs, build/apt-cache; libc6
 symbols come from debuginfod.debian.net; the game's executable and any other mapped file the sysroot
 lacks, libasound for one, from the PS3 image `build/rootfs/debian-ppc64.tar`), runs gdb on the core with
 the executable (without it gdb loads no shared libraries) and writes `dump/analysis.txt`: the sound

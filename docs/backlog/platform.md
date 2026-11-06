@@ -339,7 +339,7 @@ data split on an upgrade, supertuxkart, teeworlds, ps3-system and ps3-desktop, p
 `kboot.conf`, plymouth's cold boot).
 
 - **Payoff:** the games reachable from stable. **Effort:** M.
-- **Risk:** the publish is forever (official versions are kept): back up `build/aptly` first, an
+- **Risk:** the publish is forever (official versions are kept): an
   explicit `DEBS=` list, no `~dev` version, the user's OK.
 - **Needs:** the user (the session and the OK), then host.
 - **Status:** superseded: the LAN `ps3` suite this publish was for was retired on 2026-10-26;

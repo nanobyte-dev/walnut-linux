@@ -10,7 +10,7 @@
 here=$(cd "$(dirname "$0")/.." && pwd)
 repo=$(cd "$here/../../../.." && pwd)
 W=${1:-$(mktemp -d)}
-rm -rf "$W/usr" "$W/run" "$W/integration" "$W/diverted"; mkdir -p "$W/usr/share/applications" "$W/run"
+rm -rf "${W:?}/usr" "${W:?}/run" "${W:?}/integration" "${W:?}/diverted"; mkdir -p "$W/usr/share/applications" "$W/run"
 cp "$here"/files/applications/*.desktop "$W/usr/share/applications/"
 python3 -I "$repo/tools/gamedb/pack-integration.py" --out "$W/integration.tar" --licensed-out '' \
 	--tree "$W/integration" >/dev/null || exit 1

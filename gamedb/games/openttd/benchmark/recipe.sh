@@ -80,7 +80,7 @@ ot_cmd() {
 	if [ "$OT_GAME" = play ]; then CMD+=(-g "$ASSETS/$OT_SAVE"); fi
 }
 # SDL3's accelerated window framebuffer (a GL texture) shows wrong colours (a strong blue cast) on
-# big-endian; its plain X11 path is right. Until the SDL3 fix (docs/GAME-PLAN.md), the software
+# big-endian; its plain X11 path is right. Until the SDL3 fix (docs/archive/GAME-PLAN.md), the software
 # variants use X11 (SDL_FRAMEBUFFER_ACCELERATION=0). vsync off, as in every other recipe
 # (2026-10-18): Mesa ignores the swap interval the game asks for, so the numbers are uncapped and
 # comparable (ETR's 59 fps looked like a 60 Hz cap)

@@ -4,7 +4,7 @@
 # (/var/tmp/ps3-bench/<stamp>-<game>-<variant>/, with dump/ and versions). It builds a sysroot under
 # build/tmp/dumpana/sysroot (shared by runs; delete it to start over): the base image's libraries
 # (build/chroot/sid-ppc64.tar), then the packages named in the run's `versions` file at exactly those
-# versions and their -dbgsym debs, found in build/debs, build/aptly/pool and build/apt-cache. libc6-dbg is
+# versions and their -dbgsym debs, found in build/debs and build/apt-cache. libc6-dbg is
 # not built here: gdb asks debuginfod (DEBUGINFOD_URLS, default debuginfod.debian.net) by build-id.
 # Then gdb (gdb-multiarch, else gdb) runs on the core (dump/core.zst|xz, else core.crash.*):
 # info sharedlibrary, thread apply all bt full and, when the run has OpenAL wedge lines, the state of
@@ -30,7 +30,7 @@ unpack() {	# unpack DEB: its files into the sysroot
 finddeb() {	# finddeb NAME VERSION: the deb (or ddeb) in the local pools
 	local n=$1 v=${2#*:} f
 	for f in "${n}_${v}_*.deb" "${n}_${v}_*.ddeb" "${n}_${2/:/%3a}_*.deb"; do
-		find "$root/build/debs" "$root/build/aptly/pool" "$root/build/apt-cache" \( -name "$f" -o -name "*_$f" \) 2>/dev/null | head -1
+		find "$root/build/debs" "$root/build/apt-cache" \( -name "$f" -o -name "*_$f" \) 2>/dev/null | head -1
 	done | grep . | head -1
 }
 

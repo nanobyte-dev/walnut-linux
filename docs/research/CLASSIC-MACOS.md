@@ -175,7 +175,7 @@ they are 2D or software-rendered, so a 640x480 or 800x600 guest fits SheepShaver
   fullscreen; our SDL2 (GL on the RSX nv30) can do the scaling; set `screen win/800/600` or fullscreen
   mode in prefs (`screen`), and a hardware cursor is default with SDL2 (avoids slow 68k polling).
   Frame conversion from the Mac's big-endian 32-bit ARGB on a big-endian host needs no swap (cheaper
-  than on x86); note our SDL BGRA/RGBA quirks (docs/GAME-PLAN.md row about SDL3 window surface) apply.
+  than on x86); note our SDL BGRA/RGBA quirks (docs/archive/GAME-PLAN.md row about SDL3 window surface) apply.
 - Mouse/keyboard: SDL; `keycodes` file; Cmd/Option swap. Sound: SDL audio (SheepShaver has OSS/ESD and SDL
   audio code; Mac OS 9 sound manager is 16-bit stereo). Use our ALSA/PipeWire stack.
 - RAM: SheepShaver itself is small. A 64 MB Mac (ramsize pref) fits OS 9 comfortably (OS 9 minimum is

@@ -5,7 +5,7 @@ aliases = ["local/0044", "kernel 0044"]
 category = "stability"
 switch = "ps3_os_area.write"
 default = "0 (no OS area writes)"
-forwarded = "no (project policy: Linux does not write the PS3's flash; docs/FLASH-SYSCON.md)"
+forwarded = "no (project policy: Linux does not write the PS3's flash; docs/research/FLASH-SYSCON.md)"
 tests = []
 batches = []
 +++

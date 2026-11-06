@@ -1,7 +1,7 @@
 #!/bin/bash
 # symroot.sh [MESA_VERSION] [KERNEL_RELEASE] [PS3RSX_VERSION]: the symbol root analyze.py reads
 # (docs/HOTPATHS.md), in $HOTPATHS_SYM (default build/tmp/hotpaths-sym). Takes the debs from
-# build/debs and build/aptly (the versions the profiled runs' "versions" files name) and Debian's
+# build/debs (the versions the profiled runs' "versions" files name) and Debian's
 # libc6-dbg from the snapshot the sysroot was made from. Ephemeral: delete it after the analysis.
 set -eu
 top=$(cd "$(dirname "$0")/../../.." && pwd)	# this is bench/analysis/hotpaths/
@@ -13,8 +13,8 @@ RV=${3:-0.443+k6.12.111+ps3.472}
 LIBC=${LIBC_VERSION:-2.43-7}
 SNAP=${SNAPSHOT:-http://snapshot.debian.org/archive/debian-ports/20261013T000000Z}
 mkdir -p "$S"
-find_deb() {	# find_deb NAME_VERSION_GLOB: the first match in build/debs or the aptly pools
-	find "$B/debs" "$B/aptly/public" "$B/aptly/pool" -name "$1" 2>/dev/null | head -1
+find_deb() {	# find_deb NAME_VERSION_GLOB: the first match in build/debs
+	find "$B/debs" -name "$1" 2>/dev/null | head -1
 }
 unpack() {	# unpack DEB: its data into $S
 	local t; t=$(mktemp -d -p "$S")

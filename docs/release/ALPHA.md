@@ -102,13 +102,13 @@ The PC never builds ext4. It only uploads, which reuses `tools/ssdimg/stamp.py`'
 1. **ClassiCube.** Split the source: engine and data. `gamedb/games/classicube/packages/classicube/package.conf`'s `COMPONENTS` hold Mojang's texpack and audio, which would otherwise ship as deb-src orig components and be downloaded on a CI runner.
    - *Status: Done (cced0cc, 35c2a3c). Engine source repacked `+dfsg` without console port assets and Mojang textures; data in `classicube-data`.*
 2. **Sources and the leak scan.** Source publishing excludes every licensed source: sauerbraten-nonfree-data, ps3-games-licensed, and the rct2, tyrian and quake data. The leak scan also checks source tarballs.
-   - *Status: Done (35c2a3c). `tools/aptly-publish.sh` and `tools/repo-publish.sh` route licensed sources to `ps3-licensed`, free sources leak-checked against licensed debs and `tools/licensed-files.txt` via `tools/leak-check.py`. Test suite `test_leak_check.py` integrated into `tools/run-tests.sh`.*
+   - *Status: Done (35c2a3c). The since-retired `aptly-publish.sh` and `repo-publish.sh` routed licensed sources to `ps3-licensed`, free sources leak-checked against licensed debs and `tools/licensed-files.txt` via `tools/leak-check.py`. Test suite `test_leak_check.py` integrated into `tools/run-tests.sh`.*
 3. **New aptly local repos** for `stable` and `testing`, never the tainted `ps3-main` or its `img-*` snapshots. (Built instead without a database: `apt-repo/walnut-repo.py`, M6. The LAN repository and its aptly state were retired on 2026-10-26.)
    - *Status: Done (bff7a9d). Documented in `docs/PACKAGING.md`; `walnut-testing`, `walnut-stable`, `walnut-deps`, `walnut-licensed` never include legacy `ps3-main` or `img-*` snapshots.*
 
 ### M4. walnut.nanobyte.dev: signed suites, sources, downloads
 
-1. **Keys.** The **stable key stays offline** on the PC, off any runner. A CI subkey signs `testing` only. The installer pins the fingerprint, and expiry and rotation are planned. `tools/aptly.conf` turns signing on (today `gpgDisableSign: true`).
+1. **Keys.** The **stable key stays offline** on the PC, off any runner. A CI subkey signs `testing` only. The installer pins the fingerprint, and expiry and rotation are planned. (The aptly configuration this once referred to is gone with the LAN repository.)
 2. **The suites:**
    - **`stable`:** only **promotes the exact tested binaries** from `testing` (an aptly copy or snapshot, no rebuild), with the user's approval (archive/RELEASE-CANDIDATES-2026-10-19.md, its first lines).
    - **`testing`:** the newest 5 of each package.
