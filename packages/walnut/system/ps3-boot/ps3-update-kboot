@@ -29,13 +29,16 @@
 set -e
 PATH=/usr/sbin:/usr/bin:/sbin:/bin
 export PATH
-# Test seams (PS3_BOOT_ROOT) are honoured only for a caller that is not root, or while a root-owned
+# Test seams (PS3_BOOT_ROOT, PS3_HDD1_BOOT: a command) are honoured only for a caller that is not root, or while a root-owned
 # /run/ps3-test-seams exists (made by a root caller that means it: an offline install into a mounted
 # target, the VM tests); a root process otherwise ignores them, so nothing in its environment can
 # repoint it.
 if [ "$(id -u)" = 0 ] && ! { [ -f /run/ps3-test-seams ] && [ ! -L /run/ps3-test-seams ] && [ -O /run/ps3-test-seams ]; }; then
-	unset PS3_BOOT_ROOT
+	unset PS3_BOOT_ROOT PS3_HDD1_BOOT
 fi
+# The settings come from /etc/default/ps3-boot only, never from the environment (they go onto the kernel
+# command line): a variable of the caller is dropped before the file is read.
+unset PS3_ROOT_ARGS PS3_EXTRA_ARGS PS3_LEGACY_ARGS PS3_UNDERSCAN PS3_DEFAULT PS3_DEFAULT_FLAVOUR PS3_BOOT_TARGET
 R=${PS3_BOOT_ROOT:-}
 DEFAULTS=$R/etc/default/ps3-boot
 CONF=$R/etc/kboot.conf

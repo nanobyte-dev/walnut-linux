@@ -35,6 +35,8 @@ R=${PS3_BOOT_ROOT:-}
 DEV=${PS3_HDD1_DEV:-/dev/ps3dc}
 die() { echo "ps3-hdd1-boot: $*" >&2; exit 1; }
 [ $# -ge 1 ] || die "usage: ps3-hdd1-boot DEFAULT [RELEASE...]"
+# the settings come from the file only, never from the caller's environment
+unset PS3_ROOT_ARGS PS3_EXTRA_ARGS PS3_LEGACY_ARGS PS3_UNDERSCAN PS3_DEFAULT PS3_DEFAULT_FLAVOUR PS3_BOOT_TARGET
 [ -r "$R/etc/default/ps3-boot" ] && . "$R/etc/default/ps3-boot"
 case "${PS3_ROOT_ARGS:-}" in *ps3ssd.image=/*) ;; *) die "PS3_ROOT_ARGS has no ps3ssd.image=: not an internal install" ;; esac
 # the generic initramfs carries no modules: only kernels with ufs and dm built in can boot through it

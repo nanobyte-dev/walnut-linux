@@ -10,6 +10,10 @@ import sys
 import unittest
 from pathlib import Path
 
+# The root helpers ignore their test seams as root (they would act on this host's /etc and swap): never run as root.
+if os.geteuid() == 0:
+    sys.exit("%s: refuses to run as root (the scripts under test ignore their test seams as root and would touch this host)" % __file__)
+
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[4]   # the repository (packages/walnut/system/ps3-boot/tests)
 SCRIPT = HERE.parent / "ps3-update-kboot"
@@ -42,6 +46,32 @@ class Kboot(unittest.TestCase):
 
     def kernel(self, k):
         (self.r / "boot" / ("vmlinux-" + k)).write_bytes(b"\0")
+
+    def test_settings_come_from_the_file_not_the_environment(self):
+        """a kernel without a .args file gets PS3_LEGACY_ARGS from the file; the caller's value is dropped"""
+        self.kernel(OLD)
+        e = dict(os.environ, PS3_BOOT_ROOT=str(self.r), PS3_LEGACY_ARGS="init=/bin/sh", PS3_EXTRA_ARGS="evil=1",
+                 PS3_DEFAULT=OLD, PS3_UNDERSCAN="1")
+        p = subprocess.run(["sh", str(SCRIPT)], env=e, capture_output=True, text=True, timeout=30)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        conf = (self.r / "etc/kboot.conf").read_text()
+        for bad in ("init=/bin/sh", "evil=1", "ps3fb.fullscreen=0"):
+            self.assertNotIn(bad, conf)
+        self.assertIn("default=" + REL, conf)
+
+    def test_hdd1_boot_command_is_not_taken_from_the_environment_as_root(self):
+        text = SCRIPT.read_text()
+        gate = [l for l in text.splitlines() if l.strip().startswith("unset PS3_BOOT_ROOT")]
+        self.assertTrue(gate and "PS3_HDD1_BOOT" in gate[0], gate)
+
+    def test_every_environment_setting_is_unset_before_the_defaults(self):
+        """lint: each ${PS3_X in the two scripts is a seam in the gate's unset list or a setting unset before the file"""
+        import re
+        for script in (SCRIPT, HERE.parent / "ps3-hdd1-boot"):
+            text = script.read_text()
+            unset = " ".join(l for l in text.splitlines() if l.strip().startswith("unset "))
+            for name in set(re.findall(r"\$\{(PS3_[A-Z0-9_]+)", text)):
+                self.assertRegex(unset, r"\b%s\b" % name, "%s: %s is read from the environment" % (script.name, name))
 
     def run_it(self):
         e = dict(os.environ, PS3_BOOT_ROOT=str(self.r))
