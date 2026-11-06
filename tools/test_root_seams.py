@@ -133,6 +133,11 @@ class Lint(unittest.TestCase):
         cleanup = ssd[ssd.index("cleanup() {"):ssd.index("trap cleanup EXIT")]
         self.assertIn("rm -f /run/ps3-test-seams", cleanup)
 
+    def test_usb_root_remote_sets_the_target_to_root(self):
+        usb = (ROOT / "tools/usb-root-remote.sh").read_text()
+        self.assertIn("echo PS3_BOOT_TARGET=root >>", usb)
+        self.assertLess(usb.index("echo PS3_BOOT_TARGET=root"), usb.index("touch /run/ps3-test-seams"))
+
     def test_root_refusal_in_the_suites(self):
         for f in (ROOT / "tools/test_root_seams.py", ROOT / "tools/ssdimg/test_ssdimg.py",
                   ROOT / "packages/walnut/system/ps3-boot/tests/test_kboot.py"):

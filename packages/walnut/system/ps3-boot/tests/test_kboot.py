@@ -59,6 +59,28 @@ class Kboot(unittest.TestCase):
             self.assertNotIn(bad, conf)
         self.assertIn("default=" + REL, conf)
 
+    def test_offline_root_never_writes_hdd1(self):
+        """the marker case (root + PS3_BOOT_ROOT) is faked by dropping the root half of offline(): a defaults file
+        that says hdd1 must then only write the root's own kboot.conf"""
+        text = SCRIPT.read_text()
+        old = 'offline() { [ -n "$R" ] && [ "$(id -u)" = 0 ]; }'
+        self.assertIn(old, text)
+        fake = self.r / "ps3-update-kboot-offline"
+        fake.write_text(text.replace(old, 'offline() { [ -n "$R" ]; }'))
+        self.builtins(REL, OLD)
+        (self.r / "etc/default/ps3-boot").write_text(
+            'PS3_ROOT_ARGS="root=/dev/mapper/ps3root rootfstype=ext4 ro ps3ssd.image=/linux/walnut.img"\n'
+            'PS3_EXTRA_ARGS=""\nPS3_DEFAULT_FLAVOUR=release\nPS3_BOOT_TARGET=hdd1\n')
+        h = self.r / "hdd1"
+        h.mkdir()
+        e = dict(os.environ, PS3_BOOT_ROOT=str(self.r), PS3_HDD1_DIR=str(h),
+                 PS3_HDD1_BOOT="sh " + str(HERE.parent / "ps3-hdd1-boot"))
+        p = subprocess.run(["sh", str(fake)], env=e, capture_output=True, text=True, timeout=30)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertIn("dev_hdd1 menu is not written", p.stderr)
+        self.assertTrue((self.r / "etc/kboot.conf").exists())
+        self.assertEqual(list(h.iterdir()), [])
+
     def test_hdd1_boot_command_is_not_taken_from_the_environment_as_root(self):
         text = SCRIPT.read_text()
         gate = [l for l in text.splitlines() if l.strip().startswith("unset PS3_BOOT_ROOT")]

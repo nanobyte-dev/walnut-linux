@@ -115,6 +115,9 @@ finish)
 		fi
 		grep -q "^PS3_ROOT_ARGS=.*root=PARTUUID=$ID-02" "$MNT/etc/default/ps3-boot" ||
 			fail "couldn't set the root in $MNT/etc/default/ps3-boot"
+		# a USB root's menu is its own /etc/kboot.conf, never the PS3's dev_hdd1 (a copied internal install's defaults may say hdd1)
+		sed -i '/^PS3_BOOT_TARGET=/d' "$MNT/etc/default/ps3-boot"
+		echo PS3_BOOT_TARGET=root >> "$MNT/etc/default/ps3-boot"
 		if [ -x "$MNT/usr/sbin/ps3-update-kboot" ]; then
 			# a root process reads PS3_BOOT_ROOT only while this root-owned marker exists
 			# (removed again by the traps if this shell is killed in between: this runs on the PS3)

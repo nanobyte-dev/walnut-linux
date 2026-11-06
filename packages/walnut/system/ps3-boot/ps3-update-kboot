@@ -176,6 +176,13 @@ target=${PS3_BOOT_TARGET:-}
 if [ -z "$target" ]; then
 	if grep -q 'initramfs kind=generic' "$R/run/ps3ssd/init.log" 2>/dev/null; then target=hdd1; else target=root; fi
 fi
+# An offline run (a root process with PS3_BOOT_ROOT: the marker case, a mounted target root) never writes the
+# running PS3's dev_hdd1, whatever that root's defaults say: it only writes that root's kboot.conf.
+offline() { [ -n "$R" ] && [ "$(id -u)" = 0 ]; }
+if offline && [ "$target" = hdd1 ]; then
+	echo "ps3-update-kboot: offline run on $R: its dev_hdd1 menu is not written (only $CONF)" >&2
+	target=root
+fi
 case $target in
 hdd1)
 	echo "ps3-update-kboot: this system boots from dev_hdd1: its menu there too"
