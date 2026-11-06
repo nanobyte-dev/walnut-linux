@@ -78,5 +78,12 @@ class VswapUnit(unittest.TestCase):
         self.assertNotIn(("[Unit]", "DefaultDependencies"), d)
 
 
+class Docs(unittest.TestCase):
+    def test_escape_hatch_says_who_can_hold_it(self):
+        text = (ROOT / "docs/DRIVER.md").read_text()
+        line = [l for l in text.splitlines() if l.startswith("- **The escape hatch:**")][0]
+        self.assertIn("`input` group", line)
+
+
 if __name__ == "__main__":
     unittest.main()
