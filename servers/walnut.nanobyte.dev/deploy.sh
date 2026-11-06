@@ -123,8 +123,8 @@ rsync -t --chmod=755 ccache/trim.sh "$host:$DIR/bin/ccache-trim.sh"
 # the deploy here, not in a restart loop that takes apt, downloads and status down for every client
 ssh "$host" "cd $DIR
 	t() { out=\$(\"\$@\" 2>&1) || { echo \"!! nginx -t failed, nothing restarted:\" >&2; echo \"\$out\" >&2; exit 1; }; echo \"\$out\" | tail -1; }
-	t docker run --rm -v $DIR/repo-conf:/etc/nginx/conf.d:ro -v $DIR/htpasswd:/etc/nginx/walnut.htpasswd:ro nginx:stable-alpine nginx -t
-	t docker run --rm -v $DIR/ccache:/etc/nginx/ccache-conf:ro -v $DIR/ccache.htpasswd:/etc/nginx/ccache.htpasswd:ro -v $DIR/ccache-data:/srv/ccache nginx:stable-alpine nginx -t -c /etc/nginx/ccache-conf/nginx.conf"
+	t docker run --rm -v $DIR/repo-conf:/etc/nginx/conf.d:ro -v $DIR/htpasswd:/etc/nginx/walnut.htpasswd:ro nginx:stable-alpine@sha256:583b7f2fce1cdb8da5ad5c39ebd3c33b98b87d493190e548bdee1fa8c619c311 nginx -t
+	t docker run --rm -v $DIR/ccache:/etc/nginx/ccache-conf:ro -v $DIR/ccache.htpasswd:/etc/nginx/ccache.htpasswd:ro -v $DIR/ccache-data:/srv/ccache nginx:stable-alpine@sha256:583b7f2fce1cdb8da5ad5c39ebd3c33b98b87d493190e548bdee1fa8c619c311 nginx -t -c /etc/nginx/ccache-conf/nginx.conf"
 ssh "$host" "cd $DIR && docker compose build -q walnut-upload walnut-aptcache && docker compose up -d walnut-repo walnut-upload walnut-aptcache walnut-ccache && docker compose up -d --force-recreate walnut-repo walnut-ccache"
 
 # the watcher's units
