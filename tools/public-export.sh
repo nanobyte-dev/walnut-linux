@@ -71,7 +71,7 @@ paths=$(git log --all --name-only --format= | sort -u)
 # game data under a directory named for a licensed package (or game-data, game-data-packager's output directory;
 # quake-data before 2026-10-26)
 lic_re=$(printf '%s\n' $licensed game-data quake-data | sed 's/[.+]/\\&/g' | paste -sd'|')
-hits=$(printf '%s\n' "$paths" | grep -E "^(backups|firmware)/|\\.(bin|img|pup|PUP|nor|nand)\$|(^|/)($lic_re)/.*\\.(pk3|ogz|cfg|dat|zip|ogg|wav|png|jpg)\$" || true)
+hits=$(printf '%s\n' "$paths" | grep -Ei "^(backups|firmware)/|\\.(bin|img|pup|nor|nand)\$|\\.(wad|mpq|agg|pk3|pak|grp|lfl|lec|grf)\$|(^|/)(g1|csg1)\\.dat\$|(^|/)($lic_re)/.*\\.(pk3|ogz|cfg|dat|zip|ogg|wav|png|jpg)\$" || true)
 [ -z "$hits" ] || { echo "!! private or licensed paths in the history:"; printf '   %s\n' $hits | head -40; bad=1; }
 lic=$({ printf '%s\n' "$paths" | grep -E '^(packages/licensed|gamedb/[^/]+/[^/]+/licensed)/'
 	for n in $licensed; do printf '%s\n' "$paths" | grep -E "^packages/([^/]+/){1,2}$n/"; done; } || true)

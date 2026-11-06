@@ -15,10 +15,14 @@
   - new paths under backups/ (the NOR dump), firmware/ or .local/ (at any depth), and files the public
     export refuses by name (.bin, .img, .pup, .nor, .nand: flash dumps and disk images);
   - images under gamedb/games/**/rating/ committed as files instead of Git LFS pointers;
-  - paths of licensed game data (tools/licensed.py file: the leak globs)."""
+  - paths of licensed game data (tools/licensed.py file: the leak globs, matched case-insensitively), and the
+    game data formats the gamedb's licensed and data_setup games use (DATA_GLOBS: WAD, MPQ, AGG, PK3, PAK, GRP, the
+    SCUMM files, ...) by name in any case, and by magic bytes (IWAD/PWAD, MPQ, Quake's PACK), unless the exact
+    path is in tools/game-data-allow.txt (our own files)."""
 import fnmatch
 import os
 import re
+import struct
 import subprocess
 import sys
 from pathlib import Path, PurePath
@@ -28,6 +32,13 @@ TARGETS = ("**",)
 SHARED_INPUTS = ()
 REPLACE = "tools/public-replace.local.txt"
 FINGERPRINT = "tools/nor-fingerprint.local.txt"
+DATA_ALLOW = "tools/game-data-allow.txt"
+# formats of the games' own data (gamedb data_setup / [[licensed]]); matched on the lower-cased path
+DATA_GLOBS = ("*.wad", "*.mpq", "*.agg", "*.pk3", "*.pak", "*.grp", "*.lfl", "*.lec", "*.sou", "*.grf",
+              "*/g1.dat", "g1.dat", "*/csg1.dat", "csg1.dat", "*/tyrian*.lvl", "tyrian*.lvl", "*/tyrian.hdt", "tyrian.hdt",
+              "*/sample.cat", "sample.cat", "*/heroes2*.agg",
+              "*/tentacle.00[01]", "*/monkey.00[01]", "*/monkey2.00[01]", "*/atlantis.00[01]", "*/monster.sou")
+DATA_MAGIC_MIN = 12
 MIN_CONTENT = 64 << 10     # smaller files can't hold a dump, or an archive of one
 LOCAL = "tools/commit-private.local.txt"
 PRIVATE_DIRS = ("backups/", "firmware/", ".local/")
@@ -270,6 +281,48 @@ def fingerprints(ctx):
     return nf, fps
 
 
+def data_magic(b):
+    """the kind of game data a file's first bytes say it is, else None: Doom WADs, Blizzard MPQs, Quake PAKs
+    (PACK + the directory's offset and size, which must fit the file: plain text starting with PACK doesn't)"""
+    if b[:4] in (b"IWAD", b"PWAD"):
+        return "a Doom WAD"
+    if b[:4] == b"MPQ\x1a":
+        return "a Blizzard MPQ"
+    if b[:4] == b"PACK" and len(b) >= DATA_MAGIC_MIN:
+        off, ln = struct.unpack("<ii", b[4:12])
+        if 12 <= off <= len(b) and ln > 0 and ln % 64 == 0 and off + ln <= len(b):
+            return "a Quake PAK"
+    return None
+
+
+def data_allowed(ctx):
+    out = set()
+    if ctx.exists(DATA_ALLOW):
+        for line in ctx.read(DATA_ALLOW).splitlines():
+            line = line.split("#", 1)[0].strip()
+            if line:
+                out.add(line)
+    return out
+
+
+def data_checks(ctx, files):
+    allow = data_allowed(ctx)
+    for c in files:
+        if c.status not in ("A", "R", "*") or c.path in allow:
+            continue
+        low = c.path.lower()
+        g = next((g for g in DATA_GLOBS if fnmatch.fnmatchcase(low, g)), None)
+        if g:
+            ctx.error(c.path, "game data by its name (%s, in any case): never in the repository "
+                      "(our own file: list the exact path in %s)" % (g, DATA_ALLOW))
+            continue
+        b = ctx.staged_bytes(c.path)
+        what = data_magic(b[:1 << 20]) if b else None
+        if what:
+            ctx.error(c.path, "%s by its first bytes: never in the repository (our own file: list the exact path in %s)"
+                      % (what, DATA_ALLOW))
+
+
 def content_checks(ctx, files):
     nf, fps = fingerprints(ctx)
     if not fps:
@@ -291,6 +344,7 @@ def content_checks(ctx, files):
 
 
 def run(ctx, files):
+    data_checks(ctx, files)
     content_checks(ctx, files)
     pats = patterns(ctx)
     if pats is not None:

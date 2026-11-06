@@ -144,6 +144,7 @@ class Licensed(Tree):
                                                      "misc/sounds", "misc/sounds/*", "misc/x.wav", "misc/x.wav/*"])
         self.assertEqual(licensed.glob_hit("top-1/misc/sounds/a.ogg", licensed.globs(self.root)), "misc/sounds/*")
         self.assertIsNone(licensed.glob_hit("top/misc/other", licensed.globs(self.root)))
+        self.assertEqual(licensed.glob_hit("top/ID1/PAK0.PAK", ["*id1/pak[0-9].pak"]), "*id1/pak[0-9].pak")
         self.assertTrue(licensed.is_licensed("x", "non-free/games", set()))
         self.assertTrue(licensed.is_licensed("rct2-data", "games", licensed.names(self.root)))
         self.assertFalse(licensed.is_licensed("engine", "games", licensed.names(self.root)))
@@ -344,6 +345,29 @@ class PublicExport(unittest.TestCase):
     def git(self, d, *a):
         return subprocess.run(["git", "-C", d, "-c", "user.name=t", "-c", "user.email=t@example.org", *a],
                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, check=True).stdout
+
+    def test_game_data_names_refused_in_any_case(self):
+        """the export's path check refuses game data formats by name, upper case too"""
+        if not shutil.which("git-filter-repo") and not os.path.exists(os.path.expanduser("~/.local/bin/git-filter-repo")):
+            self.skipTest("no git-filter-repo")
+        with tempfile.TemporaryDirectory() as tmp:
+            src, out = os.path.join(tmp, "src"), os.path.join(tmp, "out")
+            os.makedirs(os.path.join(src, "tools", "commit_tests", "checks"))
+            self.git(src, "init", "-q", "-b", "main")
+            for f in ("public-export.sh", "licensed.py", "licensed-files.txt", "public-scan.py", "nor_fingerprint.py", "public-scan-allow.txt"):
+                shutil.copy(HERE / f, os.path.join(src, "tools", f))
+            shutil.copy(HERE / "commit_tests" / "checks" / "private.py", os.path.join(src, "tools", "commit_tests", "checks", "private.py"))
+            Path(src, "tools", "public-strip-blobs.txt").write_text("")
+            Path(src, "tools", "public-replace.local.txt").write_text("literal:NOT-IN-THIS-REPO\n")
+            Path(src, "x").mkdir()
+            Path(src, "x", "DOOM2.WAD").write_text("x\n")
+            self.git(src, "add", "-A")
+            self.git(src, "commit", "-qm", "c")
+            env = dict(os.environ, PATH=os.path.expanduser("~/.local/bin") + ":" + os.environ["PATH"])
+            r = subprocess.run(["bash", os.path.join(src, "tools", "public-export.sh"), out], env=env, cwd=src,
+                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            self.assertNotEqual(r.returncode, 0, r.stdout)
+            self.assertIn("DOOM2.WAD", r.stdout)
 
     def test_only_left_out_paths_commit_is_kept(self):
         if not shutil.which("git-filter-repo") and not os.path.exists(os.path.expanduser("~/.local/bin/git-filter-repo")):

@@ -327,6 +327,38 @@ class NorDumpContent(Base):
         self.assertTrue(any("no tools/nor-fingerprint.local.txt" in f[3] for f in self.r.run(["private"])))
 
 
+class GameData(Base):
+    def stage(self, name, data=b"x\n"):
+        self.r.write(name, data)
+        self.r.add(name)
+
+    def test_names_in_any_case(self):
+        for n in ("a/DOOM.WAD", "a/Diablo/DIABDAT.MPQ", "a/heroes2.agg", "b/pak0.PK3", "c/DUKE3D.GRP", "d/ID1/PAK0.PAK", "e/MONKEY.000"):
+            with self.subTest(n):
+                self.r.git("reset", "-q")
+                self.stage(n)
+                self.assertTrue(any("game data" in f[3] for f in self.r.errors(["private"])), n)
+
+    def test_magic_under_another_name(self):
+        pack = b"PACK" + struct.pack("<ii", 12, 64) + b"\0" * 64
+        for n, data in (("a/d.bin2", b"IWAD" + b"\0" * 20), ("a/e.dat2", b"MPQ\x1a" + b"\0" * 20), ("a/f.dat2", pack)):
+            with self.subTest(n):
+                self.r.git("reset", "-q")
+                self.stage(n, data)
+                self.assertTrue(any("first bytes" in f[3] for f in self.r.errors(["private"])), n)
+
+    def test_text_starting_with_pack_is_fine(self):
+        self.stage("a/notes.txt", b"PACKAGING notes\n")
+        self.assertEqual(self.r.errors(["private"]), [])
+
+    def test_allow_list_by_exact_path(self):
+        self.stage("tools/game-data-allow.txt", "# ours\ntests/own.wad\n")
+        self.stage("tests/own.wad")
+        self.assertEqual(self.r.errors(["private"]), [])
+        self.stage("tests/other.wad")
+        self.assertTrue(self.r.errors(["private"]))
+
+
 class Private(Base):
     def test_added_line(self):
         self.r.write("doc.md", "the console's id is %s\n" % self.r.token)

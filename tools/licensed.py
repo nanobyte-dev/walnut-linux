@@ -221,8 +221,10 @@ def is_licensed(name, section=None, names_set=None):
 def glob_hit(path, globs_list):
     """the first leak glob matching path (a tarball member: also tried without its top directory)"""
     rel = path.split("/", 1)[1] if "/" in path else path
+    low, lowrel = path.lower(), rel.lower()
     for g in globs_list:
-        if fnmatch.fnmatch(rel, g) or fnmatch.fnmatch(path, g):
+        gl = g.lower()   # case-insensitive: the DOS CDs ship ID1/PAK0.PAK
+        if fnmatch.fnmatchcase(lowrel, gl) or fnmatch.fnmatchcase(low, gl):
             return g
     return None
 
