@@ -76,7 +76,7 @@ change them in a disposable git tree:
 
 ## The repository
 
-- Server: tibi-server, `http://10.0.0.10:8070/` (`tools/repo-server/`), static files from aptly's
+- Server: tibi-server, `http://198.51.100.10:8070/` (`tools/repo-server/`), static files from aptly's
   published tree. Two suites (decided with the user 2026-10-16, like Debian's unstable and
   experimental), each in its own prefix and pool so pruning one can't touch the other:
   - `ps3/`, suite `ps3`: stable releases (components `main` and `deps`), kept forever, versions

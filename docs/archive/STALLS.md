@@ -573,7 +573,7 @@ give the number; nothing has measured it there yet.
 ### Results
 
 bench.txt gets `interfered=0|1` and `interference=<summary>` (for example "3 key presses, VT switch
-1->2 at 85 s, 1 login(s): session 12 (tibi, sshd from 10.0.0.45) at 40 s"). The result file and the
+1->2 at 85 s, 1 login(s): session 12 (tibi, sshd from 198.51.100.45) at 40 s"). The result file and the
 terminal get a loud `!! INTERFERENCE: ... THIS RUN IS INVALID` line. run.sh warns after such a run,
 and `RERUN_INTERFERED=1` runs it once more right away. report.py has an `intf` column (1, 0, - for
 not watched) and marks the run `!INTERFERED`. It leaves interfered runs out of the medians and lists
@@ -653,7 +653,7 @@ Needs ps3-gpu-tools with `ps3-intfwatch` (0.453 or later: `make ps3-gpu-tools-de
    only `-` lines in the log apart from the X server's two expected VT lines
    (`VT 8 -> 1 (the X server takes its VT)`, `VT 1 -> 8 (... after the game)`).
 3. During a run, `ssh ps3 true` from the PC: counted as a login (session N, sshd from
-   10.0.0.45). With `tools/bench-cam.sh` running for the batch, its watcher shows only as
+   198.51.100.45). With `tools/bench-cam.sh` running for the batch, its watcher shows only as
    `exempt` in the info line.
 4. `run.sh smoke armagetronad` (the evemu keyboard): `DEVADD ... (the bench's virtual device ...)`
    as a `-` line, no interference from its key presses.

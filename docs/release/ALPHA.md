@@ -72,7 +72,7 @@ The PC never builds ext4. It only uploads, which reuses `tools/ssdimg/stamp.py`'
 
 ### M2. A Walnut-clean tree and public image
 
-1. **Private config.** The LAN values move from `config.mk:110-120` into a gitignored `config.local.mk`. The `10.0.0.77` defaults go out of `stamp.py` and `bench-cam.sh`.
+1. **Private config.** The LAN values move from `config.mk:110-120` into a gitignored `config.local.mk`. The `192.0.2.77` defaults go out of `stamp.py` and `bench-cam.sh`.
    - *Status: Done (b49bc44). `config.local.mk` gitignored, `config.local.mk.example` created, `tools/config-get.sh` added.*
 2. **`PROFILE=public` in `tools/build-image.sh`:**
    - **Licensed data:** no `ps3-games-licensed`, no licensed debs in the flat repo, and the `ps3-licensed` probe at `build-image.sh:47-53` switched off (R: B3).

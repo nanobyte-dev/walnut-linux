@@ -11,6 +11,7 @@ __pycache__/
 tools/public-replace.local.txt
 tools/nor-fingerprint.local.txt
 tools/commit-private.local.txt
+tools/commit-warn.local.txt
 # gh and other tools keep per-user state here (device ids): never committed
 /.local/
 

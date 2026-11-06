@@ -8,7 +8,7 @@ list is clear, the stable run makes 0.1.0 (docs/WALNUT-SERVER.md "Release images
 
 ## Nightly nightly-20261022-2331-36f424d (internal install on the dev console, 2026-10-23)
 
-Installed with the archive's `walnut-install internal --host 10.0.0.77`: 16 GiB image in 836 s
+Installed with the archive's `walnut-install internal --host 192.0.2.77`: 16 GiB image in 836 s
 (19.6 MB/s), then the system (875 MiB), the boot files, kboot.conf, walnut-good and install.conf.
 It replaced the console's `walnut`/`walnut-prev` entries (ssdtest.img's); their backup is
 `build/hdd1-backup/20261023-032653/`.

@@ -604,7 +604,7 @@ Cost. On the host, 3 ms of CPU a second with 570 processes, 2 MB RSS. On the PS3
 ### Results of a run
 
 bench.txt gets `interfered=0|1` and `interference=<summary>` (for example "3 key presses, VT switch
-1->2 at 85 s, 1 login(s): session 12 (tibi, sshd from 10.0.0.45) at 40 s"). The result file and the
+1->2 at 85 s, 1 login(s): session 12 (tibi, sshd from 198.51.100.45) at 40 s"). The result file and the
 terminal get a loud `!! INTERFERENCE: ... THIS RUN IS INVALID` line; a clean run's result says
 `interference: none (4 input devices watched; ...)`. run.sh warns after such a run, and
 `RERUN_INTERFERED=1` runs it once more right away. report.py has an `intf` column (1, 0, `-` for not
@@ -680,7 +680,7 @@ webMAN fan on SYSCON.
 2. The same run untouched: `interference: none (4 input devices watched; ...)` in the result, and
    only `-` lines in the log apart from the X server's two expected VT lines
    (`VT 8 -> 1 (the X server takes its VT)`, `VT 1 -> 8 (... after the game)`).
-3. During a run, `ssh ps3 true` from the PC: counted as a login (session N, sshd from 10.0.0.45).
+3. During a run, `ssh ps3 true` from the PC: counted as a login (session N, sshd from 198.51.100.45).
    With `tools/bench-cam.sh` running for the batch, its watcher shows only as `exempt` in the info
    line.
 4. `run.sh smoke armagetronad` (the evemu keyboard): `DEVADD ... (the bench's virtual device ...)`

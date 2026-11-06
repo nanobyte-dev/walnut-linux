@@ -233,13 +233,13 @@ mounts the UFS again (other files unchanged) and rechecks (unchanged). Both geom
    is what lets the swap arm switch in the same boot; without it everything is as before. Check that
    `modinfo -k <release> dm-mod` and `modinfo -k <release> ufs` find both modules for the kernel
    that will boot (`BLK_DEV_DM=m`, `UFS_FS=m`), then `make bench-push`.
-1. GameOS: the Backup Utility. In webMAN MOD's setup page (`http://10.0.0.77/setup.ps3`) the FTP
+1. GameOS: the Backup Utility. In webMAN MOD's setup page (`http://192.0.2.77/setup.ps3`) the FTP
    server must not be disabled. 16 GiB plus a margin free on the internal disk (the XMB's System
    Information, or webMAN's file manager on `/dev_hdd0`).
 2. On the PC:
 
        python3 tools/ssdimg/stamp.py upload --size 16G
-       # defaults: --path /dev_hdd0/linux/ssdtest.img --host 10.0.0.77 --port 21 (any login)
+       # defaults: --path /dev_hdd0/linux/ssdtest.img --host 192.0.2.77 --port 21 (any login)
 
    It prints the UUID, progress and MB/s, and ends with `remote size 17179869184: complete`
    (784 s on our console). A broken upload leaves a short file: run it again with `--force`.
@@ -248,7 +248,7 @@ mounts the UFS again (other files unchanged) and rechecks (unchanged). Both geom
 
 ### On Linux (us, with the user's go where it says so)
 
-    scp tools/ssdimg/ps3-imgmap tibi@10.0.0.77:/var/tmp/ps3-imgmap       # from the PC
+    scp tools/ssdimg/ps3-imgmap tibi@192.0.2.77:/var/tmp/ps3-imgmap       # from the PC
     cat /sys/block/ps3vswap0/backing          # /dev/mapper/ps3vswap-back (step 0 worked)
     sudo ps3-gameos-mount
     ls -l /mnt/gameos/hdd0/linux/ssdtest.img  # 17179869184 bytes
@@ -544,17 +544,17 @@ this boot ([Phase A's "every later boot" steps](#on-linux-us-with-the-users-go-w
    made from another map):
 
        rm -rf build/tmp/ssdb/imgmap && mkdir -p build/tmp/ssdb
-       scp -r tibi@10.0.0.77:/var/lib/ps3-imgmap build/tmp/ssdb/imgmap
+       scp -r tibi@192.0.2.77:/var/lib/ps3-imgmap build/tmp/ssdb/imgmap
        make initrd-ssd IMGMAP=build/tmp/ssdb/imgmap/ssdtest.map.json
        # prints the root as 15359 MiB and the swap as 1024 MiB, 513 extents
 
 3. The files and the new ps3-boot (0.498, the deb published to ps3-dev: sha256 001760a4...), from
    the PC (not `make deploy`, which would publish and upgrade everything built locally):
 
-       ssh tibi@10.0.0.77 'rm -rf /var/tmp/ssdb && mkdir -p /var/tmp/ssdb'
+       ssh tibi@192.0.2.77 'rm -rf /var/tmp/ssdb && mkdir -p /var/tmp/ssdb'
        scp -r build/initrd tools/ssdimg/ssd-install-image.sh build/debs/ps3-boot/ps3-boot_0.498_all.deb \
-           tibi@10.0.0.77:/var/tmp/ssdb/
-       ssh tibi@10.0.0.77 'sha256sum /var/tmp/ssdb/ps3-boot_0.498_all.deb && sudo dpkg -i /var/tmp/ssdb/ps3-boot_0.498_all.deb'
+           tibi@192.0.2.77:/var/tmp/ssdb/
+       ssh tibi@192.0.2.77 'sha256sum /var/tmp/ssdb/ps3-boot_0.498_all.deb && sudo dpkg -i /var/tmp/ssdb/ps3-boot_0.498_all.deb'
 
 4. On the PS3, the read-only check, then a dry run:
 
@@ -564,7 +564,7 @@ this boot ([Phase A's "every later boot" steps](#on-linux-us-with-the-users-go-w
 5. With the user's go (it erases Phase A's game copies on ps3ssd): the fresh release image
    (`make rootfs`; build/rootfs/debian-ppc64.tar, 3 GB) streamed from the PC into the install:
 
-       ssh tibi@10.0.0.77 'sudo bash /var/tmp/ssdb/ssd-install-image.sh install \
+       ssh tibi@192.0.2.77 'sudo bash /var/tmp/ssdb/ssd-install-image.sh install \
            --from /var/tmp/ssdb/initrd --tar - --yes' < build/rootfs/debian-ppc64.tar
 
    It prints what it copied and how many packages differ from the USB root.
@@ -590,7 +590,7 @@ this boot ([Phase A's "every later boot" steps](#on-linux-us-with-the-users-go-w
        systemctl --failed; systemctl status ps3ssd-udev dev-mapper-ps3root.device
        ls -l /dev/mapper; sudo dmsetup table ps3root | wc -l    # 480 lines
        dmesg | grep -i -e ext4 -e device-mapper -e ufs
-       ip -4 addr show eth0                     # 10.0.0.77 (the DHCP client ID is the MAC)
+       ip -4 addr show eth0                     # 192.0.2.77 (the DHCP client ID is the MAC)
 
 9. The bench prerequisites: the packages the USB root has that the fresh image lacks or has in
    another version, from the list the install wrote (kernels apart), simulated first:
@@ -1150,7 +1150,7 @@ console, nothing published. Every write test below writes back data that is alre
 a broken guard changes nothing.
 
 1. PC: the kernel with 0045 (`make linux-deb`, then `make ps3rsx-modules`), the new tools to the PS3
-   (`scp tools/ssdimg/ps3-imgmap tibi@10.0.0.77:/var/tmp/ps3-imgmap`; `ssd-install-image.sh` with
+   (`scp tools/ssdimg/ps3-imgmap tibi@192.0.2.77:/var/tmp/ps3-imgmap`; `ssd-install-image.sh` with
    [Phase B's step 3](#the-steps-on-the-ps3) copy). First boot of the new kernel without installing
    it: `make netboot-deb FLAVOUR=release ROOT=usb` (Petitboot, the user), or install it
    (`make deploy KERNELS=1 PKGS="linux-image-ps3 ps3rsx-modules-ps3"`: only with the user's go).

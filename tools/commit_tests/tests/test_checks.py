@@ -468,6 +468,34 @@ class GameData(Base):
         self.assertTrue(self.r.errors(["private"]))
 
 
+class LanIdentifiers(Base):
+    def test_warns_not_errors_and_names_no_value(self):
+        tok = "lan-" + secrets.token_hex(5)
+        self.r.write("tools/commit-warn.local.txt", "literal:%s\n" % tok)
+        self.r.write("docs/net.md", "the PS3 is at %s today\n" % tok)
+        self.r.add("docs/net.md")
+        res = self.r.run(["private"])
+        w = [f for f in res if f[1] == "warning" and "LAN identifier" in f[3]]
+        self.assertTrue(w, res)
+        self.assertFalse(any(tok in f[3] for f in res))
+        self.assertEqual([f for f in res if f[1] == "error"], [])
+
+    def test_tracked_files_have_none_of_the_real_ones(self):
+        """with the developer's untracked list: no tracked file holds a listed identifier (skipped where there is none)"""
+        lst = REPO / "tools/commit-warn.local.txt"
+        if not lst.is_file():
+            self.skipTest("no tools/commit-warn.local.txt")
+        for n, line in enumerate(lst.read_text().splitlines(), 1):
+            if line.startswith("literal:"):
+                r = subprocess.run(["git", "-C", str(REPO), "grep", "-l", "-I", "-F", "--", line[8:]], capture_output=True, text=True)
+                self.assertEqual(r.stdout.split(), [], "list line %d is still in tracked files" % n)
+
+    def test_no_list_no_warning(self):
+        self.r.write("docs/net.md", "198.51.100.45\n")
+        self.r.add("docs/net.md")
+        self.assertFalse(any("LAN identifier" in f[3] for f in self.r.run(["private"])))
+
+
 class Private(Base):
     def test_added_line(self):
         self.r.write("doc.md", "the console's id is %s\n" % self.r.token)

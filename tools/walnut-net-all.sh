@@ -6,6 +6,11 @@
 # Run on the PS3 as root:  sudo sh /path/to/walnut-net-all.sh      (about 6 minutes at most)
 # Runtime only: nothing is written to disk (but this folder), the flash or the system controller.
 H=$(cd "$(dirname "$0")" && pwd)
+# The address and the router this script puts back on eth0 (a static address while NetworkManager is stopped):
+# those eth0 has now, else WALNUT_STATIC_ADDR (with the /prefix) and WALNUT_GATEWAY, else documentation addresses.
+ADDR=${WALNUT_STATIC_ADDR:-$(ip -4 -o addr show dev eth0 2>/dev/null | awk '{print $4; exit}')}; ADDR=${ADDR:-192.0.2.77/24}
+GW=${WALNUT_GATEWAY:-$(ip route 2>/dev/null | sed -n 's/^default via \([^ ]*\).*/\1/p' | head -1)}; GW=${GW:-192.0.2.1}
+export ADDR GW
 D=$H/walnut-all-$(date +%Y%m%d-%H%M%S)
 mkdir -p "$D" || exit 1
 L=$D/log.txt
@@ -64,18 +69,18 @@ run "wol off" 'ethtool -s eth0 wol d; ethtool eth0 | grep -i wake'
 watch "wol off" && works "Wake-on-LAN off (ethtool -s eth0 wol d)"
 
 echo ">> kick 3: NetworkManager out of the way, a static address, 30 s quiet"
-run "nm stop + static" 'systemctl stop NetworkManager; sleep 2; ip addr flush dev eth0; ip link set eth0 up; ip addr add 10.0.0.77/24 dev eth0; ip route add default via 10.0.0.1 2>/dev/null; ip addr show eth0'
-run "ping the router" 'ping -c 5 -W 2 10.0.0.1; ip neigh show dev eth0'
-watch "static, no NetworkManager" 6 && works "NetworkManager stopped, static 10.0.0.77"
+run "nm stop + static" 'systemctl stop NetworkManager; sleep 2; ip addr flush dev eth0; ip link set eth0 up; ip addr add $ADDR dev eth0; ip route add default via $GW 2>/dev/null; ip addr show eth0'
+run "ping the router" 'ping -c 5 -W 2 $GW; ip neigh show dev eth0'
+watch "static, no NetworkManager" 6 && works "NetworkManager stopped, static $ADDR"
 
 echo ">> kick 4: link down for 15 s, then up"
-run "down 15 s" 'ip link set eth0 down; sleep 15; ip link set eth0 up; sleep 5; ip addr add 10.0.0.77/24 dev eth0 2>/dev/null; ping -c 3 -W 2 10.0.0.1'
+run "down 15 s" 'ip link set eth0 down; sleep 15; ip link set eth0 up; sleep 5; ip addr add $ADDR dev eth0 2>/dev/null; ping -c 3 -W 2 $GW'
 watch "after a long down" && works "eth0 down 15 s, then up"
 
 echo ">> kick 5: gelic rebind (the hypervisor asked again)"
 rebind
 hv "after rebind"
-run "static again" 'ip link set eth0 up; ip addr add 10.0.0.77/24 dev eth0 2>/dev/null; ping -c 3 -W 2 10.0.0.1'
+run "static again" 'ip link set eth0 up; ip addr add $ADDR dev eth0 2>/dev/null; ping -c 3 -W 2 $GW'
 watch "after rebind" && works "gelic rebind"
 
 echo ">> kick 6: Bluetooth off, the Bluetooth/Wi-Fi module reset, then gelic rebind"
@@ -83,14 +88,14 @@ run "bluetooth modules out" 'systemctl stop bluetooth 2>/dev/null; modprobe -r b
 run "module usb reset" 'for d in /sys/bus/usb/devices/*-*; do [ "$(cat $d/idVendor 2>/dev/null):$(cat $d/idProduct 2>/dev/null)" = 054c:036f ] || continue; echo "reset $d"; echo 0 > $d/authorized; sleep 3; echo 1 > $d/authorized; done; sleep 3; dmesg | tail -8'
 rebind
 hv "after module reset + rebind"
-run "static again" 'ip link set eth0 up; ip addr add 10.0.0.77/24 dev eth0 2>/dev/null; ping -c 3 -W 2 10.0.0.1'
+run "static again" 'ip link set eth0 up; ip addr add $ADDR dev eth0 2>/dev/null; ping -c 3 -W 2 $GW'
 watch "after module reset + rebind" && works "Bluetooth off + module reset + gelic rebind"
 
 echo ">> kick 7: the module left unauthorized (off) while gelic probes"
 run "module off" 'for d in /sys/bus/usb/devices/*-*; do [ "$(cat $d/idVendor 2>/dev/null):$(cat $d/idProduct 2>/dev/null)" = 054c:036f ] && echo 0 > $d/authorized && echo "off: $d"; done'
 rebind
 hv "with the module off"
-run "static again" 'ip link set eth0 up; ip addr add 10.0.0.77/24 dev eth0 2>/dev/null; ping -c 3 -W 2 10.0.0.1'
+run "static again" 'ip link set eth0 up; ip addr add $ADDR dev eth0 2>/dev/null; ping -c 3 -W 2 $GW'
 watch "module off + rebind" && { run "module on" 'for d in /sys/bus/usb/devices/*-*; do [ "$(cat $d/idVendor 2>/dev/null):$(cat $d/idProduct 2>/dev/null)" = 054c:036f ] && echo 1 > $d/authorized; done'; works "Bluetooth/Wi-Fi module off + gelic rebind"; }
 run "module on" 'for d in /sys/bus/usb/devices/*-*; do [ "$(cat $d/idVendor 2>/dev/null):$(cat $d/idProduct 2>/dev/null)" = 054c:036f ] && echo 1 > $d/authorized; done'
 

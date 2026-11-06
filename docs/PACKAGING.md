@@ -100,7 +100,7 @@ Everything is served from walnut.nanobyte.dev (servers/walnut.nanobyte.dev/, doc
 | `stable-debug` | stable's `-dbgsym` | the archive key | newest 3 | CI, with stable |
 | `licensed` | game data we may not redistribute, and the sources it is made from | the archive key | every version, files never change | `make publish`, from this PC only |
 
-The old LAN repository on tibi-server (`http://10.0.0.10:8070`: suites `ps3`, `ps3-dev`, `ps3-dbgsym`, `ps3-licensed` and the `img-*` snapshots, published with aptly from `build/aptly`) was retired and deleted on 2026-10-26. Its whole tree and `build/aptly` are kept in `/mnt/data_linux/Temp/ps3/retired-tibi-server-20261026/` (tarballs with SHA256SUMS; `ps3-licensed-debs/` holds the ten licensed packages it published, ready for `make publish` if they should go to the licensed suite unchanged).
+The old LAN repository on tibi-server (`http://198.51.100.10:8070`: suites `ps3`, `ps3-dev`, `ps3-dbgsym`, `ps3-licensed` and the `img-*` snapshots, published with aptly from `build/aptly`) was retired and deleted on 2026-10-26. Its whole tree and `build/aptly` are kept in `/mnt/data_linux/Temp/ps3/retired-tibi-server-20261026/` (tarballs with SHA256SUMS; `ps3-licensed-debs/` holds the ten licensed packages it published, ready for `make publish` if they should go to the licensed suite unchanged).
 
 ### The signing subkey
 
@@ -158,7 +158,7 @@ A package is licensed when its Debian Section is `non-free/*` or `local/*` (game
   - `stable` at 990, so our releases win over Debian's (500) whatever the versions, but an installed newer testing build is never downgraded (990 is below 1000): the next release, a higher version, takes over from it;
   - `testing` at 1: never chosen on its own, only with `apt install -t testing <pkg>`;
   - Debian's `linux-image-*`, `linux-headers-*`, `linux-kbuild-*`, `linux-support-*` and `src:mesa` at -1, so they are never candidates.
-- **The owner's consoles** can add the licensed suite ("Licensed packages and the licensed suite" above). Consoles installed before the walnut.sources change (2026-10-23) keep the old `ps3.sources` and `preferences.d/ps3` (dpkg leaves a dropped conffile in place); dev images built before 2026-10-26 also have `ps3-lan.sources` and `preferences.d/ps3-lan` for the retired LAN repository, which make `apt update` fail on 10.0.0.10 until they are deleted.
+- **The owner's consoles** can add the licensed suite ("Licensed packages and the licensed suite" above). Consoles installed before the walnut.sources change (2026-10-23) keep the old `ps3.sources` and `preferences.d/ps3` (dpkg leaves a dropped conffile in place); dev images built before 2026-10-26 also have `ps3-lan.sources` and `preferences.d/ps3-lan` for the retired LAN repository, which make `apt update` fail on 198.51.100.10 until they are deleted.
 - **`apt upgrade` is safe.** A Debian package that needs a newer Mesa than ours is kept back, and nothing is removed. Verified in the ppc64 chroot against live debian-ports (2026-10-16).
 - Going back to an older version is explicit (`apt install pkg=<version>`).
 - A rollback to Debian's Mesa means dropping the -1 pin by hand.

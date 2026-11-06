@@ -262,13 +262,13 @@ make publish DIST=ps3 DEBS="\
 rm -f build/tmp/publish.lock
 ```
 
-Afterwards: fetch `http://10.0.0.10:8070/ps3/dists/ps3/main/binary-ppc64/Packages` and check every version above is there. Then `make repo-snapshot` (freezes `ps3` as `img-<stamp>`) and, if wanted, `make rootfs REPO_SUITE=img-<stamp>` to confirm the image from the snapshot equals the tested one (`make checksums`, same sha256).
+Afterwards: fetch `http://198.51.100.10:8070/ps3/dists/ps3/main/binary-ppc64/Packages` and check every version above is there. Then `make repo-snapshot` (freezes `ps3` as `img-<stamp>`) and, if wanted, `make rootfs REPO_SUITE=img-<stamp>` to confirm the image from the snapshot equals the tested one (`make checksums`, same sha256).
 
 A second publish, of anything that failed its check and was fixed later (xmoto, classicube, supertuxkart and teeworlds if they were held back), follows the same pattern with its own `DEBS` list. If `ps3-games` changes its Depends again: `make ps3-games-licensed-deb` and `make publish DEBS=build/debs/ps3-games-licensed/ps3-games-licensed_<N>_all.deb` (it goes to `ps3-licensed` whatever `DIST`).
 
 ## History
 
-The first plan was drafted on 2026-10-18 at HEAD `0149148`, from the served indices of `http://10.0.0.10:8070/{ps3,ps3-dev,ps3-licensed}`, `build/debs`, `git log --since=2026-10-16` (277 commits) and the docs of the time. It sorted every package READY (proven, no known regression), NEEDS-CHECK (one named check first) or NOT YET, and proposed publishing the READY set on the kernel `.178` with Mesa `.415`, ps3-gpu-tools 0.428 and libspeq/ps3-spu 0.395, from `build/aptly/pool` for the kernel pair, and the rest in a second publish. The release of 2026-10-18 replaced it: instead of promoting old proven builds, everything is rebuilt as official from the current tree, the image is tested, and then everything publishes at once.
+The first plan was drafted on 2026-10-18 at HEAD `0149148`, from the served indices of `http://198.51.100.10:8070/{ps3,ps3-dev,ps3-licensed}`, `build/debs`, `git log --since=2026-10-16` (277 commits) and the docs of the time. It sorted every package READY (proven, no known regression), NEEDS-CHECK (one named check first) or NOT YET, and proposed publishing the READY set on the kernel `.178` with Mesa `.415`, ps3-gpu-tools 0.428 and libspeq/ps3-spu 0.395, from `build/aptly/pool` for the kernel pair, and the rest in a second publish. The release of 2026-10-18 replaced it: instead of promoting old proven builds, everything is rebuilt as official from the current tree, the image is tested, and then everything publishes at once.
 
 What the draft's verdicts decided that still matters:
 

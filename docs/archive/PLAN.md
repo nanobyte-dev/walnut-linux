@@ -266,7 +266,7 @@ steps are Stage 5.
   `<debver>+ps3.N`; native in a ppc64 chroot under qemu (`make <pkg>-deb`), the kernel cross-built.
   The repository is laid out by output package (`<pkg>/`).
 - **apt repository** on tibi-server (`tools/repo-server/`), published with aptly from
-  `build/aptly`: suite `ps3` (`http://10.0.0.10:8070/ps3`, stable releases, kept forever) and
+  `build/aptly`: suite `ps3` (`http://198.51.100.10:8070/ps3`, stable releases, kept forever) and
   suite `ps3-dev` (`.../ps3-dev`, dev builds `~dev<stamp>` with debug symbols, the newest 5 of
   each; `make deploy` goes through it). Decided 2026-10-16.
 - **apt on the PS3 (2026-10-16):** Debian live (debian-ports unstable) *and* ours, so anything we

@@ -11,7 +11,11 @@ D=$H/walnut-wol-$(date +%Y%m%d-%H%M%S)
 mkdir -p "$D" || exit 1
 L=$D/log.txt
 DRV=/sys/bus/ps3_system_bus/drivers/ps3_gelic_driver
-GW=$(ip route | sed -n 's/^default via \([^ ]*\).*/\1/p' | head -1); GW=${GW:-10.0.0.1}
+# The address and the router this script puts back on eth0 (a static address while NetworkManager is stopped):
+# those eth0 has now, else WALNUT_STATIC_ADDR (with the /prefix) and WALNUT_GATEWAY, else documentation addresses.
+ADDR=${WALNUT_STATIC_ADDR:-$(ip -4 -o addr show dev eth0 2>/dev/null | awk '{print $4; exit}')}; ADDR=${ADDR:-192.0.2.77/24}
+GW=${WALNUT_GATEWAY:-$(ip route 2>/dev/null | sed -n 's/^default via \([^ ]*\).*/\1/p' | head -1)}; GW=${GW:-192.0.2.1}
+export ADDR GW
 run() {
 	printf '\n===== %s\n$ %s\n' "$1" "$2" >> "$L"
 	timeout 60 sh -c "$2" >> "$L" 2>&1
@@ -28,7 +32,7 @@ check() {	# check <label>: 20 s of pings to the router; "alive" or "DEAD"
 	echo ">> $1: rx $b -> $a: $r"
 	printf '>> %s: rx %s -> %s: %s\n' "$1" "$b" "$a" "$r" >> "$L"
 }
-static() { run "static address" "ip link set eth0 up; ip addr add 10.0.0.77/24 dev eth0 2>/dev/null; true"; }
+static() { run "static address" "ip link set eth0 up; ip addr add $ADDR dev eth0 2>/dev/null; true"; }
 echo ">> writing to $D (router $GW)"
 check "start (should be alive)"
 

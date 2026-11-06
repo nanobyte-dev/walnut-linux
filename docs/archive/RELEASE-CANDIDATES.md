@@ -8,7 +8,7 @@ stable only after a package is proven on the PS3, an explicit `DEBS=` list, `bui
 first, never a `~dev` version. Promotion (PACKAGING.md): commit, rebuild the official version
 (`0.N`, `...+ps3.N`, no `~dev`), `make publish`.
 
-Sources: the served indices of `http://10.0.0.10:8070/{ps3,ps3-dev,ps3-licensed}` (fetched
+Sources: the served indices of `http://198.51.100.10:8070/{ps3,ps3-dev,ps3-licensed}` (fetched
 2026-10-18), `build/debs`, `git log --since=2026-10-16` (277 commits), GAME-PLAN.md, HOTPATHS.md,
 MEMORY.md, STALLS.md, DESKTOP-PLAN.md, and `games/bench/results/*.csv`. "fps.csv row N" is the
 Nth data row of the matrices (same rows in every CSV; the `observations` column has the text).
@@ -296,7 +296,7 @@ make publish DIST=ps3 DEBS="\
 rm -f build/tmp/publish.lock
 ```
 
-Afterwards: fetch `http://10.0.0.10:8070/ps3/dists/ps3/main/binary-ppc64/Packages` and check every
+Afterwards: fetch `http://198.51.100.10:8070/ps3/dists/ps3/main/binary-ppc64/Packages` and check every
 version above is there; then `make repo-snapshot` (freezes `ps3` as `img-<stamp>`) and, if wanted,
 `make rootfs REPO_SUITE=img-<stamp>` to confirm the image from the snapshot equals the tested one
 (`make checksums`, same sha256).
@@ -511,7 +511,7 @@ The `$K` set is eight files: `linux-image-6.12.111+ps3.178`, `linux-headers-6.12
 `linux-kbuild-6.12.111+ps3.178`, metas `linux-image-ps3` and `linux-headers-ps3`, `ps3rsx-modules-6.12.111+ps3.178`
 and `ps3rsx-modules-ps3` (0.249). The dbgsym debs in those directories go to `ps3-dbgsym`, as `make publish`
 does today; `aptly-publish.sh` refuses any `~dev` version and the check "versions only grow" runs before the add.
-Afterwards verify by fetching `http://10.0.0.10:8070/ps3/dists/ps3/main/binary-ppc64/Packages` and counting the
+Afterwards verify by fetching `http://198.51.100.10:8070/ps3/dists/ps3/main/binary-ppc64/Packages` and counting the
 new versions, then `make repo-snapshot` only if the user wants an image snapshot.
 
 ### 4.3 After the NEEDS-CHECK items pass (second publish, same pattern)

@@ -8,6 +8,8 @@
     The replace list is required, with at least one pattern: without it nothing can be checked, so every
     commit is refused. Binary files are scanned as bytes (up to 64 MB each).
     A finding names the list and its line, never the text it matched;
+  - a match of tools/commit-warn.local.txt (untracked, same syntax; the developer's LAN addresses, MAC and disk
+    serial): a warning for now, moved to commit-private.local.txt to make it an error;
   - secrets: private key blocks, GitHub, GitLab, AWS, Slack, Google and Anthropic/OpenAI API tokens;
   - the NOR dump by content: a blob (or a .gz/.xz/.bz2/.zst/.zip/.tar member of one, two levels deep, up to
     64 MB out) whose hashed windows or SHA-256 match tools/nor-fingerprint.local.txt (untracked, mode 600, made
@@ -34,6 +36,7 @@ FINGERPRINT = "tools/nor-fingerprint.local.txt"
 DATA_ALLOW = "tools/game-data-allow.txt"
 MIN_CONTENT = 64 << 10     # smaller files can't hold a dump, or an archive of one
 LOCAL = "tools/commit-private.local.txt"
+WARN_LIST = "tools/commit-warn.local.txt"   # untracked, same syntax: the LAN identifiers (addresses, MAC, serial); a match warns
 PRIVATE_DIRS = ("backups/", "firmware/", ".local/")
 DUMP_RE = re.compile(r"\.(bin|img|pup|nor|nand)$", re.I)
 SCISSORS = "# ------------------------ >8 ------------------------"
@@ -393,6 +396,15 @@ def run(ctx, files):
     nf, fps = fingerprints(ctx)
     data_checks(ctx, files, nf, fps)
     content_checks(ctx, files, nf, fps)
+    warn_path = private_list(ctx, WARN_LIST)
+    if warn_path:
+        wp = load_patterns(warn_path, WARN_LIST)
+        for path, lines in sorted(added_lines(ctx).items()):
+            for n, line in lines:
+                for label, rx in wp:
+                    if rx.search(line):
+                        ctx.warn(path, "line %s: has a LAN identifier (%s): use a documentation address "
+                                 "(192.0.2.x, 198.51.100.x, 00:00:5e:00:53:xx) or read it from config" % (n, label))
     pats = patterns(ctx)
     if pats is not None:
         for path, lines in sorted(added_lines(ctx).items()):
