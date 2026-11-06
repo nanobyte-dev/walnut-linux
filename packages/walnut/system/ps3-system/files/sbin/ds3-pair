@@ -46,6 +46,40 @@ def adapter_address():
     return m.group(1)
 
 
+def ensure(path, text, needles):
+    """Writes text unless the file already holds every needle (BlueZ adds keys of its own to a file
+    after the first connection, so an equal-text test would rewrite it each time); True when written."""
+    try:
+        with open(path) as f:
+            have = f.read()
+        if all(n in have for n in needles):
+            return False
+    except OSError:
+        pass
+    with open(path, "w") as f:
+        f.write(text)
+    return True
+
+
+def register(base, dev):
+    """The controller's BlueZ storage under <base> (an adapter's directory); True when anything was written."""
+    os.makedirs("%s/%s" % (base, dev), mode=0o700, exist_ok=True)
+    os.makedirs("%s/cache" % base, mode=0o700, exist_ok=True)
+    changed = ensure(
+        "%s/%s/info" % (base, dev),
+        "[General]\nName=Sony PLAYSTATION(R)3 Controller\nClass=0x000508\n"
+        "SupportedTechnologies=BR/EDR;\nTrusted=true\nBlocked=false\n"
+        "CablePairing=true\nServices=%s;\n\n"
+        "[DeviceID]\nSource=2\nVendor=1356\nProduct=616\nVersion=0\n" % HID_UUID,
+        ("Trusted=true", "Blocked=false", HID_UUID))
+    changed |= ensure(
+        "%s/cache/%s" % (base, dev),
+        "[General]\nName=Sony PLAYSTATION(R)3 Controller\n\n"
+        "[ServiceRecords]\n0x00010000=%s\n" % SDP_RECORD,
+        (SDP_RECORD,))
+    return changed
+
+
 def main():
     syslog.openlog("ds3-pair")
     fd = os.open(sys.argv[1], os.O_RDWR)
@@ -55,18 +89,12 @@ def main():
     os.close(fd)
 
     base = "/var/lib/bluetooth/%s" % host
-    os.makedirs("%s/%s" % (base, dev), mode=0o700, exist_ok=True)
-    os.makedirs("%s/cache" % base, mode=0o700, exist_ok=True)
-    with open("%s/%s/info" % (base, dev), "w") as f:
-        f.write("[General]\nName=Sony PLAYSTATION(R)3 Controller\nClass=0x000508\n"
-                "SupportedTechnologies=BR/EDR;\nTrusted=true\nBlocked=false\n"
-                "CablePairing=true\nServices=%s;\n\n"
-                "[DeviceID]\nSource=2\nVendor=1356\nProduct=616\nVersion=0\n" % HID_UUID)
-    with open("%s/cache/%s" % (base, dev), "w") as f:
-        f.write("[General]\nName=Sony PLAYSTATION(R)3 Controller\n\n"
-                "[ServiceRecords]\n0x00010000=%s\n" % SDP_RECORD)
-    subprocess.run(["systemctl", "restart", "bluetooth"])
+    # bluetoothd reads its storage at start: restarting it (which drops every connected pad) is only
+    # needed when the pairing changed, not each time the same controller is plugged in
+    if register(base, dev):
+        subprocess.run(["systemctl", "restart", "bluetooth"])
     syslog.syslog("DualShock 3 %s paired with %s" % (dev, host))
 
 
-main()
+if __name__ == "__main__":
+    main()
