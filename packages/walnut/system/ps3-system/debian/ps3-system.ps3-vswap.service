@@ -1,6 +1,11 @@
 [Unit]
 Description=Disk swap, behind swap in spare VRAM when ps3rsx provides it
-After=systemd-modules-load.service
+# Needs: ps3rsx loaded (its ps3vswap0 disk: systemd-modules-load), the udev trigger done (findfs and the
+# block devices of fstab's swap partition) and the local file systems up (/etc/default, /var/lib).
+# All three finish before basic.target, which this oneshot already waits for by default, so the
+# explicit order adds no wait and no boot time. No Before=swap.target: sysinit.target waits for that
+# target, and this service starts after sysinit (a cycle).
+After=systemd-modules-load.service systemd-udev-trigger.service local-fs.target
 
 [Service]
 Type=oneshot

@@ -53,5 +53,30 @@ class Ds3Pair(unittest.TestCase):
         self.assertIn("Trusted=true", f.read_text())
 
 
+class VswapUnit(unittest.TestCase):
+    def unit(self):
+        sec, d = None, {}
+        for line in (PKG / "debian/ps3-system.ps3-vswap.service").read_text().splitlines():
+            if line.startswith("["):
+                sec = line
+            elif "=" in line and not line.startswith("#"):
+                k, v = line.split("=", 1)
+                d.setdefault((sec, k), []).extend(v.split())
+        return d
+
+    def test_ordered_after_what_it_needs(self):
+        after = self.unit()[("[Unit]", "After")]
+        for need in ("systemd-modules-load.service", "systemd-udev-trigger.service", "local-fs.target"):
+            self.assertIn(need, after)
+
+    def test_no_wait_added_for_the_boot(self):
+        d = self.unit()
+        # nothing slower than the default basic.target ordering, and no ordering that makes others wait
+        for slow in ("systemd-udev-settle.service", "network-online.target", "multi-user.target"):
+            self.assertNotIn(slow, d[("[Unit]", "After")])
+        self.assertNotIn(("[Unit]", "Before"), d)
+        self.assertNotIn(("[Unit]", "DefaultDependencies"), d)
+
+
 if __name__ == "__main__":
     unittest.main()
