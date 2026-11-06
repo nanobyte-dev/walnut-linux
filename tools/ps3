@@ -7,11 +7,14 @@
 # lease was taken with (only with no token given; a wrong token is never rescued by it; --force is separate).
 #   ps3 status                               exit 0 free, 1 held, 2 expired
 #   ps3 check                                for scripts: exit 0 if free or ours ($PS3_LEASE), else 1 and who holds it
+#   ps3 ssh|scp|rsync ARGS...                the ways in: check first, then ssh (to the PS3: ARGS is the command), scp or rsync
+#                                            with the project's options (tools/lib/ps3.sh); the Makefile's PS3_SSH is `tools/ps3 ssh`
 # Staleness is by expiry only, never by a pid (an agent's shell pid is short-lived): a lease past its
 # expiry is stale, `renew` extends it. --owner LABEL (or $PS3_OWNER, default the user name) says who holds it.
 # The lease is ${XDG_RUNTIME_DIR:-/run/user/UID}/walnut-ps3.lease (key=value lines); changes are made
 # under flock on walnut-ps3.lk, so two `lock` calls can't both win. An expired lease is taken over.
 set -eu
+case ${1:-} in ssh|scp|rsync) k=$1; shift; . "$(dirname "$0")/lib/ps3.sh"; "ps3_$k" "$@"; exit ;; esac
 dir=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}
 lease=$dir/walnut-ps3.lease
 mkdir -p "$dir"

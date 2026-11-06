@@ -10,9 +10,10 @@
 set -u
 cd "$(dirname "$0")/.."
 if [ $# -gt 0 ]; then offsets=("$@"); else offsets=(30 60); fi
-# The PS3's address, user and key: PS3_IP, PS3_USER, PS3_SSH_KEY from the environment or config.local.mk
-{ read -r ps3_ip; read -r ps3_user; read -r ps3_key; } < <(tools/config-get.sh PS3_IP PS3_USER PS3_SSH_KEY)
-[ -n "$ps3_ip" ] && [ -n "$ps3_user" ] || { echo "bench-cam.sh: set PS3_IP and PS3_USER (config.local.mk)" >&2; exit 1; }
+# The PS3's address, user and key (tools/lib/ps3.sh: PS3_IP, PS3_USER, PS3_SSH_KEY from the environment or config.local.mk),
+# and the lease: someone else's refuses
+. tools/lib/ps3.sh
+ps3_check || exit 1
 out=build/bench-cam; mkdir -p "$out"; mark=$(mktemp -d); trap 'rm -rf "$mark"' EXIT
 # The remote loop runs as `exec -a bench-cam-loop bash -c ...`: argv[0] is the marker the interference
 # detector (ps3-intfwatch -X built in) exempts, with its SSH session and children. Any other ssh
@@ -33,8 +34,7 @@ loop=$(cat <<'EOF'
 	done
 EOF
 )
-ssh -i "$ps3_key" -o UserKnownHostsFile=build/ps3_known_hosts -o ConnectTimeout=20 \
-	-o ServerAliveInterval=30 "$ps3_user@$ps3_ip" "exec -a bench-cam-loop bash -c $(printf %q "$loop")" 2>/dev/null |
+ssh "${PS3_SSH_OPTS[@]}" -o ServerAliveInterval=30 "$PS3_HOST" "exec -a bench-cam-loop bash -c $(printf %q "$loop")" 2>/dev/null |
 while read -r ev d; do
 	name=$(basename "$d")
 	case "$ev" in

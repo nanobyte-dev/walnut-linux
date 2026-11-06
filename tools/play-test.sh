@@ -14,12 +14,9 @@
 # "done" (the session is being measured).
 set -euo pipefail
 cd "$(dirname "$0")/.."
-tools/ps3 check || exit 1	# someone else holds the PS3 lease (tools/ps3 lock)
-conf() { sed -n "s/^$1 *[:?]*= *//p" config.local.mk config.mk 2>/dev/null | grep -v '^$' | head -1; }
-IP=$(conf PS3_IP); USER_=$(conf PS3_USER); KEY=$(conf PS3_SSH_KEY); KEY=${KEY//\$(HOME)/$HOME}
-[ -n "$IP" ] && [ -n "$USER_" ] || { echo "!! PS3_IP / PS3_USER: set them in config.local.mk" >&2; exit 2; }
-ps3() { timeout "${T:-60}" ssh -i "$KEY" -o UserKnownHostsFile="$PWD/build/ps3_known_hosts" -o BatchMode=yes \
-	-o ConnectTimeout=10 "$USER_@$IP" "$@"; }
+. tools/lib/ps3.sh	# the PS3's address, key and options; every ps3_ssh call checks the lease first
+ps3_check || exit 1	# someone else holds the PS3 lease (tools/ps3 lock)
+ps3() { PS3_TIMEOUT=${T:-60} ps3_ssh "$@"; }
 cmd=${1:-}; G=${2:-}; L=${3:-}
 # GAME is a Walnut Games entry, whose recipe is its own (gamedb/games/GAME/benchmark/recipe.sh,
 # bench/harness/games.sh), or an old recipe name (sauerbraten-edition: Sauerbraten's)
