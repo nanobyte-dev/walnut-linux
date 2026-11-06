@@ -39,7 +39,7 @@ class Xwrapper(unittest.TestCase):
     def test_stock_file(self):
         lines, deb = self.run_block("# Xwrapper.config\nallowed_users=console\nneeds_root_rights=auto\n")
         self.assertEqual(lines, ["allowed_users=console", "needs_root_rights=yes"])
-        self.assertIn("allowed_users select console", deb)
+        self.assertIn("allowed_users select Console Users Only", deb)
 
     def test_old_anybody_file_is_switched(self):
         lines, _ = self.run_block("allowed_users=anybody\nneeds_root_rights=yes\n")

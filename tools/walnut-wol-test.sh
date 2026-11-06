@@ -12,9 +12,15 @@ mkdir -p "$D" || exit 1
 L=$D/log.txt
 DRV=/sys/bus/ps3_system_bus/drivers/ps3_gelic_driver
 # The address and the router this script puts back on eth0 (a static address while NetworkManager is stopped):
-# those eth0 has now, else WALNUT_STATIC_ADDR (with the /prefix) and WALNUT_GATEWAY, else documentation addresses.
-ADDR=${WALNUT_STATIC_ADDR:-$(ip -4 -o addr show dev eth0 2>/dev/null | awk '{print $4; exit}')}; ADDR=${ADDR:-192.0.2.77/24}
-GW=${WALNUT_GATEWAY:-$(ip route 2>/dev/null | sed -n 's/^default via \([^ ]*\).*/\1/p' | head -1)}; GW=${GW:-192.0.2.1}
+# those eth0 has now, else WALNUT_STATIC_ADDR (with the /prefix) and WALNUT_GATEWAY; with neither it refuses
+# (a made-up address would make the ping to the router meaningless).
+ADDR=${WALNUT_STATIC_ADDR:-$(ip -4 -o addr show dev eth0 2>/dev/null | awk '{print $4; exit}')}
+GW=${WALNUT_GATEWAY:-$(ip route 2>/dev/null | sed -n 's/^default via \([^ ]*\).*/\1/p' | head -1)}
+if [ -z "$ADDR" ] || [ -z "$GW" ]; then
+	echo "walnut-wol-test: eth0 has no address or no default route (no DHCP lease), so there is nothing real to put back or ping." >&2
+	echo "Give them: WALNUT_STATIC_ADDR=<address>/<prefix> WALNUT_GATEWAY=<router> sh $0 (nothing was changed)" >&2
+	exit 2
+fi
 export ADDR GW
 run() {
 	printf '\n===== %s\n$ %s\n' "$1" "$2" >> "$L"

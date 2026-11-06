@@ -323,7 +323,7 @@ output package (README).
 ### The console
 
 - **Model:** CECH-20xx (DYN-001, first Slim), NOR flash, 4.92 CEX Cobra 8.5D.
-- **webMAN:** MOD 1.47.48 at http://10.0.0.76/.
+- **webMAN:** MOD 1.47.48 at http://192.0.2.76/.
 - **Screen:** a Logitech BRIO webcam points at the monitor. HDMI capture is blocked by HDCP in
   the XMB.
 - **USB disk:** AXAGON adapter (JMicron JMS567, 152d:0567): Bulk-Only Transport only at USB 2

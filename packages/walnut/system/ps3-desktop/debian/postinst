@@ -10,7 +10,7 @@ if [ "$1" = configure ]; then
 	fi
 	# Only a user logged in on a physical console (a VT: the tty1 autologin's startx) may start X, and an SSH
 	# login may not; the legacy wrapper runs it with root rights (KMS, input)
-	echo "xserver-xorg-legacy xserver-xorg-legacy/xwrapper/allowed_users select console" | debconf-set-selections
+	echo "xserver-xorg-legacy xserver-xorg-legacy/xwrapper/allowed_users select Console Users Only" | debconf-set-selections
 	if [ -e /etc/X11/Xwrapper.config ]; then
 		sed -i 's/^allowed_users[[:space:]]*=.*/allowed_users=console/' /etc/X11/Xwrapper.config
 		grep -q '^allowed_users=' /etc/X11/Xwrapper.config || echo allowed_users=console >> /etc/X11/Xwrapper.config

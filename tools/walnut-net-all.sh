@@ -7,9 +7,15 @@
 # Runtime only: nothing is written to disk (but this folder), the flash or the system controller.
 H=$(cd "$(dirname "$0")" && pwd)
 # The address and the router this script puts back on eth0 (a static address while NetworkManager is stopped):
-# those eth0 has now, else WALNUT_STATIC_ADDR (with the /prefix) and WALNUT_GATEWAY, else documentation addresses.
-ADDR=${WALNUT_STATIC_ADDR:-$(ip -4 -o addr show dev eth0 2>/dev/null | awk '{print $4; exit}')}; ADDR=${ADDR:-192.0.2.77/24}
-GW=${WALNUT_GATEWAY:-$(ip route 2>/dev/null | sed -n 's/^default via \([^ ]*\).*/\1/p' | head -1)}; GW=${GW:-192.0.2.1}
+# those eth0 has now, else WALNUT_STATIC_ADDR (with the /prefix) and WALNUT_GATEWAY; with neither it refuses
+# (a made-up address would make the ping to the router meaningless).
+ADDR=${WALNUT_STATIC_ADDR:-$(ip -4 -o addr show dev eth0 2>/dev/null | awk '{print $4; exit}')}
+GW=${WALNUT_GATEWAY:-$(ip route 2>/dev/null | sed -n 's/^default via \([^ ]*\).*/\1/p' | head -1)}
+if [ -z "$ADDR" ] || [ -z "$GW" ]; then
+	echo "walnut-net-all: eth0 has no address or no default route (no DHCP lease), so there is nothing real to put back or ping." >&2
+	echo "Give them: WALNUT_STATIC_ADDR=<address>/<prefix> WALNUT_GATEWAY=<router> sh $0 (nothing was changed)" >&2
+	exit 2
+fi
 export ADDR GW
 D=$H/walnut-all-$(date +%Y%m%d-%H%M%S)
 mkdir -p "$D" || exit 1
@@ -33,7 +39,7 @@ watch() {	# watch <label> [seconds/5]: counters; 0 if anything came in
 }
 rebind() { run "gelic rebind" "echo sb_06 > $DRV/unbind; sleep 3; echo sb_06 > $DRV/bind; sleep 8; ls /sys/class/net; dmesg | grep -iE 'vlan|gelic|wlan' | tail -4"; }
 restore() {
-	run "restore" 'modprobe btusb; modprobe bnep; systemctl start NetworkManager; sleep 10; nmcli dev'
+	run "restore" 'modprobe btusb; modprobe bnep; ip addr flush dev eth0; ip route flush dev eth0; systemctl start NetworkManager; sleep 10; nmcli dev'
 }
 finish() {	# finish <what helped>
 	hv "at the end"

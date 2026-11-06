@@ -133,7 +133,7 @@ The console and its firmware
 - **GameOS, XMB**: Sony's own operating system and its menu. It stays the default boot OS (CLAUDE.md).
 - **OtherOS++**: the custom-firmware feature that boots a second OS with GameOS-level access to the hardware, including the RSX. We run it on Evilnat 4.92 CFW.
 - **Petitboot**: the boot loader OtherOS++ starts. It reads `kboot.conf` and kexecs our kernel. The OtherOS boot flag, set from the XMB, is the only way into it.
-- **webMAN**: webMAN MOD, a GameOS plugin with a web interface (http://10.0.0.76/), FTP and fan control. Its fan control dies when Linux boots.
+- **webMAN**: webMAN MOD, a GameOS plugin with a web interface (http://192.0.2.76/), FTP and fan control. Its fan control dies when Linux boots.
 - **lv1**: the PS3's hypervisor. Linux runs as a guest (an **LPAR**, logical partition) and reaches the hardware through lv1 hypercalls.
 - **SYSCON**: the system controller chip (power, fan, thermal sensors). Writes to it are forbidden apart from the fan policy (CLAUDE.md).
 - **System Manager**: the lv1 service Linux talks to for power, temperatures and the fan policy (`ps3-sys-manager.c`).

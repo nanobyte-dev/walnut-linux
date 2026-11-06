@@ -10,7 +10,7 @@ Related pages: [THERMAL.md](THERMAL.md) for temperatures and the fan, [GAMEOS-HD
 |---|---|
 | Model | CECH-20xx (DYN-001, the first Slim), a NOR console; PyPS3checker reports "Matching SKU: CECH-20xxx (DYN-001)" |
 | Firmware | 4.92 CEX Cobra 8.5D (Evilnat). ros0 is 4.92 Evilnat, ros1 is 4.75 CEX (FERROX-based), the bank left over from an earlier install |
-| webMAN | MOD 1.47.48, at http://10.0.0.76/ |
+| webMAN | MOD 1.47.48, at http://192.0.2.76/ |
 | Flash | one 16 MB NOR (Samsung K8Q2815UQB, Macronix MX29GL128E or Spansion S29GL128P) |
 | SYSCON | SW2-301 (Sherwood family, NEC/Renesas 78K0R core, D79F0086, LQFP-128), firmware 1.11.0, patch 0832 |
 | OtherOS++ | xai_plugin "Install OtherOS": VFLASH regions resized, Petitboot (NOR image) in VFLASH region 5 |
