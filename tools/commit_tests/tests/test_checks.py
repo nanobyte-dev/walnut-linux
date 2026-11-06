@@ -365,6 +365,14 @@ class NorDumpContent(Base):
         self.stage("t/other.dat", os.urandom(2 << 20))
         self.assertEqual(self.r.errors(["private"]), [])
 
+    def test_dump_in_backups_without_a_fingerprint_warns_loudly(self):
+        (self.r.dir / "tools/nor-fingerprint.local.txt").unlink()
+        self.r.write("backups/dump.bin", os.urandom(1 << 20))
+        self.stage("t/a.txt", "x\n")
+        w = [f for f in self.r.run(["private"]) if f[1] == "warning"]
+        self.assertTrue(any("content guard is OFF" in f[3] for f in w), w)
+        self.assertEqual(self.r.errors(["private"]), [])
+
     def test_no_fingerprint_only_warns(self):
         (self.r.dir / "tools/nor-fingerprint.local.txt").unlink()
         self.stage("t/flash.dat", self.dump)

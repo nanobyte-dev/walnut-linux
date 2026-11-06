@@ -251,6 +251,21 @@ def nor_module():
     return mod
 
 
+def dump_present(ctx):
+    """backups/ (this worktree's, else the main worktree's) holds a file of 1 MiB or more"""
+    dirs = [Path(ctx.root) / "backups"]
+    main = main_worktree(ctx)
+    if main is not None:
+        dirs.append(main / "backups")
+    for d in dirs:
+        try:
+            if any(f.is_file() and f.stat().st_size >= 1 << 20 for f in d.iterdir()):
+                return True
+        except OSError:
+            pass
+    return False
+
+
 def fingerprints(ctx):
     """(module, [fingerprints]): this worktree's (else the main worktree's) list and $WALNUT_NOR_FINGERPRINT;
     ([], warns) when there is none"""
@@ -268,7 +283,10 @@ def fingerprints(ctx):
             fps.append(nf.load(path))
         except (OSError, ValueError) as e:
             ctx.error(None, "the NOR fingerprint list can't be read: %s" % e)
-    if not paths:
+    if not fps and dump_present(ctx):
+        ctx.warn(None, "backups/ holds a file of 1 MiB or more (the NOR dump?) but no NOR fingerprint loads (%s): the "
+                 "content guard is OFF on this machine. python3 -I tools/nor_fingerprint.py make backups/<dump>" % FINGERPRINT)
+    elif not paths:
         ctx.notice(None, "no %s: the NOR dump is only recognised by its path and extension, not by its content "
                  "(python3 -I tools/nor_fingerprint.py make backups/<dump>)" % FINGERPRINT)
     return nf, fps

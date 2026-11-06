@@ -208,7 +208,12 @@ def main(argv):
         if extra and extra not in fpaths:
             fpaths.append(extra)
         fps = [nor.load(q) for q in fpaths if os.path.isfile(q)]
-        if not fps:
+        bdir = os.path.join(os.path.dirname(HERE), "backups")
+        if not fps and os.path.isdir(bdir) and any(os.path.getsize(os.path.join(bdir, f)) >= 1 << 20
+                                                   for f in os.listdir(bdir) if os.path.isfile(os.path.join(bdir, f))):
+            print("WARNING public-scan: backups/ holds a file of 1 MiB or more (the NOR dump?) but no NOR fingerprint "
+                  "loads: the content guard is OFF (python3 -I tools/nor_fingerprint.py make backups/<dump>)", file=sys.stderr)
+        elif not fps:
             print("public-scan: note: no NOR fingerprint (tools/nor-fingerprint.local.txt): the dump is not looked for by content",
                   file=sys.stderr)
         lfs = a.lfs or os.path.join(os.path.dirname(HERE), ".git", "lfs", "objects")
