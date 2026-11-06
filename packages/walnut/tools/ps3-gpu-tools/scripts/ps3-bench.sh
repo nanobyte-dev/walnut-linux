@@ -165,6 +165,7 @@ empty_swaps() {
 		echo ">> swapoff $dev (${used} kB swapped)"
 		sudo timeout -s INT 180 swapoff "$dev" || die "swapoff $dev failed or timed out (the kernel keeps it on)"
 	done
+	w0=$(vswap_writes)
 	for d in "${devs[@]}"; do
 		dev=${d%:*}; prio=${d#*:}
 		case $dev in
@@ -174,10 +175,18 @@ empty_swaps() {
 	done
 	cat /sys/block/ps3vswap0/stats 2>/dev/null | sed 's/^/   vswap after: /'
 	if [ -e /sys/block/ps3vswap0/stats ]; then
-		# one page may stay: the swap header (page 0), which a discard never covers
-		awk '/pages in VRAM/ { exit $4 > 1 }' /sys/block/ps3vswap0/stats ||
+		# Allowed to stay: the swap header (page 0), which a discard never covers, and the pages
+		# the kernel swapped out again right after the swapon (memory is tight once swapoff has
+		# brought everything back), which the writes counter shows
+		awk -v w0="$w0" '/pages in VRAM/ { p = $4 } $1 == "writes" && $2 == "VRAM" { w = $3 }
+			END { exit p - (w - w0) > 1 }' /sys/block/ps3vswap0/stats ||
 			die "VRAM swap still holds pages after the discard"
 	fi
+}
+
+vswap_writes() {	# the VRAM swap's page writes so far (0 without the device)
+	awk '$1 == "writes" && $2 == "VRAM" { w = $3 } END { print w + 0 }' /sys/block/ps3vswap0/stats 2>/dev/null ||
+		echo 0
 }
 
 vswap_on() {	# the VRAM swap back on if it has its backing but is off
