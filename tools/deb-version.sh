@@ -10,7 +10,7 @@ paths=("$PD/" tools/deb-prepare.sh tools/deb-build.sh tools/deb-chroot.sh build-
 # a file, a directory, or a pattern read as GitHub's path filters read it (github-ci/gen-workflows.py
 # passes the same strings): * within one path component, ** across them; so a pattern is a git
 # :(glob) pathspec (plain git lets * cross /)
-VERSION_PATHS=$(sed -n 's/^VERSION_PATHS="\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' "$PD/package.conf" 2>/dev/null)
+VERSION_PATHS=$(python3 -I tools/pkgconf.py words "$PKG" VERSION_PATHS)
 set -f	# the patterns reach git as they are, not expanded here
 for v in $VERSION_PATHS; do
 	case $v in *'*'*) paths+=(":(glob)$v") ;; *) paths+=("$v") ;; esac

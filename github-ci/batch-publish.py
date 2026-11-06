@@ -59,6 +59,11 @@ _spec = importlib.util.spec_from_loader("walnut_lists", importlib.machinery.Sour
 wl = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(wl)
 
+_spec = importlib.util.spec_from_loader("pkgconf", importlib.machinery.SourceFileLoader(
+	"pkgconf", f"{ROOT}/tools/pkgconf.py"))	# the trusted checkout's reader, for a package.conf of any commit
+pkgconf = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(pkgconf)
+
 GIT_DIR = os.environ.get("WALNUT_GIT_DIR", ROOT)	# the trusted checkout the lists are read from (tests: their own)
 LEAK_CHECK = os.environ.get("WALNUT_LEAK_CHECK", f"{ROOT}/tools/leak-check.py")	# tests: their own
 LISTS = "github-ci/packages.toml"
@@ -421,9 +426,9 @@ class Ctx:
 					                     text=True, timeout=300).stdout.split("\n")[0]
 					pd = subprocess.run([f"{wt}/tools/pkg-dir.sh", pkg], cwd=wt, check=True, capture_output=True,
 					                    text=True).stdout.strip()
-					conf = open(f"{wt}/{pd}/package.conf").read()
-					g = lambda k: (re.search(rf'^{k}="?([^"\n]*)"?$', conf, re.M) or [None, ""])[1]
-					if re.fullmatch(r"[0-9]+", out):
+					conf = pkgconf.parse(open(f"{wt}/{pd}/package.conf").read(), env={}, strict=False)
+					g = lambda k: conf.get(k, "")
+					if re.fullmatch(r"[0-9]+", out) and not {"TYPE", "VERSION"} & conf.bad:	# unreadable: unknown, refused
 						self._versions[key] = (out, g("TYPE"), g("VERSION"))
 				except (subprocess.SubprocessError, OSError):
 					pass

@@ -23,15 +23,16 @@ case $rc in
 	1) ;;
 	*) echo "!! tools/licensed.py is-licensed $pkg failed (exit $rc): no build" >&2; exit 2 ;;
 esac
-conf() { sed -n "s/^$1=\"\{0,1\}\([^\"]*\)\"\{0,1\}$/\1/p" "$pd/package.conf"; }
+conf() { python3 -I tools/pkgconf.py get "$pkg" "$1"; }
 # BUILD=xcc (too big for a runner): the debs and source built on the dev PC (tools/prebuilt-upload.sh),
 # from the GitHub release github-ci/prebuilt/<pkg>.sha256 names, each file checked against its sha256 there;
 # the version must be the one this commit gives the package
-if [ "$(conf BUILD)" = xcc ]; then
+build=$(conf BUILD) || exit 2
+if [ "$build" = xcc ]; then
 	sums=github-ci/prebuilt/$pkg.sha256
 	[ -s "$sums" ] || { echo "!! $pkg is built on the dev PC and $sums is missing (tools/prebuilt-upload.sh)" >&2; exit 2; }
 	url=$(sed -n 's/^# url //p' "$sums"); ver=$(sed -n 's/^# version //p' "$sums")
-	want="$(sed -n 's/^VERSION=//p' "$pd/package.conf")+ps3.$(tools/deb-version.sh "$pkg" | sed -n 1p)"
+	want="$(conf VERSION)+ps3.$(tools/deb-version.sh "$pkg" | sed -n 1p)"
 	[ "$ver" = "$want" ] || { echo "!! $sums pins $ver, this commit is $want: upload a build of this commit" >&2; exit 2; }
 	rm -rf "$out"; mkdir -p "$out/src"
 	grep -v '^#' "$sums" | while read -r sum name; do
@@ -53,7 +54,7 @@ fetch() {	# fetch DIR SOURCE: the target suite's newest build of SOURCE into bui
 deps=$(conf LOCAL_DEPS)
 [ "$pkg" = ps3rsx ] && deps="linux"
 for d in $deps; do
-	s=$(sed -n 's/^SOURCE=//p' "$(tools/pkg-dir.sh "$d")/package.conf"); s=${s:-$d}
+	s=$(python3 -I tools/pkgconf.py get "$d" SOURCE) || exit 2; s=${s:-$d}
 	echo "::group::build dependency $d ($s) from $target"
 	fetch "$d" "$s"
 	echo "::endgroup::"

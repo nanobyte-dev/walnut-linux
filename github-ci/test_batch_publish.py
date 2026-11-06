@@ -33,7 +33,7 @@ def fixture_repo(root, extra=""):
 		open(f"{root}/README", "w").write("x\n")
 		fixture_repo.old = commit_all(root, "no list yet", init=True)
 	os.makedirs(f"{root}/tools")
-	for f in ("deb-version.sh", "pkg-dir.sh"):
+	for f in ("deb-version.sh", "pkg-dir.sh", "pkgconf.py"):
 		shutil.copy(f"{ROOT}/tools/{f}", f"{root}/tools/{f}")
 	toml = 'version = 1\n[reserved]\n"linux-image-" = "linux"\n'
 	for n in PKGS + ("linux",):
@@ -620,8 +620,9 @@ class Runs(unittest.TestCase):
 				if os.path.isdir(d):
 					for n in os.listdir(d):
 						p = os.path.join(d, n)
-						if n != "dpkg-deb" and os.access(p, os.X_OK) and not os.path.lexists(os.path.join(farm, n)):
+						if n not in ("dpkg-deb", "python3") and os.access(p, os.X_OK) and not os.path.lexists(os.path.join(farm, n)):
 							os.symlink(p, os.path.join(farm, n))
+			os.symlink(os.path.realpath(sys.executable), os.path.join(farm, "python3"))	# not a pyenv shim, which finds itself again here
 		return farm
 
 	def fake_dpkg(self, honest):

@@ -256,6 +256,11 @@ what = "tools/test_repo_tools.py: pkg-dir.sh, licensed.py, deb-version.sh's patt
 run = ["python3", "-I", "tools/test_repo_tools.py"]
 
 [[suite]]
+name = "pkgconf"
+what = "tools/pkgconf.py: package.conf read as sh reads it for every package in the tree, the forms it accepts and refuses, get, words, json"
+run = ["python3", "-I", "tools/test_pkgconf.py"]
+
+[[suite]]
 name = "licensed"
 what = "tools/licensed.py check on this tree"
 run = ["python3", "-I", "tools/licensed.py", "check"]

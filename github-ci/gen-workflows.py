@@ -22,7 +22,7 @@ A BUILD=xcc package (package.conf: too big for a runner, built on the dev PC by 
 is not built here: its workflow starts on a change to github-ci/prebuilt/<name>.sha256 (written by
 tools/prebuilt-upload.sh) and github-ci/build-package.sh takes the debs that file pins from the
 GitHub release it names."""
-import glob, importlib.util, os, re, subprocess, sys
+import functools, glob, importlib.util, os, re, subprocess, sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WF = f"{ROOT}/.github/workflows"
@@ -380,9 +380,16 @@ def package_workflow():
 
 
 
+@functools.cache
+def pkgconf_module():
+	spec = importlib.util.spec_from_file_location("pkgconf", f"{ROOT}/tools/pkgconf.py")
+	m = importlib.util.module_from_spec(spec)
+	spec.loader.exec_module(m)
+	return m
+
+
 def conf(pkg, key):
-	m = re.search(rf'^{key}="?([^"\n]*)"?$', open(f"{ROOT}/{DIRS[pkg]}/package.conf").read(), re.M)
-	return m.group(1).split() if m else []
+	return pkgconf_module().parse(open(f"{ROOT}/{DIRS[pkg]}/package.conf").read(), env={}).get(key, "").split()
 
 
 def lists_module():

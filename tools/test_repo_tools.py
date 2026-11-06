@@ -53,7 +53,7 @@ class Tree(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name) / "repo"
-        for f in ("pkg-dir.sh", "licensed.py", "deb-version.sh", "image-packages.sh", "gamedb/build-info.py"):
+        for f in ("pkg-dir.sh", "pkgconf.py", "licensed.py", "deb-version.sh", "image-packages.sh", "gamedb/build-info.py"):
             write(self.root, "tools/" + f)
             shutil.copy(HERE / f, self.root / "tools" / f)
         write(self.root, "gamedb/games/q/build.toml", self.DECL)
@@ -710,7 +710,7 @@ class StagedDebBuild(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
         (self.root / "tools").mkdir()
-        for f in ("deb-build.sh", "pkg-dir.sh"):
+        for f in ("deb-build.sh", "pkg-dir.sh", "pkgconf.py"):
             shutil.copy(HERE / f, self.root / "tools" / f)
         write(self.root, "packages/walnut/x/fake/package.conf", "TYPE=native\nBUILD=indep\nSOURCE=fake\n")
         write(self.root, "build/src/fake/fake_1.dsc", "dsc")
