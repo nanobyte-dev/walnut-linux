@@ -360,10 +360,12 @@ DEPLOY_TOP := linux-image-ps3 linux-image-ps3-debug ps3rsx-modules-ps3 ps3rsx-mo
 PKGS ?= $(DEPLOY_TOP)
 AUTOREMOVE ?= 0
 STOP_DESKTOP ?= auto
-PS3_SCP = scp -q -i $(PS3_SSH_KEY) -o UserKnownHostsFile=$(CURDIR)/$(BUILD)/ps3_known_hosts
+# deploy.sh takes the ssh options and the target apart; every other route to the console is `tools/ps3 ssh` (PS3_SSH below)
+PS3_SSH_OPTS = -i $(PS3_SSH_KEY) -o UserKnownHostsFile=$(CURDIR)/$(BUILD)/ps3_known_hosts
+PS3_SCP = scp -q $(PS3_SSH_OPTS)
 deploy: | $(REPO_BUILDER_STAMP)
 	$(call need,PS3_IP PS3_USER)
-	PS3=$(PS3_USER)@$(PS3_IP) SSH="ssh -i $(PS3_SSH_KEY) -o UserKnownHostsFile=$(CURDIR)/$(BUILD)/ps3_known_hosts" \
+	PS3=$(PS3_USER)@$(PS3_IP) SSH="ssh $(PS3_SSH_OPTS)" \
 		SCP="$(PS3_SCP)" REPO_BUILDER_TAG=$(REPO_BUILDER_TAG) \
 		AUTOREMOVE=$(AUTOREMOVE) STOP_DESKTOP=$(STOP_DESKTOP) DRY_RUN=$(DRY_RUN) KERNELS=$(KERNELS) tools/deploy.sh $(PKGS)
 
@@ -417,7 +419,9 @@ netboot-deb: | $(REPO_BUILDER_STAMP)
 listen:
 	tools/listen-debug.sh
 
-PS3_SSH := ssh -i $(PS3_SSH_KEY) -o UserKnownHostsFile=$(CURDIR)/$(BUILD)/ps3_known_hosts $(PS3_USER)@$(PS3_IP)
+# tools/ps3 ssh: the project's ssh options and USER@IP behind the lease check (tools/lib/ps3.sh), so bench-push,
+# bench-pull and ps3-reboot refuse while someone else holds the console
+PS3_SSH := tools/ps3 ssh
 ps3-reboot:
 	$(call need,PS3_IP PS3_USER)
 	-$(PS3_SSH) sudo systemctl reboot
