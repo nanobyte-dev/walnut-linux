@@ -1117,10 +1117,48 @@ class Conf(unittest.TestCase):
 		# nothing in the repository makes docker.service require the mount
 		for f in os.listdir(f"{self.here}/systemd"):
 			self.assertNotIn("docker.service.d", f)
-		c = slurp(f"{self.here}/docker-compose.yml")
-		block = c[c.index("  walnut-upload:"):]
-		self.assertIn('restart: "no"', block.split("\nnetworks:")[0])
-		self.assertIn("systemd/walnut-upload.service", slurp(f"{self.here}/deploy.sh"))
+
+	def mode(self, what, mode, text):
+		return subprocess.run([sys.executable, "-I", f"{self.here}/deploy_mode.py", what, mode], input=text, capture_output=True,
+		                      text=True, check=True).stdout
+
+	def test_deploy_modes_legacy_is_todays_behaviour(self):
+		"""incoming/ not a mount point: docker's restart policy, walnut-watch without a mount requirement, no upload unit"""
+		compose = slurp(f"{self.here}/docker-compose.yml")
+		unit = slurp(f"{self.here}/systemd/walnut-watch.service")
+		out = self.mode("compose", "legacy", compose)
+		self.assertEqual(out, compose)
+		self.assertRegex(compose[compose.index("  walnut-upload:"):].split("\nnetworks:")[0], r"(?m)^    restart: unless-stopped$")
+		w = self.mode("watch", "legacy", unit)
+		self.assertNotRegex(w, r"(?m)^RequiresMountsFor=")
+		self.assertNotRegex(w, r"(?m)^ExecStartPre=")
+		self.assertIn("ExecStart=/data/nanobyte/Walnut/bin/walnut-watch", w)
+		self.assertEqual(w, "".join(l for l in unit.splitlines(True) if not l.startswith("RequiresMountsFor=") and "mountpoint" not in l))
+
+	def test_deploy_modes_managed_uses_the_units(self):
+		compose = slurp(f"{self.here}/docker-compose.yml")
+		unit = slurp(f"{self.here}/systemd/walnut-watch.service")
+		out = self.mode("compose", "managed", compose)
+		up = out[out.index("  walnut-upload:"):].split("\nnetworks:")[0]
+		self.assertRegex(up, r"(?m)^    restart: \"no\"$")
+		self.assertNotIn("restart: unless-stopped", up)
+		# the other services keep their policy
+		self.assertEqual(out[:out.index("  walnut-upload:")], compose[:compose.index("  walnut-upload:")])
+		self.assertEqual(self.mode("watch", "managed", unit), unit)
+		sec = self.unit_sections("walnut-watch.service")
+		self.assertIn("RequiresMountsFor=/data/nanobyte/Walnut/incoming", sec["[Unit]"])
+
+	def test_deploy_sh_decides_the_mode_on_the_server(self):
+		d = slurp(f"{self.here}/deploy.sh")
+		self.assertIn('mountpoint -q $DIR/incoming', d)
+		self.assertIn("echo \">> incoming/ mode: $MODE", d)
+		# a switched-over server whose mount is missing: refuse, never the legacy setup
+		self.assertRegex(d, r"is-enabled -q walnut-upload\.service[^\n]*\n\techo \"!! [^\n]*not a mount point, but walnut-upload\.service is enabled")
+		# the upload unit is installed and enabled only in managed mode, and compose never starts the container then
+		self.assertIn("if [ $MODE = managed ]; then\n\trsync -t systemd/walnut-upload.service", d)
+		self.assertIn("docker compose create walnut-upload", d)
+		self.assertIn("sudo -n systemctl enable walnut-upload.service", d)
+		self.assertNotIn("systemd/walnut-upload.service systemd/walnut-ccache-trim", d)
 
 	def test_deploy_sh_order(self):
 		d = slurp(f"{self.here}/deploy.sh")

@@ -78,8 +78,9 @@ services:
     user: "1000:1000"
     mem_limit: 64m
     pids_limit: 64
-    # started by walnut-upload.service (systemd/), which refuses to start when incoming/ is not a mount point
-    restart: "no"
+    # unless-stopped until incoming/ is a mount point (docs: runbook 2d); then deploy.sh sends "no" (deploy_mode.py)
+    # and walnut-upload.service starts the container, refusing when incoming/ is not a mount point
+    restart: unless-stopped
     read_only: true
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]

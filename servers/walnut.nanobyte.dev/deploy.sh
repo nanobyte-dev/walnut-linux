@@ -77,7 +77,23 @@ dates=$(cat ../../config.mk ../../tools/ssdimg/upstream.mk \
 	grep -oE '[0-9]{8}T[0-9]{6}Z' | sort -u | paste -sd'|')
 [ -n "$dates" ] || { echo "!! no snapshot dates found" >&2; exit 1; }
 sed "s/@SNAPSHOT_DATES@/$dates/" repo.conf > "$CTL.repo.conf"
-rsync -rt --chmod=D755,F644 docker-compose.yml Dockerfile site.conf upload aptcache ccache "$host:$DIR/"
+# incoming/ mode (V5, runbook 2d), decided on the server now: "managed" once incoming/ is a mount point (walnut-upload.service
+# starts the container, restart: no, both units require the mount), "legacy" before (docker's restart policy, no mount
+# requirement, no walnut-upload.service: today's behaviour). Never the legacy setup on a server that was switched
+# over and whose mount is missing: that would start sshd on the empty directory under the mount point.
+if ssh "$host" "mountpoint -q $DIR/incoming"; then
+	MODE=managed
+elif ssh "$host" "systemctl is-enabled -q walnut-upload.service" 2>/dev/null; then
+	echo "!! $DIR/incoming is not a mount point, but walnut-upload.service is enabled (runbook 2d was done): mount it first (mount -a); nothing deployed" >&2
+	exit 1
+else
+	MODE=legacy
+fi
+echo ">> incoming/ mode: $MODE ($([ $MODE = managed ] && echo "mount point: walnut-upload.service starts the container, both units require the mount" || echo "not a mount point yet: docker's restart policy, no mount requirement; runbook 2d switches it"))"
+python3 -I deploy_mode.py compose $MODE < docker-compose.yml > "$CTL.compose"
+python3 -I deploy_mode.py watch $MODE < systemd/walnut-watch.service > "$CTL.walnut-watch.service"
+rsync -rt --chmod=D755,F644 Dockerfile site.conf upload aptcache ccache "$host:$DIR/"
+rsync -t --chmod=644 "$CTL.compose" "$host:$DIR/docker-compose.yml"
 # a directory of configs (not single files: rsync renames into place, which a bind-mounted file would never see)
 rsync -t --chmod=644 "$CTL.repo.conf" "$host:$DIR/repo-conf/repo.conf"
 rsync -t --chmod=644 repo-headers.inc "$host:$DIR/repo-conf/repo-headers.inc"
@@ -125,14 +141,24 @@ ssh "$host" "cd $DIR
 	t() { out=\$(\"\$@\" 2>&1) || { echo \"!! nginx -t failed, nothing restarted:\" >&2; echo \"\$out\" >&2; exit 1; }; echo \"\$out\" | tail -1; }
 	t docker run --rm -v $DIR/repo-conf:/etc/nginx/conf.d:ro -v $DIR/htpasswd:/etc/nginx/walnut.htpasswd:ro nginx:stable-alpine@sha256:583b7f2fce1cdb8da5ad5c39ebd3c33b98b87d493190e548bdee1fa8c619c311 nginx -t
 	t docker run --rm -v $DIR/ccache:/etc/nginx/ccache-conf:ro -v $DIR/ccache.htpasswd:/etc/nginx/ccache.htpasswd:ro -v $DIR/ccache-data:/srv/ccache nginx:stable-alpine@sha256:583b7f2fce1cdb8da5ad5c39ebd3c33b98b87d493190e548bdee1fa8c619c311 nginx -t -c /etc/nginx/ccache-conf/nginx.conf"
-ssh "$host" "cd $DIR && docker compose build -q walnut-upload walnut-aptcache && docker compose up -d walnut-repo walnut-upload walnut-aptcache walnut-ccache && docker compose up -d --force-recreate walnut-repo walnut-ccache"
+# managed: the upload container is created here, started by walnut-upload.service below (never by compose, which
+# would bind whatever sits under a missing mount)
+upload_up=$([ $MODE = managed ] && echo "docker compose create walnut-upload" || echo "docker compose up -d walnut-upload")
+ssh "$host" "cd $DIR && docker compose build -q walnut-upload walnut-aptcache && docker compose up -d walnut-repo walnut-aptcache walnut-ccache && $upload_up && docker compose up -d --force-recreate walnut-repo walnut-ccache"
 
 # the watcher's units
-for u in systemd/walnut-watch.{service,path,timer} systemd/walnut-upload.service systemd/walnut-ccache-trim.{service,timer}; do
+for u in systemd/walnut-watch.{path,timer} systemd/walnut-ccache-trim.{service,timer}; do
 	rsync -t "$u" "$host:$DIR/state/"
 done
+rsync -t "$CTL.walnut-watch.service" "$host:$DIR/state/walnut-watch.service"
+rm -f "$CTL.compose" "$CTL.walnut-watch.service"
+units="walnut-watch.service walnut-watch.path walnut-watch.timer walnut-ccache-trim.service walnut-ccache-trim.timer"
+if [ $MODE = managed ]; then
+	rsync -t systemd/walnut-upload.service "$host:$DIR/state/"
+	units="$units walnut-upload.service"
+fi
 ssh "$host" "set -e
-	for u in walnut-watch.service walnut-watch.path walnut-watch.timer walnut-upload.service walnut-ccache-trim.service walnut-ccache-trim.timer; do
+	for u in $units; do
 		cmp -s $DIR/state/\$u /etc/systemd/system/\$u || sudo -n install -m 644 $DIR/state/\$u /etc/systemd/system/\$u
 		rm $DIR/state/\$u
 	done
@@ -141,9 +167,11 @@ ssh "$host" "set -e
 	sudo -n systemctl restart walnut-watch.path
 	sudo -n systemctl enable --now walnut-watch.path walnut-watch.timer walnut-ccache-trim.timer >/dev/null
 	systemctl is-active walnut-watch.path walnut-watch.timer walnut-ccache-trim.timer | xargs echo '>> watcher, trim:'
-	# walnut-upload.service is installed, not enabled here: the runbook's 2d (the incoming/ loop mount) enables it;
-	# the container has restart: no, so until then it does not come back by itself after a reboot
-	systemctl is-enabled -q walnut-upload.service || echo '!! walnut-upload.service is not enabled: the upload container will not restart by itself (docs: runbook 2d)'"
+	if [ $MODE = managed ]; then
+		sudo -n systemctl enable walnut-upload.service >/dev/null
+		sudo -n systemctl restart walnut-upload.service
+		systemctl is-active walnut-upload.service | xargs echo '>> upload:'
+	fi"
 # fail2ban's walnut-upload jail (bans in DOCKER-USER, like nginx-scanners)
 rsync -t fail2ban/walnut-upload.filter fail2ban/walnut-upload.jail fail2ban/walnut-401.filter fail2ban/walnut-401.jail "$host:$DIR/state/"
 ssh "$host" "set -e
