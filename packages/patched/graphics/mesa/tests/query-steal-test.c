@@ -92,6 +92,8 @@ bool nouveau_fence_wait(struct nouveau_fence *f, struct util_debug_callback *d)
 	(void)f; (void)d; gpu_scan(); gpu_complete_all(); return true;
 }
 int64_t os_time_get_nano(void) { return 0; }
+/* nv30_state_validate.c (nv30_state_check_lost since 0062: begin and end recover a stale push buffer first; this test never cancels) */
+void nv30_state_lost(struct nv30_context *nv30) { (void)nv30; }
 int mtx_lock(mtx_t *m) { (void)m; return 0; }
 int mtx_unlock(mtx_t *m) { (void)m; return 0; }
 void _simple_mtx_plain_init_once(simple_mtx_t *m) { (void)m; }

@@ -137,7 +137,8 @@ bool util_try_blit_via_copy_region(struct pipe_context *c, const struct pipe_bli
 { (void)c; (void)i; (void)r; return false; }
 void util_copy_framebuffer_state(struct pipe_framebuffer_state *d, const struct pipe_framebuffer_state *s)
 { (void)d; (void)s; }
-int64_t os_time_get_nano(void) { return 0; }
+static int64_t now_ns;		/* the fake clock (0: the staging pools never age) */
+int64_t os_time_get_nano(void) { return now_ns; }
 /* nv30_state_lost (nv30_state_validate.c, called by nv30_state_check_lost since 0053) and the log */
 void nv30_state_lost(struct nv30_context *nv30) { (void)nv30; }
 void mesa_log(enum mesa_log_level l, const char *tag, const char *f, ...)
@@ -358,6 +359,36 @@ static void test_staging_small(void)
 	      screen.staging_bytes, bos - base);
 	CHECK(screen.staging_pool[0].bo == kept[1], "the oldest 256 KiB buffer was not the one given back");
 	nv30_staging_drain(&screen);
+
+	/* idle for over a second: given back at the next put, or at the next flush's ageing */
+	{
+		struct nouveau_bo *a, *b, *c;
+
+		screen.staging_big_max = 1 << 20;	/* the switch the ageing at a flush looks at */
+		now_ns = 0;
+		a = pool_put(4096);
+		now_ns = 500 * 1000000LL;
+		b = pool_put(8192);
+		now_ns = 1200 * 1000000LL;
+		c = pool_put(4096);
+		CHECK(screen.staging_count == 2 && screen.staging_pool[0].bo == b && screen.staging_pool[1].bo == c &&
+		      screen.staging_bytes == 8192 + 4096 && bos - base == 2,
+		      "after a put 1.2 s on: %u pooled (%u bytes), %d alive, want b and c only", screen.staging_count,
+		      screen.staging_bytes, bos - base);
+		(void)a;
+		now_ns = 2000 * 1000000LL;
+		nv30_staging_big_age(&screen);
+		CHECK(screen.staging_count == 1 && screen.staging_pool[0].bo == c && screen.staging_bytes == 4096 &&
+		      bos - base == 1, "after the ageing at a flush: %u pooled (%u bytes), %d alive, want c only",
+		      screen.staging_count, screen.staging_bytes, bos - base);
+		now_ns = 3000 * 1000000LL;
+		nv30_staging_big_age(&screen);
+		CHECK(screen.staging_count == 0 && screen.staging_bytes == 0 && bos == base,
+		      "after a second ageing: %u pooled, %d alive", screen.staging_count, bos - base);
+		(void)b;
+		screen.staging_big_max = 0;
+		now_ns = 0;
+	}
 
 	/* a closed pool (its screen going away) frees what comes back */
 	screen.staging_closed = true;

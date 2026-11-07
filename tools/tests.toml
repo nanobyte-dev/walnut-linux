@@ -135,7 +135,7 @@ ci_skip = { "mesa-query-steal" = "needs build/work/mesa" }
 
 [[suite]]
 name = "mesa-query-lost"
-what = "Mesa 0056: a query whose report never lands after a cancelled submission, or ever: its wait must end, not hang; a late one keeps its value"
+what = "Mesa 0056, 0061-0063: a query whose report never lands after a cancelled or failed submission, or ever: its wait must end, not hang; a late one keeps its value; the report slots of two contexts, a stale push buffer; the fix-off runs of 0061 and 0062"
 run = ["packages/patched/graphics/mesa/tests/host-tests.sh", "query-lost"]
 group = "mesa"
 ci_skip = { "mesa-query-lost" = "needs build/work/mesa" }
@@ -167,6 +167,27 @@ what = "Mesa 0059: NV30_PS3_IDX_GART and NV30_PS3_FP_GART place index buffers an
 run = ["packages/patched/graphics/mesa/tests/host-tests.sh", "placement"]
 group = "mesa"
 ci_skip = { "mesa-placement" = "needs build/work/mesa" }
+
+[[suite]]
+name = "mesa-submit-fail"
+what = "Mesa 0061: the winsys's push buffer submission (nouveau.c whole, a fake kernel): a cancelled and a failed submission both count in nouveau_device::cancelled, none lost under four threads; the file before the patch fails"
+run = ["packages/patched/graphics/mesa/tests/host-tests.sh", "submit-fail"]
+group = "mesa"
+ci_skip = { "mesa-submit-fail" = "needs build/work/mesa" }
+
+[[suite]]
+name = "mesa-bo-domain"
+what = "Mesa 0064 and 0066: nv30_bo_domain is 0055's rule on the PS3 and VRAM elsewhere (every flag combination), and NV30_TEX_INVALIDATE_ALWAYS defaults off on the PS3 only"
+run = ["packages/patched/graphics/mesa/tests/host-tests.sh", "bo-domain"]
+group = "mesa"
+ci_skip = { "mesa-bo-domain" = "needs build/work/mesa" }
+
+[[suite]]
+name = "mesa-fragprog"
+what = "Mesa 0065, 0067 and 0068: nvfx's TXB (a TEX on the PS3, the hardware's elsewhere) and the end of a REP loop (an instruction slot, also after a constant); END only on the appended NOP when the program closes an IF or a loop; a golden over eight programs against the files before the patches"
+run = ["packages/patched/graphics/mesa/tests/host-tests.sh", "fragprog"]
+group = "mesa"
+ci_skip = { "mesa-fragprog" = "needs build/work/mesa" }
 
 [[suite]]
 name = "mesa-fb-window"

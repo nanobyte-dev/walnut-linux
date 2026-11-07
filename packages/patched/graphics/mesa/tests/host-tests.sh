@@ -14,7 +14,18 @@
 #   query-steal    0046: nv30's queries when the report slots run out, fake GPU, ASan
 #   query-lost     0056: a query whose report never lands (a cancelled submission, 0053; a GPU
 #                  that stopped): end, steal, destroy, elapsed, deadline must return, not hang
-#                  (alarm); late and x86: a late report keeps its value (query-lost-test.c)
+#                  (alarm); late and x86: a late report keeps its value (query-lost-test.c); failed (0061): a
+#                  submission the kernel failed ends a wait on any machine; fix-off: the nv30_query.c of
+#                  the commit before each later patch (0061, 0062) must fail that patch's parts
+#   submit-fail    0061: the winsys's push buffer submission (nouveau.c compiled in whole, the kernel's answer
+#                  faked): a cancelled submission and one the kernel failed another way both count in
+#                  nouveau_device::cancelled (ecanceled, failed, ok), and the count loses nothing under four
+#                  threads (threads); fix-off: the part against nouveau.c as it was before 0061 must fail
+#   bo-domain      0064: nv30_bo_domain (where a texture's buffer is addressed) is 0055's rule on the PS3 and VRAM
+#                  anywhere else, and 0066's NV30_TEX_INVALIDATE_ALWAYS default (state: all flag combinations; fix-off: against nv30_winsys.h before 0064)
+#   fragprog       nvfx_fragprog.c's translation (fragprog-test.c): txb (0065: texture2D with a bias is a TEX on the PS3, the
+#                  hardware's TXB elsewhere), rep (0067: a loop ends on an instruction slot, also after a constant);
+#                  fix-off: each against the file as it was before its patch
 #   alloc-fail     upload (0047), mm-fallback and mm-nomem (0048), fence (0049), fence-cancel (0053):
 #                  alloc-fail-test.c; pushbuf-flush, pushbuf-destroy (0003): context-pushbuf-test.c;
 #                  fix-off: the parts against each file as it was before its patch (the parent of the
@@ -41,10 +52,10 @@ T=${MESA_TEST_OUT:-build/tmp/tests}
 t=${MESA_TESTS:-packages/patched/graphics/mesa/tests}
 S=${1:-}; shift || true
 declare -A PARTS=([forcedxt]="" [staging-pool]="" [vtx-snorm8]="unpack vpsim" [minmax-vmx]="host ppc64"
-	[query-steal]="" [query-lost]="end steal destroy elapsed deadline late x86" [alloc-fail]="upload mm-fallback mm-nomem fence fence-cancel pushbuf-flush pushbuf-destroy fix-off"
-	[transfer-cpu]="" [blit-state]="state golden" [placement]="state golden" [fb-window]="state golden" [point-smooth]="")
+	[query-steal]="" [query-lost]="end steal destroy elapsed failed deadline deadline-edge begin-sent two-ctx own-begin stale no-slot disowned wait-option late x86 fix-off" [alloc-fail]="upload mm-fallback mm-nomem fence fence-cancel pushbuf-flush pushbuf-destroy fix-off"
+	[transfer-cpu]="fix-off" [blit-state]="state golden" [placement]="state golden" [fb-window]="state golden" [point-smooth]="" [submit-fail]="ecanceled failed notify ratelimit ok threads fix-off" [bo-domain]="state fix-off" [fragprog]="txb rep end golden fix-off")
 if [ "$S" = --list ]; then
-	for s in forcedxt staging-pool vtx-snorm8 minmax-vmx query-steal query-lost alloc-fail transfer-cpu blit-state placement fb-window point-smooth; do
+	for s in forcedxt staging-pool vtx-snorm8 minmax-vmx query-steal query-lost alloc-fail transfer-cpu blit-state placement fb-window point-smooth submit-fail bo-domain fragprog; do
 		echo "$s ${PARTS[$s]}"; done
 	exit 0
 fi
@@ -156,9 +167,36 @@ query-lost)
 	built=
 	for p in ${PARTS[$S]}; do
 		wants $p || continue
+		[ $p = fix-off ] && continue
 		[ -n "$built" ] || { mcc $T/query-lost-test $t/query-lost-test.c -Wall -Werror -pthread $CANC && built=ok || built=no; }
 		if [ $built = ok ]; then $T/query-lost-test $p; result $p $?; else echo "query-lost-test.c does not build against $M"; result $p 1; fi
 	done
+	if wants fix-off; then
+		# fix off: the parts of a patch against nv30_query.c as it was before that patch (the parent of its
+		# commit in MESA_WORK) must fail
+		D=src/gallium/drivers/nouveau/nv30 O=$T/query-before
+		rm -rf $O
+		qoff() {	# qoff SUBJECT LABEL PART...
+			local subj=$1 label=$2 c; shift 2
+			c=$(git -C $M log --format='%H %s' | grep -F " $subj" | head -n 1 | cut -d' ' -f1)
+			[ -n "$c" ] || { echo "no commit \"$subj\" in $M"; return 1; }
+			mkdir -p $O/$label/nv30 && git -C $M show "$c^:$D/nv30_query.c" > $O/$label/nv30/nv30_query.c &&
+			mcc $O/$label/test $t/query-lost-test.c -Wall -Werror -pthread $CANC -I$O/$label || return 1
+			local part rc=0
+			for part in "$@"; do
+				expect_fail "$label off: $part" 'FAIL' $O/$label/test $part || rc=1
+			done
+			return $rc
+		}
+		if ! git -C $M rev-parse -q --verify HEAD >/dev/null 2>&1; then
+			echo "SKIP ${TEST_SUITE:-mesa-query-lost}:fix-off $M is no git tree"; result fix-off 77
+		else
+			rc=0
+			qoff "nouveau: a submission the kernel fails counts as cancelled" 0061 failed || rc=1
+			qoff "nv30: queries" 0062 deadline-edge begin-sent two-ctx own-begin stale no-slot disowned || rc=1
+			result fix-off $rc
+		fi
+	fi
 	;;
 alloc-fail)
 	[ -e $M/src/gallium/drivers/nouveau/nouveau_mm.c ] || skip "no Mesa tree at $M (make mesa-work)"
@@ -214,7 +252,25 @@ alloc-fail)
 	;;
 transfer-cpu)
 	[ -e $M/src/gallium/drivers/nouveau/nv30/nv30_miptree.c ] || skip "no Mesa tree at $M (make mesa-work)"
-	gen && mcc $T/transfer-cpu-test $t/transfer-cpu-test.c -Wall -Werror && $T/transfer-cpu-test; result "" $?
+	if [ $all = 1 ] || [ ${#want[@]} = 0 ]; then
+		gen && mcc $T/transfer-cpu-test $t/transfer-cpu-test.c -Wall -Werror && $T/transfer-cpu-test; result "" $?
+	else
+		gen || exit 1
+	fi
+	if wants fix-off; then
+		# fix off (0063): the small pool's ageing against the nv30 files as they were before it
+		O=$T/transfer-before D=src/gallium/drivers/nouveau/nv30
+		rm -rf $O; mkdir -p $O/nv30
+		c=$(git -C $M log --format='%H %s' | grep -F " nv30: the small staging pool gives back" | head -n 1 | cut -d' ' -f1)
+		if [ -z "$c" ]; then
+			echo "SKIP ${TEST_SUITE:-mesa-transfer-cpu}:fix-off no 0063 commit in $M"; result fix-off 77
+		else
+			for f in nv30_miptree.c nv30_screen.h nv30_staging_policy.h; do git -C $M show "$c^:$D/$f" > $O/nv30/$f || exit 1; done
+			mcc $O/test $t/transfer-cpu-test.c -Wall -Werror -I$O &&
+			expect_fail "0063 off: idle small-pool buffers" 'FAIL .*after a put 1.2 s on' $O/test
+			result fix-off $?
+		fi
+	fi
 	;;
 blit-state)
 	[ -e $M/src/gallium/drivers/nouveau/nv30/nv30_transfer.c ] || skip "no Mesa tree at $M (make mesa-work)"
@@ -303,6 +359,137 @@ fb-window)
 			fi
 			result golden $rc
 		fi
+	fi
+	;;
+submit-fail)
+	[ -e $M/src/gallium/winsys/nouveau/drm/nouveau.c ] || skip "no Mesa tree at $M (make mesa-work)"
+	# nouveau.c wants libdrm's xf86drm.h, which a host without libdrm lacks: a stub declares what it calls
+	SD=$T/submit-fail-stub; mkdir -p $SD
+	cat > $SD/xf86drm.h <<'XEOF'
+#include <stdint.h>
+#include <stddef.h>
+typedef struct { int version_major, version_minor, version_patchlevel; } drmVersion, *drmVersionPtr;
+#define DRM_BUS_PCI 0
+typedef struct { uint16_t domain; uint8_t bus, dev, func; } drmPciBusInfo, *drmPciBusInfoPtr;
+typedef struct { uint16_t device_id; uint8_t revision_id; } drmPciDeviceInfo, *drmPciDeviceInfoPtr;
+typedef struct { int bustype; union { drmPciBusInfoPtr pci; } businfo; union { drmPciDeviceInfoPtr pci; } deviceinfo; } drmDevice, *drmDevicePtr;
+int drmGetDevice2(int fd, uint32_t flags, drmDevicePtr *d);
+int drmCommandWriteRead(int fd, unsigned long idx, void *data, unsigned long size);
+int drmCommandWrite(int fd, unsigned long idx, void *data, unsigned long size);
+int drmIoctl(int fd, unsigned long req, void *arg);
+int drmCloseBufferHandle(int fd, uint32_t handle);
+void drmFreeDevice(drmDevicePtr *d);
+drmVersionPtr drmGetVersion(int fd);
+void drmFreeVersion(drmVersionPtr v);
+int drmPrimeFDToHandle(int fd, int pfd, uint32_t *h);
+int drmPrimeHandleToFD(int fd, uint32_t h, uint32_t flags, int *pfd);
+XEOF
+	SI="-I$SD -I$M/src/nouveau/headers/nvidia/classes -I$M/src/nouveau/drm"
+	sf() { mcc "$1" $t/submit-fail-test.c -Wall -Werror -Wno-unused-function -pthread -Wl,--unresolved-symbols=ignore-all $SI "${@:2}"; }
+	gen || exit 1
+	export ASAN_OPTIONS=detect_leaks=0
+	built=
+	for p in ecanceled failed notify ratelimit ok threads; do
+		wants $p || continue
+		[ -n "$built" ] || { sf $T/submit-fail-test && built=ok || built=no; }
+		if [ $built = ok ]; then $T/submit-fail-test $p; result $p $?; else echo "submit-fail-test.c does not build against $M"; result $p 1; fi
+	done
+	if wants fix-off; then
+		O=$T/submit-fail-before; rm -rf $O; mkdir -p $O
+		W=src/gallium/winsys/nouveau/drm
+		c=$(git -C $M log --format='%H %s' | grep -F " nouveau: a submission the kernel fails counts as cancelled" | head -n 1 | cut -d' ' -f1)
+		if [ -z "$c" ]; then
+			echo "SKIP mesa-submit-fail:fix-off no 0061 commit in $M"; result fix-off 77
+		else
+			cp -r $M/$W/. $O/ && git -C $M show "$c^:$W/nouveau.c" > $O/nouveau.c && git -C $M show "$c^:$W/nouveau.h" > $O/nouveau.h &&
+			sf $O/test -I$O &&
+			expect_fail "0061 off: a failed submission is not counted" 'FAIL .*EINVAL: cancelled is 0' $O/test failed &&
+			expect_fail "0061 off: the count under threads" 'FAIL .*were counted' $O/test threads &&
+			expect_fail "0061 off: a failed fence" 'FAIL .*notify' $O/test notify &&
+			expect_fail "0061 off: the message at every failure" 'FAIL .*ratelimit' $O/test ratelimit
+			result fix-off $?
+		fi
+	fi
+	;;
+bo-domain)
+	[ -e $M/src/gallium/drivers/nouveau/nv30/nv30_winsys.h ] || skip "no Mesa tree at $M (make mesa-work)"
+	grep -q 'bool ps3;' $M/src/gallium/winsys/nouveau/drm/nouveau.h || {
+		echo "no nouveau_device::ps3 in this tree (before 0064)"; wants state && result state 1; wants fix-off && result fix-off 77; exit 1; }
+	gen || exit 1
+	export ASAN_OPTIONS=detect_leaks=0
+	U=-Wl,--unresolved-symbols=ignore-all
+	TD=; grep -q nv30_tex_invalidate_always_default $M/src/gallium/drivers/nouveau/nv30/nv30_screen.h && TD=-DNV30_HAVE_TEX_DEFAULT	# 0066
+	if wants state; then mcc $T/bo-domain-test $t/bo-domain-test.c -Wall -Werror $U $TD && $T/bo-domain-test; result state $?; fi
+	if wants fix-off; then
+		O=$T/bo-domain-before; rm -rf $O; mkdir -p $O/nv30
+		c=$(git -C $M log --format='%H %s' | grep -F " nv30: textures and render targets are addressed in VRAM" | head -n 1 | cut -d' ' -f1)
+		if [ -z "$c" ]; then echo "SKIP mesa-bo-domain:fix-off no 0064 commit in $M"; result fix-off 77
+		else
+			cp $M/src/gallium/drivers/nouveau/nv30/*.h $O/nv30/ &&
+			git -C $M show "$c^:src/gallium/drivers/nouveau/nv30/nv30_winsys.h" > $O/nv30/nv30_winsys.h &&
+			mcc $O/test $t/bo-domain-test.c -Wall -Werror $U -I$O &&
+			expect_fail "0064 off: a GART-flagged buffer off the PS3" 'FAIL .*not the PS3' $O/test
+			result fix-off $?
+		fi
+	fi
+	;;
+fragprog)
+	[ -e $M/src/gallium/drivers/nouveau/nv30/nvfx_fragprog.c ] || skip "no Mesa tree at $M (make mesa-work)"
+	grep -q 'txb_hw' $M/src/gallium/drivers/nouveau/nv30/nv30_state.h || {
+		echo "no nv30_fragprog::txb_hw in this tree (before 0065)"; for p in txb rep end; do wants $p && result $p 1; done; wants fix-off && result fix-off 77; exit 1; }
+	gen || exit 1
+	export ASAN_OPTIONS=detect_leaks=0
+	FP="$M/src/gallium/drivers/nouveau/nv30/nvfx_fragprog.c $TGSI $M/src/util/ralloc.c $M/src/util/u_dynarray.c"
+	built=
+	for p in txb rep end; do
+		wants $p || continue
+		[ -n "$built" ] || { mcc $T/fragprog-test $t/fragprog-test.c $FP -Wall -Werror -Wno-unused-function && built=ok || built=no; }
+		if [ $built = ok ]; then $T/fragprog-test $p; result $p $?; else echo "fragprog-test.c does not build against $M"; result $p 1; fi
+	done
+	if wants golden; then
+		# the PS3's translation (txb_hw off) of eight programs against nvfx_fragprog.c as it was before 0065 and before
+		# 0067: before 0065 nothing differs; before 0067 only the loop whose last instruction reads a constant
+		# (program 5), and in one word, its end
+		O=$T/fragprog-golden; rm -rf $O; mkdir -p $O; rc=0
+		c65=$(git -C $M log --format='%H %s' | grep -F " nv30: TXB is the hardware's TXB off the PS3" | head -n 1 | cut -d' ' -f1)
+		c67=$(git -C $M log --format='%H %s' | grep -F " nv30: a fragment program loop ends on an instruction slot" | head -n 1 | cut -d' ' -f1)
+		if [ -z "$c65" ] || [ -z "$c67" ]; then echo "SKIP mesa-fragprog:golden no 0065/0067 commit in $M"; result golden 77
+		else
+			mcc $O/new $t/fragprog-test.c $FP -Wall -Werror -Wno-unused-function || rc=1
+			git -C $M show "$c65^:src/gallium/drivers/nouveau/nv30/nvfx_fragprog.c" > $O/a.c &&
+			mcc $O/a $t/fragprog-test.c $O/a.c $TGSI $M/src/util/ralloc.c $M/src/util/u_dynarray.c -I$M/src/gallium/drivers/nouveau/nv30 -Wall -Werror -Wno-unused-function || rc=1
+			git -C $M show "$c67^:src/gallium/drivers/nouveau/nv30/nvfx_fragprog.c" > $O/b.c &&
+			mcc $O/b $t/fragprog-test.c $O/b.c $TGSI $M/src/util/ralloc.c $M/src/util/u_dynarray.c -I$M/src/gallium/drivers/nouveau/nv30 -Wall -Werror -Wno-unused-function || rc=1
+			if [ $rc = 0 ]; then
+				$O/new dump > $O/new.txt && $O/a dump > $O/a.txt && $O/b dump > $O/b.txt || rc=1
+				if [ $rc = 0 ]; then
+					# 0065 and 0067 are both in the new file: compare with the file before 0065 minus 0067's own change
+					d=$(diff $O/a.txt $O/new.txt | grep -c '^>')
+					p=$(diff $O/a.txt $O/new.txt | grep '^>' | awk '{print $2}' | sort -u | tr '\n' ' ')
+					e=$(diff $O/b.txt $O/new.txt | grep '^>' | awk '{print $2}' | sort -u | tr '\n' ' ')
+					if [ "$d" = 1 ] && [ "$p" = "5 " ] && [ "$e" = "5 " ]; then
+						echo "ok   golden: $(wc -l < $O/new.txt) lines of eight programs; the PS3 translation differs from before 0065 and 0067 in one word, the end of program 5's loop"
+					else
+						echo "golden: $d words differ from before 0065 (programs: $p), programs differing from before 0067: $e"; diff $O/a.txt $O/new.txt | head; rc=1
+					fi
+				fi
+			fi
+			result golden $rc
+		fi
+	fi
+	if wants fix-off; then
+		# fix off: nvfx_fragprog.c as it was before each patch (and nv30_state.h as it is: the field stays)
+		O=$T/fragprog-before; rm -rf $O; mkdir -p $O
+		rc=0
+		for pair in "0065|nv30: TXB is the hardware's TXB off the PS3|txb|FAIL .*txb_hw on" "0067|nv30: a fragment program loop ends on an instruction slot|rep|FAIL .*not an" "0068|nv30: a fragment program that closes an IF or a loop|end|FAIL"; do
+			IFS='|' read -r n subj part re <<<"$pair"
+			c=$(git -C $M log --format='%H %s' | grep -F " $subj" | head -n 1 | cut -d' ' -f1)
+			[ -n "$c" ] || { echo "no commit \"$subj\" in $M"; rc=1; continue; }
+			git -C $M show "$c^:src/gallium/drivers/nouveau/nv30/nvfx_fragprog.c" > $O/$n.c &&
+			mcc $O/$n-test $t/fragprog-test.c $O/$n.c $TGSI $M/src/util/ralloc.c $M/src/util/u_dynarray.c -I$M/src/gallium/drivers/nouveau/nv30 -Wall -Werror -Wno-unused-function &&
+			expect_fail "$n off: $part" "FAIL" $O/$n-test $part || rc=1
+		done
+		result fix-off $rc
 	fi
 	;;
 point-smooth)

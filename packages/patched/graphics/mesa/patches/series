@@ -44,3 +44,11 @@
 0058-nv30-the-blit-draws-with-its-own-window-state-and-zeta.patch
 0059-nv30-on-the-PS3-optional-placement-of-index-buffers-and-fragment-programs-in-GART.patch
 0060-nv30-the-small-surface-hack-s-window-clip-stays-inside-the-block.patch
+0061-nouveau-a-submission-the-kernel-fails-counts-as-cancelled.patch
+0062-nv30-queries-a-late-report-is-read-again-an-unkicked-begin-is-not-waited-for.patch
+0063-nv30-the-small-staging-pool-gives-back-what-it-held-idle-for-a-second.patch
+0064-nv30-textures-and-render-targets-are-addressed-in-VRAM-off-the-PS3.patch
+0065-nv30-TXB-is-the-hardware-s-TXB-off-the-PS3.patch
+0066-nv30-the-texture-cache-is-invalidated-before-every-draw-off-the-PS3.patch
+0067-nv30-a-fragment-program-loop-ends-on-an-instruction-slot.patch
+0068-nv30-a-fragment-program-that-closes-an-IF-or-a-loop-is-ended-by-the-appended-NOP.patch

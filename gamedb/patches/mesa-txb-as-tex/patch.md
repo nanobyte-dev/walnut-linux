@@ -4,8 +4,8 @@ patches = ["patches/0045-nv30-TXB-as-TEX-on-the-RSX-NV30_TXB_HW-1-keeps-the-h.pa
 aliases = ["Mesa 0045"]
 category = "correctness"
 switch = "NV30_TXB_HW"
-default = "0 (TXB emitted as TEX)"
-gating = "none: nvfx emits TXB as TEX on every nv30, not only the RSX; NV30_TXB_HW=1 keeps the hardware TXB"
+default = "0 on the PS3 (TXB emitted as TEX), 1 elsewhere (0065)"
+gating = "none: since 0065 the default of NV30_TXB_HW is is_ps3 (off there, on elsewhere); NV30_TXB_HW=1 keeps the hardware TXB"
 forwarded = "no"
 tests = []
 batches = []
