@@ -5,7 +5,9 @@
 [walnut-401]
 enabled   = false
 backend   = auto
-logpath   = /data/nanobyte/MainProxy/Logs/walnut.log
+# /licensed/ 401s are in the shared access.log, /ccache/ 401s in walnut.log (the CI paths' own log)
+logpath   = /data/nanobyte/MainProxy/Logs/access.log
+            /data/nanobyte/MainProxy/Logs/walnut.log
 filter    = walnut-401
 maxretry  = 10
 findtime  = 10m

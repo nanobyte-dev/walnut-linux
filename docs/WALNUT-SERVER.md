@@ -14,6 +14,18 @@ walnut.nanobyte.dev runs on the OVH box in `/data/nanobyte/Walnut`, behind the m
 
 `walnut-watch` (host, systemd path unit + timer) publishes uploads; `walnut-ccache-trim` (daily timer) trims the ccache store.
 
+## Logs
+
+The main proxy writes `/data/nanobyte/MainProxy/Logs/` (`/var/log/nginx/` inside the container). Its http block, which isn't in this repository (`docker exec main-proxy nginx -T` shows it), defines the `main` format (the combined format without `$host`), a `$scanner` map of known probe URIs (`.env`, `.git`, `wp-*`, phpMyAdmin and the like), `$loggable` (its opposite), and two logs: `access.log` (`if=$loggable`) and `scanners.log` (`if=$scanner`). The 443 vhosts include `snippets/config-headers.conf`, which answers a scanner URI with 444.
+
+| Log | What lands in it | Read by |
+|---|---|---|
+| `access.log` | every nanobyte.dev site's requests, walnut's included, except the CI paths below | the fleet health monitor (every 15 min: a spike is at least 60 requests/min and 5 times its running baseline); `walnut-401` for `/licensed/` |
+| `walnut.log` | only the CI paths, `/debian-snapshot/` (http and https) and `/ccache/`: the GitHub runners' traffic, which was about 80% of the proxy's lines and kept tripping the spike check | `walnut-401` for `/ccache/` |
+| `scanners.log` | probe URIs, from every site and every location | fail2ban's `nginx-scanners` jail |
+
+The two CI locations in `walnut.nanobyte.dev.conf` carry their own `walnut.log` and `scanners.log` lines, because an `access_log` in a location replaces the inherited ones. `/debian-snapshot/` on 443 is a `^~` prefix location of its own for that reason. The host's logrotate rotates `*.log` in that folder and reopens nginx's logs afterwards. A flood on the CI paths shows only in `walnut.log`: no check watches it yet.
+
 ## Release images
 
 `.github/workflows/release-image.yml` ("Walnut release", by hand) builds the public image from one suite:
