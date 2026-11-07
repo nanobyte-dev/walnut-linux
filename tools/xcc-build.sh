@@ -19,6 +19,7 @@ set -euo pipefail
 # execute a shifted fragment.
 {
 PKG=$1
+. tools/lib/chroot.sh
 PD=$(tools/pkg-dir.sh "$PKG")
 . "$PD/package.conf"
 [ "${BUILD:-}" = xcc ] || { echo "!! $PKG is not BUILD=xcc"; exit 1; }
@@ -33,23 +34,16 @@ rm -rf "$OUT"; mkdir -p "$OUT"
 R=/xcc/run-$PKG
 mkdir -p /xcc/ccache
 
-# Unmount everything under the chroot first: nothing may walk the tree while /sys or /dev are bound
-unmount_all() {
-	for m in x86 build/ccache dev proc sys; do umount -R -l "$R/$m" 2>/dev/null || true; done
-	if grep -q " $R/" /proc/mounts; then echo "!! still mounted under $R" >&2; return 1; fi
-}
-cleanup() { unmount_all && rm -rf --one-file-system "$R"; }
-trap cleanup EXIT
-cleanup
+# nothing may walk the tree while /sys or /dev are bound: chroot_close unmounts, checks, then removes (tools/lib/chroot.sh)
+trap 'chroot_close "$R"' EXIT
+chroot_close "$R"
 
 hash=$(sha256sum "build/src/$PKG/$SOURCE-$UPVER/debian/control" | cut -c1-12)
 DEPS=/xcc/$PKG-deps-$hash.tar
 mkdir -p "$R"
 if [ -e "$DEPS" ]; then tar -xf "$DEPS" -C "$R"; else tar -xf build/chroot/sid-ppc64.tar -C "$R"; fi
-mkdir -p "$R/proc" "$R/sys" "$R/dev" "$R/x86" "$R/build/ccache" "$R/build/reproducible-path"
-mount -t proc proc "$R/proc"; mount -t sysfs -o ro sysfs "$R/sys"; mount --rbind /dev "$R/dev"
-mount --bind /xcc/ccache "$R/build/ccache"
-mount --bind -o ro "$XCC_TREE" "$R/x86"
+mkdir -p "$R/build/reproducible-path"
+chroot_open "$R" /xcc/ccache:/build/ccache "$XCC_TREE:/x86:ro"
 cp /etc/resolv.conf "$R/etc/resolv.conf"
 cp build/src/"$PKG"/*.dsc "$R/build/"	# the source package must be there; a missing one fails here
 for f in build/src/"$PKG"/*.tar.*; do
@@ -57,7 +51,7 @@ for f in build/src/"$PKG"/*.tar.*; do
 done
 for f in build/src/"$PKG"/*.orig*.tar.*; do [ ! -e "$f" ] || cp -L "$f" "$R/build/"; done
 
-in_chroot() { chroot "$R" /usr/bin/env -i PATH=/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+in_chroot() { chroot_run "$R" PATH=/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
 	HOME=/root LANG=C.UTF-8 DEBIAN_FRONTEND=noninteractive "$@"; }
 
 T0=$(date +%s)
@@ -101,7 +95,7 @@ in_chroot sh -c "cd /build/reproducible-path/$SOURCE-$UPVER && \
 	|| { tail -40 "$R/build/build.log"; cp "$R/build/build.log" "$OUT/build.log"; chown -R "$OWNER" "$OUT"; exit 1; }
 echo ">> built in $(( $(date +%s) - T1 )) s"
 in_chroot sh -c "CCACHE_DIR=/build/ccache ccache -s" | grep -E "Hits|Misses|Cache size" || true
-unmount_all
+chroot_unmount "$R"
 # a build that made no .deb is a failure, never an empty success; debug symbols and metadata are optional
 debs=("$R"/build/reproducible-path/*.deb)
 [ -e "${debs[0]}" ] || { echo "!! $PKG: the build made no .deb" >&2; exit 1; }
