@@ -56,7 +56,8 @@
 #                  winding and provoking vertex kept), cap (2 MiB U32 lists, U16 over 1 MiB, strips, fans and
 #                  loops across the cap, restart: each piece under the cap with the kernel's skew), wiring
 #                  (nv30_vbo.c, the screen's NV30_PS3_IDX_SPLIT, a piece that would pass the file's share of
-#                  the ring kicked into a submission of its own, the count zeroed at each kick); fix-off: each rule of
+#                  the ring kicked into a submission of its own, the count started at each kick with the copy
+#                  the kernel keeps for a primitive the kick left open); fix-off: each rule of
 #                  the header taken out must fail
 # Each part prints "RESULT <suite>:<part> pass|fail|skip" (tools/ladder.py reads them). Exit 0 when every
 # part passed, 77 when the tree lacks what the suite tests (its patch) or a tool is missing, else 1.
@@ -625,7 +626,10 @@ idx-split)
 		w $V 'PUSH_RESRC(push, NV30_3D(IDXBUF_OFFSET), BUFCTX_IDXBUF, e->res, e->offset + (uint32_t)at,'
 		w $V '!idx_conv && info->primitive_restart);'
 		w $V 'if (e->nv30->ps3_idx_bytes && e->nv30->ps3_idx_bytes + copy > NV30_PS3_IDX_SUBMIT_BYTES) {'
-		w $M/src/gallium/drivers/nouveau/nv30/nv30_context.c 'nv30->ps3_idx_bytes = 0;'
+		w $M/src/gallium/drivers/nouveau/nv30/nv30_context.c 'nv30->ps3_idx_bytes = nv30->ps3_idx_open ? NV30_PS3_IDX_BINDING_MAX : 0;'
+		python3 -I -c 'import sys; sys.exit(sys.argv[2] not in open(sys.argv[1]).read())' $V \
+			$'   e->nv30->ps3_idx_open = true;\n   nv30_idx_batches(push, e->prim, (unsigned)((pos - at) / e->isz), n);\n   e->nv30->ps3_idx_open = false;' ||
+			{ echo "FAIL wiring: a piece's batches not inside ps3_idx_open"; rc=1; }
 		w $M/src/gallium/drivers/nouveau/nv30/nv30_screen.c \
 			'screen->idx_split = ps3 && debug_get_bool_option("NV30_PS3_IDX_SPLIT", true);'
 		[ $rc = 0 ] && echo "wiring: the draw path and the screen default as they must be"

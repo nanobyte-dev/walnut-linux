@@ -27,7 +27,10 @@ bytes early) every binding stays under the cap (nv30_idx_split.h):
 The kernel also refuses a submission whose index copies pass the file's share of its ring (1.25
 MiB), so two pieces never share one: a piece that would pass it, counting the copies of the
 indexed draws since the last kick as the kernel lays them out, is kicked into a submission of its
-own (the kernel reuses a copy for the same range, so the count can only overestimate).
+own (the kernel reuses a copy for the same range, so the count can only overestimate). A kick
+that ends a submission inside an indexed draw's primitive (the push buffer full) leaves the kernel
+holding a copy of up to 1 MiB for the continuation, which counts in the next submission: the count
+starts there at 1 MiB.
 
 NV30_PS3_IDX_STATS counts split draws, conversions, kicks between pieces and draws that could not
 be split. The
@@ -38,24 +41,38 @@ Forwarded: no
 diff --git a/src/gallium/drivers/nouveau/nv30/nv30_context.c b/src/gallium/drivers/nouveau/nv30/nv30_context.c
 --- a/src/gallium/drivers/nouveau/nv30/nv30_context.c
 +++ b/src/gallium/drivers/nouveau/nv30/nv30_context.c
-@@ -47,6 +47,7 @@ nv30_context_kick_notify(struct nouveau_pushbuf *push)
+@@ -38,6 +38,7 @@
+ #include "nv30/nv30_transfer.h"
+ #include "nv30/nv30_state.h"
+ #include "nv30/nv30_winsys.h"
++#include "nv30/nv30_idx_split.h"
+ 
+ static bool
+ nv30_context_kick_notify(struct nouveau_pushbuf *push)
+@@ -47,6 +48,9 @@ nv30_context_kick_notify(struct nouveau_pushbuf *push)
  
     /* NV30_PS3_KICK_AUTO: this submission's words count towards the frame's size */
     struct nv30_context *nv30 = nv30_context(&p->context->pipe);
-+   nv30->ps3_idx_bytes = 0;	/* a new submission: none of ps3rsx's index copies yet */
++   /* a new submission: none of ps3rsx's index copies yet, but the one the kernel keeps for a
++    * primitive this kick leaves open (up to 1 MiB, its IXS_MAX) */
++   nv30->ps3_idx_bytes = nv30->ps3_idx_open ? NV30_PS3_IDX_BINDING_MAX : 0;
     if (nv30->kick_mark) {
        if (push->cur >= nv30->kick_mark && push->cur - nv30->kick_mark <= (1 << 20))
           nv30->frame_words += push->cur - nv30->kick_mark;
 diff --git a/src/gallium/drivers/nouveau/nv30/nv30_context.h b/src/gallium/drivers/nouveau/nv30/nv30_context.h
 --- a/src/gallium/drivers/nouveau/nv30/nv30_context.h
 +++ b/src/gallium/drivers/nouveau/nv30/nv30_context.h
-@@ -83,6 +83,9 @@ struct nv30_context {
+@@ -83,6 +83,13 @@ struct nv30_context {
     uint32_t *kick_mark;
     unsigned frame_words;
     unsigned frame_words_last;
 +   /* NV30_PS3_IDX_SPLIT: bytes of ps3rsx index copies the indexed draws since the last kick make
 +    * at most (nv30_idx_split.h); kick_notify zeroes it */
 +   uint32_t ps3_idx_bytes;
++   /* while an indexed draw's batches are emitted: a kick then ends the submission inside its
++    * primitive, and the kernel keeps a copy of up to 1 MiB for the continuation, which counts in
++    * the next submission's share (kick_notify starts the count there) */
++   bool ps3_idx_open;
  
     /* frames (end-of-frame flushes) of this context, for NV30_SYSMEM_STATS */
     unsigned frames;
@@ -298,7 +315,7 @@ diff --git a/src/gallium/drivers/nouveau/nv30/nv30_vbo.c b/src/gallium/drivers/n
  #include "nv30/nv30_vtx_snorm8.h"
  #include "nv30/nv30_winsys.h"
  
-@@ -524,13 +525,88 @@ nv30_draw_elements_inline_u32_short(struct nouveau_pushbuf *push,
+@@ -524,13 +525,90 @@ nv30_draw_elements_inline_u32_short(struct nouveau_pushbuf *push,
     }
  }
  
@@ -372,7 +389,9 @@ diff --git a/src/gallium/drivers/nouveau/nv30/nv30_vbo.c b/src/gallium/drivers/n
 +                    (e->isz == 2) ? 0x00000010 : 0x00000000,
 +                    e->res->domain | NOUVEAU_BO_RD,
 +                    0, NV30_3D_IDXBUF_FORMAT_DMA1);
++   e->nv30->ps3_idx_open = true;
 +   nv30_idx_batches(push, e->prim, (unsigned)((pos - at) / e->isz), n);
++   e->nv30->ps3_idx_open = false;
 +}
 +
 +/* cpu: the draw's indices as the CPU sees them (cpu_size bytes each, from the draw's start) for
@@ -388,7 +407,7 @@ diff --git a/src/gallium/drivers/nouveau/nv30/nv30_vbo.c b/src/gallium/drivers/n
  {
     struct nouveau_pushbuf *push = nv30->base.pushbuf;
     struct nouveau_object *eng3d = nv30->screen->eng3d;
-@@ -556,6 +632,29 @@ nv30_draw_elements(struct nv30_context *nv30, bool shorten,
+@@ -556,6 +634,29 @@ nv30_draw_elements(struct nv30_context *nv30, bool shorten,
  
        assert(nouveau_resource_mapped_by_gpu(&res->base));
  
@@ -418,7 +437,7 @@ diff --git a/src/gallium/drivers/nouveau/nv30/nv30_vbo.c b/src/gallium/drivers/n
        BEGIN_NV04(push, NV30_3D(IDXBUF_OFFSET), 2);
        PUSH_RESRC(push, NV30_3D(IDXBUF_OFFSET), BUFCTX_IDXBUF, res, offset,
                         NOUVEAU_BO_LOW | NOUVEAU_BO_RD, 0, 0);
-@@ -563,27 +662,7 @@ nv30_draw_elements(struct nv30_context *nv30, bool shorten,
+@@ -563,27 +664,9 @@ nv30_draw_elements(struct nv30_context *nv30, bool shorten,
                         (index_size == 2) ? 0x00000010 : 0x00000000,
                         res->domain | NOUVEAU_BO_RD,
                         0, NV30_3D_IDXBUF_FORMAT_DMA1);
@@ -443,11 +462,13 @@ diff --git a/src/gallium/drivers/nouveau/nv30/nv30_vbo.c b/src/gallium/drivers/n
 -      }
 -      BEGIN_NV04(push, NV30_3D(VERTEX_BEGIN_END), 1);
 -      PUSH_DATA (push, NV30_3D_VERTEX_BEGIN_END_STOP);
++      nv30->ps3_idx_open = nv30->screen->idx_split;
 +      nv30_idx_batches(push, prim, start, count);
++      nv30->ps3_idx_open = false;
        PUSH_RESET(push, BUFCTX_IDXBUF);
     } else {
        const void *data;
-@@ -770,11 +849,58 @@ nv30_draw_vbo(struct pipe_context *pipe, const struct pipe_draw_info *info,
+@@ -770,11 +853,58 @@ nv30_draw_vbo(struct pipe_context *pipe, const struct pipe_draw_info *info,
        }
     }
  
@@ -509,7 +530,7 @@ diff --git a/src/gallium/drivers/nouveau/nv30/nv30_vbo.c b/src/gallium/drivers/n
         nv30->screen->index_upload && draws[0].count >= nv30->screen->index_upload &&
         nv30->screen->eng3d->oclass == NV40_3D_CLASS) {
        idx_upload = nv30_upload_indices(nv30, info, &draws[0], &idx_upload_offset);
-@@ -820,6 +946,9 @@ nv30_draw_vbo(struct pipe_context *pipe, const struct pipe_draw_info *info,
+@@ -820,6 +950,9 @@ nv30_draw_vbo(struct pipe_context *pipe, const struct pipe_draw_info *info,
        nv30_draw_arrays(nv30,
                         info->mode, draws[0].start, draws[0].count,
                         info->instance_count);
@@ -519,7 +540,7 @@ diff --git a/src/gallium/drivers/nouveau/nv30/nv30_vbo.c b/src/gallium/drivers/n
     } else {
        bool shorten = info->index_bounds_valid && info->max_index <= 65535;
  
-@@ -846,9 +975,11 @@ nv30_draw_vbo(struct pipe_context *pipe, const struct pipe_draw_info *info,
+@@ -846,9 +979,11 @@ nv30_draw_vbo(struct pipe_context *pipe, const struct pipe_draw_info *info,
        }
  
        nv30_draw_elements(nv30, shorten, info,

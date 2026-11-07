@@ -32,7 +32,9 @@ every binding stays under the cap:
 The kernel also refuses a submission whose index copies pass the file's share of its ring (1.25 MiB), so two pieces never share
 one: a piece that would pass it, counting the copies of the indexed draws since the last kick as the kernel lays them out, goes in
 a submission of its own. The kernel reuses a copy for the same range within a submission, so the count only overestimates: an
-extra kick, never a refusal. midprim's frame of 200 such draws becomes about 600 submissions.
+extra kick, never a refusal. A kick that ends a submission inside an indexed draw's primitive (the push buffer full) leaves the
+kernel holding up to 1 MiB for the continuation, so the next submission's count starts at 1 MiB. midprim's frame of 200 such
+draws becomes about 600 submissions.
 
 `NV30_PS3_IDX_SPLIT=0` draws as before (which the kernel refuses). `NV30_PS3_IDX_STATS=1` prints a line as the split, converted and
 unsplittable draws and the kicks between pieces pass each power of two. The winsys's line for a cancelled submission now says that its draws are lost and that
