@@ -67,8 +67,11 @@ bounds names and places; it does not make the content of a testing package trust
 Everything under `/apt`, `/licensed`, `/download`, `/status` is served as `application/octet-stream` with `nosniff` and a
 `sandbox` CSP (`repo-headers.inc`; `check-headers.sh` tests it from outside). Known remaining hole: the site and
 `/licensed/` share an origin, so a script the site serves could use credentials a browser holds for `/licensed/`. The fix
-is a host of its own for `/licensed/` and `/ccache/` (needs a DNS name and a certificate; consoles' sources change); until
-then the site's content is reviewed (the walnut-site environment has a required reviewer).
+is a host of its own for `/licensed/` and `/ccache/` (needs a DNS name and a certificate; consoles' sources change). Until
+then what bounds it: the site runs only its own script files (CSP `script-src 'self'`), nothing under `/apt`, `/licensed`
+or `/download` can load as a script (octet-stream plus `nosniff`), and a site bundle can't carry other keys or
+fingerprints. The site's own content is not reviewed per run: the owner's pushes publish straight away (the walnut-site
+environment has no reviewer; anyone else's run waits in walnut-site-review, see `.github/workflows/walnut-site.yml`).
 
 `www/status/<kind>__<id>` holds the verdict and a code only; the reason is in the journal and `state/done/`:
 

@@ -22,7 +22,7 @@ A BUILD=xcc package (package.conf: too big for a runner, built on the dev PC by 
 is not built here: its workflow starts on a change to github-ci/prebuilt/<name>.sha256 (written by
 tools/prebuilt-upload.sh) and github-ci/build-package.sh takes the debs that file pins from the
 GitHub release it names."""
-import functools, glob, importlib.util, os, re, subprocess, sys
+import functools, glob, importlib.util, os, re, subprocess, sys, textwrap
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WF = f"{ROOT}/.github/workflows"
@@ -526,7 +526,8 @@ def deploy_key_rules(name, doc):
 	if name not in DEPLOY_KEY_ENVS:	# a workflow outside the table: test_gen_workflows.py checks the real ones name the key nowhere else
 		return errs
 	for jname, job in (doc.get("jobs") or {}).items():
-		if isinstance(job, dict) and "WALNUT_DEPLOY_KEY" in secret_uses(job):
+		# a computed use (secrets['X'], toJSON(secrets)) may be the key too
+		if isinstance(job, dict) and {"WALNUT_DEPLOY_KEY", "<dynamic>"} & set(secret_uses(job)):
 			env = job.get("environment")
 			env = env.get("name") if isinstance(env, dict) else env
 			if env not in DEPLOY_KEY_ENVS.get(name, set()):
@@ -556,6 +557,22 @@ def pr_rules(name, doc):
 		if isinstance(pm, str) and pm != "read-all" or isinstance(pm, dict) and any(v not in ("read", "none") for v in pm.values()):
 			errs.append(f"{name}: runs on pull_request with a permission above read")
 	return errs
+
+
+def recheck_neutralised(doc, job):
+	"""What would make a publish job's first step (the allowlist recheck) not run or not count: a condition or
+	continue-on-error on it, or a shell or working directory other than the default (a shell "true {0}" runs nothing)."""
+	first = (job.get("steps") or [{}])[0]
+	out = [k for k in ("if", "continue-on-error", "shell", "working-directory") if isinstance(first, dict) and k in first]
+	# the release image publishes to testing or stable: its recheck runs exactly when the channel is stable
+	if job.get("environment") == "walnut-${{ inputs.channel }}" and isinstance(first, dict) and first.get("if") == "inputs.channel == 'stable'":
+		out.remove("if")
+	if "continue-on-error" in job:
+		out.append("the job's continue-on-error")
+	for where, d in (("job", job), ("workflow", doc)):
+		if isinstance(d.get("defaults"), dict) and (d["defaults"].get("run") or {}):
+			out.append(f"the {where}'s defaults.run")
+	return out
 
 
 STABLE_ENVS = ("walnut-stable", "walnut-${{ inputs.channel }}")
@@ -603,6 +620,50 @@ def stable_rules(name, doc):
 		        or "github.triggering_actor" not in str(env.get("ACTOR")) or '"$GATE" = skipped' not in run \
 		        or "jq -e --arg a \"$ACTOR\"" not in run or ". == $a" not in run or 'type == "array"' not in run or "exit 1" not in run:
 			errs.append(f"{name}: job {jname}: its first step must check the gate and the allowlist again")
+		if recheck_neutralised(doc, job):
+			errs.append(f"{name}: job {jname}: the recheck could be skipped or ignored ({', '.join(recheck_neutralised(doc, job))})")
+	return errs
+
+
+def site_rules(name, doc):
+	"""The site's upload key (environment walnut-site, no reviewer) is reached only through site-gate: a job in
+	walnut-site-review (reviewers, no secret) that runs for anyone not on the allowlist. The publish job needs it,
+	accepts its success or a skipped gate plus the allowlist, and checks both again in its first step."""
+	errs = []
+	jobs = doc.get("jobs") or {}
+	envname = lambda j: (j.get("environment") or {}).get("name") if isinstance(j.get("environment"), dict) else j.get("environment")
+	for jname, job in jobs.items():
+		if not isinstance(job, dict):
+			continue
+		if envname(job) == "walnut-site-review":
+			if secret_uses(job) or "uses" in job or "secrets" in job:
+				errs.append(f"{name}: job {jname}: the review environment's job references secrets or calls something")
+			if jname != "site-gate" or f"!{ALLOWED}" not in str(job.get("if")):
+				errs.append(f"{name}: job {jname}: the review gate runs only for someone not on the allowlist")
+		if envname(job) != "walnut-site":
+			continue
+		gate = jobs.get("site-gate")
+		if not isinstance(gate, dict) or envname(gate) != "walnut-site-review" or f"!{ALLOWED}" not in str(gate.get("if")):
+			errs.append(f"{name}: job {jname} uses walnut-site but there is no site-gate (environment walnut-site-review, if: !allowlist)")
+		needs = job.get("needs") if isinstance(job.get("needs"), list) else [job.get("needs")]
+		if "site-gate" not in needs:
+			errs.append(f"{name}: job {jname} uses walnut-site without needing site-gate")
+		cond = str(job.get("if"))
+		if "always()" not in cond or ALLOWED not in cond or "needs.site-gate.result == 'success'" not in cond or \
+		        "needs.site-gate.result == 'skipped'" not in cond:
+			errs.append(f"{name}: job {jname}: its `if` must be always() and accept the gate's success, or a skipped gate plus the allowlist")
+		first = (job.get("steps") or [{}])[0]
+		env = first.get("env") or {}
+		if str(env.get("GATE")) != "${{ needs.site-gate.result }}" or str(env.get("PUBLISHERS")) != "${{ vars.WALNUT_STABLE_PUBLISHERS }}" \
+		        or str(env.get("ACTOR")) != "${{ github.triggering_actor }}" or str(first.get("run")) != textwrap.dedent(RECHECK_RUN):
+			errs.append(f"{name}: job {jname}: its first step must check the gate and the allowlist again")
+		if recheck_neutralised(doc, job):
+			errs.append(f"{name}: job {jname}: the recheck could be skipped or ignored ({', '.join(recheck_neutralised(doc, job))})")
+	if name == "walnut-site.yml":
+		# environment names are literal here, so a computed name can't pick walnut-site past the rules above
+		for jname, job in jobs.items():
+			if isinstance(job, dict) and "${{" in str(envname(job) or ""):
+				errs.append(f"{name}: job {jname}: an environment name from an expression")
 	return errs
 
 
@@ -617,7 +678,7 @@ def workflow_lint(check_yaml=True):
 			if not e:
 				import yaml
 				doc = yaml.safe_load(open(f))
-				errs += secret_rules(name, doc) + stable_rules(name, doc) + pr_rules(name, doc) + deploy_key_rules(name, doc)
+				errs += secret_rules(name, doc) + stable_rules(name, doc) + site_rules(name, doc) + pr_rules(name, doc) + deploy_key_rules(name, doc)
 		text = "\n".join(l for l in open(f).read().splitlines() if not l.lstrip().startswith("#")) + "\n"	# not comments
 		if "pull_request_target" in text:
 			errs.append(f"{name}: pull_request_target")

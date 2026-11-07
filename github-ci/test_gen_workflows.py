@@ -206,6 +206,7 @@ class Lint(unittest.TestCase):
 		self.assertIn("first step must check", errs(gate, pub.replace("any(.[]; . == $a)", "any(.[]; contains($a))")))
 		self.assertIn("first step must check", errs(gate, pub.replace("PUBLISHERS: ${{ vars.WALNUT_STABLE_PUBLISHERS }}", "PUBLISHERS: x")))
 		self.assertIn("first step must check", errs(gate, pub.replace(recheck, "      - run: echo hi\n" + recheck)))	# not the first step
+		self.assertIn("could be skipped or ignored", errs(gate, pub.replace("      - env:\n          GATE:", "      - continue-on-error: true\n        env:\n          GATE:")))
 		# the release image's channel-dependent environment counts as stable
 		self.assertIn("no stable-gate", errs(pub.replace("environment: walnut-stable\n", "environment: walnut-${{ inputs.channel }}\n")))
 		# the review environment holds no secret and calls nothing
@@ -213,11 +214,60 @@ class Lint(unittest.TestCase):
 		self.assertIn("references secrets", errs(gate.replace("    runs-on: x\n", "    secrets: inherit\n    uses: ./x.yml\n"), pub))
 		self.assertIn("runs only for someone not on the allowlist", errs(gate.replace("!" + A, "true")))
 
+	def test_site_needs_the_gate(self):
+		"""The site's key (walnut-site, no reviewer) only through site-gate (walnut-site-review) or the allowlist."""
+		import textwrap
+		A = gw.ALLOWED
+		gate = ("  site-gate:\n    if: ${{ !" + A + " }}\n    runs-on: x\n    environment: walnut-site-review\n"
+		        "    steps:\n      - run: echo ok\n")
+		recheck = ("      - env:\n          GATE: ${{ needs.site-gate.result }}\n          PUBLISHERS: ${{ vars.WALNUT_STABLE_PUBLISHERS }}\n"
+		           "          ACTOR: ${{ github.triggering_actor }}\n        run: |\n" + textwrap.indent(textwrap.dedent(gw.RECHECK_RUN), " " * 10))
+		pub = ("  publish:\n    needs: site-gate\n    if: ${{ always() && (needs.site-gate.result == 'success' || "
+		       "needs.site-gate.result == 'skipped' && " + A + ") }}\n    runs-on: x\n    environment:\n      name: walnut-site\n"
+		       "      url: https://x\n    steps:\n" + recheck + "      - run: echo publish\n")
+		wf = lambda *jobs: "on:\n  push:\njobs:\n" + "".join(jobs)
+		errs = lambda *jobs: "\n".join(self.lint({"a.yml": wf(*jobs)}, yaml=True))
+		self.assertEqual(errs(gate, pub), "")
+		self.assertIn("no site-gate", errs(pub))	# the gate is missing
+		self.assertIn("no site-gate", errs(gate.replace("environment: walnut-site-review", "environment: walnut-sitex"), pub))
+		self.assertIn("no site-gate", errs(gate.replace("!" + A, A), pub))	# the wrong way round
+		self.assertIn("without needing site-gate", errs(gate, pub.replace("    needs: site-gate\n", "")))
+		self.assertIn("must be always()", errs(gate, pub.replace("always() && ", "")))
+		self.assertIn("must be always()", errs(gate, pub.replace("needs.site-gate.result == 'skipped'", "true")))
+		self.assertIn("must be always()", errs(gate, pub.replace(" && " + A, " && true")))	# any skipped gate would do
+		self.assertIn("first step must check", errs(gate, pub.replace(recheck, "")))
+		self.assertIn("first step must check", errs(gate, pub.replace("any(.[]; . == $a)", "any(.[]; contains($a))")))
+		self.assertIn("first step must check", errs(gate, pub.replace("GATE: ${{ needs.site-gate.result }}", "GATE: skipped")))
+		self.assertIn("first step must check", errs(gate, pub.replace(recheck, "      - run: echo hi\n" + recheck)))	# not the first
+		# the plain string form of the environment counts too
+		self.assertIn("no site-gate", errs(pub.replace("    environment:\n      name: walnut-site\n      url: https://x\n", "    environment: walnut-site\n")))
+		# the review environment holds no secret and calls nothing, and runs only off the allowlist
+		self.assertIn("references secrets", errs(gate.replace("echo ok", "echo ${{ secrets.X }}"), pub))
+		self.assertIn("runs only for someone not on the allowlist", errs(gate.replace("!" + A, "true"), pub))
+		# the recheck stays exact but doesn't run or doesn't count
+		first = "      - env:\n          GATE:"
+		for k in ("if: false", "continue-on-error: true", "shell: true {0}", "working-directory: /"):
+			self.assertIn("could be skipped or ignored", errs(gate, pub.replace(first, "      - " + k + "\n        env:\n          GATE:")), k)
+		self.assertIn("could be skipped or ignored", errs(gate, pub.replace("    runs-on: x\n    environment:\n", "    runs-on: x\n    continue-on-error: true\n    environment:\n")))
+		self.assertIn("could be skipped or ignored", errs(gate, pub.replace("    runs-on: x\n    environment:\n", "    runs-on: x\n    defaults:\n      run:\n        shell: true {0}\n    environment:\n")))
+		self.assertIn("could be skipped or ignored", "\n".join(self.lint({"a.yml": "on:\n  push:\ndefaults:\n  run:\n    shell: true {0}\njobs:\n" + gate + pub}, yaml=True)))
+		# a computed environment name or a computed secret reference in the site workflow
+		comp = pub.replace("name: walnut-site\n", "name: walnut-${{ 'site' }}\n").replace("echo publish", "echo ${{ secrets['WALNUT_DEPLOY_KEY'] }}")
+		self.assertIn("environment name from an expression", "\n".join(self.lint({"walnut-site.yml": wf(gate, comp)}, yaml=True)))
+		self.assertIn("uses WALNUT_DEPLOY_KEY in environment", "\n".join(self.lint({"walnut-site.yml": wf(gate, comp)}, yaml=True)))
+		# the real workflow
+		import yaml
+		jobs = yaml.safe_load(open(f"{HERE}/../.github/workflows/walnut-site.yml"))["jobs"]
+		self.assertEqual(jobs["publish"]["concurrency"]["group"], "walnut-site")	# on the job: a waiting gate holds up nothing
+		self.assertEqual(jobs["site-gate"]["environment"], "walnut-site-review")
+		self.assertEqual(gw.site_rules("walnut-site.yml", {"jobs": jobs}), [])
+
 	def test_the_recheck_is_strict(self):
 		"""The step that decides: exact login in a JSON array of strings (contains() would match a substring of a string)."""
 		import subprocess
 		import yaml
-		for src in (gw.generate()["walnut-package.yml"], open(f"{HERE}/../.github/workflows/release-image.yml").read()):
+		for src in (gw.generate()["walnut-package.yml"], open(f"{HERE}/../.github/workflows/release-image.yml").read(),
+		            open(f"{HERE}/../.github/workflows/walnut-site.yml").read()):
 			jobs = yaml.safe_load(src)["jobs"]
 			step = jobs["publish"]["steps"][0]
 			run = lambda gate, publishers, actor: subprocess.run(["bash", "-c", step["run"]], capture_output=True, text=True, env={

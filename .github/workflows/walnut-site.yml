@@ -2,8 +2,15 @@
 # into /gamedb/ by tools/gamedb/build.sh) on every push that changes them, or when started by hand. The upload
 # goes to the walnut-upload container (write-only, no shell); the server's walnut-watch checks it,
 # builds walnut-site:<id> and switches the container, and this job waits until the new version is
-# served. Secret WALNUT_DEPLOY_KEY: the upload key (environment walnut-site; add a required reviewer
-# there to gate it). The server's host key is pinned in servers/walnut.nanobyte.dev/known_hosts.
+# served. Secret WALNUT_DEPLOY_KEY: the upload key (environment walnut-site, main only, no reviewer). The
+# server's host key is pinned in servers/walnut.nanobyte.dev/known_hosts.
+# Who publishes without a second person: the same allowlist as stable, the repository variable
+# WALNUT_STABLE_PUBLISHERS (a JSON list of logins, edited by an admin). Anyone else waits in site-gate for the
+# reviewers of the environment walnut-site-review, which holds no secret; publish checks it again itself.
+# No site-outcome job (stable has one): the gate's `if` and publish's skipped branch are the same expression, so
+# a skipped gate means an allowlisted actor, and a rejected or timed-out gate already ends the run red.
+# This holds while the owner is main's only writer: before anyone else gets write, require a pull request with
+# the owner's review on main (a ruleset), or put the reviewer back on walnut-site and walnut-stable.
 name: Walnut site
 
 on:
@@ -32,20 +39,42 @@ on:
       - ".github/workflows/walnut-site.yml"
   workflow_dispatch:
 
-concurrency:
-  group: walnut-site
-  cancel-in-progress: false
-
 permissions:
   contents: read
 
 jobs:
+  site-gate:
+    # a publish by someone not on the allowlist waits here for the reviewers of walnut-site-review (no secrets)
+    if: ${{ !contains(fromJSON(vars.WALNUT_STABLE_PUBLISHERS || '[]'), github.triggering_actor) }}
+    runs-on: ubuntu-24.04
+    environment: walnut-site-review
+    steps:
+      - run: echo "approved by a reviewer of walnut-site-review"
   publish:
+    needs: site-gate
+    # always(): the job runs after a skipped gate too, but only for someone on the allowlist
+    if: ${{ always() && (needs.site-gate.result == 'success' || (needs.site-gate.result == 'skipped' && contains(fromJSON(vars.WALNUT_STABLE_PUBLISHERS || '[]'), github.triggering_actor))) }}
+    # one publish at a time, on the job, not the workflow: a run waiting in site-gate holds up no other run
+    concurrency:
+      group: walnut-site
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     environment:
       name: walnut-site
       url: https://walnut.nanobyte.dev
     steps:
+      - name: Approved, or on the allowlist (checked here again, a skipped gate is no approval)
+        env:
+          GATE: ${{ needs.site-gate.result }}
+          PUBLISHERS: ${{ vars.WALNUT_STABLE_PUBLISHERS }}
+          ACTOR: ${{ github.triggering_actor }}
+        run: |
+          if [ "$GATE" = success ]; then exit 0; fi
+          fail() { echo "::error::not approved, and not on the allowlist"; exit 1; }
+          [ "$GATE" = skipped ] || fail
+          # the variable must be a JSON array of strings and hold exactly the actor's login (contains() in an `if`
+          # would also match a substring of a JSON string)
+          printf '%s' "${PUBLISHERS:-[]}" | jq -e --arg a "$ACTOR" 'type == "array" and all(.[]; type == "string") and any(.[]; . == $a)' >/dev/null || fail
       - uses: actions/checkout@v7
         with:
           lfs: false
