@@ -1,0 +1,256 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Sat, 7 Nov 2026 02:58:49 +0200
+Subject: nv30: queries: a late report is read again, an unkicked begin is not
+ waited for, begin and end recover a stale push buffer
+
+Four cases of how a query's report slot is used:
+
+- The wait for a report that gives up after a second (the PS3's deadline) or
+  on a cancelled submission read the slot, decided, and gave up: a report that
+  landed in between was taken as lost, and its slot reused. The slot is read
+  once more before the object is given up.
+- A TIME_ELAPSED begin was never marked sent, so any later cancellation of
+  some other submission made it count as lost while its report was on its
+  way (the query then read 0). The kick that ends the query also sent the
+  begin queued before it, unless a cancellation came between: the end marks
+  it.
+- A context out of slots took the oldest one back and waited for its report,
+  which for another context's TIME_ELAPSED begin that was not kicked yet
+  could be never: a second on the PS3, for ever elsewhere. Another context's
+  unkicked begin is passed over; the context's own is kicked, then waited
+  for. A begin that finds no slot at all reads as lost.
+- begin and end queued their words on a push buffer that a cancelled
+  submission had made stale (the next kick drops its words) before the
+  context recovered at its next draw: the counter reset or the report went
+  nowhere. They recover the context first (nv30_state_check_lost), as a
+  draw does.
+
+Nothing changes in a run where no submission was cancelled or failed.
+
+A query also remembers the count at its begin: if a submission was cancelled or failed before its end,
+the counter was not reset (or the start time not taken) and the query reads as lost (samples passed, no
+time; a render condition draws), where the end's fresh buffer would have delivered the counter of nobody's
+begin. An end that finds no slot reads as lost too, and a begin that is disowned (its query destroyed)
+and not kicked is passed over as well as one that is owned: the context is kept in the report object.
+
+Forwarded: no
+
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_query.c b/src/gallium/drivers/nouveau/nv30/nv30_query.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_query.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_query.c
+@@ -41,6 +41,9 @@ struct nv30_query_object {
+                                  * QUERY_GET was queued */
+    bool sent;                   /* the kick right after it was not cancelled: its report comes */
+    bool lost;                   /* its report never came (nv30_query_object_wait()) */
++   bool begin;                  /* the begin of a TIME_ELAPSED query */
++   const void *ctx;             /* the context that queued it (identity only): its words are in that
++                                 * context's push buffer */
+ };
+ 
+ struct nv30_query {
+@@ -50,6 +53,11 @@ struct nv30_query {
+    uint32_t enable;
+    uint64_t result;
+    uint64_t start; /* TIME_ELAPSED: the start time, once qo[0] was taken back */
++   uint32_t begin_cancel; /* nouveau_device::cancelled when the begin was queued */
++   bool began;            /* begun, and not ended since */
++   bool begin_lost;       /* a submission was cancelled or failed between the begin and the end: the
++                           * counter was not reset (or the start time not taken), so the report is
++                           * not this query's */
+    bool start_lost; /* TIME_ELAPSED: qo[0] was taken back and its report never came */
+    struct nouveau_fence *fence; /* NV30_QUERY_WAIT: the submission that ends the query */
+ };
+@@ -79,6 +87,15 @@ nv30_query_object_lost(struct nv30_screen *screen, struct nv30_query_object *qo)
+    return qo->lost || (!qo->sent && qo->cancel_seen != NOUVEAU_CANCELLED(screen->base.device));
+ }
+ 
++/* what a query reads when its report won't come: as after a GPU reset, samples passed (an
++ * occlusion-culled object is drawn), no time went by */
++static uint64_t
++nv30_query_lost_result(const struct nv30_query *q)
++{
++   return (q->type == PIPE_QUERY_OCCLUSION_COUNTER || q->type == PIPE_QUERY_OCCLUSION_PREDICATE ||
++           q->type == PIPE_QUERY_OCCLUSION_PREDICATE_CONSERVATIVE) ? 1 : 0;
++}
++
+ static volatile void *
+ nv30_ntfy(struct nv30_screen *screen, struct nv30_query_object *qo)
+ {
+@@ -105,9 +122,11 @@ nv30_query_object_wait(struct nv30_screen *screen, struct nv30_query_object *qo,
+    volatile uint32_t *ntfy = nv30_ntfy(screen, qo);
+    int64_t end = 0;
+ 
++   /* A report can land between the loop's read and the decision that it won't: the report is
++    * read once more before the object is given up. */
+    while (ntfy[3] & 0xff000000) {
+       if (nv30_query_object_lost(screen, qo))
+-         return false;
++         return !(ntfy[3] & 0xff000000);
+       if (screen->base.is_ps3) {
+          int64_t now = os_time_get_nano();
+ 
+@@ -115,6 +134,8 @@ nv30_query_object_wait(struct nv30_screen *screen, struct nv30_query_object *qo,
+             end = now + NV30_QUERY_DEADLINE_NS;
+          if (now >= end) {
+             static bool warned;
++            if (!(ntfy[3] & 0xff000000))
++               return true;
+             if (!warned) {
+                warned = true;
+                fprintf(stderr, "nv30: a query report didn't come in %lld ms: taken as lost\n",
+@@ -191,9 +212,40 @@ nv30_query_object_take(struct nv30_screen *screen, struct nv30_query_object *qo)
+    nv30_query_object_del(screen, &qo);
+ }
+ 
++/* The begin of a TIME_ELAPSED query that has no end yet: its QUERY_GET is still in the push
++ * buffer of the context that began it, and goes out with that context's next kick. */
++static bool
++nv30_query_object_unkicked(struct nv30_screen *screen, struct nv30_query_object *qo)
++{
++   return qo->begin && !qo->sent && !nv30_query_object_lost(screen, qo);
++}
++
++/* Out of slots: the oldest one whose report is on its way, or can be made to be. Another
++ * context's unkicked begin is never waited for (its push buffer is not ours to kick, and its
++ * context may not run again): passed over. The caller's own is kicked first. NULL when every
++ * slot is another context's unkicked begin. */
++static struct nv30_query_object *
++nv30_query_object_victim(struct nv30_screen *screen, struct nv30_context *nv30)
++{
++   list_for_each_entry(struct nv30_query_object, oq, &screen->queries, list) {
++      if (!nv30_query_object_unkicked(screen, oq))
++         return oq;
++      if (oq->ctx == nv30) {
++         struct nouveau_pushbuf *push = nv30->base.pushbuf;
++
++         PUSH_KICK(push);
++         if (oq->cancel_seen == NOUVEAU_CANCELLED(screen->base.device))
++            oq->sent = true;
++         return oq;
++      }
++   }
++   return NULL;
++}
++
+ static struct nv30_query_object *
+-nv30_query_object_new(struct nv30_screen *screen, struct nv30_query *owner)
++nv30_query_object_new(struct nv30_context *nv30, struct nv30_query *owner)
+ {
++   struct nv30_screen *screen = nv30->screen;
+    struct nv30_query_object *oq, *qo = CALLOC_STRUCT(nv30_query_object);
+    volatile uint32_t *ntfy;
+ 
+@@ -204,15 +256,16 @@ nv30_query_object_new(struct nv30_screen *screen, struct nv30_query *owner)
+     * spin waiting for one to become free
+     */
+    while (nouveau_heap_alloc(screen->query_heap, 32, NULL, &qo->hw)) {
+-      if (list_is_empty(&screen->queries)) {
++      oq = nv30_query_object_victim(screen, nv30);
++      if (!oq) {
+          FREE(qo);
+          return NULL;
+       }
+-      oq = list_first_entry(&screen->queries, struct nv30_query_object, list);
+       nv30_query_object_take(screen, oq);
+    }
+ 
+    qo->owner = owner;
++   qo->ctx = nv30;
+    list_addtail(&qo->list, &screen->queries);
+ 
+    ntfy = nv30_ntfy(screen, qo);
+@@ -284,6 +337,13 @@ nv30_query_begin(struct pipe_context *pipe, struct pipe_query *pq)
+    struct nv30_query *q = nv30_query(pq);
+    struct nouveau_pushbuf *push = nv30->base.pushbuf;
+ 
++   /* after a cancelled submission this push buffer drops what is queued on it: the begin's
++    * words (the counter reset, the enable, the start time) go on a fresh one */
++   nv30_state_check_lost(nv30);
++   q->began = true;
++   q->begin_cancel = NOUVEAU_CANCELLED(nv30->screen->base.device);
++   q->begin_lost = false;
++
+    /* a query begun again before its result was read */
+    nv30_query_object_release(nv30->screen, &q->qo[0]);
+    nv30_query_object_release(nv30->screen, &q->qo[1]);
+@@ -291,8 +351,11 @@ nv30_query_begin(struct pipe_context *pipe, struct pipe_query *pq)
+ 
+    switch (q->type) {
+    case PIPE_QUERY_TIME_ELAPSED:
+-      q->qo[0] = nv30_query_object_new(nv30->screen, q);
+-      if (q->qo[0]) {
++      q->qo[0] = nv30_query_object_new(nv30, q);
++      if (!q->qo[0]) {
++         q->start_lost = true;   /* no slot: no start time */
++      } else {
++         q->qo[0]->begin = true;
+          q->qo[0]->cancel_seen = push->cancel_seen;
+          BEGIN_NV04(push, NV30_3D(QUERY_GET), 1);
+          PUSH_DATA (push, (q->report << 24) | (nv30_query_base(nv30->screen) + q->qo[0]->hw->start));
+@@ -321,8 +384,16 @@ nv30_query_end(struct pipe_context *pipe, struct pipe_query *pq)
+    struct nv30_query *q = nv30_query(pq);
+    struct nouveau_pushbuf *push = nv30->base.pushbuf;
+ 
++   nv30_state_check_lost(nv30);   /* as in the begin */
++   /* a submission cancelled or failed since the begin took the reset or the start time with it
++    * (the recovery above sent this end on a fresh buffer, so its report would come and count what
++    * was never reset): this query's result is "lost" */
++   q->begin_lost = q->began && q->begin_cancel != NOUVEAU_CANCELLED(screen->base.device);
++   q->began = false;
+    nv30_query_object_release(screen, &q->qo[1]);   /* TIMESTAMP: ended again, never begun */
+-   q->qo[1] = nv30_query_object_new(screen, q);
++   q->qo[1] = nv30_query_object_new(nv30, q);
++   if (!q->qo[1])
++      q->result = nv30_query_lost_result(q);   /* no slot: nothing will be read */
+    if (q->qo[1]) {
+       q->qo[1]->cancel_seen = push->cancel_seen;
+       BEGIN_NV04(push, NV30_3D(QUERY_GET), 1);
+@@ -338,9 +409,12 @@ nv30_query_end(struct pipe_context *pipe, struct pipe_query *pq)
+    if (screen->query_wait_us >= 0)
+       nouveau_fence_ref(nv30->base.fence, &q->fence, &screen->base);
+    PUSH_KICK (push);
+-   /* no cancellation since the report was queued: the kick sent it, and it comes */
++   /* no cancellation since the report was queued: the kick sent it, and it comes. The same
++    * kick sent a TIME_ELAPSED begin queued before it, unless a cancellation came between. */
+    if (q->qo[1] && q->qo[1]->cancel_seen == NOUVEAU_CANCELLED(screen->base.device))
+       q->qo[1]->sent = true;
++   if (q->qo[0] && q->qo[0]->cancel_seen == NOUVEAU_CANCELLED(screen->base.device))
++      q->qo[0]->sent = true;
+    return true;
+ }
+ 
+@@ -392,7 +466,8 @@ nv30_query_read(struct nv30_screen *screen, struct nv30_query *q, bool wait)
+    if (ntfy1) {
+       bool lost;
+ 
+-      lost = (ntfy1[3] & 0xff000000) && nv30_query_object_lost(screen, q->qo[1]);
++      lost = q->begin_lost ||
++             ((ntfy1[3] & 0xff000000) && nv30_query_object_lost(screen, q->qo[1]));
+       if (!lost && (ntfy1[3] & 0xff000000)) {
+          if (!wait)
+             return false;
+@@ -404,12 +479,9 @@ nv30_query_read(struct nv30_screen *screen, struct nv30_query *q, bool wait)
+       if (!lost && q->type == PIPE_QUERY_TIME_ELAPSED)
+          lost = ntfy0 ? !nv30_query_object_wait(screen, q->qo[0], false) : q->start_lost;
+ 
+-      /* its report won't come: as after a GPU reset, samples passed (an occlusion-culled
+-       * object is drawn), no time went by */
++      /* its report won't come, or is not this query's */
+       if (lost)
+-         q->result = (q->type == PIPE_QUERY_OCCLUSION_COUNTER ||
+-                      q->type == PIPE_QUERY_OCCLUSION_PREDICATE ||
+-                      q->type == PIPE_QUERY_OCCLUSION_PREDICATE_CONSERVATIVE) ? 1 : 0;
++         q->result = nv30_query_lost_result(q);
+       else switch (q->type) {
+       case PIPE_QUERY_TIMESTAMP:
+          q->result = *(uint64_t *)&ntfy1[0];
+@@ -474,7 +546,7 @@ nv40_query_render_condition(struct pipe_context *pipe,
+ 
+    BEGIN_NV04(push, SUBC_3D(0x1e98), 1);
+    /* the report was taken back (or never made), or won't come: draw */
+-   if (!q->qo[1] || nv30_query_object_lost(nv30->screen, q->qo[1]))
++   if (!q->qo[1] || q->begin_lost || nv30_query_object_lost(nv30->screen, q->qo[1]))
+       PUSH_DATA (push, 0x01000000);
+    else
+       PUSH_DATA (push, 0x02000000 | (nv30_query_base(nv30->screen) + q->qo[1]->hw->start));

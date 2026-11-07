@@ -1,0 +1,46 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Sat, 7 Nov 2026 03:07:50 +0200
+Subject: nv30: the texture cache is invalidated before every draw off the PS3
+ (NV30_TEX_INVALIDATE_ALWAYS)
+
+0020 invalidates the texture cache only after something changed texture memory,
+because ps3rsx invalidates both caches whenever another channel ran. Nothing
+does that on other kernels, so there the driver keeps its invalidate before
+every draw: NV30_TEX_INVALIDATE_ALWAYS defaults to off on the PS3 and to on
+elsewhere, and still takes 0 or 1 either way.
+
+Forwarded: no
+
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_screen.c b/src/gallium/drivers/nouveau/nv30/nv30_screen.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_screen.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_screen.c
+@@ -560,7 +560,8 @@ nv30_screen_create(struct nouveau_device *dev)
+    screen->ps3_vbo_fifo = ps3 && debug_get_bool_option("NV30_PS3_VBO_FIFO", false);
+    screen->txb_hw = debug_get_bool_option("NV30_TXB_HW", !ps3);
+    screen->gart_textures = ps3 && debug_get_bool_option("NV30_GART_TEXTURES", true);
+-   screen->tex_invalidate_always = debug_get_bool_option("NV30_TEX_INVALIDATE_ALWAYS", false);
++   screen->tex_invalidate_always = debug_get_bool_option("NV30_TEX_INVALIDATE_ALWAYS",
++                                                          nv30_tex_invalidate_always_default(ps3));
+    /* placement measurements, PS3 only, off by default: where index buffers and fragment programs live */
+    screen->idx_gart = ps3 && debug_get_bool_option("NV30_PS3_IDX_GART", false);
+    screen->fp_gart = ps3 && debug_get_bool_option("NV30_PS3_FP_GART", false);
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_screen.h b/src/gallium/drivers/nouveau/nv30/nv30_screen.h
+--- a/src/gallium/drivers/nouveau/nv30/nv30_screen.h
++++ b/src/gallium/drivers/nouveau/nv30/nv30_screen.h
+@@ -21,6 +21,15 @@ struct nv30_shcache_count {
+    uint64_t hit_us, miss_us;
+ };
+ 
++/* NV30_TEX_INVALIDATE_ALWAYS: the texture cache is invalidated before every draw. Off on the PS3,
++ * where ps3rsx invalidates it whenever another channel ran (0020: only after a change of texture
++ * memory); on elsewhere, where nothing does that for the driver. */
++static inline bool
++nv30_tex_invalidate_always_default(bool ps3)
++{
++   return !ps3;
++}
++
+ /* NV30_QUERY_WAIT: -1 (and anything below) spins, 0 to 1000000 microseconds of spinning first */
+ static inline int
+ nv30_query_wait_option(int64_t v)

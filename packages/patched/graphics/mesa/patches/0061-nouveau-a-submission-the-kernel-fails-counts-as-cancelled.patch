@@ -1,0 +1,212 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Sat, 7 Nov 2026 02:53:46 +0200
+Subject: nouveau: a submission the kernel fails counts as cancelled
+
+The winsys counted only the submissions ps3rsx cancelled (-ECANCELED) in
+nouveau_device::cancelled. A push buffer the kernel failed another way (an
+-EINVAL or -ENOMEM from the pushbuf ioctl) did not get there either, but nothing
+said so: its queries' reports never came, and a wait for one (nv30's, which gave
+up on a lost report only on the PS3) ended nowhere. It now counts too, so its
+queued words are dropped, the driver sends its state again before it draws and
+the reports it held are taken as lost.
+
+The count is bumped and read atomically (NOUVEAU_CANCEL, NOUVEAU_CANCELLED):
+contexts of one screen submit from their own threads. nv30's query wait gives up
+on a report whose submission did not go on every machine; its one second
+deadline stays the PS3's.
+
+A submission whose fence could not be made (kick_notify fails) counts too: its words stay in the push
+buffer without their relocations, and the next kick drops them. The message and the dump of a failing
+pushbuf ioctl come at the 1st, 2nd, 4th... failure, as for -ECANCELED.
+
+Forwarded: no
+
+diff --git a/src/gallium/drivers/nouveau/nouveau_fence.c b/src/gallium/drivers/nouveau/nouveau_fence.c
+--- a/src/gallium/drivers/nouveau/nouveau_fence.c
++++ b/src/gallium/drivers/nouveau/nouveau_fence.c
+@@ -376,7 +376,7 @@ _nouveau_fence_wait(struct nouveau_fence *fence, struct util_debug_callback *deb
+       /* ps3rsx cancelled the submission it was in (nouveau_device::cancelled): it never
+        * lands. The next fence to land after it signals it: submit the context's current one
+        * and wait for that (the kick drops what was queued on the lost state, not the fence). */
+-      if (fence->state != NOUVEAU_FENCE_STATE_SIGNALLED && screen->device->cancelled &&
++      if (fence->state != NOUVEAU_FENCE_STATE_SIGNALLED && NOUVEAU_CANCELLED(screen->device) &&
+           fence->context && fence->context->fence && fence->context->fence != fence) {
+          struct nouveau_fence *next = NULL;
+ 
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_context.h b/src/gallium/drivers/nouveau/nv30/nv30_context.h
+--- a/src/gallium/drivers/nouveau/nv30/nv30_context.h
++++ b/src/gallium/drivers/nouveau/nv30/nv30_context.h
+@@ -269,7 +269,7 @@ nv30_state_lost(struct nv30_context *nv30);
+ static inline void
+ nv30_state_check_lost(struct nv30_context *nv30)
+ {
+-   if (unlikely(nv30->base.pushbuf->cancel_seen != nv30->screen->base.device->cancelled) &&
++   if (unlikely(nv30->base.pushbuf->cancel_seen != NOUVEAU_CANCELLED(nv30->screen->base.device)) &&
+        !nv30->in_validate)
+       nv30_state_lost(nv30);
+ }
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_query.c b/src/gallium/drivers/nouveau/nv30/nv30_query.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_query.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_query.c
+@@ -70,12 +70,13 @@ nv30_query_base(struct nv30_screen *screen)
+  * buffer still drops what it queues: nv30_state_lost()), and the kick that followed the query's
+  * end didn't get it through: its report may never come, and a wait for it would never end. Taken
+  * as lost while it isn't there; a later cancellation can take a report that was on its way (a
+- * TIME_ELAPSED begin, which no kick follows at once), which a GPU reset could too. Only ps3rsx
+- * cancels (nouveau_device::cancelled stays 0 elsewhere). */
++ * TIME_ELAPSED begin, which no kick follows at once), which a GPU reset could too. ps3rsx cancels,
++ * and the winsys counts a submission the kernel failed another way the same
++ * (nouveau_device::cancelled stays 0 on a machine where none failed). */
+ static bool
+ nv30_query_object_lost(struct nv30_screen *screen, struct nv30_query_object *qo)
+ {
+-   return qo->lost || (!qo->sent && qo->cancel_seen != screen->base.device->cancelled);
++   return qo->lost || (!qo->sent && qo->cancel_seen != NOUVEAU_CANCELLED(screen->base.device));
+ }
+ 
+ static volatile void *
+@@ -92,10 +93,11 @@ nv30_ntfy(struct nv30_screen *screen, struct nv30_query_object *qo)
+ }
+ 
+ /*
+- * Waits for a query object's report: true once it is in. On the PS3 the wait ends without it
+- * (false, and the object is lost for good) when it never comes: its submission was cancelled
+- * (nv30_query_object_lost()), or it isn't in NV30_QUERY_DEADLINE_NS after the wait began.
+- * Elsewhere it spins until the report lands, as before. YIELD: sched_yield() while waiting.
++ * Waits for a query object's report: true once it is in. The wait ends without it (false, and
++ * the object is lost for good) when it never comes: its submission was cancelled or failed
++ * (nv30_query_object_lost(), on every machine), or on the PS3 it isn't in NV30_QUERY_DEADLINE_NS
++ * after the wait began. Elsewhere it otherwise spins until the report lands, as before.
++ * YIELD: sched_yield() while waiting.
+  */
+ static bool
+ nv30_query_object_wait(struct nv30_screen *screen, struct nv30_query_object *qo, bool yield)
+@@ -104,13 +106,13 @@ nv30_query_object_wait(struct nv30_screen *screen, struct nv30_query_object *qo,
+    int64_t end = 0;
+ 
+    while (ntfy[3] & 0xff000000) {
++      if (nv30_query_object_lost(screen, qo))
++         return false;
+       if (screen->base.is_ps3) {
+-         int64_t now = os_time_get_nano();   /* a call: device->cancelled is read again */
++         int64_t now = os_time_get_nano();
+ 
+          if (!end)
+             end = now + NV30_QUERY_DEADLINE_NS;
+-         if (nv30_query_object_lost(screen, qo))
+-            return false;
+          if (now >= end) {
+             static bool warned;
+             if (!warned) {
+@@ -337,7 +339,7 @@ nv30_query_end(struct pipe_context *pipe, struct pipe_query *pq)
+       nouveau_fence_ref(nv30->base.fence, &q->fence, &screen->base);
+    PUSH_KICK (push);
+    /* no cancellation since the report was queued: the kick sent it, and it comes */
+-   if (q->qo[1] && q->qo[1]->cancel_seen == screen->base.device->cancelled)
++   if (q->qo[1] && q->qo[1]->cancel_seen == NOUVEAU_CANCELLED(screen->base.device))
+       q->qo[1]->sent = true;
+    return true;
+ }
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_state_validate.c b/src/gallium/drivers/nouveau/nv30/nv30_state_validate.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_state_validate.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_state_validate.c
+@@ -558,7 +558,7 @@ nv30_state_lost(struct nv30_context *nv30)
+ {
+    struct nv30_screen *screen = nv30->screen;
+    struct nouveau_pushbuf *push = nv30->base.pushbuf;
+-   uint32_t cancelled = screen->base.device->cancelled;
++   uint32_t cancelled = NOUVEAU_CANCELLED(screen->base.device);
+ 
+    if (PUSH_SPACE(push, 16))
+       PUSH_KICK(push);
+diff --git a/src/gallium/winsys/nouveau/drm/nouveau.c b/src/gallium/winsys/nouveau/drm/nouveau.c
+--- a/src/gallium/winsys/nouveau/drm/nouveau.c
++++ b/src/gallium/winsys/nouveau/drm/nouveau.c
+@@ -1167,7 +1167,7 @@ pushbuf_submit(struct nouveau_pushbuf *push, struct nouveau_object *chan)
+     * count on what that one was to set (a draw on its textures and programs, a copy on its
+     * DMA objects, the rest of a draw it began). They go nowhere; the fence kick_notify adds
+     * below still does, so what waits on it is not left waiting. The buffer list stays. */
+-   if (push->cancel_seen != dev->cancelled) {
++   if (push->cancel_seen != NOUVEAU_CANCELLED(dev)) {
+       for (struct nouveau_pushbuf_krec *k = nvpb->list; k; k = k->next) {
+          k->nr_push = 0;
+          k->nr_reloc = 0;
+@@ -1175,8 +1175,13 @@ pushbuf_submit(struct nouveau_pushbuf *push, struct nouveau_object *chan)
+       push->cur = nvpb->bgn;
+    }
+ 
+-   if (push->kick_notify && !push->kick_notify(push))
++   if (push->kick_notify && !push->kick_notify(push)) {
++      /* the fence could not be made (an allocation failed): the words stay in the push buffer,
++       * but pushbuf_flush lets go of their buffer list and relocations, so they must not go out
++       * at the next kick. Counted as a cancelled submission: that kick drops them. */
++      NOUVEAU_CANCEL(dev);
+       return -EINVAL;
++   }
+ 
+    nouveau_pushbuf_data(push, NULL, 0, 0);
+ 
+@@ -1207,14 +1212,20 @@ pushbuf_submit(struct nouveau_pushbuf *push, struct nouveau_object *chan)
+       if (ret == -ECANCELED) {
+          /* ps3rsx rejected a push of it and sent none: the driver re-sends its state before
+           * it draws again (nouveau_device::cancelled); the rest of this list goes nowhere */
+-         uint32_t n = ++dev->cancelled;
++         uint32_t n = NOUVEAU_CANCEL(dev);
+          if (!(n & (n - 1)))
+             err("ps3rsx cancelled a submission (%u so far): its state is sent again\n", n);
+          break;
+       }
+       if (ret) {
+-         err("kernel rejected pushbuf: %s\n", strerror(-ret));
+-         pushbuf_dump(dev, krec, krec_id++, channel);
++         /* it did not go either: as a cancelled one, so what waits on its reports (queries)
++          * ends, and the driver sends its state again before it draws. A channel that fails
++          * every submission says so at the 1st, 2nd, 4th, 8th... (as for -ECANCELED). */
++         uint32_t n = NOUVEAU_CANCEL(dev);
++         if (!(n & (n - 1))) {
++            err("kernel rejected pushbuf (%u so far): %s\n", n, strerror(-ret));
++            pushbuf_dump(dev, krec, krec_id++, channel);
++         }
+          break;
+       }
+ 
+@@ -1643,7 +1654,7 @@ nouveau_pushbuf_new(struct nouveau_client *client, struct nouveau_object *chan,
+    push = &nvpb->base;
+    push->client = client;
+    push->channel = chan;
+-   push->cancel_seen = client->device->cancelled;
++   push->cancel_seen = NOUVEAU_CANCELLED(client->device);
+    push->flags = NOUVEAU_BO_RD;
+    if (fifo->pushbuf & NOUVEAU_GEM_DOMAIN_GART) {
+       push->flags |= NOUVEAU_BO_GART;
+diff --git a/src/gallium/winsys/nouveau/drm/nouveau.h b/src/gallium/winsys/nouveau/drm/nouveau.h
+--- a/src/gallium/winsys/nouveau/drm/nouveau.h
++++ b/src/gallium/winsys/nouveau/drm/nouveau.h
+@@ -5,6 +5,7 @@
+ #include <stdint.h>
+ 
+ #include "util/list.h"
++#include "util/u_atomic.h"
+ 
+ #include "drm-uapi/nouveau_drm.h"
+ #include "nv_device_info.h"
+@@ -57,10 +58,17 @@ struct nouveau_device {
+ 
+    /* Submissions the kernel cancelled (ps3rsx's -ECANCELED: a push of it was rejected, so
+     * the GPU holds the state of the channel's last accepted submission, not what the
+-    * driver set since). Push buffers built before it changed are dropped at their kick. */
++    * driver set since). Push buffers built before it changed are dropped at their kick.
++    * A submission the kernel failed another way counts too: it was not sent either. Contexts
++    * of one screen submit from their own threads: read it with NOUVEAU_CANCELLED() (relaxed:
++    * a plain load on the PPE, read at every draw), bump it
++    * with NOUVEAU_CANCEL(). */
+    uint32_t cancelled;
+ };
+ 
++#define NOUVEAU_CANCELLED(dev) p_atomic_read_relaxed(&(dev)->cancelled)
++#define NOUVEAU_CANCEL(dev)    p_atomic_inc_return(&(dev)->cancelled)
++
+ struct nouveau_client {
+    struct nouveau_device *device;
+ };

@@ -1,0 +1,62 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Sat, 7 Nov 2026 03:05:40 +0200
+Subject: nv30: textures and render targets are addressed in VRAM off the PS3
+
+nv30_bo_domain (0055) names a buffer's domain from bo->flags, VRAM or else GART,
+for the PS3, where an imported or overflowed texture can be in GART. Elsewhere
+a buffer whose flags were not filled in yet, or one imported from system
+memory, was then addressed as GART in the texture, surface and clear state,
+where the stock driver says VRAM and lets the kernel's relocation place it.
+nouveau_device::ps3 (set by the screen, next to nouveau_screen::is_ps3) tells
+nv30_bo_domain which it is; on the PS3 the rule is the same.
+
+Forwarded: no
+
+diff --git a/src/gallium/drivers/nouveau/nouveau_screen.c b/src/gallium/drivers/nouveau/nouveau_screen.c
+--- a/src/gallium/drivers/nouveau/nouveau_screen.c
++++ b/src/gallium/drivers/nouveau/nouveau_screen.c
+@@ -335,6 +335,7 @@ nouveau_screen_init(struct nouveau_screen *screen, struct nouveau_device *dev)
+                     vendor == 0x104d &&
+                     !nouveau_getparam(dev, 0x1000 /* PS3_ABI */, &ps3_abi);
+    screen->ps3_abi = screen->is_ps3 ? ps3_abi : 0;
++   dev->ps3 = screen->is_ps3;
+    /* ps3rsx's PS3_RECOVER, asked before the channel is made: a submission with a push its
+     * validator rejects is then cancelled (-ECANCELED, nouveau_device::cancelled) and the driver
+     * sends its state again (nv30_state_lost()), instead of the channel being refused for good.
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_winsys.h b/src/gallium/drivers/nouveau/nv30/nv30_winsys.h
+--- a/src/gallium/drivers/nouveau/nv30/nv30_winsys.h
++++ b/src/gallium/drivers/nouveau/nv30/nv30_winsys.h
+@@ -21,12 +21,15 @@
+ #define NV40_3D_PRIM_RESTART_ENABLE 0x1dac
+ #define NV40_3D_PRIM_RESTART_INDEX  0x1db0
+ 
+-/* Where a texture's buffer is: VRAM, or GART for a PS3 texture that found no VRAM
+- * (nv30_miptree_create) or an imported buffer the kernel placed there. As PUSH_MTHDs decides. */
++/* Where a texture's buffer is: on the PS3, VRAM, or GART for a texture that found no VRAM
++ * (nv30_miptree_create) or an imported buffer the kernel placed there (as PUSH_MTHDs decides).
++ * Elsewhere always VRAM, as before 0055: a buffer whose flags were not filled in yet is not in
++ * GART for it. */
+ static inline uint32_t
+ nv30_bo_domain(struct nouveau_bo *bo)
+ {
+-   return (bo->flags & NOUVEAU_BO_VRAM) ? NOUVEAU_BO_VRAM : NOUVEAU_BO_GART;
++   return (bo->device && bo->device->ps3 && !(bo->flags & NOUVEAU_BO_VRAM)) ?
++          NOUVEAU_BO_GART : NOUVEAU_BO_VRAM;
+ }
+ 
+ static inline void
+diff --git a/src/gallium/winsys/nouveau/drm/nouveau.h b/src/gallium/winsys/nouveau/drm/nouveau.h
+--- a/src/gallium/winsys/nouveau/drm/nouveau.h
++++ b/src/gallium/winsys/nouveau/drm/nouveau.h
+@@ -64,6 +64,10 @@ struct nouveau_device {
+     * a plain load on the PPE, read at every draw), bump it
+     * with NOUVEAU_CANCEL(). */
+    uint32_t cancelled;
++
++   /* An RSX behind the ps3rsx kernel driver (nouveau_screen::is_ps3), set by the screen: the
++    * driver's PS3-only choices that only have a buffer to go by (nv30_bo_domain) read it here. */
++   bool ps3;
+ };
+ 
+ #define NOUVEAU_CANCELLED(dev) p_atomic_read_relaxed(&(dev)->cancelled)

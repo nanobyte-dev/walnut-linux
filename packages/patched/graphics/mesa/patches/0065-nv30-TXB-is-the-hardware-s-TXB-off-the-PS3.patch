@@ -1,0 +1,90 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Sat, 7 Nov 2026 03:07:17 +0200
+Subject: nv30: TXB is the hardware's TXB off the PS3 (NV30_TXB_HW)
+
+0045 turned fragment program TXB (texture2D with a bias) into a plain TEX for
+every NV3x and NV4x, because the RSX's TXB samples wrong. On other hardware the
+hardware's TXB is right and the bias is part of the shader. NV30_TXB_HW now
+defaults to off on the PS3 only and on elsewhere; the switch still sets it
+either way. The setting is read once per screen and part of the disk shader
+cache's key as before (the PS3's key does not change: it was 0 and still is).
+
+Forwarded: no
+
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_screen.c b/src/gallium/drivers/nouveau/nv30/nv30_screen.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_screen.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_screen.c
+@@ -558,6 +558,7 @@ nv30_screen_create(struct nouveau_device *dev)
+     */
+    const bool ps3 = screen->base.is_ps3;
+    screen->ps3_vbo_fifo = ps3 && debug_get_bool_option("NV30_PS3_VBO_FIFO", false);
++   screen->txb_hw = debug_get_bool_option("NV30_TXB_HW", !ps3);
+    screen->gart_textures = ps3 && debug_get_bool_option("NV30_GART_TEXTURES", true);
+    screen->tex_invalidate_always = debug_get_bool_option("NV30_TEX_INVALIDATE_ALWAYS", false);
+    /* placement measurements, PS3 only, off by default: where index buffers and fragment programs live */
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_screen.h b/src/gallium/drivers/nouveau/nv30/nv30_screen.h
+--- a/src/gallium/drivers/nouveau/nv30/nv30_screen.h
++++ b/src/gallium/drivers/nouveau/nv30/nv30_screen.h
+@@ -33,6 +33,8 @@ struct nv30_screen {
+ 
+    struct nv30_context *cur_ctx;
+ 
++   bool txb_hw; /* NV30_TXB_HW: fragment program TXB (texture2D with a bias) as the hardware's TXB. The
++                 * RSX's samples wrong (0045): off on the PS3, on elsewhere, as the stock driver */
+    bool ps3_vbo_fifo; /* PS3: push vertices inline instead of fetching (NV30_PS3_VBO_FIFO) */
+ 
+    /* PS3: a texture that finds no room in the CPU-visible VRAM goes to GART instead of
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_shader_cache.c b/src/gallium/drivers/nouveau/nv30/nv30_shader_cache.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_shader_cache.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_shader_cache.c
+@@ -249,6 +249,7 @@ nv30_shader_cache_fp_translate(struct nv30_context *nv30, struct nv30_fragprog *
+    uint32_t fixed[4], save[4];
+    cache_key key;
+ 
++   fp->txb_hw = screen->txb_hw;
+    /* only a program never translated (a failed translation leaves a partial one behind) */
+    if (!dc || fp->insn_len || fp->nr_consts) {
+       _nvfx_fragprog_translate(oclass, fp);
+@@ -257,7 +258,7 @@ nv30_shader_cache_fp_translate(struct nv30_context *nv30, struct nv30_fragprog *
+    }
+    fixed[0] = oclass;
+    fixed[1] = oclass >= NV40_3D_CLASS && debug_get_bool_option("NV40_FP_EXPORT32", true);
+-   fixed[2] = debug_get_bool_option("NV30_TXB_HW", false);
++   fixed[2] = fp->txb_hw;
+    fixed[3] = 0;
+    key_of(dc, SHC_FP, fixed, 4, fp->pipe.tokens,
+           tgsi_num_tokens(fp->pipe.tokens) * sizeof(struct tgsi_token), key);
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_state.h b/src/gallium/drivers/nouveau/nv30/nv30_state.h
+--- a/src/gallium/drivers/nouveau/nv30/nv30_state.h
++++ b/src/gallium/drivers/nouveau/nv30/nv30_state.h
+@@ -114,6 +114,8 @@ struct nv30_fragprog {
+    struct draw_fragment_shader *draw;
+    bool translated;
+ 
++   bool txb_hw;   /* nv30_screen::txb_hw when it was translated: TXB as the hardware's TXB */
++
+    uint32_t *insn;
+    unsigned insn_len;
+ 
+diff --git a/src/gallium/drivers/nouveau/nv30/nvfx_fragprog.c b/src/gallium/drivers/nouveau/nv30/nvfx_fragprog.c
+--- a/src/gallium/drivers/nouveau/nv30/nvfx_fragprog.c
++++ b/src/gallium/drivers/nouveau/nv30/nvfx_fragprog.c
+@@ -754,7 +754,7 @@ nvfx_fragprog_parse_instruction(struct nvfx_fpc *fpc,
+         case TGSI_OPCODE_TXB:
+                 /* The RSX's TXB samples wrong whatever the bias in .w (-20 or 0): Warzone 2100's
+                  * 3D shaders, all texture2D(s, uv, bias), came out dark and flat while the same
+-                 * lookups as TEX were right. Without NV30_TXB_HW=1 the bias is dropped and the
++                 * lookups as TEX were right. On the PS3 (nv30_screen::txb_hw off) the bias is dropped and the
+                  * lookup is a plain TEX: exact for bias 0, the level the hardware picks otherwise. */
+                 if (fpc->txb_hw)
+                         nvfx_fp_emit(fpc, tex(sat, TXB, unit, dst, mask, src[0], none, none));
+@@ -1098,7 +1098,7 @@ _nvfx_fragprog_translate(uint16_t oclass, struct nv30_fragprog *fp)
+    fpc->export32 = fpc->is_nv4x && debug_get_bool_option("NV40_FP_EXPORT32", true);
+    if (fpc->export32)
+       fp->fp_control |= 0x00000040;
+-   fpc->txb_hw = debug_get_bool_option("NV30_TXB_HW", false);
++   fpc->txb_hw = fp->txb_hw;
+    fpc->max_temps = fpc->is_nv4x ? 48 : 32;
+    fpc->fp = fp;
+    fpc->num_regs = 2;

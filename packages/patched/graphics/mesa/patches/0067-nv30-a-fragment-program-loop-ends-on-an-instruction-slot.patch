@@ -1,0 +1,30 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Sat, 7 Nov 2026 03:08:00 +0200
+Subject: nv30: a fragment program loop ends on an instruction slot
+
+nv40_fp_rep_end set the REP instruction's end offset to the last instruction's
+offset + 4. That is the slot after the loop only while the last instruction has
+no constant of its own; with one, its 16-byte constant follows it in the
+program, and the offset named that data slot. The end is now the program's
+length so far, the next instruction slot (the appended NOP and END when the loop
+is the last thing in the program). Programs whose loops end on an instruction
+without a constant are unchanged.
+
+Forwarded: no
+
+diff --git a/src/gallium/drivers/nouveau/nv30/nvfx_fragprog.c b/src/gallium/drivers/nouveau/nv30/nvfx_fragprog.c
+--- a/src/gallium/drivers/nouveau/nv30/nvfx_fragprog.c
++++ b/src/gallium/drivers/nouveau/nv30/nvfx_fragprog.c
+@@ -330,7 +330,10 @@ nv40_fp_rep_end(struct nvfx_fpc *fpc)
+ {
+    unsigned rep = util_dynarray_pop(&fpc->loop_stack, unsigned);
+    uint32_t *hw = &fpc->fp->insn[rep];
+-   hw[3] = fpc->inst_offset + 4;
++   /* the loop ends at the next instruction slot. The last instruction's offset + 4 is that slot
++    * only while it has no constant of its own: with one, it is the constant's slot, which is
++    * data and not somewhere the program can continue (the RSX's driver refuses such a loop) */
++   hw[3] = fpc->fp->insn_len;
+ }
+ 
+ #if 0

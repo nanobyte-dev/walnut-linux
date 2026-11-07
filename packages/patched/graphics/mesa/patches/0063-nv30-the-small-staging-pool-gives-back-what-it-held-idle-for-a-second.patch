@@ -1,0 +1,171 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Sat, 7 Nov 2026 03:02:08 +0200
+Subject: nv30: the small staging pool gives back what it held idle for a
+ second, NV30_QUERY_WAIT is clamped
+
+The pool of small staging buffers (NV30_STAGING_POOL_MB, off by default) gave a
+buffer back only when it was full; the pool of big ones gives back what was
+idle for a second, at the next put and at every flush. The small one now does
+too: its entries carry the time they went in, and the same ageing runs at both
+places.
+
+NV30_QUERY_WAIT was clamped on its upper side only; a very negative value
+went through as a (truncated) int. It is clamped on both: -1 spins, 0 to
+1000000 microseconds spin first.
+
+Forwarded: no
+
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_miptree.c b/src/gallium/drivers/nouveau/nv30/nv30_miptree.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_miptree.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_miptree.c
+@@ -434,6 +434,24 @@ nv30_staging_free(void *data)
+    nouveau_bo_ref(NULL, &bo);
+ }
+ 
++/* Takes the entries idle for longer than NV30_STAGING_BIG_IDLE_US out of the small pool (under
++ * staging_lock); the caller frees what it got in out[] outside the lock */
++static unsigned
++nv30_staging_small_age(struct nv30_screen *screen, int64_t now, struct nouveau_bo **out)
++{
++   unsigned n = nv30_staging_aged(screen->staging_pool, screen->staging_count, now,
++                                  NV30_STAGING_BIG_IDLE_US), i;
++
++   for (i = 0; i < n; i++) {
++      out[i] = screen->staging_pool[i].bo;
++      screen->staging_bytes -= out[i]->size;
++   }
++   memmove(&screen->staging_pool[0], &screen->staging_pool[n],
++           (screen->staging_count - n) * sizeof(screen->staging_pool[0]));
++   screen->staging_count -= n;
++   return n;
++}
++
+ /* fence work: the copy out of the buffer is done (runs with or without the fence lock held) */
+ static void
+ nv30_staging_pool_put(void *data)
+@@ -442,11 +460,13 @@ nv30_staging_pool_put(void *data)
+    struct nv30_screen *screen = r->screen;
+    struct nouveau_bo *bo = r->bo, *evict[ARRAY_SIZE(screen->staging_pool)];
+    unsigned size = r->size, n = 0, i;
++   int64_t now = os_time_get();
+ 
+    nv30_staging_done(r);
+    FREE(r);
+    simple_mtx_lock(&screen->staging_lock);
+    if (!screen->staging_closed) {
++      n = nv30_staging_small_age(screen, now, evict);
+       while (screen->staging_count &&
+              (screen->staging_count >= screen->staging_max ||
+               screen->staging_bytes + bo->size > NV30_STAGING_POOL_MAX_BYTES)) {
+@@ -456,7 +476,8 @@ nv30_staging_pool_put(void *data)
+                  --screen->staging_count * sizeof(screen->staging_pool[0]));
+       }
+       screen->staging_pool[screen->staging_count].bo = bo;
+-      screen->staging_pool[screen->staging_count++].size = size;
++      screen->staging_pool[screen->staging_count].size = size;
++      screen->staging_pool[screen->staging_count++].put_us = now;
+       screen->staging_bytes += bo->size;
+       bo = NULL;
+    }
+@@ -551,17 +572,19 @@ nv30_staging_big_put(void *data)
+ void
+ nv30_staging_big_age(struct nv30_screen *screen)
+ {
+-   struct nouveau_bo *evict[NV30_STAGING_BIG_ENTRIES];
++   struct nouveau_bo *evict[NV30_STAGING_BIG_ENTRIES + ARRAY_SIZE(screen->staging_pool)];
+    unsigned n, i;
+ 
+    /* unlocked peek: a stale count only delays the ageing to the next flush */
+-   if (!screen->staging_big_max || !p_atomic_read(&screen->staging_big_count))
++   if (!screen->staging_big_max ||
++       (!p_atomic_read(&screen->staging_big_count) && !p_atomic_read(&screen->staging_count)))
+       return;
+    simple_mtx_lock(&screen->staging_lock);
+    n = nv30_staging_big_evict(screen->staging_big, screen->staging_big_count,
+                               screen->staging_big_bytes, 0, screen->staging_big_max,
+                               os_time_get(), NV30_STAGING_BIG_IDLE_US);
+    nv30_staging_big_take(screen, n, evict);
++   n += nv30_staging_small_age(screen, os_time_get(), &evict[n]);
+    simple_mtx_unlock(&screen->staging_lock);
+    for (i = 0; i < n; i++)
+       nouveau_bo_ref(NULL, &evict[i]);
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_screen.c b/src/gallium/drivers/nouveau/nv30/nv30_screen.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_screen.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_screen.c
+@@ -430,8 +430,10 @@ nv30_screen_destroy(struct pipe_screen *pscreen)
+    /* NV30_STAGING_POOL_MB: the contexts are gone, their last uploads' buffers returned */
+    simple_mtx_lock(&screen->staging_lock);
+    screen->staging_closed = true;
+-   while (screen->staging_count)
+-      nouveau_bo_ref(NULL, &screen->staging_pool[--screen->staging_count].bo);
++   while (screen->staging_count) {
++      struct nouveau_bo *bo = screen->staging_pool[--screen->staging_count].bo;
++      nouveau_bo_ref(NULL, &bo);
++   }
+    while (screen->staging_big_count) {
+       struct nouveau_bo *bo = screen->staging_big[--screen->staging_big_count].bo;
+       nouveau_bo_ref(NULL, &bo);
+@@ -576,7 +578,7 @@ nv30_screen_create(struct nouveau_device *dev)
+     * microseconds (at low SMT priority), then waited for in the kernel on the fence of the
+     * submission that ended the query; unset or negative: spin until it lands, as before.
+     */
+-   screen->query_wait_us = MIN2(debug_get_num_option("NV30_QUERY_WAIT", -1), 1000000);
++   screen->query_wait_us = nv30_query_wait_option(debug_get_num_option("NV30_QUERY_WAIT", -1));
+    /* NV30_VTX_SNORM8=1: GL_BYTE normalized attributes are fetched as unsigned bytes and
+     * normalized by four instructions at the start of the vertex program, instead of u_vbuf
+     * converting them to floats on the CPU at every draw (18% of Sauerbraten's CPU with 0033's
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_screen.h b/src/gallium/drivers/nouveau/nv30/nv30_screen.h
+--- a/src/gallium/drivers/nouveau/nv30/nv30_screen.h
++++ b/src/gallium/drivers/nouveau/nv30/nv30_screen.h
+@@ -21,6 +21,13 @@ struct nv30_shcache_count {
+    uint64_t hit_us, miss_us;
+ };
+ 
++/* NV30_QUERY_WAIT: -1 (and anything below) spins, 0 to 1000000 microseconds of spinning first */
++static inline int
++nv30_query_wait_option(int64_t v)
++{
++   return v < -1 ? -1 : v > 1000000 ? 1000000 : (int)v;
++}
++
+ struct nv30_screen {
+    struct nouveau_screen base;
+ 
+@@ -73,10 +80,10 @@ struct nv30_screen {
+     * already mapped, kept for the next uploads of the same size class (nv30_miptree.c);
+     * staging_max 0: off */
+    simple_mtx_t staging_lock;
+-   struct {
+-      struct nouveau_bo *bo;
+-      unsigned size;               /* the size class asked for (the kernel may round bo->size) */
+-   } staging_pool[32];
++   struct nv30_staging_entry staging_pool[32];   /* bo: a struct nouveau_bo *; size: the class asked
++                                                  * for (the kernel may round bo->size); put_us: when
++                                                  * it went in (idle ones are given back, as the big
++                                                  * pool's) */
+    unsigned staging_count;
+    unsigned staging_max;
+    unsigned staging_bytes;
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_staging_policy.h b/src/gallium/drivers/nouveau/nv30/nv30_staging_policy.h
+--- a/src/gallium/drivers/nouveau/nv30/nv30_staging_policy.h
++++ b/src/gallium/drivers/nouveau/nv30/nv30_staging_policy.h
+@@ -65,6 +65,18 @@ nv30_staging_big_evict(const struct nv30_staging_entry *e, unsigned n, uint64_t
+    return k;
+ }
+ 
++/* How many of the oldest entries have been idle for longer than idle_us (the small pool's ageing;
++ * the big pool's nv30_staging_big_evict() does the same and more) */
++static inline unsigned
++nv30_staging_aged(const struct nv30_staging_entry *e, unsigned n, int64_t now, int64_t idle_us)
++{
++   unsigned k = 0;
++
++   while (k < n && now - e[k].put_us > idle_us)
++      k++;
++   return k;
++}
++
+ /* Whether a buffer of class cls may go into the pool at all */
+ static inline bool
+ nv30_staging_big_fits(unsigned cls, uint64_t max)
