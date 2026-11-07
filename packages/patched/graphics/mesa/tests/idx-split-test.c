@@ -147,8 +147,9 @@ static void piece(void *ctx, unsigned start, unsigned count)
 		p->bad_len++;
 	/* bound at the 256-byte step at or below it, as nv30_draw_elements binds it: the kernel's
 	 * copy starts (pos % 256) bytes before the piece */
-	if ((pos & 255) + (uint64_t)count * p->isz > NV30_PS3_IDX_BINDING_MAX)
-		p->bad_bytes++;
+	if ((pos & 255) + (uint64_t)count * p->isz > NV30_PS3_IDX_BINDING_MAX ||
+	    nv30_idx_copy_bytes(pos & 255, count, p->isz) > NV30_PS3_IDX_SUBMIT_BYTES)
+		p->bad_bytes++;	/* (and alone in a submission, its copy within the file's share) */
 	if (start > p->next)	/* a gap: indices no piece draws */
 		p->bad_order++;
 	p->next = start + count;
