@@ -24,14 +24,24 @@ static int fails, checks;
 	printf(__VA_ARGS__); printf("\n"); } } while (0)
 
 /* --- the fake device ---------------------------------------------------------------------- */
-static int gpu_busy, fence_waits, copies, kicks;
-int nouveau_pushbuf_kick(struct nouveau_pushbuf *push) { (void)push; kicks++; return 0; }
+static int gpu_busy, fence_waits, copies, kicks, gart_fail, idle_waits, cancel_kick;
+static struct nouveau_device dev;
+/* a kick: counted; with cancel_kick, the kernel cancels the submission (0061 counts it) */
+int nouveau_pushbuf_kick(struct nouveau_pushbuf *push) { (void)push; kicks++; if (cancel_kick) dev.cancelled++; return 0; }
+int nouveau_pushbuf_space(struct nouveau_pushbuf *push, uint32_t dwords, uint32_t relocs, uint32_t pushes)
+{ (void)push; (void)dwords; (void)relocs; (void)pushes; return 0; }
+int64_t os_time_get_nano(void) { return 0; }
 static struct nouveau_fence the_fence;
 
 int nouveau_bo_new(struct nouveau_device *dev, uint32_t flags, uint32_t align, uint64_t size,
 		   union nouveau_bo_config *config, struct nouveau_bo **pbo)
 {
 	(void)dev; (void)align; (void)config;
+	if ((flags & NOUVEAU_BO_GART) && gart_fail > 0) {	/* GART full, the next gart_fail times */
+		gart_fail--;
+		*pbo = NULL;
+		return -ENOMEM;
+	}
 	struct nouveau_bo *bo = calloc(1, sizeof(*bo));
 	bo->size = size;
 	bo->flags = flags;
@@ -55,7 +65,7 @@ int nouveau_bo_wait(struct nouveau_bo *bo, uint32_t access, struct nouveau_clien
 void nouveau_fence_ref(struct nouveau_fence *f, struct nouveau_fence **r, struct nouveau_screen *s) { (void)s; *r = f; }
 bool nouveau_fence_signalled(struct nouveau_fence *f) { (void)f; return !gpu_busy; }
 bool nouveau_fence_wait(struct nouveau_fence *f, struct util_debug_callback *d) { (void)f; (void)d; fence_waits++; gpu_busy = 0; return true; }
-bool nouveau_fence_wait_idle(struct nouveau_context *nv) { (void)nv; gpu_busy = 0; return true; }
+bool nouveau_fence_wait_idle(struct nouveau_context *nv) { (void)nv; gpu_busy = 0; idle_waits++; return true; }
 bool nouveau_fence_work(struct nouveau_fence *f, void (*func)(void *), void *data) { (void)f; func(data); return true; }
 void nouveau_fence_unref_bo(void *data) { struct nouveau_bo *bo = data; nouveau_bo_ref(NULL, &bo); }
 int nouveau_mesa_debug;
@@ -97,7 +107,6 @@ static void push_data(struct nouveau_context *nv, struct nouveau_bo *bo, unsigne
 { (void)nv; (void)bo; (void)off; (void)dom; (void)size; (void)data; copies++; }
 
 static struct nv30_screen screen;
-static struct nouveau_device dev;
 static struct nouveau_context ctx;
 
 static struct pipe_resource *mk(unsigned bind, unsigned usage, unsigned size)
@@ -186,6 +195,7 @@ int main(int argc, char **argv)
 			memset(&nv, 0, sizeof(nv));
 			nv.base = ctx;
 			nv.base.pushbuf = &push;
+			nv.screen = &screen;
 			ppriv.screen = &screen.base;
 			r = mk(binds[i], PIPE_USAGE_DEFAULT, 4096);
 			b = nv04_resource(r);
@@ -202,11 +212,149 @@ int main(int argc, char **argv)
 			CHECK(nv30_idxbuf_to_gart(&nv, b) && copies == 0 && kicks == 0,
 			      "migrate: a GART buffer copied again (%d copies, %d kicks)", copies, kicks);
 		}
+#ifdef NV30_HAVE_IDX_MOVE2
+		/* 0071: the state after a GPU move: the whole range valid, the copy's submission as the
+		 * fences, GPU-writing; a CPU write right after it waits for the copy */
+		{
+			struct pipe_transfer *t = NULL;
+			struct pipe_box box = { .x = 0, .width = 64, .height = 1, .depth = 1 };
+
+			setup(true, true, false);
+			memset(&nv, 0, sizeof(nv));
+			nv.base = ctx;
+			nv.base.pushbuf = &push;
+			nv.base.fence = &the_fence;
+			nv.screen = &screen;
+			ppriv.screen = &screen.base;
+			b = nv04_resource(mk(PIPE_BIND_VERTEX_BUFFER, PIPE_USAGE_DEFAULT, 4096));
+			util_range_add(&b->base, &b->valid_buffer_range, 0, 1024);	/* part written */
+			CHECK(nv30_idxbuf_to_gart(&nv, b), "move: not moved");
+			CHECK(b->valid_buffer_range.start == 0 && b->valid_buffer_range.end == 4096,
+			      "move: valid range [%u, %u) after the GPU copy, want all of it",
+			      b->valid_buffer_range.start, b->valid_buffer_range.end);
+			CHECK(b->fence == &the_fence && b->fence_wr == &the_fence &&
+			      (b->status & NOUVEAU_BUFFER_STATUS_GPU_WRITING),
+			      "move: no write fence or GPU_WRITING after the GPU copy");
+			gpu_busy = 1;
+			fence_waits = 0;
+			ctx.pipe.screen = &screen.base.base;
+			CHECK(nouveau_buffer_transfer_map(&nv.base.pipe, &b->base, 0, PIPE_MAP_WRITE, &box, &t) &&
+			      fence_waits == 1, "move: a write right after the GPU copy didn't wait (%d waits)", fence_waits);
+			if (t)
+				nouveau_buffer_transfer_unmap(&nv.base.pipe, t);
+			gpu_busy = 0;
+		}
+		/* 0071: a current system memory copy: the CPU fills GART, no GPU copy, no kick, the copy freed */
+		{
+			uint8_t pat[4096];
+
+			setup(true, true, false);
+			memset(&nv, 0, sizeof(nv));
+			nv.base = ctx;
+			nv.base.pushbuf = &push;
+			nv.screen = &screen;
+			ppriv.screen = &screen.base;
+			b = nv04_resource(mk(PIPE_BIND_VERTEX_BUFFER, PIPE_USAGE_DEFAULT, 4096));
+			for (unsigned k = 0; k < 4096; k++)
+				pat[k] = (uint8_t)(k * 7 + 1);
+			b->data = align_malloc(4096, 64);
+			memcpy(b->data, pat, 4096);
+			util_range_add(&b->base, &b->valid_buffer_range, 0, 4096);
+			copies = kicks = 0;
+			CHECK(nv30_idxbuf_to_gart(&nv, b) && b->domain == NOUVEAU_BO_GART && b->cpu_only,
+			      "move by the CPU: not moved");
+			CHECK(copies == 0 && kicks == 0, "move by the CPU: %d GPU copies, %d kicks, want none", copies, kicks);
+			CHECK(!memcmp((uint8_t *)b->bo->map + b->offset, pat, 4096), "move by the CPU: GART isn't the copy");
+			CHECK(!b->data && !b->fence_wr && !(b->status & NOUVEAU_BUFFER_STATUS_GPU_WRITING),
+			      "move by the CPU: the system memory copy kept or the buffer still GPU-written");
+			CHECK(b->valid_buffer_range.end == 4096, "move by the CPU: the valid range lost");
+			CHECK(screen.idx_moves_cpu == 1, "move by the CPU: not counted");
+			/* a stale copy (GPU_WRITING): the GPU copies, the stale copy is freed */
+			b = nv04_resource(mk(PIPE_BIND_VERTEX_BUFFER, PIPE_USAGE_DEFAULT, 4096));
+			b->data = align_malloc(4096, 64);
+			b->status |= NOUVEAU_BUFFER_STATUS_GPU_WRITING;
+			copies = kicks = 0;
+			CHECK(nv30_idxbuf_to_gart(&nv, b) && copies == 1 && kicks == 1 && !b->data,
+			      "move with a stale copy: %d copies, %d kicks, copy %s", copies, kicks, b->data ? "kept" : "freed");
+		}
+		/* 0071: a GART buffer that isn't cpu_only becomes cpu_only; a GPU write into it queued in this
+		 * submission is kicked first, an earlier one not */
+		{
+			setup(true, true, false);
+			memset(&nv, 0, sizeof(nv));
+			nv.base = ctx;
+			nv.base.pushbuf = &push;
+			nv.base.fence = &the_fence;
+			nv.screen = &screen;
+			ppriv.screen = &screen.base;
+			b = nv04_resource(mk(PIPE_BIND_VERTEX_BUFFER, PIPE_USAGE_STREAM, 4096));
+			CHECK(b->domain == NOUVEAU_BO_GART && !b->cpu_only, "stream: not a plain GART buffer");
+			kicks = 0;
+			CHECK(nv30_idxbuf_to_gart(&nv, b) && b->cpu_only && kicks == 0,
+			      "stream: not cpu_only or kicked with nothing queued (%d kicks)", kicks);
+			b->fence_wr = &the_fence;	/* a staging copy or CopyBufferSubData into it, queued */
+			CHECK(nv30_idxbuf_to_gart(&nv, b) && kicks == 1, "stream: a queued GPU write not kicked (%d kicks)", kicks);
+			{
+				static struct nouveau_fence older;
+
+				b->fence_wr = &older;	/* submitted already: the kernel waits for it */
+				CHECK(nv30_idxbuf_to_gart(&nv, b) && kicks == 1, "stream: an earlier GPU write kicked again");
+			}
+		}
+		/* 0071: GART full: one wait for the GPU, then again; still full: not moved (the draw dropped) */
+		{
+			setup(true, true, false);
+			memset(&nv, 0, sizeof(nv));
+			nv.base = ctx;
+			nv.base.pushbuf = &push;
+			nv.screen = &screen;
+			ppriv.screen = &screen.base;
+			b = nv04_resource(mk(PIPE_BIND_VERTEX_BUFFER, PIPE_USAGE_DEFAULT, 8u << 20));	/* its own BO */
+			gart_fail = 1;
+			idle_waits = 0;
+			CHECK(nv30_idxbuf_to_gart(&nv, b) && idle_waits == 1 && b->domain == NOUVEAU_BO_GART,
+			      "GART full once: not moved after a wait (%d waits)", idle_waits);
+			b = nv04_resource(mk(PIPE_BIND_VERTEX_BUFFER, PIPE_USAGE_DEFAULT, 8u << 20));
+			gart_fail = 2;
+			idle_waits = 0;
+			CHECK(!nv30_idxbuf_to_gart(&nv, b) && idle_waits == 1 && b->domain == NOUVEAU_BO_VRAM,
+			      "GART full: moved anyway or waited %d times", idle_waits);
+			gart_fail = 0;
+		}
+		/* 0071: the copy's submission cancelled: the buffer keeps its VRAM storage */
+		{
+			struct nouveau_bo *old;
+
+			setup(true, true, false);
+			memset(&nv, 0, sizeof(nv));
+			nv.base = ctx;
+			nv.base.pushbuf = &push;
+			nv.screen = &screen;
+			ppriv.screen = &screen.base;
+			b = nv04_resource(mk(PIPE_BIND_VERTEX_BUFFER, PIPE_USAGE_DEFAULT, 4096));
+			old = b->bo;
+			cancel_kick = 1;
+			CHECK(!nv30_idxbuf_to_gart(&nv, b) && b->domain == NOUVEAU_BO_VRAM && b->bo == old && !b->cpu_only,
+			      "a lost copy: the buffer moved to GART (%s)", dom(&b->base));
+			cancel_kick = 0;
+			CHECK(nv30_idxbuf_to_gart(&nv, b) && b->domain == NOUVEAU_BO_GART, "a lost copy: not moved the next time");
+		}
+		/* 0071: a shared buffer stays (another process may hold its VRAM address) */
+		setup(true, true, false);
+		memset(&nv, 0, sizeof(nv));
+		nv.base = ctx;
+		nv.base.pushbuf = &push;
+		nv.screen = &screen;
+		ppriv.screen = &screen.base;
+		b = nv04_resource(mk(PIPE_BIND_VERTEX_BUFFER | PIPE_BIND_SHARED, PIPE_USAGE_DEFAULT, 4096));
+		CHECK(!nv30_idxbuf_to_gart(&nv, b) && b->domain == NOUVEAU_BO_VRAM, "a shared buffer moved");
+#endif
 		/* an index buffer made in GART (0059): nothing to do */
 		setup(true, true, false);
 		memset(&nv, 0, sizeof(nv));
 		nv.base = ctx;
 		nv.base.pushbuf = &push;
+		nv.screen = &screen;
 		ppriv.screen = &screen.base;
 		b = nv04_resource(mk(PIPE_BIND_INDEX_BUFFER, PIPE_USAGE_DEFAULT, 4096));
 		copies = kicks = 0;

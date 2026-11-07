@@ -41,8 +41,12 @@
 #                  only the index buffers' and the fragment program's domains differ); default (0069, 0070): both
 #                  on by default on the PS3 only; migrate (0070): an index buffer found in VRAM moves to GART with
 #                  one GPU copy kicked on its own, cpu_only, the arrays validated again; blit (0069): every move of a
-#                  program to VRAM is under !fp_gart; fix-off: nv30_resource.c without the kick, without cpu_only,
-#                  and the defaults as before, each must fail
+#                  program to VRAM is under !fp_gart; wiring (0070, 0071): the draw hook, both screen defaults and
+#                  both swtnl maps as they must be; migrate (0071): the state after a GPU move (all valid, fenced,
+#                  GPU-writing, a CPU write waits), the CPU fill from a current copy (no GPU copy, no kick, the copy
+#                  freed), stream/no-bind GART buffers made cpu_only with a queued GPU write kicked, GART full (one
+#                  wait, then the draw dropped), a lost copy (VRAM kept), a shared buffer kept; fix-off: each of those
+#                  rules off in nv30_resource.c, the defaults as before, each call site taken out: each must fail
 #   fb-window      0060: nv30_validate_fb's small-surface hack (a 2x2 drawn as a 16x2 block from window origin x)
 #                  clips to the block (state); the stream of four targets against the file before 0060: only
 #                  the two hacks' clip words differ (golden)
@@ -57,7 +61,7 @@ t=${MESA_TESTS:-packages/patched/graphics/mesa/tests}
 S=${1:-}; shift || true
 declare -A PARTS=([forcedxt]="" [staging-pool]="" [vtx-snorm8]="unpack vpsim" [minmax-vmx]="host ppc64"
 	[query-steal]="" [query-lost]="end steal destroy elapsed failed deadline deadline-edge begin-sent two-ctx own-begin stale no-slot disowned wait-option late x86 fix-off" [alloc-fail]="upload mm-fallback mm-nomem fence fence-cancel pushbuf-flush pushbuf-destroy fix-off"
-	[transfer-cpu]="fix-off" [blit-state]="state golden" [placement]="state golden default migrate blit fix-off" [fb-window]="state golden" [point-smooth]="" [submit-fail]="ecanceled failed notify ratelimit ok threads fix-off" [bo-domain]="state fix-off" [fragprog]="txb rep end golden fix-off")
+	[transfer-cpu]="fix-off" [blit-state]="state golden" [placement]="state golden default migrate blit wiring fix-off" [fb-window]="state golden" [point-smooth]="" [submit-fail]="ecanceled failed notify ratelimit ok threads fix-off" [bo-domain]="state fix-off" [fragprog]="txb rep end golden fix-off")
 if [ "$S" = --list ]; then
 	for s in forcedxt staging-pool vtx-snorm8 minmax-vmx query-steal query-lost alloc-fail transfer-cpu blit-state placement fb-window point-smooth submit-fail bo-domain fragprog; do
 		echo "$s ${PARTS[$s]}"; done
@@ -316,6 +320,7 @@ placement)
 	gen || exit 1
 	PD=; grep -q nv30_ps3_fp_gart_default $M/src/gallium/drivers/nouveau/nv30/nv30_screen.h && PD=-DNV30_HAVE_GART_DEFAULT	# 0069
 	grep -q nv30_idxbuf_to_gart $M/src/gallium/drivers/nouveau/nv30/nv30_resource.c && PD="$PD -DNV30_HAVE_IDX_MIGRATE"	# 0070
+	grep -q nv30_idxbuf_swap $M/src/gallium/drivers/nouveau/nv30/nv30_resource.c && PD="$PD -DNV30_HAVE_IDX_MOVE2"	# 0071
 	# shellcheck disable=SC2086
 	mcc $T/placement-test $t/placement-test.c -Wall -Werror -Wno-unused-function $PD || { echo "placement-test.c does not build against $M"; wants state && result state 1; wants golden && result golden 1; exit 1; }
 	export ASAN_OPTIONS=detect_leaks=0
@@ -354,27 +359,78 @@ placement)
 			result blit $([ "$n" = "$m" ] && [ "$m" = 2 ]; echo $?)
 		fi
 	fi
+	# 0070, 0071: the call sites placement-test can't compile, in the nv30 files of DIR: the draw hook (under
+	# idx_gart, for indexed draws from a buffer, the draw dropped when the buffer can't be in GART), both screen
+	# defaults through their helpers, both swtnl maps synchronized for a buffer the GPU still writes
+	wiring_check() {	# wiring_check DIR: 0, or FAIL lines and 1
+		local V=$1 rc=0
+		tr -d '\n' < $V/nv30_vbo.c | grep -q 'if (unlikely(nv30->screen->idx_gart) && info->index_size > 1 && !info->has_user_indices &&  *!nv30_idxbuf_to_gart(nv30, nv04_resource(info->index.resource)))  *return;' ||
+			{ echo "FAIL wiring: the draw hook in nv30_vbo.c"; rc=1; }
+		grep -q 'debug_get_bool_option("NV30_PS3_IDX_GART", nv30_ps3_idx_gart_default(ps3))' $V/nv30_screen.c ||
+			{ echo "FAIL wiring: NV30_PS3_IDX_GART's default in nv30_screen.c"; rc=1; }
+		grep -q 'debug_get_bool_option("NV30_PS3_FP_GART", nv30_ps3_fp_gart_default(ps3))' $V/nv30_screen.c ||
+			{ echo "FAIL wiring: NV30_PS3_FP_GART's default in nv30_screen.c"; rc=1; }
+		{ [ "$(grep -c 'nv30_render_map_flags(nv30, ' $V/nv30_draw.c)" = 2 ] &&
+			tr -d '\n' < $V/nv30_draw.c | grep -q 'NOUVEAU_BUFFER_STATUS_GPU_WRITING))      return PIPE_MAP_READ;'; } ||
+			{ echo "FAIL wiring: the swtnl maps in nv30_draw.c"; rc=1; }
+		return $rc
+	}
+	if wants wiring; then
+		if [[ $PD != *IDX_MOVE2* ]]; then result wiring 77; else
+			wiring_check $M/src/gallium/drivers/nouveau/nv30 && echo "ok   wiring: the draw hook, both screen defaults, both swtnl maps"
+			result wiring $?
+		fi
+	fi
 	if wants fix-off; then
 		if [[ $PD != *IDX_MIGRATE* ]]; then result fix-off 77; else
-			# nv30_resource.c without the kick, without cpu_only, then the defaults as before 0069/0070: each must fail
+			# nv30_resource.c with one rule of 0070/0071 off at a time, the defaults as before 0069/0070, the call
+			# sites taken out: each must fail
 			O=$(realpath -m $T/placement-before); rm -rf $O; mkdir -p $O/nv30; rc=0
-			R=$M/src/gallium/drivers/nouveau/nv30/nv30_resource.c
-			for v in kick cpu_only; do
-				case $v in
-				kick) sed '/^bool$/,/^}$/{/PUSH_KICK(nv30->base.pushbuf);/d}' $R > $O/nv30/nv30_resource.c ;;
-				cpu_only) sed '/^bool$/,/^}$/{/res->cpu_only = 1;/d}' $R > $O/nv30/nv30_resource.c ;;
-				esac
+			V=$M/src/gallium/drivers/nouveau/nv30
+			R=$V/nv30_resource.c
+			if [[ $PD == *IDX_MOVE2* ]]; then
+				variants=(
+					"kick|/^nv30_idxbuf_kick/,/^}/{/PUSH_KICK(push);/d}|not kicked"
+					"cpu_only|/NV30_NEW_ARRAYS;/{x;/^$/!{x;b};x};/^   res->cpu_only = 1;$/d|cpu_only 0"
+					"range|/util_range_add(&res->base, &res->valid_buffer_range, 0, res->base.width0);/d|valid range"
+					"fence|/nouveau_fence_ref(fence, &res->fence_wr, &screen->base);/d|no write fence"
+					"cpu-fill|s/   if (res->data \&\& !(res->status \& (NOUVEAU_BUFFER_STATUS_DIRTY |/   if (0 \&\& res->data \&\& !(res->status \& (NOUVEAU_BUFFER_STATUS_DIRTY |/|move by the CPU"
+					"stream-cpu_only|/^      res->cpu_only = 1;$/d|stream: not cpu_only"
+					"queued-kick|s/if (res->fence_wr \&\& res->fence_wr == nv30->base.fence) {/if (0) {/|queued GPU write not kicked"
+					"gart-wait|/^      nouveau_fence_wait_idle(&nv30->base);$/d|GART full once"
+					"lost-copy|s/if (NOUVEAU_CANCELLED(dev) != cancelled) {/if (0 \&\& NOUVEAU_CANCELLED(dev) != cancelled) {/|a lost copy"
+					"shared|s/if (res->base.bind \& PIPE_BIND_SHARED)/if (0)/|a shared buffer moved")
+			else
+				variants=("kick|/^bool$/,/^}$/{/PUSH_KICK(nv30->base.pushbuf);/d}|not kicked"
+					  "cpu_only|/^bool$/,/^}$/{/res->cpu_only = 1;/d}|cpu_only 0")
+			fi
+			for e in "${variants[@]}"; do
+				v=${e%%|*}; rest=${e#*|}; sx=${rest%|*}; re=${rest##*|}
+				sed "$sx" $R > $O/nv30/nv30_resource.c
+				if cmp -s $R $O/nv30/nv30_resource.c; then echo "FAIL fix-off $v: the edit matched nothing"; rc=1; continue; fi
 				cp $t/placement-test.c $O/test.c
 				sed -i 's|#include "nv30/nv30_resource.c"|#include "'$O'/nv30/nv30_resource.c"|' $O/test.c
 				# shellcheck disable=SC2086
 				mcc $O/test-$v $O/test.c -Wall -Werror -Wno-unused-function $PD -I$t &&
-					expect_fail "0070 without the $v" "FAIL .*(not kicked|cpu_only 0)" $O/test-$v migrate || rc=1
+					expect_fail "0070/0071 without the $v" "FAIL .*$re" $O/test-$v migrate || rc=1
 			done
-			sed 's/^   return ps3;$/   return false;/' $M/src/gallium/drivers/nouveau/nv30/nv30_screen.h > $O/nv30/nv30_screen.h
-			cp $M/src/gallium/drivers/nouveau/nv30/*.h $O/nv30/ 2>/dev/null; sed -i 's/^   return ps3;$/   return false;/' $O/nv30/nv30_screen.h
+			cp $V/*.h $O/nv30/ 2>/dev/null; sed -i 's/^   return ps3;$/   return false;/' $O/nv30/nv30_screen.h
 			# shellcheck disable=SC2086
 			mcc $O/test-default $t/placement-test.c -Wall -Werror -Wno-unused-function $PD -I$O &&
 				expect_fail "0069/0070 defaults off" "FAIL .*default: PS3 0" $O/test-default default || rc=1
+			if [[ $PD == *IDX_MOVE2* ]]; then
+				W=$O/wiring; mkdir -p $W
+				for v in hook idx-default fp-default swtnl; do
+					cp $V/nv30_vbo.c $V/nv30_screen.c $V/nv30_draw.c $W/
+					case $v in
+					hook) sed -i '/!nv30_idxbuf_to_gart(nv30, nv04_resource(info->index.resource)))/,+1d' $W/nv30_vbo.c ;;
+					idx-default) sed -i 's/"NV30_PS3_IDX_GART", nv30_ps3_idx_gart_default(ps3)/"NV30_PS3_IDX_GART", false/' $W/nv30_screen.c ;;
+					fp-default) sed -i 's/"NV30_PS3_FP_GART", nv30_ps3_fp_gart_default(ps3)/"NV30_PS3_FP_GART", false/' $W/nv30_screen.c ;;
+					swtnl) sed -i 's/      return PIPE_MAP_READ;/      return PIPE_MAP_UNSYNCHRONIZED | PIPE_MAP_READ;/' $W/nv30_draw.c ;;
+					esac
+					expect_fail "0070/0071 wiring without the $v" "FAIL wiring" wiring_check $W || rc=1
+				done
+			fi
 			result fix-off $rc
 		fi
 	fi

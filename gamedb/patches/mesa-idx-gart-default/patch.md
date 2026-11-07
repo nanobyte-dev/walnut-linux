@@ -22,7 +22,9 @@ because it was made for another use first (a vertex buffer, a buffer with no bin
 on the GPU fetch path (`nv30_idxbuf_to_gart`), for good: one GPU copy of its contents, written by the CPU from then on like the
 others, the arrays validated again (it may be one of them). The copy is kicked in a submission of its own, because the kernel's
 copy of the indices waits for a GPU write into them still in flight but refuses a draw whose indices a GPU write earlier in the
-same submission touched. Without room in GART the buffer stays in VRAM and the kernel refuses the draw.
+same submission touched. Without room in GART the buffer stays in VRAM and the kernel refuses the draw. The move's
+coherence, the CPU fill, the GART buffers that aren't index-only and the out-of-GART case were fixed after review in
+[mesa-idx-gart-move](../mesa-idx-gart-move/patch.md) (0071).
 
 It ships with that ps3rsx: the ps3rsx-modules package `Breaks:` the Mesa before it, and `NV30_PS3_IDX_GART=0` is only for a
 measurement against an older ps3rsx.

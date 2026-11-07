@@ -163,7 +163,7 @@ ci_skip = { "mesa-blit-state" = "needs build/work/mesa" }
 
 [[suite]]
 name = "mesa-placement"
-what = "Mesa 0059: NV30_PS3_IDX_GART and NV30_PS3_FP_GART place index buffers and fragment programs in GART, off they change nothing; a busy GART index buffer is waited for, never GPU-copied into; 0069 and 0070: both on by default on the PS3 only, the blit's program in GART too, an index buffer found in VRAM moved to GART with its copy kicked on its own; runs with each part off fail"
+what = "Mesa 0059: NV30_PS3_IDX_GART and NV30_PS3_FP_GART place index buffers and fragment programs in GART, off they change nothing; a busy GART index buffer is waited for, never GPU-copied into; 0069 and 0070: both on by default on the PS3 only, the blit's program in GART too, an index buffer found in VRAM moved to GART with its copy kicked on its own; 0071: the state after the move (coherent, a write waits), the CPU fill, stream GART buffers made cpu_only with a queued GPU write kicked, GART full and lost copies dropping one draw, the draw hook, screen defaults and swtnl maps wired; runs with each part off fail"
 run = ["packages/patched/graphics/mesa/tests/host-tests.sh", "placement"]
 group = "mesa"
 ci_skip = { "mesa-placement" = "needs build/work/mesa" }

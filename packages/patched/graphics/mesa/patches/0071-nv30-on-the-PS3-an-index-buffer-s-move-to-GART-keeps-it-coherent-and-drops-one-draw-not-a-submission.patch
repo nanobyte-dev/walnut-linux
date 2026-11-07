@@ -1,0 +1,342 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Sat, 7 Nov 2026 13:23:08 +0200
+Subject: nv30: on the PS3, an index buffer's move to GART keeps it coherent,
+ fills it by the CPU when it can, and drops one draw rather than a submission
+
+0070's move of an index buffer from VRAM to GART left the buffer with an empty valid range and
+no write fence, so a CPU write or read right after it skipped the wait for the GPU's copy. ps3rsx
+also refuses a draw whose indices a GPU write earlier in the same submission touched, and refuses
+an index buffer in VRAM. Before every indexed draw on the PS3 now (nv30_idxbuf_to_gart):
+
+- A buffer in GART is CPU-written from then on (cpu_only), whatever made it there (stream usage,
+  no bind, a VRAM allocation that fell back to GART), and a GPU write into it still queued in
+  this submission (a staging copy before it was cpu_only, a CopyBufferSubData into it) is kicked
+  first, so the kernel waits for it instead of refusing the draw.
+- A buffer in VRAM whose system memory copy is current is filled into new GART storage by the
+  CPU: no GPU copy, no kick, nothing to wait for; the system memory copy is freed.
+- Otherwise the GPU copies it, alone in a submission. Until that copy has run the buffer is
+  GPU-written: its whole range valid, its fences that submission's, GPU_WRITING set, so a
+  BufferSubData right after it waits. A stale system memory copy is freed. If the copy's
+  submission is cancelled, the buffer keeps its VRAM storage and moves at a later draw.
+- With no room in GART the GPU's work is waited for once and the allocation tried again. A buffer
+  that still can't move (no room, a lost copy, a shared buffer) costs only its draw, which is
+  dropped, instead of the whole submission the kernel would refuse.
+
+The software TNL path maps a buffer the GPU is still writing synchronized (nv30_render_vbo), so it
+never reads new GART storage before the copy has filled it. NV30_PS3_IDX_STATS=1 prints a line
+each time the moves of a kind pass a power of two; NV30_PS3_IDX_GART=0 or NV30_PS3_FP_GART=0 on
+the PS3 prints a line that ps3rsx refuses that placement. The kick after a GPU copy makes room
+first (PUSH_SPACE).
+
+Other contexts sharing a moved vertex buffer keep its old address until they validate their
+arrays again (as for any reallocation in nouveau).
+
+Forwarded: no
+
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_draw.c b/src/gallium/drivers/nouveau/nv30/nv30_draw.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_draw.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_draw.c
+@@ -378,6 +378,17 @@ nv30_render_validate(struct nv30_context *nv30)
+    return true;
+ }
+ 
++/* A swtnl map of a vertex or index buffer: unsynchronized, but not of a buffer the GPU is still
++ * writing (NV30_PS3_IDX_GART: one nv30_idxbuf_to_gart moved to GART by a GPU copy), whose new
++ * storage holds nothing until that copy has run */
++static unsigned
++nv30_render_map_flags(struct nv30_context *nv30, struct pipe_resource *res)
++{
++   if (unlikely(nv30->screen->idx_gart) &&
++       (nv04_resource(res)->status & NOUVEAU_BUFFER_STATUS_GPU_WRITING))
++      return PIPE_MAP_READ;
++   return PIPE_MAP_UNSYNCHRONIZED | PIPE_MAP_READ;
++}
+ void
+ nv30_render_vbo(struct pipe_context *pipe, const struct pipe_draw_info *info,
+                 unsigned drawid_offset,
+@@ -429,8 +440,8 @@ nv30_render_vbo(struct pipe_context *pipe, const struct pipe_draw_info *info,
+       if (!map) {
+          if (nv30->vtxbuf[i].buffer.resource)
+             map = pipe_buffer_map(pipe, nv30->vtxbuf[i].buffer.resource,
+-                                  PIPE_MAP_UNSYNCHRONIZED |
+-                                  PIPE_MAP_READ, &transfer[i]);
++                                  nv30_render_map_flags(nv30, nv30->vtxbuf[i].buffer.resource),
++                                  &transfer[i]);
+       }
+       draw_set_mapped_vertex_buffer(draw, i, map, ~0);
+    }
+@@ -439,8 +450,7 @@ nv30_render_vbo(struct pipe_context *pipe, const struct pipe_draw_info *info,
+       const void *map = info->has_user_indices ? info->index.user : NULL;
+       if (!map)
+          map = pipe_buffer_map(pipe, info->index.resource,
+-                               PIPE_MAP_UNSYNCHRONIZED |
+-                               PIPE_MAP_READ, &transferi);
++                               nv30_render_map_flags(nv30, info->index.resource), &transferi);
+       draw_set_indexes(draw,
+                        (uint8_t *) map,
+                        info->index_size, ~0);
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_resource.c b/src/gallium/drivers/nouveau/nv30/nv30_resource.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_resource.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_resource.c
+@@ -24,12 +24,16 @@
+  */
+ 
+ #include "util/format/u_format.h"
++#include "util/os_time.h"
++#include "util/u_atomic.h"
+ #include "util/u_inlines.h"
+ 
+ #include "nv30/nv30_screen.h"
+ #include "nv30/nv30_context.h"
+ #include "nv30/nv30_resource.h"
+ #include "nv30/nv30_transfer.h"
++#include "nouveau_fence.h"
++#include "nouveau_mm.h"
+ 
+ static void
+ nv30_memory_barrier(struct pipe_context *pipe, unsigned flags)
+@@ -68,27 +72,176 @@ nv30_resource_create(struct pipe_screen *pscreen,
+    }
+ }
+ 
++/* NV30_PS3_IDX_STATS=1: a stderr line each time the moves (by kind) pass a power of two */
++static void
++nv30_idxbuf_count(struct nv30_screen *screen, uint32_t *n, const char *what)
++{
++   uint32_t v = p_atomic_inc_return(n);
++
++   if (unlikely(screen->idx_stats) && !(v & (v - 1)))
++      fprintf(stderr, "nv30: %u index buffers %s (%.1f s)\n", v, what,
++              (os_time_get_nano() - screen->idx_stats_t0) / 1e9);
++}
++
++/* new GART storage for buf, waiting once for the GPU's work when there is none (freed storage and
++ * staging buffers come back as fences pass, as nouveau_transfer_staging does) */
++static struct nouveau_mm_allocation *
++nv30_idxbuf_gart(struct nv30_context *nv30, struct nv04_resource *buf, struct nouveau_bo **bo,
++                 uint32_t *offset)
++{
++   struct nouveau_screen *screen = &nv30->screen->base;
++   const uint32_t size = align(buf->base.width0, 0x100);
++   struct nouveau_mm_allocation *mm;
++
++   *bo = NULL;
++   mm = nouveau_mm_allocate(screen->mm_GART, size, bo, offset);
++   if (!*bo) {
++      nouveau_fence_wait_idle(&nv30->base);
++      mm = nouveau_mm_allocate(screen->mm_GART, size, bo, offset);
++   }
++   return *bo ? mm : NULL;
++}
++
++/* buf's storage is now (bo, mm, offset) in GART; the old storage goes once fence has passed */
++static void
++nv30_idxbuf_swap(struct nv04_resource *buf, struct nouveau_bo *bo, struct nouveau_mm_allocation *mm,
++                 uint32_t offset, struct nouveau_fence *fence)
++{
++   nouveau_fence_work(fence, nouveau_fence_unref_bo, buf->bo);
++   if (buf->mm)
++      nouveau_fence_work(fence, nouveau_mm_free_work, buf->mm);
++   buf->bo = bo;
++   buf->mm = mm;
++   buf->offset = offset;
++   buf->domain = NOUVEAU_BO_GART;
++   buf->address = bo->offset + offset;
++}
++
++/* the system memory copy is no longer the buffer's (moved, or stale) */
++static void
++nv30_idxbuf_drop_copy(struct nv04_resource *buf)
++{
++   struct nouveau_screen *screen = nouveau_screen(buf->base.screen);
++
++   if (!buf->data || (buf->status & NOUVEAU_BUFFER_STATUS_USER_MEMORY))
++      return;
++   if (buf->status & NOUVEAU_BUFFER_STATUS_SYSMEM_COPY) {
++      buf->status &= ~NOUVEAU_BUFFER_STATUS_SYSMEM_COPY;
++      p_atomic_add(&screen->sysmem_copy.bytes, -(int64_t)buf->base.width0);
++      p_atomic_dec(&screen->sysmem_copy.count);
++   }
++   align_free(buf->data);
++   buf->data = NULL;
++}
++
++static void
++nv30_idxbuf_kick(struct nv30_context *nv30)
++{
++   struct nouveau_pushbuf *push = nv30->base.pushbuf;
++
++   PUSH_SPACE(push, 16);
++   PUSH_KICK(push);
++}
++
+ /*
+  * NV30_PS3_IDX_GART: ps3rsx copies a draw's indices only out of GART and refuses an index buffer in
+- * VRAM, so a buffer that went to VRAM because it was made for another use (a vertex buffer, a buffer
+- * with no bind) moves to GART at its first indexed draw, for good, written by the CPU from then on
+- * (cpu_only, as nv30_resource_create's index buffers). The GPU's copy of its contents is kicked in a
+- * submission of its own: the kernel's copy of the indices waits for a GPU write still in flight, where
+- * one earlier in the same submission would get the draw refused. The arrays are validated again (the
+- * buffer may be one of them). false: no room in GART, the buffer stays in VRAM.
++ * VRAM, and it refuses a draw whose indices a GPU write earlier in the same submission touched (the
++ * copy, taken at the submission, would miss it). Before every indexed draw on the PS3:
++ * - a buffer in GART is CPU-written from then on (cpu_only: a busy one is waited for, never staged
++ *   and GPU-copied), and a GPU write into it still queued in this submission (a staging copy before
++ *   it was cpu_only, a CopyBufferSubData into it) is kicked first, so the kernel waits for it;
++ * - a buffer in VRAM (made for another use first: a vertex buffer, a buffer with no bind) moves to
++ *   GART for good. When its system memory copy is current the CPU fills the new storage from it (no
++ *   GPU copy, nothing to wait for) and the copy is freed. Else the GPU copies it, alone in a
++ *   submission: the buffer is then GPU-written until that copy has run (its whole range valid, its
++ *   fences that submission's, GPU_WRITING), so a CPU write or read of it waits, and a stale system
++ *   memory copy is freed. If that submission is cancelled the buffer keeps its VRAM storage.
++ * Out of GART, the GPU's work is waited for once. false: the buffer stays in VRAM (no room, a lost
++ * copy, a shared buffer), and the caller drops the draw rather than have the kernel refuse the
++ * whole submission.
+  */
+ bool
+ nv30_idxbuf_to_gart(struct nv30_context *nv30, struct nv04_resource *res)
+ {
+-   if (res->domain != NOUVEAU_BO_VRAM)
++   struct nv30_screen *screen = nv30->screen;
++   struct nouveau_device *dev = screen->base.device;
++   struct nouveau_pushbuf *push = nv30->base.pushbuf;
++   struct nouveau_fence *fence = NULL;
++   struct nouveau_mm_allocation *mm;
++   struct nouveau_bo *bo;
++   uint32_t offset, cancelled;
++
++   if (res->domain == NOUVEAU_BO_GART) {
++      res->cpu_only = 1;
++      if (res->fence_wr && res->fence_wr == nv30->base.fence) {
++         nv30_idxbuf_kick(nv30);
++         nv30_idxbuf_count(screen, &screen->idx_kicks, "written by the GPU kicked before a draw");
++      }
+       return true;
+-   if (!nouveau_buffer_migrate(&nv30->base, res, NOUVEAU_BO_GART))
+-      return false;
++   }
++   if (res->domain != NOUVEAU_BO_VRAM)
++      return true;		/* (no storage: nv30_draw_elements doesn't fetch it) */
++   if (res->base.bind & PIPE_BIND_SHARED)
++      goto fail;		/* another process may hold its VRAM address */
++
++   mm = nv30_idxbuf_gart(nv30, res, &bo, &offset);
++   if (!bo)
++      goto fail;
++
++   if (res->data && !(res->status & (NOUVEAU_BUFFER_STATUS_DIRTY |
++                                     NOUVEAU_BUFFER_STATUS_GPU_WRITING))) {
++      /* the copy in system memory is current: the CPU fills GART from it */
++      if (BO_MAP(&screen->base, bo, 0, nv30->base.client)) {
++         nouveau_fence_work(NULL, nouveau_fence_unref_bo, bo);
++         if (mm)
++            nouveau_mm_free(mm);
++         goto fail;
++      }
++      memcpy((uint8_t *)bo->map + offset, res->data, res->base.width0);
++      nv30_idxbuf_swap(res, bo, mm, offset, res->fence);	/* (reads in flight use the old) */
++      nouveau_fence_ref(NULL, &res->fence, &screen->base);
++      nouveau_fence_ref(NULL, &res->fence_wr, &screen->base);
++      res->status &= NOUVEAU_BUFFER_STATUS_REALLOC_MASK;
++      nv30_idxbuf_drop_copy(res);
++      nv30_idxbuf_count(screen, &screen->idx_moves_cpu, "moved to GART by the CPU");
++   } else {
++      /* the GPU copies it, in a submission of its own; until that has run the buffer is
++       * GPU-written, and if it is cancelled the buffer stays where it was */
++      if (!PUSH_SPACE_EX(push, 64, 2, 0)) {
++         nouveau_fence_work(NULL, nouveau_fence_unref_bo, bo);
++         if (mm)
++            nouveau_mm_free(mm);
++         goto fail;
++      }
++      nv30->base.copy_data(&nv30->base, bo, offset, NOUVEAU_BO_GART, res->bo, res->offset,
++                           NOUVEAU_BO_VRAM, res->base.width0);
++      nouveau_fence_ref(nv30->base.fence, &fence, &screen->base);
++      cancelled = NOUVEAU_CANCELLED(dev);
++      nv30_idxbuf_kick(nv30);
++      if (NOUVEAU_CANCELLED(dev) != cancelled) {
++         /* the copy is lost: the new storage goes, the buffer keeps its VRAM storage */
++         nouveau_fence_work(fence, nouveau_fence_unref_bo, bo);
++         if (mm)
++            nouveau_fence_work(fence, nouveau_mm_free_work, mm);
++         nouveau_fence_ref(NULL, &fence, &screen->base);
++         goto fail;
++      }
++      nv30_idxbuf_swap(res, bo, mm, offset, fence);
++      nouveau_fence_ref(fence, &res->fence, &screen->base);
++      nouveau_fence_ref(fence, &res->fence_wr, &screen->base);
++      nouveau_fence_ref(NULL, &fence, &screen->base);
++      res->status |= NOUVEAU_BUFFER_STATUS_GPU_WRITING;
++      util_range_add(&res->base, &res->valid_buffer_range, 0, res->base.width0);
++      nv30_idxbuf_drop_copy(res);
++      nv30_idxbuf_count(screen, &screen->idx_moves_gpu, "moved to GART by a GPU copy");
++   }
+    res->cpu_only = 1;
+-   nv30->dirty |= NV30_NEW_ARRAYS;
++   nv30->dirty |= NV30_NEW_ARRAYS;	/* it may be one of the vertex buffers: its address moved */
+    nv30->base.vbo_dirty = true;
+-   PUSH_KICK(nv30->base.pushbuf);
+    return true;
++fail:
++   nv30_idxbuf_count(screen, &screen->idx_moves_failed, "left in VRAM, their draws dropped");
++   return false;
+ }
+ 
+ static void
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_screen.c b/src/gallium/drivers/nouveau/nv30/nv30_screen.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_screen.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_screen.c
+@@ -29,6 +29,7 @@
+ #include "util/format/u_format_s3tc.h"
+ #include "util/u_screen.h"
+ #include "util/u_debug.h"
++#include "util/os_time.h"
+ 
+ #include "nv_object.xml.h"
+ #include "nv_m2mf.xml.h"
+@@ -566,6 +567,12 @@ nv30_screen_create(struct nouveau_device *dev)
+     * NV30_PS3_FP_GART=0 put them back in VRAM, which ps3rsx refuses) */
+    screen->idx_gart = ps3 && debug_get_bool_option("NV30_PS3_IDX_GART", nv30_ps3_idx_gart_default(ps3));
+    screen->fp_gart = ps3 && debug_get_bool_option("NV30_PS3_FP_GART", nv30_ps3_fp_gart_default(ps3));
++   if (ps3 && !screen->idx_gart)
++      fprintf(stderr, "nv30: NV30_PS3_IDX_GART=0: index buffers in VRAM, which ps3rsx refuses\n");
++   if (ps3 && !screen->fp_gart)
++      fprintf(stderr, "nv30: NV30_PS3_FP_GART=0: fragment programs in VRAM, which ps3rsx refuses\n");
++   screen->idx_stats = ps3 && debug_get_bool_option("NV30_PS3_IDX_STATS", false);
++   screen->idx_stats_t0 = os_time_get_nano();
+    screen->fp_const_vram = debug_get_bool_option("NV30_FP_CONST_VRAM", !ps3);
+    screen->index_upload = debug_get_num_option("NV30_INDEX_UPLOAD", ps3 ? 32 : 0);
+    screen->ctx_state_keep = debug_get_bool_option("NV30_CTX_STATE_KEEP", false);
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_screen.h b/src/gallium/drivers/nouveau/nv30/nv30_screen.h
+--- a/src/gallium/drivers/nouveau/nv30/nv30_screen.h
++++ b/src/gallium/drivers/nouveau/nv30/nv30_screen.h
+@@ -83,6 +83,9 @@ struct nv30_screen {
+ 
+    bool tex_invalidate_always; /* NV30_TEX_INVALIDATE_ALWAYS: before every draw, as before */
+    bool idx_gart;              /* NV30_PS3_IDX_GART: index buffers in GART (CPU-written), not VRAM */
++   bool idx_stats;             /* NV30_PS3_IDX_STATS: stderr lines counting nv30_idxbuf_to_gart's work */
++   int64_t idx_stats_t0;
++   uint32_t idx_moves_cpu, idx_moves_gpu, idx_moves_failed, idx_kicks;
+    bool fp_gart;               /* NV30_PS3_FP_GART: fragment programs in GART, not VRAM */
+    bool fp_const_vram;         /* NV30_FP_CONST_VRAM: constant changes re-upload the VRAM program */
+    unsigned index_upload;      /* NV30_INDEX_UPLOAD: least count of CPU-held indices uploaded */
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_vbo.c b/src/gallium/drivers/nouveau/nv30/nv30_vbo.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_vbo.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_vbo.c
+@@ -742,9 +742,12 @@ nv30_draw_vbo(struct pipe_context *pipe, const struct pipe_draw_info *info,
+    if (nv30->vbo_user && !(nv30->dirty & (NV30_NEW_VERTEX | NV30_NEW_ARRAYS)))
+       nv30_update_user_vbufs(nv30);
+ 
+-   /* NV30_PS3_IDX_GART: an index buffer in VRAM moves to GART first (nv30_idxbuf_to_gart) */
+-   if (unlikely(nv30->screen->idx_gart) && info->index_size > 1 && !info->has_user_indices)
+-      nv30_idxbuf_to_gart(nv30, nv04_resource(info->index.resource));
++   /* NV30_PS3_IDX_GART: the index buffer in GART, CPU-written, no GPU write into it queued in this
++    * submission (nv30_idxbuf_to_gart); where it can't be, this one draw is dropped, not the whole
++    * submission the kernel would refuse */
++   if (unlikely(nv30->screen->idx_gart) && info->index_size > 1 && !info->has_user_indices &&
++       !nv30_idxbuf_to_gart(nv30, nv04_resource(info->index.resource)))
++      return;
+ 
+    /* The index buffer the GPU fetches from is referenced before validation, like every other
+     * buffer a draw reads: then nv30_state_validate puts it in the kernel's buffer list and
