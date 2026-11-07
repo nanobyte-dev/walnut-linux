@@ -57,8 +57,12 @@
 #                  loops across the cap, restart: each piece under the cap with the kernel's skew), wiring
 #                  (nv30_vbo.c, the screen's NV30_PS3_IDX_SPLIT, a piece that would pass the file's share of
 #                  the ring kicked into a submission of its own, the count started at each kick with the copy
-#                  the kernel keeps for a primitive the kick left open); fix-off: each rule of
-#                  the header taken out must fail
+#                  the kernel keeps for a primitive the kick left open); stream (0073, idx-stream-test.c: nv30_vbo.c
+#                  whole against a fake push buffer and a model of ps3rsx's index rules: every binding within the
+#                  file's share, binding and BEGIN, and each piece whole, in one submission at every flush point, a
+#                  cancelled kick before a piece giving up the draw), golden (draws under the cap: the words of
+#                  nv30_vbo.c before 0072, identical); fix-off: each rule of the header and of nv30_vbo.c taken out
+#                  must fail
 # Each part prints "RESULT <suite>:<part> pass|fail|skip" (tools/ladder.py reads them). Exit 0 when every
 # part passed, 77 when the tree lacks what the suite tests (its patch) or a tool is missing, else 1.
 set -u
@@ -69,7 +73,7 @@ t=${MESA_TESTS:-packages/patched/graphics/mesa/tests}
 S=${1:-}; shift || true
 declare -A PARTS=([forcedxt]="" [staging-pool]="" [vtx-snorm8]="unpack vpsim" [minmax-vmx]="host ppc64"
 	[query-steal]="" [query-lost]="end steal destroy elapsed failed deadline deadline-edge begin-sent two-ctx own-begin stale no-slot disowned wait-option late x86 fix-off" [alloc-fail]="upload mm-fallback mm-nomem fence fence-cancel pushbuf-flush pushbuf-destroy fix-off"
-	[transfer-cpu]="fix-off" [blit-state]="state golden" [placement]="state golden default migrate blit wiring fix-off" [fb-window]="state golden" [point-smooth]="" [submit-fail]="ecanceled failed notify ratelimit ok threads fix-off" [bo-domain]="state fix-off" [fragprog]="txb rep end golden fix-off" [idx-split]="model cap wiring fix-off")
+	[transfer-cpu]="fix-off" [blit-state]="state golden" [placement]="state golden default migrate blit wiring fix-off" [fb-window]="state golden" [point-smooth]="" [submit-fail]="ecanceled failed notify ratelimit ok threads fix-off" [bo-domain]="state fix-off" [fragprog]="txb rep end golden fix-off" [idx-split]="model cap wiring stream golden fix-off")
 if [ "$S" = --list ]; then
 	for s in forcedxt staging-pool vtx-snorm8 minmax-vmx query-steal query-lost alloc-fail transfer-cpu blit-state placement fb-window point-smooth submit-fail bo-domain fragprog idx-split; do
 		echo "$s ${PARTS[$s]}"; done
@@ -616,6 +620,28 @@ idx-split)
 		O= scc || exit 1
 		for p in model cap; do wants $p && { $T/idx-split-test $p; result $p $?; }; done
 	fi
+	if wants stream || wants golden || wants fix-off; then gen || exit 1; fi
+	SU=-Wl,--unresolved-symbols=ignore-all
+	if wants stream; then
+		mcc $T/idx-stream-test $t/idx-stream-test.c -Wall -Werror $SU && $T/idx-stream-test; result stream $?
+	fi
+	if wants golden; then
+		c=$(git -C $M log --format='%H %s' | grep -F " nv30: on the PS3, an indexed draw past the kernel's per-binding cap" | head -n 1 | cut -d' ' -f1)
+		G=$T/idx-stream-before; rm -rf $G; mkdir -p $G/nv30
+		if [ -z "$c" ] || ! git -C $M show "$c^:src/gallium/drivers/nouveau/nv30/nv30_vbo.c" > $G/nv30/nv30_vbo.c; then
+			echo "SKIP mesa-idx-split:golden no commit before 0072 in $M"; result golden 77
+		else
+			mcc $T/idx-stream-new $t/idx-stream-test.c $SU && mcc $T/idx-stream-old -I$G $t/idx-stream-test.c \
+				-DIDX_STREAM_BEFORE_0072 $SU && $T/idx-stream-new dump > $T/idx-new.txt && $T/idx-stream-old dump > $T/idx-old.txt
+			rc=$?
+			if [ $rc = 0 ] && cmp -s $T/idx-new.txt $T/idx-old.txt; then
+				echo "ok   golden: $(wc -l < $T/idx-new.txt) words of draws under the cap, identical to before 0072"
+			else
+				diff $T/idx-old.txt $T/idx-new.txt | head -10; rc=1
+			fi
+			result golden $rc
+		fi
+	fi
 	if wants wiring; then
 		rc=0
 		w() { grep -qF -- "$2" "$1" || { echo "FAIL wiring: $(basename "$1") lacks: $2"; rc=1; }; }
@@ -625,7 +651,7 @@ idx-split)
 		w $V 'nv30->rast && nv30->rast->pipe.flatshade_first, map);'
 		w $V 'PUSH_RESRC(push, NV30_3D(IDXBUF_OFFSET), BUFCTX_IDXBUF, e->res, e->offset + (uint32_t)at,'
 		w $V '!idx_conv && info->primitive_restart);'
-		w $V 'if (e->nv30->ps3_idx_bytes && e->nv30->ps3_idx_bytes + copy > NV30_PS3_IDX_SUBMIT_BYTES) {'
+		w $V 'if (nv30->ps3_idx_bytes && nv30->ps3_idx_bytes + copy > NV30_PS3_IDX_SUBMIT_BYTES) {'
 		w $M/src/gallium/drivers/nouveau/nv30/nv30_context.c 'nv30->ps3_idx_bytes = nv30->ps3_idx_open ? NV30_PS3_IDX_BINDING_MAX : 0;'
 		python3 -I -c 'import sys; sys.exit(sys.argv[2] not in open(sys.argv[1]).read())' $V \
 			$'   e->nv30->ps3_idx_open = true;\n   nv30_idx_batches(push, e->prim, (unsigned)((pos - at) / e->isz), n);\n   e->nv30->ps3_idx_open = false;' ||
@@ -651,6 +677,22 @@ idx-split)
 		off restart-cut '         s = seg = e;' '         s = e;'
 		off provoking 'bool c_first = mode == MESA_PRIM_POLYGON ? first : !first;' 'bool c_first = !first;'
 		off loop-close $'            out[o++] = nv30_idx_get(idx, isz, i - 1);\n            out[o++] = nv30_idx_get(idx, isz, s0);\n' ''
+		# nv30_vbo.c's rules (0073), against idx-stream-test
+		voff() {	# voff NAME FROM TO REGEX
+			cp $V $F/nv30/nv30_vbo.c && FROM=$2 TO=$3 perl -0777 -i -pe \
+				'my $n = () = /\Q$ENV{FROM}\E/g; $n == 1 or die "idx-split fix-off: $n matches\n"; s/\Q$ENV{FROM}\E/$ENV{TO}/' \
+				$F/nv30/nv30_vbo.c || { rc=1; return; }
+			cp $H $F/nv30/nv30_idx_split.h
+			mcc $F/stream-$1 -I$F $t/idx-stream-test.c -w $SU || { rc=1; return; }
+			expect_fail "0073 off: $1" "$4" $F/stream-$1 || rc=1
+		}
+		B='          !nv30_idx_binding_room(nv30, nv30_idx_copy_bytes((uint64_t)start * isz, count, isz), 5)) {'
+		voff plain-share "$B" '          !nv30_idx_binding_room(nv30, 0, 5)) {' 'FAIL .*share [ab]:'
+		voff plain-space "$B" "${B/, 5)) {/, 0)) {}" 'FAIL .*space: .* push buffer sizes'
+		voff piece-whole '                              3 + nv30_idx_batch_words(n))) {' '                              3)) {' \
+			'FAIL .*inside a piece'
+		voff cancel-drop $'                              "given up after a cancelled kick before them");\n         return false;' \
+			$'                              "given up after a cancelled kick before them");' 'FAIL .*cancel:'
 		result fix-off $rc
 	fi
 	;;

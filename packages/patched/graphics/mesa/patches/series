@@ -56,3 +56,4 @@
 0070-nv30-on-the-PS3-index-buffers-are-in-GART-by-default-one-found-in-VRAM-moves-there.patch
 0071-nv30-on-the-PS3-an-index-buffer-s-move-to-GART-keeps-it-coherent-and-drops-one-draw-not-a-submission.patch
 0072-nv30-on-the-PS3-an-indexed-draw-past-the-kernel-s-per-binding-cap-is-drawn-in-pieces.patch
+0073-nv30-on-the-PS3-every-index-binding-keeps-within-the-kernel-s-share-and-never-spans-two-submissions.patch

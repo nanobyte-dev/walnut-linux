@@ -1,13 +1,13 @@
 +++
 component = "mesa"
-patches = ["patches/0072-nv30-on-the-PS3-an-indexed-draw-past-the-kernel-s-per-binding-cap-is-drawn-in-pieces.patch"]
-aliases = ["Mesa 0072"]
+patches = ["patches/0072-nv30-on-the-PS3-an-indexed-draw-past-the-kernel-s-per-binding-cap-is-drawn-in-pieces.patch", "patches/0073-nv30-on-the-PS3-every-index-binding-keeps-within-the-kernel-s-share-and-never-spans-two-submissions.patch"]
+aliases = ["Mesa 0072", "Mesa 0073"]
 category = "correctness"
 switch = "NV30_PS3_IDX_SPLIT (0 as before); NV30_PS3_IDX_STATS=1 counts the splits"
 default = "on on the PS3"
 gating = "is_ps3"
 forwarded = "no"
-tests = ["mesa-idx-split:model", "mesa-idx-split:cap", "mesa-idx-split:wiring", "mesa-idx-split:fix-off"]
+tests = ["mesa-idx-split:model", "mesa-idx-split:cap", "mesa-idx-split:wiring", "mesa-idx-split:stream", "mesa-idx-split:golden", "mesa-idx-split:fix-off"]
 batches = []
 +++
 
@@ -39,6 +39,20 @@ draws becomes about 600 submissions.
 `NV30_PS3_IDX_SPLIT=0` draws as before (which the kernel refuses). `NV30_PS3_IDX_STATS=1` prints a line as the split, converted and
 unsplittable draws and the kicks between pieces pass each power of two. The winsys's line for a cancelled submission now says that its draws are lost and that
 dmesg says why: GL has no error for a lost submission, so the stderr line is all the app's user sees.
+
+0073 (the review of 0072, M1 and M2): every index binding on the GPU path, not only a piece, checks the share first, so plain
+draws after a split draw or after a kick inside a primitive can't push the submission past it. A plain draw reserves its binding and
+BEGIN together and a piece all of its words before its binding, so a push-buffer flush never leaves batches through half a binding
+(a window every indexed draw had since 1493) or ends a submission inside a piece. A share kick the kernel cancels gives up the rest
+of the draw. `NV30_PS3_IDX_SPLIT=0` prints a line; the cancelled-submission line says the draws were lost and points at
+`NV30_PS3_IDX_STATS`. `mesa-idx-split:stream` runs nv30_vbo.c against a fake push buffer and a model of the kernel's index rules at
+every flush point; `golden` pins the words of draws under the cap to those before 0072.
+
+Left for a later batch (the review's L1 to L4): the conversion of a fan, polygon or loop takes up to 64 MiB of GART in one upload
+allocation (piece-by-piece conversion would bound it); split draws run in lockstep with the GPU (each ~1 MiB piece waits for the
+previous one's copy to retire, and each submission makes a fence bo; NV30_FENCE_BO_POOL would help); a restarted big draw from its
+own bo waits for the GPU to map it for the restart scan; the share count is per context while the kernel's share is per file, so two
+contexts of one screen interleaving big draws could pass it together.
 
 The cap is ps3rsx's IXS_MAX (`idxsnap.h`) as a constant here: no GETPARAM reports it. Known limits: a polygon over the cap drawn in
 line mode shows its fan's inner edges, and a line loop's stipple restarts at each segment. Both are rare (a single primitive of

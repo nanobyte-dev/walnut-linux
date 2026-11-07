@@ -1,0 +1,170 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Sat, 7 Nov 2026 22:22:43 +0200
+Subject: nv30: on the PS3, every index binding keeps within the kernel's
+ share, and a binding with its BEGIN, or a piece whole, never spans two
+ submissions
+
+The review of 0072 found two ways an enforcing ps3rsx still refuses a submission, losing its draws:
+
+- Only a split draw's pieces checked the file's share of the kernel's index ring (1.25 MiB of
+  copies a submission). Plain indexed draws after a split draw's last piece, or after a kick inside
+  a primitive (which leaves the kernel's 1 MiB tail copy counted), could add about 230 KiB more and
+  get the submission refused. Now every index binding on the GPU path checks it first and goes in
+  a submission of its own when it would pass (nv30_idx_binding_room). Mesa counts every draw as a
+  fresh copy, so this also keeps each submission's scan under the kernel's.
+- A push-buffer flush could fall between a binding and its BEGIN (the batches then go through half
+  a binding, refused; there since 1493 for every indexed draw), or inside a piece (the kernel then
+  copies on to the buffer's end, past what the share counted). Now a plain draw reserves the
+  binding and its BEGIN together, and a piece reserves all of its words (binding, BEGIN, batches,
+  END) before its binding, so a flush falls only before them.
+
+A kick for the share that the kernel cancels gives up the rest of the draw (its state is gone; the
+next validate sends it again). NV30_PS3_IDX_SPLIT=0 prints a line, as the other placement
+switches do; the cancelled-submission line says the draws were lost and that NV30_PS3_IDX_STATS
+has the split counts. Draws under the cap send the same words as before 0072.
+
+Forwarded: no
+
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_screen.c b/src/gallium/drivers/nouveau/nv30/nv30_screen.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_screen.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_screen.c
+@@ -575,6 +575,9 @@ nv30_screen_create(struct nouveau_device *dev)
+    /* ps3rsx refuses an index buffer binding whose primitives span more than 1 MiB of indices
+     * (nv30_idx_split.h): such draws go as pieces; NV30_PS3_IDX_SPLIT=0 as before */
+    screen->idx_split = ps3 && debug_get_bool_option("NV30_PS3_IDX_SPLIT", true);
++   if (ps3 && !screen->idx_split)
++      fprintf(stderr, "nv30: NV30_PS3_IDX_SPLIT=0: indexed draws past 1 MiB of indices whole, which "
++              "ps3rsx refuses\n");
+    screen->idx_stats_t0 = os_time_get_nano();
+    screen->fp_const_vram = debug_get_bool_option("NV30_FP_CONST_VRAM", !ps3);
+    screen->index_upload = debug_get_num_option("NV30_INDEX_UPLOAD", ps3 ? 32 : 0);
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_screen.h b/src/gallium/drivers/nouveau/nv30/nv30_screen.h
+--- a/src/gallium/drivers/nouveau/nv30/nv30_screen.h
++++ b/src/gallium/drivers/nouveau/nv30/nv30_screen.h
+@@ -87,7 +87,7 @@ struct nv30_screen {
+    int64_t idx_stats_t0;
+    uint32_t idx_moves_cpu, idx_moves_gpu, idx_moves_failed, idx_kicks;
+    bool idx_split;             /* NV30_PS3_IDX_SPLIT: indexed draws past ps3rsx's per-binding cap in pieces */
+-   uint32_t idx_splits, idx_converted, idx_split_failed, idx_split_kicks;
++   uint32_t idx_splits, idx_converted, idx_split_failed, idx_split_kicks, idx_split_dropped;
+    bool fp_gart;               /* NV30_PS3_FP_GART: fragment programs in GART, not VRAM */
+    bool fp_const_vram;         /* NV30_FP_CONST_VRAM: constant changes re-upload the VRAM program */
+    unsigned index_upload;      /* NV30_INDEX_UPLOAD: least count of CPU-held indices uploaded */
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_vbo.c b/src/gallium/drivers/nouveau/nv30/nv30_vbo.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_vbo.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_vbo.c
+@@ -563,12 +563,57 @@ nv30_idx_split_count(struct nv30_screen *screen, uint32_t *n, const char *what)
+               (os_time_get_nano() - screen->idx_stats_t0) / 1e9);
+ }
+ 
++/*
++ * NV30_PS3_IDX_SPLIT, before every index binding on the GPU path (a split draw's pieces and plain
++ * draws alike): room for the words that must reach the kernel in one submission (words: the binding
++ * and BEGIN for a plain draw, the whole piece for a piece), so a push-buffer flush falls only before
++ * the binding; and a submission of its own when this one's index copies with the binding's (copy
++ * bytes, as the kernel lays them out) would pass the file's share of ps3rsx's ring. false: that kick
++ * was cancelled, the state the draw counts on is gone, and the draw is given up (the next validate
++ * sends the state again, nv30_state_check_lost).
++ */
++static bool
++nv30_idx_binding_room(struct nv30_context *nv30, uint64_t copy, unsigned words)
++{
++   struct nouveau_pushbuf *push = nv30->base.pushbuf;
++   struct nouveau_device *dev = nv30->screen->base.device;
++
++   PUSH_SPACE_EX(push, words + 8, 2, 0);
++   if (nv30->ps3_idx_bytes && nv30->ps3_idx_bytes + copy > NV30_PS3_IDX_SUBMIT_BYTES) {
++      const uint32_t cancelled = NOUVEAU_CANCELLED(dev);
++
++      PUSH_KICK(push);
++      nv30_idx_split_count(nv30->screen, &nv30->screen->idx_split_kicks,
++                           "bindings put in a submission of their own");
++      if (NOUVEAU_CANCELLED(dev) != cancelled) {
++         nv30_idx_split_count(nv30->screen, &nv30->screen->idx_split_dropped,
++                              "given up after a cancelled kick before them");
++         return false;
++      }
++      PUSH_SPACE_EX(push, words + 8, 2, 0);
++   }
++   nv30->ps3_idx_bytes = (uint32_t)MIN2(nv30->ps3_idx_bytes + copy, NV30_PS3_IDX_SUBMIT_BYTES);
++   return true;
++}
++
++/* the words of BEGIN, the index batches of count indices and END */
++static unsigned
++nv30_idx_batch_words(unsigned count)
++{
++   const unsigned bw = DIV_ROUND_UP(count, 256);
++
++   return 2 + bw + DIV_ROUND_UP(bw, 2047) + 2;
++}
++
+ /* One piece of a split draw (nv30_idx_split.h): its own binding, at the 256-byte step at or below
+- * its first index, so ps3rsx's copy of it starts at most 255 bytes early */
++ * its first index, so ps3rsx's copy of it starts at most 255 bytes early; all of it in one
++ * submission (a flush inside it would make the kernel copy on to the buffer's end, past what the
++ * share counted) */
+ struct nv30_idx_emit {
+    struct nv30_context *nv30;
+    struct nv04_resource *res;
+    unsigned offset, isz, prim, start;
++   bool dropped;
+ };
+ 
+ static void
+@@ -579,15 +624,13 @@ nv30_idx_piece(void *ctx, unsigned s, unsigned n)
+    uint64_t pos = (uint64_t)(e->start + s) * e->isz;
+    uint64_t at = pos & ~(uint64_t)255;
+ 
+-   const uint64_t copy = nv30_idx_copy_bytes(pos - at, n, e->isz);
+-
+-   /* with the copies already in this submission the file's share would pass: a new one */
+-   if (e->nv30->ps3_idx_bytes && e->nv30->ps3_idx_bytes + copy > NV30_PS3_IDX_SUBMIT_BYTES) {
+-      PUSH_KICK(push);
+-      nv30_idx_split_count(e->nv30->screen, &e->nv30->screen->idx_split_kicks,
+-                           "pieces put in a submission of their own");
++   if (e->dropped)
++      return;
++   if (!nv30_idx_binding_room(e->nv30, nv30_idx_copy_bytes(pos - at, n, e->isz),
++                              3 + nv30_idx_batch_words(n))) {
++      e->dropped = true;
++      return;
+    }
+-   e->nv30->ps3_idx_bytes = (uint32_t)MIN2(e->nv30->ps3_idx_bytes + copy, NV30_PS3_IDX_SUBMIT_BYTES);
+    BEGIN_NV04(push, NV30_3D(IDXBUF_OFFSET), 2);
+    PUSH_RESRC(push, NV30_3D(IDXBUF_OFFSET), BUFCTX_IDXBUF, e->res, e->offset + (uint32_t)at,
+                     NOUVEAU_BO_LOW | NOUVEAU_BO_RD, 0, 0);
+@@ -652,11 +695,13 @@ nv30_draw_elements(struct nv30_context *nv30, bool shorten,
+                               "not split (the kernel refuses them)");
+       }
+ 
+-      /* (the copies this submission holds, for the next split draw's pieces) */
+-      if (unlikely(nv30->screen->idx_split))
+-         nv30->ps3_idx_bytes = (uint32_t)MIN2(nv30->ps3_idx_bytes +
+-                                              nv30_idx_copy_bytes((uint64_t)start * isz, count, isz),
+-                                              NV30_PS3_IDX_SUBMIT_BYTES);
++      /* the binding and its BEGIN in one submission (a flush between them leaves the batches
++       * through half a binding, which the kernel refuses), within the file's share */
++      if (unlikely(nv30->screen->idx_split) &&
++          !nv30_idx_binding_room(nv30, nv30_idx_copy_bytes((uint64_t)start * isz, count, isz), 5)) {
++         PUSH_RESET(push, BUFCTX_IDXBUF);
++         return;
++      }
+       BEGIN_NV04(push, NV30_3D(IDXBUF_OFFSET), 2);
+       PUSH_RESRC(push, NV30_3D(IDXBUF_OFFSET), BUFCTX_IDXBUF, res, offset,
+                        NOUVEAU_BO_LOW | NOUVEAU_BO_RD, 0, 0);
+diff --git a/src/gallium/winsys/nouveau/drm/nouveau.c b/src/gallium/winsys/nouveau/drm/nouveau.c
+--- a/src/gallium/winsys/nouveau/drm/nouveau.c
++++ b/src/gallium/winsys/nouveau/drm/nouveau.c
+@@ -1214,8 +1214,8 @@ pushbuf_submit(struct nouveau_pushbuf *push, struct nouveau_object *chan)
+           * it draws again (nouveau_device::cancelled); the rest of this list goes nowhere */
+          uint32_t n = NOUVEAU_CANCEL(dev);
+          if (!(n & (n - 1)))
+-            err("ps3rsx cancelled a submission (%u so far): its draws are lost (dmesg says "
+-                "why), its state is sent again\n", n);
++            err("ps3rsx cancelled a submission (%u so far): its draws were lost, its state is "
++                "sent again (NV30_PS3_IDX_STATS=1 has the index split counts)\n", n);
+          break;
+       }
+       if (ret) {
