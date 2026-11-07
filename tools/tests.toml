@@ -236,6 +236,12 @@ what = "tools/run-tests.py and this file: how a suite's exit and log become pass
 run = ["python3", "-I", "tools/test_run_tests.py"]
 
 [[suite]]
+name = "chroot-lib"
+what = "tools/lib/chroot.sh in a private mount namespace: open mounts proc, sysfs, /dev and the binds, close leaves nothing mounted and removes the tree but never what was bound in; refuses a relative root and /"
+run = ["bash", "tools/test_chroot_lib.sh"]
+ci_skip = { "chroot-lib" = "needs unshare -Urmpnf, which Ubuntu 24.04's AppArmor refuses for unprivileged users" }
+
+[[suite]]
 name = "leak-check"
 what = "tools/leak-check.py on synthetic packages and sources"
 run = ["python3", "tools/test_leak_check.py"]

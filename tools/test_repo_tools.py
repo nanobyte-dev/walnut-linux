@@ -712,6 +712,8 @@ class StagedDebBuild(unittest.TestCase):
         (self.root / "tools").mkdir()
         for f in ("deb-build.sh", "pkg-dir.sh", "pkgconf.py"):
             shutil.copy(HERE / f, self.root / "tools" / f)
+        (self.root / "tools" / "lib").mkdir()
+        shutil.copy(HERE / "lib" / "chroot.sh", self.root / "tools" / "lib" / "chroot.sh")
         write(self.root, "packages/walnut/x/fake/package.conf", "TYPE=native\nBUILD=indep\nSOURCE=fake\n")
         write(self.root, "build/src/fake/fake_1.dsc", "dsc")
         write(self.root, "build/debs/fake/old_1_all.deb", "old")
