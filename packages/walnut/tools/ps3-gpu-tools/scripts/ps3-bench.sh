@@ -149,7 +149,7 @@ screen_run() {	# screen_run [LINE...]: the screen of a run (BENCH_WHAT, the star
 # (frees its stale VRAM slots), never by restarting ps3-vswap/ps3-swap (backing set, partition
 # held exclusively: the restart fails and leaves no swap)
 empty_swaps() {
-	local used zram need avail dev prio devs=()
+	local used zram need avail dev prio devs=() cycled=0
 	used=$(( $(kb SwapTotal) - $(kb SwapFree) ))
 	if [ "$used" -lt 8192 ]; then echo ">> swap: ${used} kB used, left as is"; return; fi
 	cat /sys/block/ps3vswap0/stats 2>/dev/null | sed 's/^/   vswap before: /'
@@ -169,12 +169,14 @@ empty_swaps() {
 	for d in "${devs[@]}"; do
 		dev=${d%:*}; prio=${d#*:}
 		case $dev in
-		*ps3vswap*) sudo swapon -p "$prio" --discard "$dev" ;;
+		*ps3vswap*) sudo swapon -p "$prio" --discard "$dev" && cycled=1 ;;
 		*) sudo swapon -p "$prio" "$dev" ;;
 		esac || die "swapon $dev failed"
 	done
 	cat /sys/block/ps3vswap0/stats 2>/dev/null | sed 's/^/   vswap after: /'
-	if [ -e /sys/block/ps3vswap0/stats ]; then
+	# Only when the VRAM swap was one of the swaps just cycled: a swapoff doesn't discard, so a device
+	# left off (BENCH_NOVSWAP) keeps its old slots counted until vswap_on's swapon --discard
+	if [ "$cycled" = 1 ]; then
 		# Allowed to stay: the swap header (page 0), which a discard never covers, and the pages
 		# the kernel swapped out again right after the swapon (memory is tight once swapoff has
 		# brought everything back), which the writes counter shows
