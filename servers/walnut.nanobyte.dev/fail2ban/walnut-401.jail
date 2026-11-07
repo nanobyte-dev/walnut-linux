@@ -5,7 +5,7 @@
 [walnut-401]
 enabled   = false
 backend   = auto
-logpath   = /data/nanobyte/MainProxy/Logs/access.log
+logpath   = /data/nanobyte/MainProxy/Logs/walnut.log
 filter    = walnut-401
 maxretry  = 10
 findtime  = 10m
