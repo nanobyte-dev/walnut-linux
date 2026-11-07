@@ -52,7 +52,7 @@ def parse(text, where="package.conf", env=None, strict=True):
             continue
         m = ASSIGN.fullmatch(line)
         if not m and not strict:
-            bad.add(line.split("=", 1)[0])
+            bad.update(re.findall(r"[A-Za-z_][A-Za-z0-9_]*", line))  # every name the line mentions: export VERSION=.., : ${VERSION:=..}
             continue
         if not m:
             raise Error("%s:%d: not a KEY=value line: %s" % (where, n, line))

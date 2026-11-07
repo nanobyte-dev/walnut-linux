@@ -29,6 +29,14 @@ class Reader(unittest.TestCase):
         got = pc.parse("TYPE=native\nVERSION=$(x)\nbad line\n", env={}, strict=False)
         self.assertEqual((dict(got), "VERSION" in got.bad), ({"TYPE": "native"}, True))
 
+    def test_lenient_flags_every_key_an_unreadable_line_names(self):
+        for line in ("export VERSION=1.2", "readonly VERSION=1.2", ": ${VERSION:=1.2}", "VERSION=$(x)"):
+            got = pc.parse("TYPE=native\n%s\n" % line, env={}, strict=False)
+            self.assertIn("VERSION", got.bad, line)
+            self.assertNotIn("VERSION", got, line)
+        got = pc.parse("export TYPE=native\nVERSION=1\n", env={}, strict=False)
+        self.assertEqual((dict(got), "TYPE" in got.bad), ({"VERSION": "1"}, True))
+
     def test_refused(self):
         for bad in ("echo hi", "A=1 B=2", 'A="open', "A=b c", "A=$(date)", "a-b=1", 'A="x" "y"', 'A="x"#c', "A=$1", "A=$$", "A=~/x", "A=x:~/y", 'A="$1"', "A=x$"):
             with self.assertRaises(pc.Error, msg=bad):
