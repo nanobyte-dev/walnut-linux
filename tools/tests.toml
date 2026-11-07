@@ -170,7 +170,7 @@ ci_skip = { "mesa-placement" = "needs build/work/mesa" }
 
 [[suite]]
 name = "mesa-idx-split"
-what = "Mesa 0072: on the PS3 an indexed draw past ps3rsx's 1 MiB per-binding cap goes as pieces: every mode, restart, U8/U16/U32 against a model of GL's primitives (winding and flat-shading vertex kept, fans/polygons/loops as lists); 2 MiB U32 and over-1 MiB U16 lists, strips, fans and loops each piece under the cap with the kernel's skew; the draw path and the screen default wired; 0073: nv30_vbo.c against a fake push buffer and a model of ps3rsx's index rules, every binding within the file's share and binding+BEGIN and each piece in one submission at every flush point, a cancelled share kick giving up the draw, draws under the cap word for word as before 0072; each rule taken out fails"
+what = "Mesa 0072: on the PS3 an indexed draw past ps3rsx's 1 MiB per-binding cap goes as pieces: every mode, restart, U8/U16/U32 against a model of GL's primitives (winding and flat-shading vertex kept, fans/polygons/loops as lists); 2 MiB U32 and over-1 MiB U16 lists, strips, fans and loops each piece under the cap with the kernel's skew; the draw path and the screen default wired; 0073: nv30_vbo.c against a fake push buffer and a model of ps3rsx's index rules, every binding within the file's share and binding+BEGIN and each piece in one submission at every flush point, a cancelled share kick giving up the draw, draws under the cap word for word as before 0072; 0074: every indexed draw whole in one submission (the kernel's tail copy in the model), no winsys call for space when there is room; each rule taken out fails"
 run = ["packages/patched/graphics/mesa/tests/host-tests.sh", "idx-split"]
 group = "mesa"
 ci_skip = { "mesa-idx-split" = "needs build/work/mesa" }

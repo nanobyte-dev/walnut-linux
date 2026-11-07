@@ -5,7 +5,9 @@
  *   - a binding's batches hold at most 1 MiB with the copy's skew (the cap);
  *   - a submission's copies, with the one the kernel keeps for a primitive the previous submission
  *     left open (up to 1 MiB), stay within the file's share (1.25 MiB); every draw counted as a
- *     fresh copy, as Mesa counts it, which is also what the kernel scans;
+ *     fresh copy, as Mesa counts it, which is also what the kernel scans; a binding whose primitive
+ *     the submission's end leaves open copies on to the index buffer's end, at most 1 MiB (ib_close's
+ *     tail), and that is what counts;
  *   - no submission starts with batches through a binding it doesn't hold (a flush between the
  *     binding and BEGIN), and no piece of a split draw ends a submission inside its primitive.
  * Parts:
@@ -13,6 +15,7 @@
  *     draw's primitive followed by more plain draws (the review's M1);
  *   space: split and plain draws through small push buffers, every flush point tried (M2);
  *   cancel: a cancelled kick before a piece gives up the rest of the draw (L5);
+ *   cost: with room in the push buffer, indexed draws make no call into the winsys (L7);
  *   golden ("dump"): the words of draws under the cap, for host-tests.sh's diff against nv30_vbo.c
  *     before 0072: identical.
  *   idx-stream-test [share|space|cancel|dump] */
@@ -27,7 +30,8 @@ static int fails, checks;
 static uint32_t mem[1 << 22];
 static size_t used, room = 1 << 20;
 static size_t sub_start[1 << 16];
-static unsigned nsub, cancel_next;
+static unsigned nsub, cancel_next, space_calls;
+#define IB_END (0x100000ull + (4u << 20))	/* the index buffer: 4 MiB from GART 0x100000 */
 static struct nv30_context *ctx;
 static struct nouveau_device dev;
 
@@ -47,6 +51,7 @@ static void flush(struct nouveau_pushbuf *push)
 int nouveau_pushbuf_space(struct nouveau_pushbuf *push, uint32_t dwords, uint32_t relocs, uint32_t pushes)
 {
 	(void)relocs; (void)pushes;
+	space_calls++;
 	if (!push->cur) {
 		push->cur = mem;
 		push->end = mem + room;
@@ -125,7 +130,13 @@ static struct kstat kernel(bool strict)
 				}
 			}
 		}
-		if (hi > lo) {		/* the submission's end closes the binding */
+		if (open && have_bind) {	/* the tail: on to the buffer's end, at most 1 MiB */
+			uint32_t isz = fmt & 0x10 ? 2 : 4;
+			uint64_t from = off + (hi > lo ? lo * isz : 0);
+			uint64_t len = from < IB_END ? MIN2(IB_END - from, NV30_PS3_IDX_BINDING_MAX) : 0;
+
+			share += (len + 255) & ~255ull;
+		} else if (hi > lo) {	/* the submission's end closes the binding */
 			uint32_t isz = fmt & 0x10 ? 2 : 4;
 			uint64_t len = (lo * isz & 255) + (hi - lo) * isz;
 
@@ -136,7 +147,6 @@ static struct kstat kernel(bool strict)
 		st.over_share += share > (1280u << 10);
 		st.most = MAX2(st.most, share);
 		st.split_open += strict && open && s < nsub;
-		(void)off;
 	}
 	return st;
 }
@@ -264,6 +274,19 @@ static void part_space(void)
 	}
 }
 
+static void part_cost(void)
+{
+	unsigned calls;
+
+	reset(1 << 22);
+	space_calls = 0;
+	for (int i = 0; i < 100; i++)
+		draw(MESA_PRIM_TRIANGLES, 3 * i, 3000, 2);
+	finish();
+	calls = space_calls;
+	CHECK(!calls, "cost: 100 indexed draws with room made %u calls into the winsys for space", calls);
+}
+
 static void part_cancel(void)
 {
 	unsigned b;
@@ -312,6 +335,8 @@ int main(int argc, char **argv)
 		part_space();
 	if (!strcmp(p, "cancel") || !strcmp(p, "all"))
 		part_cancel();
+	if (!strcmp(p, "cost") || !strcmp(p, "all"))
+		part_cost();
 #endif
 	printf("idx-stream-test %s: %d checks, %d failed\n", p, checks, fails);
 	return fails != 0;

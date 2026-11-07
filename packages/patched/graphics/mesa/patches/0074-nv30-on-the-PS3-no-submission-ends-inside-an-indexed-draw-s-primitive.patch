@@ -1,0 +1,63 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Sat, 7 Nov 2026 22:54:50 +0200
+Subject: nv30: on the PS3, no submission ends inside an indexed draw's
+ primitive
+
+The re-review of 0073 (M1'): a plain indexed draw reserved only its binding and BEGIN, so the
+batches' own space check could still end the submission inside the primitive. ps3rsx then copies
+the binding on to the index buffer's end (up to 1 MiB) and counts that against the submission's
+share of its ring, on top of what Mesa counted: with about 0.25 MiB already in the submission it is
+refused. A plain draw under the cap now reserves all of its words before its binding, as a piece
+does (binding, BEGIN, batches, END: at most about 2.06k words), so a flush falls only before an
+indexed draw. A draw past the cap that couldn't be split keeps the binding-and-BEGIN reservation.
+
+L7: the space check is now inline (PUSH_AVAIL first, as PUSH_SPACE does): a draw with room in the
+push buffer makes no call into the winsys and takes no lock, as before 0073. Draws send the same
+words as before 0072 wherever no flush was due.
+
+Forwarded: no
+
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_vbo.c b/src/gallium/drivers/nouveau/nv30/nv30_vbo.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_vbo.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_vbo.c
+@@ -578,7 +578,9 @@ nv30_idx_binding_room(struct nv30_context *nv30, uint64_t copy, unsigned words)
+    struct nouveau_pushbuf *push = nv30->base.pushbuf;
+    struct nouveau_device *dev = nv30->screen->base.device;
+ 
+-   PUSH_SPACE_EX(push, words + 8, 2, 0);
++   /* (inline, as PUSH_SPACE: with room, as nearly always, no call and no lock) */
++   if (PUSH_AVAIL(push) < words + 8)
++      PUSH_SPACE_EX(push, words + 8, 2, 0);
+    if (nv30->ps3_idx_bytes && nv30->ps3_idx_bytes + copy > NV30_PS3_IDX_SUBMIT_BYTES) {
+       const uint32_t cancelled = NOUVEAU_CANCELLED(dev);
+ 
+@@ -590,7 +592,8 @@ nv30_idx_binding_room(struct nv30_context *nv30, uint64_t copy, unsigned words)
+                               "given up after a cancelled kick before them");
+          return false;
+       }
+-      PUSH_SPACE_EX(push, words + 8, 2, 0);
++      if (PUSH_AVAIL(push) < words + 8)
++         PUSH_SPACE_EX(push, words + 8, 2, 0);
+    }
+    nv30->ps3_idx_bytes = (uint32_t)MIN2(nv30->ps3_idx_bytes + copy, NV30_PS3_IDX_SUBMIT_BYTES);
+    return true;
+@@ -695,10 +698,15 @@ nv30_draw_elements(struct nv30_context *nv30, bool shorten,
+                               "not split (the kernel refuses them)");
+       }
+ 
+-      /* the binding and its BEGIN in one submission (a flush between them leaves the batches
+-       * through half a binding, which the kernel refuses), within the file's share */
++      /* the whole draw in one submission, as a piece (a flush between the binding and BEGIN
++       * leaves the batches through half a binding, which the kernel refuses; one inside the
++       * primitive makes the kernel copy on to the buffer's end, up to 1 MiB, against this
++       * submission's share), within the file's share. A draw past the cap that couldn't be split
++       * (the kernel refuses it anyway): the binding and BEGIN only */
+       if (unlikely(nv30->screen->idx_split) &&
+-          !nv30_idx_binding_room(nv30, nv30_idx_copy_bytes((uint64_t)start * isz, count, isz), 5)) {
++          !nv30_idx_binding_room(nv30, nv30_idx_copy_bytes((uint64_t)start * isz, count, isz),
++                                 (uint64_t)count * isz <= NV30_PS3_IDX_PIECE_BYTES ?
++                                 3 + nv30_idx_batch_words(count) : 5)) {
+          PUSH_RESET(push, BUFCTX_IDXBUF);
+          return;
+       }

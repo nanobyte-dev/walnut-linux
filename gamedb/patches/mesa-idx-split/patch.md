@@ -1,7 +1,7 @@
 +++
 component = "mesa"
-patches = ["patches/0072-nv30-on-the-PS3-an-indexed-draw-past-the-kernel-s-per-binding-cap-is-drawn-in-pieces.patch", "patches/0073-nv30-on-the-PS3-every-index-binding-keeps-within-the-kernel-s-share-and-never-spans-two-submissions.patch"]
-aliases = ["Mesa 0072", "Mesa 0073"]
+patches = ["patches/0072-nv30-on-the-PS3-an-indexed-draw-past-the-kernel-s-per-binding-cap-is-drawn-in-pieces.patch", "patches/0073-nv30-on-the-PS3-every-index-binding-keeps-within-the-kernel-s-share-and-never-spans-two-submissions.patch", "patches/0074-nv30-on-the-PS3-no-submission-ends-inside-an-indexed-draw-s-primitive.patch"]
+aliases = ["Mesa 0072", "Mesa 0073", "Mesa 0074"]
 category = "correctness"
 switch = "NV30_PS3_IDX_SPLIT (0 as before); NV30_PS3_IDX_STATS=1 counts the splits"
 default = "on on the PS3"
@@ -47,6 +47,13 @@ BEGIN together and a piece all of its words before its binding, so a push-buffer
 of the draw. `NV30_PS3_IDX_SPLIT=0` prints a line; the cancelled-submission line says the draws were lost and points at
 `NV30_PS3_IDX_STATS`. `mesa-idx-split:stream` runs nv30_vbo.c against a fake push buffer and a model of the kernel's index rules at
 every flush point; `golden` pins the words of draws under the cap to those before 0072.
+
+0074 (the re-review's M1' and L7): a plain indexed draw under the cap reserves all of its words too (binding, BEGIN, batches,
+END: at most about 2.06k words, 3% of a PS3 push buffer), so no submission ends inside an indexed primitive, where the kernel would
+count a tail copy of up to 1 MiB against it. The space check is inline (`PUSH_AVAIL` first, as PUSH_SPACE does), so a draw with room
+makes no call into the winsys. The stream test's kernel model now copies on to the buffer's end for a binding a submission leaves
+open (its `space` part failed on 0073 with it), and its `cost` part counts the winsys calls. Being on every indexed draw, 0074 gets
+a Mesa A/B on the PS3.
 
 Left for a later batch (the review's L1 to L4): the conversion of a fan, polygon or loop takes up to 64 MiB of GART in one upload
 allocation (piece-by-piece conversion would bound it); split draws run in lockstep with the GPU (each ~1 MiB piece waits for the

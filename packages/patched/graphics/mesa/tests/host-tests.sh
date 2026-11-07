@@ -59,8 +59,9 @@
 #                  the ring kicked into a submission of its own, the count started at each kick with the copy
 #                  the kernel keeps for a primitive the kick left open); stream (0073, idx-stream-test.c: nv30_vbo.c
 #                  whole against a fake push buffer and a model of ps3rsx's index rules: every binding within the
-#                  file's share, binding and BEGIN, and each piece whole, in one submission at every flush point, a
-#                  cancelled kick before a piece giving up the draw), golden (draws under the cap: the words of
+#                  file's share with the kernel's tail copy counted, every indexed draw and each piece whole in one
+#                  submission at every flush point, a cancelled kick before a piece giving up the draw, no call
+#                  into the winsys for space when there is room (0074)), golden (draws under the cap: the words of
 #                  nv30_vbo.c before 0072, identical); fix-off: each rule of the header and of nv30_vbo.c taken out
 #                  must fail
 # Each part prints "RESULT <suite>:<part> pass|fail|skip" (tools/ladder.py reads them). Exit 0 when every
@@ -684,11 +685,16 @@ idx-split)
 				$F/nv30/nv30_vbo.c || { rc=1; return; }
 			cp $H $F/nv30/nv30_idx_split.h
 			mcc $F/stream-$1 -I$F $t/idx-stream-test.c -w $SU || { rc=1; return; }
-			expect_fail "0073 off: $1" "$4" $F/stream-$1 || rc=1
+			expect_fail "0073/0074 off: $1" "$4" $F/stream-$1 || rc=1
 		}
-		B='          !nv30_idx_binding_room(nv30, nv30_idx_copy_bytes((uint64_t)start * isz, count, isz), 5)) {'
-		voff plain-share "$B" '          !nv30_idx_binding_room(nv30, 0, 5)) {' 'FAIL .*share [ab]:'
-		voff plain-space "$B" "${B/, 5)) {/, 0)) {}" 'FAIL .*space: .* push buffer sizes'
+		B='          !nv30_idx_binding_room(nv30, nv30_idx_copy_bytes((uint64_t)start * isz, count, isz),'
+		voff plain-share "$B" '          !nv30_idx_binding_room(nv30, 0,' 'FAIL .*share [ab]:'
+		voff plain-space '                                 3 + nv30_idx_batch_words(count) : 5)) {' \
+			'                                 0 : 5)) {' 'FAIL .*space: .* push buffer sizes'
+		voff plain-whole '                                 3 + nv30_idx_batch_words(count) : 5)) {' \
+			'                                 5 : 5)) {' 'FAIL .*space: .* push buffer sizes'
+		voff space-guard $'   if (PUSH_AVAIL(push) < words + 8)\n      PUSH_SPACE_EX(push, words + 8, 2, 0);\n   if (nv30->ps3_idx_bytes' \
+			$'   PUSH_SPACE_EX(push, words + 8, 2, 0);\n   if (nv30->ps3_idx_bytes' 'FAIL .*cost:'
 		voff piece-whole '                              3 + nv30_idx_batch_words(n))) {' '                              3)) {' \
 			'FAIL .*inside a piece'
 		voff cancel-drop $'                              "given up after a cancelled kick before them");\n         return false;' \
