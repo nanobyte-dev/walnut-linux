@@ -169,6 +169,13 @@ group = "mesa"
 ci_skip = { "mesa-placement" = "needs build/work/mesa" }
 
 [[suite]]
+name = "mesa-idx-split"
+what = "Mesa 0072: on the PS3 an indexed draw past ps3rsx's 1 MiB per-binding cap goes as pieces: every mode, restart, U8/U16/U32 against a model of GL's primitives (winding and flat-shading vertex kept, fans/polygons/loops as lists); 2 MiB U32 and over-1 MiB U16 lists, strips, fans and loops each piece under the cap with the kernel's skew; the draw path and the screen default wired; each rule taken out fails"
+run = ["packages/patched/graphics/mesa/tests/host-tests.sh", "idx-split"]
+group = "mesa"
+ci_skip = { "mesa-idx-split" = "needs build/work/mesa" }
+
+[[suite]]
 name = "mesa-submit-fail"
 what = "Mesa 0061: the winsys's push buffer submission (nouveau.c whole, a fake kernel): a cancelled and a failed submission both count in nouveau_device::cancelled, none lost under four threads; the file before the patch fails"
 run = ["packages/patched/graphics/mesa/tests/host-tests.sh", "submit-fail"]

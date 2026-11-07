@@ -1,0 +1,489 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Sat, 7 Nov 2026 21:16:29 +0200
+Subject: nv30: on the PS3, an indexed draw past the kernel's per-binding cap
+ is drawn in pieces
+
+ps3rsx copies the indices each index buffer binding draws into its own ring and refuses a binding
+whose primitives span more than 1 MiB of indices (its IXS_MAX; no GETPARAM gives it). A draw of
+524032 U32 indices (midprim's elements case, 2 MiB) was refused at every submission: Mesa re-sent
+its state and the draws were lost, with no GL error.
+
+On the PS3 (NV30_PS3_IDX_SPLIT, on by default; 0 as before) nv30_draw_elements now draws such a
+draw as pieces, each with its own IDXBUF_OFFSET/FORMAT at the 256-byte step at or below its first
+index and at most 1 MiB - 4 KiB of indices, so with the kernel's skew (its copy starts up to 255
+bytes early) every binding stays under the cap (nv30_idx_split.h):
+
+- Lists are cut on primitive boundaries, line strips with one index of overlap, triangle and quad
+  strips with two, each piece starting an even number of indices into its strip so the winding
+  holds.
+- With primitive restart the cut goes right after the last restart index in the window when it
+  has one; otherwise it is counted from the last restart, where a list's grouping and a strip's
+  alternation start again. The pieces keep their restart indices and the GPU restarts on them.
+- Fans, polygons and line loops share their first vertex across any cut: they are written as a
+  triangle (line) list into the upload buffer (restart indices consumed, each triangle's provoking
+  vertex the one GL gives it, last or first convention) and that list is split.
+
+NV30_PS3_IDX_STATS counts split draws, conversions and draws that could not be split. The
+winsys's line for a cancelled submission now says that its draws are lost and that dmesg says why.
+
+Forwarded: no
+
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_idx_split.h b/src/gallium/drivers/nouveau/nv30/nv30_idx_split.h
+new file mode 100644
+--- /dev/null
++++ b/src/gallium/drivers/nouveau/nv30/nv30_idx_split.h
+@@ -0,0 +1,182 @@
++/*
++ * PS3 (ps3rsx's index copies): the kernel copies the indices each index buffer binding draws into
++ * its own ring before the GPU reads them, and refuses a binding whose primitives span more than
++ * 1 MiB of indices ("more than 1 MiB of indices through one binding": IXS_MAX in ps3rsx's
++ * idxsnap.h, ib_close in its validate.c; there is no GETPARAM for it). Its copy starts up to 255
++ * bytes before the binding's first index (a multiple of 256 bytes from the binding's offset). So
++ * nv30 draws an indexed draw over that as pieces, each with its own binding at a 256-byte step at
++ * or below its first index and at most NV30_PS3_IDX_PIECE_BYTES of indices: at most 255 bytes of
++ * skew plus the piece, under the cap with room to spare.
++ *
++ * Pure code (no context), so tests/idx-split-test.c checks it against a model of the primitives:
++ *  - nv30_idx_split: modes whose pieces are ranges of the draw's indices (lists, strips): a list
++ *    cut on a primitive boundary, a strip cut with the overlap that keeps its triangles and their
++ *    winding; with primitive restart, cut right after a restart index when the window has one,
++ *    else counted from the last restart (where the list's grouping and the strip's alternation
++ *    start again). The pieces still hold their restart indices: the GPU restarts on them as before.
++ *  - nv30_idx_convert: fans, polygons and line loops share their first vertex across any cut:
++ *    written out as a triangle (line) list instead, restart indices consumed, each triangle's
++ *    provoking vertex the one GL gives it (last or first convention), then split as a list.
++ */
++#ifndef NV30_IDX_SPLIT_H
++#define NV30_IDX_SPLIT_H
++
++#include <stdbool.h>
++#include <stdint.h>
++#include "compiler/shader_enums.h"
++
++#define NV30_PS3_IDX_BINDING_MAX (1u << 20)	/* ps3rsx's IXS_MAX */
++#define NV30_PS3_IDX_PIECE_BYTES (NV30_PS3_IDX_BINDING_MAX - 4096)
++
++static inline uint32_t
++nv30_idx_get(const void *p, unsigned isz, unsigned i)
++{
++   return isz == 1 ? ((const uint8_t *)p)[i] : isz == 2 ? ((const uint16_t *)p)[i] :
++                     ((const uint32_t *)p)[i];
++}
++
++/* modes nv30_idx_split cuts (the others: nv30_idx_convert first, or not at all) */
++static inline bool
++nv30_idx_split_contiguous(unsigned mode)
++{
++   switch (mode) {
++   case MESA_PRIM_POINTS: case MESA_PRIM_LINES: case MESA_PRIM_TRIANGLES: case MESA_PRIM_QUADS:
++   case MESA_PRIM_LINE_STRIP: case MESA_PRIM_TRIANGLE_STRIP: case MESA_PRIM_QUAD_STRIP:
++      return true;
++   default:
++      return false;
++   }
++}
++
++static inline bool
++nv30_idx_convertible(unsigned mode)
++{
++   return mode == MESA_PRIM_TRIANGLE_FAN || mode == MESA_PRIM_POLYGON || mode == MESA_PRIM_LINE_LOOP;
++}
++
++typedef void (*nv30_idx_piece_fn)(void *ctx, unsigned start, unsigned count);
++
++/*
++ * [0, count) as pieces of at most max indices, each drawn alone as mode: fn(ctx, start, count) for
++ * each, in order. idx (isz bytes per index, from the draw's start) is read only with restart.
++ * Returns the number of pieces, or 0 for a mode it doesn't cut or a max too small to progress.
++ */
++static inline unsigned
++nv30_idx_split(unsigned mode, unsigned count, unsigned max, bool restart, uint32_t rst,
++               const void *idx, unsigned isz, nv30_idx_piece_fn fn, void *ctx)
++{
++   unsigned unit, overlap, s = 0, seg = 0, n = 0;
++
++   switch (mode) {
++   case MESA_PRIM_POINTS:         unit = 1; overlap = 0; break;
++   case MESA_PRIM_LINES:          unit = 2; overlap = 0; break;
++   case MESA_PRIM_TRIANGLES:      unit = 3; overlap = 0; break;
++   case MESA_PRIM_QUADS:          unit = 4; overlap = 0; break;
++   case MESA_PRIM_LINE_STRIP:     unit = 1; overlap = 1; break;
++   /* a strip's triangles alternate their winding from its start: each piece starts an even
++    * number of indices after it (the next piece repeats the last two) */
++   case MESA_PRIM_TRIANGLE_STRIP: unit = 2; overlap = 2; break;
++   case MESA_PRIM_QUAD_STRIP:     unit = 2; overlap = 2; break;
++   default: return 0;
++   }
++   if (max < 8 || (restart && !idx))
++      return 0;
++   while (s < count) {
++      unsigned e = count - s <= max ? count : s + max;
++      bool cut = false;
++
++      /* a restart index first in the piece: what follows starts afresh */
++      if (restart && nv30_idx_get(idx, isz, s) == rst)
++         seg = s + 1;
++      if (e < count) {
++         if (restart) {
++            /* the last restart index in the window: the piece ends with it */
++            for (unsigned i = e; i-- > s + 1; ) {
++               if (nv30_idx_get(idx, isz, i) == rst) {
++                  e = i + 1;
++                  cut = true;
++                  break;
++               }
++            }
++         }
++         if (!cut) {
++            /* whole primitives (lists), an even count from the strip's start (strips) */
++            e -= (e - seg) % unit;
++            if (e <= s + overlap)
++               return 0;
++         }
++      }
++      fn(ctx, s, e - s);
++      n++;
++      if (e >= count)
++         break;
++      if (cut)
++         s = seg = e;
++      else
++         s = e - overlap;
++   }
++   return n;
++}
++
++/* the most indices nv30_idx_convert writes for count */
++static inline uint64_t
++nv30_idx_convert_max(unsigned mode, unsigned count)
++{
++   return (mode == MESA_PRIM_LINE_LOOP ? 2ull : 3ull) * count;
++}
++
++/* the mode nv30_idx_convert's list is drawn as */
++static inline unsigned
++nv30_idx_convert_mode(unsigned mode)
++{
++   return mode == MESA_PRIM_LINE_LOOP ? MESA_PRIM_LINES : MESA_PRIM_TRIANGLES;
++}
++
++/*
++ * A fan, polygon or line loop of count indices (isz bytes each) as a triangle or line list of
++ * 32-bit indices in out (room for nv30_idx_convert_max): with restart, each run between restart
++ * indices is a primitive of its own. The vertex GL takes a flat colour from stays the last of
++ * its triangle (line), or with first (flatshade_first) the first: a fan's triangle k takes
++ * vertex k + 2 (first: k + 1), a polygon's vertex 0 either way; a loop's segment k takes vertex
++ * k + 1 (first: k), its closing segment vertex 0 (first: the last). Returns the indices written.
++ */
++static inline unsigned
++nv30_idx_convert(unsigned mode, unsigned count, bool restart, uint32_t rst, const void *idx,
++                 unsigned isz, bool first, uint32_t *out)
++{
++   unsigned o = 0, s0 = 0;
++
++   for (unsigned i = 0; i <= count; i++) {
++      if (i < count && !(restart && nv30_idx_get(idx, isz, i) == rst))
++         continue;
++      /* the primitive [s0, i) */
++      if (mode == MESA_PRIM_LINE_LOOP) {
++         if (i - s0 >= 2) {
++            for (unsigned k = s0 + 1; k < i; k++) {
++               out[o++] = nv30_idx_get(idx, isz, k - 1);
++               out[o++] = nv30_idx_get(idx, isz, k);
++            }
++            out[o++] = nv30_idx_get(idx, isz, i - 1);
++            out[o++] = nv30_idx_get(idx, isz, s0);
++         }
++      } else if (i - s0 >= 3) {
++         uint32_t c = nv30_idx_get(idx, isz, s0);
++         bool c_first = mode == MESA_PRIM_POLYGON ? first : !first;
++
++         for (unsigned k = s0 + 2; k < i; k++) {
++            uint32_t a = nv30_idx_get(idx, isz, k - 1), b = nv30_idx_get(idx, isz, k);
++
++            /* (c, a, b) and (a, b, c): the same winding, the provoking vertex last or first */
++            if (c_first) {
++               out[o++] = c; out[o++] = a; out[o++] = b;
++            } else {
++               out[o++] = a; out[o++] = b; out[o++] = c;
++            }
++         }
++      }
++      s0 = i + 1;
++   }
++   return o;
++}
++
++#endif
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_screen.c b/src/gallium/drivers/nouveau/nv30/nv30_screen.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_screen.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_screen.c
+@@ -572,6 +572,9 @@ nv30_screen_create(struct nouveau_device *dev)
+    if (ps3 && !screen->fp_gart)
+       fprintf(stderr, "nv30: NV30_PS3_FP_GART=0: fragment programs in VRAM, which ps3rsx refuses\n");
+    screen->idx_stats = ps3 && debug_get_bool_option("NV30_PS3_IDX_STATS", false);
++   /* ps3rsx refuses an index buffer binding whose primitives span more than 1 MiB of indices
++    * (nv30_idx_split.h): such draws go as pieces; NV30_PS3_IDX_SPLIT=0 as before */
++   screen->idx_split = ps3 && debug_get_bool_option("NV30_PS3_IDX_SPLIT", true);
+    screen->idx_stats_t0 = os_time_get_nano();
+    screen->fp_const_vram = debug_get_bool_option("NV30_FP_CONST_VRAM", !ps3);
+    screen->index_upload = debug_get_num_option("NV30_INDEX_UPLOAD", ps3 ? 32 : 0);
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_screen.h b/src/gallium/drivers/nouveau/nv30/nv30_screen.h
+--- a/src/gallium/drivers/nouveau/nv30/nv30_screen.h
++++ b/src/gallium/drivers/nouveau/nv30/nv30_screen.h
+@@ -86,6 +86,8 @@ struct nv30_screen {
+    bool idx_stats;             /* NV30_PS3_IDX_STATS: stderr lines counting nv30_idxbuf_to_gart's work */
+    int64_t idx_stats_t0;
+    uint32_t idx_moves_cpu, idx_moves_gpu, idx_moves_failed, idx_kicks;
++   bool idx_split;             /* NV30_PS3_IDX_SPLIT: indexed draws past ps3rsx's per-binding cap in pieces */
++   uint32_t idx_splits, idx_converted, idx_split_failed;
+    bool fp_gart;               /* NV30_PS3_FP_GART: fragment programs in GART, not VRAM */
+    bool fp_const_vram;         /* NV30_FP_CONST_VRAM: constant changes re-upload the VRAM program */
+    unsigned index_upload;      /* NV30_INDEX_UPLOAD: least count of CPU-held indices uploaded */
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_vbo.c b/src/gallium/drivers/nouveau/nv30/nv30_vbo.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_vbo.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_vbo.c
+@@ -35,6 +35,7 @@
+ #include "nv30/nv30-40_3d.xml.h"
+ #include "nv30/nv30_context.h"
+ #include "nv30/nv30_format.h"
++#include "nv30/nv30_idx_split.h"
+ #include "nv30/nv30_vtx_snorm8.h"
+ #include "nv30/nv30_winsys.h"
+ 
+@@ -524,13 +525,79 @@ nv30_draw_elements_inline_u32_short(struct nouveau_pushbuf *push,
+    }
+ }
+ 
++/* BEGIN prim, the index batches of [start, start + count) through the bound index buffer, END */
++static void
++nv30_idx_batches(struct nouveau_pushbuf *push, unsigned prim, unsigned start, unsigned count)
++{
++   BEGIN_NV04(push, NV30_3D(VERTEX_BEGIN_END), 1);
++   PUSH_DATA (push, prim);
++   while (count) {
++      const unsigned mpush = 2047 * 256;
++      unsigned npush  = (count > mpush) ? mpush : count;
++      unsigned wpush  = ((npush + 255) & ~255) >> 8;
++
++      count -= npush;
++
++      BEGIN_NI04(push, NV30_3D(VB_INDEX_BATCH), wpush);
++      while (npush >= 256) {
++         PUSH_DATA (push, 0xff000000 | start);
++         start += 256;
++         npush -= 256;
++      }
++
++      if (npush)
++         PUSH_DATA (push, ((npush - 1) << 24) | start);
++   }
++   BEGIN_NV04(push, NV30_3D(VERTEX_BEGIN_END), 1);
++   PUSH_DATA (push, NV30_3D_VERTEX_BEGIN_END_STOP);
++}
++
++/* NV30_PS3_IDX_STATS=1: a stderr line each time a count of split draws passes a power of two */
++static void
++nv30_idx_split_count(struct nv30_screen *screen, uint32_t *n, const char *what)
++{
++   uint32_t v = p_atomic_inc_return(n);
++
++   if (unlikely(screen->idx_stats) && !(v & (v - 1)))
++      fprintf(stderr, "nv30: %u indexed draws %s (%.1f s)\n", v, what,
++              (os_time_get_nano() - screen->idx_stats_t0) / 1e9);
++}
++
++/* One piece of a split draw (nv30_idx_split.h): its own binding, at the 256-byte step at or below
++ * its first index, so ps3rsx's copy of it starts at most 255 bytes early */
++struct nv30_idx_emit {
++   struct nv30_context *nv30;
++   struct nv04_resource *res;
++   unsigned offset, isz, prim, start;
++};
++
++static void
++nv30_idx_piece(void *ctx, unsigned s, unsigned n)
++{
++   struct nv30_idx_emit *e = ctx;
++   struct nouveau_pushbuf *push = e->nv30->base.pushbuf;
++   uint64_t pos = (uint64_t)(e->start + s) * e->isz;
++   uint64_t at = pos & ~(uint64_t)255;
++
++   BEGIN_NV04(push, NV30_3D(IDXBUF_OFFSET), 2);
++   PUSH_RESRC(push, NV30_3D(IDXBUF_OFFSET), BUFCTX_IDXBUF, e->res, e->offset + (uint32_t)at,
++                    NOUVEAU_BO_LOW | NOUVEAU_BO_RD, 0, 0);
++   PUSH_MTHD (push, NV30_3D(IDXBUF_FORMAT), BUFCTX_IDXBUF, e->res->bo,
++                    (e->isz == 2) ? 0x00000010 : 0x00000000,
++                    e->res->domain | NOUVEAU_BO_RD,
++                    0, NV30_3D_IDXBUF_FORMAT_DMA1);
++   nv30_idx_batches(push, e->prim, (unsigned)((pos - at) / e->isz), n);
++}
++
++/* cpu: the draw's indices as the CPU sees them (cpu_size bytes each, from the draw's start) for
++ * the split's restart scan, or NULL; restart: the GPU restarts on info->restart_index in them */
+ static void
+ nv30_draw_elements(struct nv30_context *nv30, bool shorten,
+                    const struct pipe_draw_info *info,
+                    unsigned mode, unsigned start, unsigned count,
+                    unsigned instance_count, int32_t index_bias,
+ 		   unsigned index_size, struct nv04_resource *upload,
+-                   unsigned upload_offset)
++                   unsigned upload_offset, const void *cpu, unsigned cpu_size, bool restart)
+ {
+    struct nouveau_pushbuf *push = nv30->base.pushbuf;
+    struct nouveau_object *eng3d = nv30->screen->eng3d;
+@@ -556,6 +623,24 @@ nv30_draw_elements(struct nv30_context *nv30, bool shorten,
+ 
+       assert(nouveau_resource_mapped_by_gpu(&res->base));
+ 
++      /* NV30_PS3_IDX_SPLIT: past ps3rsx's per-binding cap, pieces of their own bindings */
++      const unsigned isz = index_size == 2 ? 2 : 4;
++      if (unlikely(nv30->screen->idx_split) &&
++          (uint64_t)count * isz > NV30_PS3_IDX_PIECE_BYTES) {
++         struct nv30_idx_emit e = { nv30, res, offset, isz, prim, start };
++
++         if (nv30_idx_split(mode, count, NV30_PS3_IDX_PIECE_BYTES / isz, restart,
++                            info->restart_index, cpu, cpu_size, nv30_idx_piece, &e)) {
++            nv30_idx_split_count(nv30->screen, &nv30->screen->idx_splits, "split");
++            PUSH_RESET(push, BUFCTX_IDXBUF);
++            return;
++         }
++         /* (no CPU view of a restarted draw's indices, a fan the upload couldn't take): as
++          * before, which the kernel refuses */
++         nv30_idx_split_count(nv30->screen, &nv30->screen->idx_split_failed,
++                              "not split (the kernel refuses them)");
++      }
++
+       BEGIN_NV04(push, NV30_3D(IDXBUF_OFFSET), 2);
+       PUSH_RESRC(push, NV30_3D(IDXBUF_OFFSET), BUFCTX_IDXBUF, res, offset,
+                        NOUVEAU_BO_LOW | NOUVEAU_BO_RD, 0, 0);
+@@ -563,27 +648,7 @@ nv30_draw_elements(struct nv30_context *nv30, bool shorten,
+                        (index_size == 2) ? 0x00000010 : 0x00000000,
+                        res->domain | NOUVEAU_BO_RD,
+                        0, NV30_3D_IDXBUF_FORMAT_DMA1);
+-      BEGIN_NV04(push, NV30_3D(VERTEX_BEGIN_END), 1);
+-      PUSH_DATA (push, prim);
+-      while (count) {
+-         const unsigned mpush = 2047 * 256;
+-         unsigned npush  = (count > mpush) ? mpush : count;
+-         unsigned wpush  = ((npush + 255) & ~255) >> 8;
+-
+-         count -= npush;
+-
+-         BEGIN_NI04(push, NV30_3D(VB_INDEX_BATCH), wpush);
+-         while (npush >= 256) {
+-            PUSH_DATA (push, 0xff000000 | start);
+-            start += 256;
+-            npush -= 256;
+-         }
+-
+-         if (npush)
+-            PUSH_DATA (push, ((npush - 1) << 24) | start);
+-      }
+-      BEGIN_NV04(push, NV30_3D(VERTEX_BEGIN_END), 1);
+-      PUSH_DATA (push, NV30_3D_VERTEX_BEGIN_END_STOP);
++      nv30_idx_batches(push, prim, start, count);
+       PUSH_RESET(push, BUFCTX_IDXBUF);
+    } else {
+       const void *data;
+@@ -770,11 +835,58 @@ nv30_draw_vbo(struct pipe_context *pipe, const struct pipe_draw_info *info,
+       }
+    }
+ 
+-   /* Indices the CPU holds: one copy into the upload buffer, fetched by the GPU, instead of
+-    * every index packed into the push buffer (and copied again into ps3rsx's ring) */
++   /* NV30_PS3_IDX_SPLIT: a draw whose indices pass ps3rsx's per-binding cap goes as pieces
++    * (nv30_draw_elements). The CPU's view of its indices, for a restarted draw's cuts and for a
++    * fan, polygon or line loop: those share their first vertex across any cut, so they go as the
++    * triangle (line) list nv30_idx_convert writes into the upload buffer. */
+    struct pipe_resource *idx_upload = NULL;
+    unsigned idx_upload_offset = 0;
+-   if (info->index_size && (info->has_user_indices || info->index_size == 1) &&
++   unsigned draw_mode = info->mode, draw_count = draws[0].count, draw_isz = info->index_size;
++   const void *idx_cpu = NULL;
++   bool idx_conv = false;
++   if (unlikely(nv30->screen->idx_split) && info->index_size &&
++       nv30->screen->eng3d->oclass == NV40_3D_CLASS &&
++       (uint64_t)draws[0].count * MAX2(info->index_size, 2) > NV30_PS3_IDX_PIECE_BYTES &&
++       (info->primitive_restart || nv30_idx_convertible(info->mode))) {
++      if (info->has_user_indices)
++         idx_cpu = (const uint8_t *)info->index.user + draws[0].start * info->index_size;
++      else
++         idx_cpu = nouveau_resource_map_offset(&nv30->base, nv04_resource(info->index.resource),
++                                               draws[0].start * info->index_size, NOUVEAU_BO_RD);
++      if (idx_cpu && nv30_idx_convertible(info->mode)) {
++         const uint64_t room = 4 * nv30_idx_convert_max(info->mode, draws[0].count);
++         void *map = NULL;
++
++         if (room <= (64u << 20))
++            u_upload_alloc_ref(nv30->base.pipe.stream_uploader, 0, (unsigned)room, 256,
++                               &idx_upload_offset, &idx_upload, &map);
++         if (idx_upload && map) {
++            draw_count = nv30_idx_convert(info->mode, draws[0].count, info->primitive_restart,
++                                          info->restart_index, idx_cpu, info->index_size,
++                                          nv30->rast && nv30->rast->pipe.flatshade_first, map);
++            draw_mode = nv30_idx_convert_mode(info->mode);
++            draw_isz = 4;
++            idx_conv = true;
++            nv30_idx_split_count(nv30->screen, &nv30->screen->idx_converted,
++                                 "converted to lists for the split");
++         } else {
++            pipe_resource_reference(&idx_upload, NULL);
++         }
++      }
++      if (idx_conv) {
++         struct nv04_resource *res = nv04_resource(idx_upload);
++         struct nouveau_bufref *bref =
++            nouveau_bufctx_refn(nv30->bufctx, BUFCTX_IDXBUF, res->bo,
++                                res->domain | NOUVEAU_BO_RD);
++         if (bref)
++            bref->priv = res;
++         idxbuf_ref = true;
++      }
++   }
++
++   /* Indices the CPU holds: one copy into the upload buffer, fetched by the GPU, instead of
++    * every index packed into the push buffer (and copied again into ps3rsx's ring) */
++   if (!idx_conv && info->index_size && (info->has_user_indices || info->index_size == 1) &&
+        nv30->screen->index_upload && draws[0].count >= nv30->screen->index_upload &&
+        nv30->screen->eng3d->oclass == NV40_3D_CLASS) {
+       idx_upload = nv30_upload_indices(nv30, info, &draws[0], &idx_upload_offset);
+@@ -820,6 +932,9 @@ nv30_draw_vbo(struct pipe_context *pipe, const struct pipe_draw_info *info,
+       nv30_draw_arrays(nv30,
+                        info->mode, draws[0].start, draws[0].count,
+                        info->instance_count);
++   } else if (idx_conv && !draw_count) {
++      /* converted to nothing (no whole primitive): nothing drawn, as before */
++      pipe_resource_reference(&idx_upload, NULL);
+    } else {
+       bool shorten = info->index_bounds_valid && info->max_index <= 65535;
+ 
+@@ -846,9 +961,11 @@ nv30_draw_vbo(struct pipe_context *pipe, const struct pipe_draw_info *info,
+       }
+ 
+       nv30_draw_elements(nv30, shorten, info,
+-                         info->mode, idx_upload ? 0 : draws[0].start, draws[0].count,
+-                         info->instance_count, draws[0].index_bias, info->index_size,
+-                         nv04_resource(idx_upload), idx_upload_offset);
++                         draw_mode, idx_upload ? 0 : draws[0].start, draw_count,
++                         info->instance_count, draws[0].index_bias, draw_isz,
++                         nv04_resource(idx_upload), idx_upload_offset,
++                         idx_conv ? NULL : idx_cpu, info->index_size,
++                         !idx_conv && info->primitive_restart);
+       /* the bin was reset after the draw; the GPU's use is fenced */
+       pipe_resource_reference(&idx_upload, NULL);
+    }
+diff --git a/src/gallium/winsys/nouveau/drm/nouveau.c b/src/gallium/winsys/nouveau/drm/nouveau.c
+--- a/src/gallium/winsys/nouveau/drm/nouveau.c
++++ b/src/gallium/winsys/nouveau/drm/nouveau.c
+@@ -1214,7 +1214,8 @@ pushbuf_submit(struct nouveau_pushbuf *push, struct nouveau_object *chan)
+           * it draws again (nouveau_device::cancelled); the rest of this list goes nowhere */
+          uint32_t n = NOUVEAU_CANCEL(dev);
+          if (!(n & (n - 1)))
+-            err("ps3rsx cancelled a submission (%u so far): its state is sent again\n", n);
++            err("ps3rsx cancelled a submission (%u so far): its draws are lost (dmesg says "
++                "why), its state is sent again\n", n);
+          break;
+       }
+       if (ret) {

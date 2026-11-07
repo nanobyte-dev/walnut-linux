@@ -55,3 +55,4 @@
 0069-nv30-on-the-PS3-fragment-programs-are-in-GART-by-default-the-blit-s-program-too.patch
 0070-nv30-on-the-PS3-index-buffers-are-in-GART-by-default-one-found-in-VRAM-moves-there.patch
 0071-nv30-on-the-PS3-an-index-buffer-s-move-to-GART-keeps-it-coherent-and-drops-one-draw-not-a-submission.patch
+0072-nv30-on-the-PS3-an-indexed-draw-past-the-kernel-s-per-binding-cap-is-drawn-in-pieces.patch

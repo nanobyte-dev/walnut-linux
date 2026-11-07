@@ -51,6 +51,12 @@
 #                  clips to the block (state); the stream of four targets against the file before 0060: only
 #                  the two hacks' clip words differ (golden)
 #   point-smooth   0050: round GL_POINT_SMOOTH points on Mesa's TGSI interpreter, and their NV40 translation
+#   idx-split      0072: indexed draws past ps3rsx's per-binding cap (1 MiB) as pieces (nv30_idx_split.h):
+#                  model (every mode, restart, U8/16/32, small pieces: the pieces' primitives are the draw's,
+#                  winding and provoking vertex kept), cap (2 MiB U32 lists, U16 over 1 MiB, strips, fans and
+#                  loops across the cap, restart: each piece under the cap with the kernel's skew), wiring
+#                  (nv30_vbo.c and the screen's NV30_PS3_IDX_SPLIT as they must be); fix-off: each rule of
+#                  the header taken out must fail
 # Each part prints "RESULT <suite>:<part> pass|fail|skip" (tools/ladder.py reads them). Exit 0 when every
 # part passed, 77 when the tree lacks what the suite tests (its patch) or a tool is missing, else 1.
 set -u
@@ -61,9 +67,9 @@ t=${MESA_TESTS:-packages/patched/graphics/mesa/tests}
 S=${1:-}; shift || true
 declare -A PARTS=([forcedxt]="" [staging-pool]="" [vtx-snorm8]="unpack vpsim" [minmax-vmx]="host ppc64"
 	[query-steal]="" [query-lost]="end steal destroy elapsed failed deadline deadline-edge begin-sent two-ctx own-begin stale no-slot disowned wait-option late x86 fix-off" [alloc-fail]="upload mm-fallback mm-nomem fence fence-cancel pushbuf-flush pushbuf-destroy fix-off"
-	[transfer-cpu]="fix-off" [blit-state]="state golden" [placement]="state golden default migrate blit wiring fix-off" [fb-window]="state golden" [point-smooth]="" [submit-fail]="ecanceled failed notify ratelimit ok threads fix-off" [bo-domain]="state fix-off" [fragprog]="txb rep end golden fix-off")
+	[transfer-cpu]="fix-off" [blit-state]="state golden" [placement]="state golden default migrate blit wiring fix-off" [fb-window]="state golden" [point-smooth]="" [submit-fail]="ecanceled failed notify ratelimit ok threads fix-off" [bo-domain]="state fix-off" [fragprog]="txb rep end golden fix-off" [idx-split]="model cap wiring fix-off")
 if [ "$S" = --list ]; then
-	for s in forcedxt staging-pool vtx-snorm8 minmax-vmx query-steal query-lost alloc-fail transfer-cpu blit-state placement fb-window point-smooth submit-fail bo-domain fragprog; do
+	for s in forcedxt staging-pool vtx-snorm8 minmax-vmx query-steal query-lost alloc-fail transfer-cpu blit-state placement fb-window point-smooth submit-fail bo-domain fragprog idx-split; do
 		echo "$s ${PARTS[$s]}"; done
 	exit 0
 fi
@@ -594,6 +600,50 @@ fragprog)
 			mcc $O/$n-test $t/fragprog-test.c $O/$n.c $TGSI $M/src/util/ralloc.c $M/src/util/u_dynarray.c -I$M/src/gallium/drivers/nouveau/nv30 -Wall -Werror -Wno-unused-function &&
 			expect_fail "$n off: $part" "FAIL" $O/$n-test $part || rc=1
 		done
+		result fix-off $rc
+	fi
+	;;
+idx-split)
+	H=$M/src/gallium/drivers/nouveau/nv30/nv30_idx_split.h V=$M/src/gallium/drivers/nouveau/nv30/nv30_vbo.c
+	[ -e $H ] || skip "no $M with 0072 (nv30_idx_split.h; make mesa-work)"
+	export ASAN_OPTIONS=detect_leaks=0
+	scc() { gcc -g -O1 -std=gnu11 -Wall -Werror -fsanitize=address,undefined -D_GNU_SOURCE \
+		-DUTIL_ARCH_BIG_ENDIAN=0 -DUTIL_ARCH_LITTLE_ENDIAN=1 "$@" -I$M/include -I$M/src -I$M/src/gallium/include \
+		-I$M/src/gallium/drivers/nouveau -I$M/src/util -o $T/idx-split-test${O:+-$O} $t/idx-split-test.c; }
+	if wants model || wants cap; then
+		O= scc || exit 1
+		for p in model cap; do wants $p && { $T/idx-split-test $p; result $p $?; }; done
+	fi
+	if wants wiring; then
+		rc=0
+		w() { grep -qF -- "$2" "$1" || { echo "FAIL wiring: $(basename "$1") lacks: $2"; rc=1; }; }
+		w $V 'unlikely(nv30->screen->idx_split) &&'
+		w $V 'nv30_idx_split(mode, count, NV30_PS3_IDX_PIECE_BYTES / isz, restart,'
+		w $V 'draw_count = nv30_idx_convert(info->mode, draws[0].count, info->primitive_restart,'
+		w $V 'nv30->rast && nv30->rast->pipe.flatshade_first, map);'
+		w $V 'PUSH_RESRC(push, NV30_3D(IDXBUF_OFFSET), BUFCTX_IDXBUF, e->res, e->offset + (uint32_t)at,'
+		w $V '!idx_conv && info->primitive_restart);'
+		w $M/src/gallium/drivers/nouveau/nv30/nv30_screen.c \
+			'screen->idx_split = ps3 && debug_get_bool_option("NV30_PS3_IDX_SPLIT", true);'
+		[ $rc = 0 ] && echo "wiring: the draw path and the screen default as they must be"
+		result wiring $rc
+	fi
+	if wants fix-off; then
+		F=$T/idx-split-off rc=0; rm -rf $F; mkdir -p $F/nv30
+		off() {	# off NAME FROM TO: the header with FROM made TO must fail the test
+			cp $H $F/nv30/ && FROM=$2 TO=$3 perl -0777 -i -pe \
+				'my $n = () = /\Q$ENV{FROM}\E/g; $n == 1 or die "idx-split fix-off: $n matches\n"; s/\Q$ENV{FROM}\E/$ENV{TO}/' \
+				$F/nv30/nv30_idx_split.h || { rc=1; return; }
+			O=$1 scc -I$F -w -Wno-error || { rc=1; return; }
+			expect_fail "0072 off: $1" '^FAIL ' $T/idx-split-test-$1 || rc=1
+		}
+		off align '            e -= (e - seg) % unit;' '            ;'
+		off margin '(NV30_PS3_IDX_BINDING_MAX - 4096)' '(NV30_PS3_IDX_BINDING_MAX)'
+		off strip-overlap $'case MESA_PRIM_TRIANGLE_STRIP: unit = 2; overlap = 2; break;' $'case MESA_PRIM_TRIANGLE_STRIP: unit = 2; overlap = 0; break;'
+		off restart-first '         seg = s + 1;' '         ;'
+		off restart-cut '         s = seg = e;' '         s = e;'
+		off provoking 'bool c_first = mode == MESA_PRIM_POLYGON ? first : !first;' 'bool c_first = !first;'
+		off loop-close $'            out[o++] = nv30_idx_get(idx, isz, i - 1);\n            out[o++] = nv30_idx_get(idx, isz, s0);\n' ''
 		result fix-off $rc
 	fi
 	;;
