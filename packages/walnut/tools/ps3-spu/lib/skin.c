@@ -80,12 +80,6 @@ struct speq_skin {
 	struct spq_skin_stats st;
 };
 
-static unsigned env_u(const char *name, unsigned def)
-{
-	const char *s = getenv(name);
-
-	return s && *s ? (unsigned)strtoul(s, NULL, 0) : def;
-}
 
 static void init(void)
 {
@@ -102,10 +96,10 @@ static void init(void)
 	else
 		fprintf(stderr, "speq: SPEQ_SKIN=%s unknown, using auto\n", s);
 	debug = d && *d && strcmp(d, "0");
-	min_verts = env_u("SPEQ_SKIN_MIN", MIN_VERTS);
-	spes = env_u("SPEQ_SKIN_SPES", SPES);
-	timeout_us = env_u("SPEQ_SKIN_TIMEOUT_US", TIMEOUT_US);
-	spin_us = env_u("SPEQ_SKIN_SPIN_US", SPIN_US);
+	min_verts = spq_env_num("SPEQ_SKIN_MIN", MIN_VERTS, 0, SPQ_ENV_COUNT_MAX);
+	spes = spq_env_num("SPEQ_SKIN_SPES", SPES, 0, SPQ_ENV_SPES_MAX);
+	timeout_us = spq_env_num("SPEQ_SKIN_TIMEOUT_US", TIMEOUT_US, 0, SPQ_ENV_US_MAX);
+	spin_us = spq_env_num("SPEQ_SKIN_SPIN_US", SPIN_US, 0, SPQ_ENV_US_MAX);
 	page = sysconf(_SC_PAGESIZE);
 	if (page <= 0)
 		page = 4096;

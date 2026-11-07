@@ -92,12 +92,6 @@ struct speq_synth {
 	struct spq_synth_stats st;
 };
 
-static unsigned env_u(const char *name, unsigned def)
-{
-	const char *s = getenv(name);
-
-	return s && *s ? (unsigned)strtoul(s, NULL, 0) : def;
-}
 
 static void init(void)
 {
@@ -114,10 +108,10 @@ static void init(void)
 	else
 		fprintf(stderr, "speq: SPEQ_SYNTH=%s unknown, using auto\n", s);
 	debug = d && *d && strcmp(d, "0");
-	min_voices = env_u("SPEQ_SYNTH_MIN", MIN_VOICES);
-	spes = env_u("SPEQ_SYNTH_SPES", SPES);
-	timeout_us = env_u("SPEQ_SYNTH_TIMEOUT_US", TIMEOUT_US);
-	spin_us = env_u("SPEQ_SYNTH_SPIN_US", 0);
+	min_voices = spq_env_num("SPEQ_SYNTH_MIN", MIN_VOICES, 0, SPQ_ENV_COUNT_MAX);
+	spes = spq_env_num("SPEQ_SYNTH_SPES", SPES, 0, SPQ_ENV_SPES_MAX);
+	timeout_us = spq_env_num("SPEQ_SYNTH_TIMEOUT_US", TIMEOUT_US, 0, SPQ_ENV_US_MAX);
+	spin_us = spq_env_num("SPEQ_SYNTH_SPIN_US", 0, 0, SPQ_ENV_US_MAX);
 	page = sysconf(_SC_PAGESIZE);
 	if (page <= 0)
 		page = 4096;

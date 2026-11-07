@@ -91,10 +91,10 @@ static void init(void)
 	else
 		fprintf(stderr, "speq: SPEQ_S3TC=%s unknown, using auto\n", s);
 	/* SPEQ_S3TC_MIN: WxH or a pixel count */
-	if (m && sscanf(m, "%lu%c%lu", &a, &x, &b) == 3 && (x == 'x' || x == 'X'))
+	if (m && sscanf(m, "%lu%c%lu", &a, &x, &b) == 3 && (x == 'x' || x == 'X') && a <= 65536 && b <= 65536)
 		min_px = a * b;
 	else if (m && *m)
-		min_px = strtoul(m, NULL, 0);
+		min_px = spq_env_num("SPEQ_S3TC_MIN", MIN_PX, 0, 1L << 30);
 	if (!r || !*r || !strcmp(r, "auto"))
 		rgb = SPQ_S3TC_AUTO;
 	else if (!strcmp(r, "ppe"))
@@ -103,10 +103,8 @@ static void init(void)
 		rgb = SPQ_S3TC_OFF;
 	else
 		fprintf(stderr, "speq: SPEQ_S3TC_RGB=%s unknown, using auto\n", r);
-	if ((m = getenv("SPEQ_S3TC_TIMEOUT_MS")) && *m)
-		timeout_ms = strtol(m, NULL, 0);
-	if ((m = getenv("SPEQ_S3TC_GRACE_MS")) && *m)
-		grace_ms = strtol(m, NULL, 0);
+	timeout_ms = spq_env_num("SPEQ_S3TC_TIMEOUT_MS", timeout_ms, -1, SPQ_ENV_MS_MAX);
+	grace_ms = spq_env_num("SPEQ_S3TC_GRACE_MS", grace_ms, 0, SPQ_ENV_MS_MAX);
 	debug = d && *d && strcmp(d, "0");
 	dxt5 = !five || !*five || (strcmp(five, "0") && strcmp(five, "off"));
 	page = sysconf(_SC_PAGESIZE);

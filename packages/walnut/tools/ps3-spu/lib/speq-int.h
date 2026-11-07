@@ -8,6 +8,7 @@
 #include <stdint.h>
 #include "speq-abi.h"
 #include "speq.h"
+#include "env.h"
 
 struct speq;
 

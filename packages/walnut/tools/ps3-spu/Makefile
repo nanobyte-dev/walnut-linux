@@ -101,7 +101,19 @@ $(OUT)/deadline.spu: spu/deadline.c $(OUT)/deadline-synth.o $(OUT)/deadline-skin
 test:
 	$(MAKE) OUT=$(TEST_OUT) $(TEST_OUT)/libspeq.so.0 $(TEST_OUT)/speq-dxt $(TEST_OUT)/dlopen-check \
 		$(TEST_OUT)/queue-test $(TEST_OUT)/speq-bench-fake $(TEST_OUT)/speq-dxt-fake \
-		$(TEST_OUT)/synth-test $(TEST_OUT)/speq-skin-fake $(TEST_OUT)/pool-test $(TEST_OUT)/s3tc-stuck-test
+		$(TEST_OUT)/synth-test $(TEST_OUT)/speq-skin-fake $(TEST_OUT)/pool-test $(TEST_OUT)/s3tc-stuck-test \
+		$(TEST_OUT)/env-test
+	$(TEST_OUT)/env-test
+	# a bad number in the environment is said and ignored by each reader (lib/env.h)
+	SPEQ_S3TC_TIMEOUT_MS=-7 SPEQ_S3TC_GRACE_MS=x SPEQ_S3TC_MIN=1y $(TEST_OUT)/speq-dxt --check 2>&1 >/dev/null | \
+		grep -q 'SPEQ_S3TC_TIMEOUT_MS=-7 is not a number' && \
+	SPEQ_S3TC_GRACE_MS=x $(TEST_OUT)/speq-dxt --check 2>&1 >/dev/null | grep -q 'SPEQ_S3TC_GRACE_MS=x is not a number' && \
+	SPEQ_S3TC_MIN=1y $(TEST_OUT)/speq-dxt --check 2>&1 >/dev/null | grep -q 'SPEQ_S3TC_MIN=1y is not a number'
+	SPEQ_FAKE=1 SPEQ_SKIN_MIN=abc SPEQ_POOL_SPES=99 $(TEST_OUT)/speq-skin-fake --check --path spu 2>&1 >/dev/null | \
+		grep -q 'SPEQ_SKIN_MIN=abc is not a number'
+	SPEQ_FAKE=1 SPEQ_POOL_SPES=99 $(TEST_OUT)/speq-skin-fake --check --path spu 2>&1 >/dev/null | grep -q 'SPEQ_POOL_SPES=99 is not a number'
+	SPEQ_FAKE=1 SPEQ_SYNTH_TIMEOUT_US=-5 $(TEST_OUT)/synth-test 2>&1 >/dev/null | grep -q 'SPEQ_SYNTH_TIMEOUT_US=-5 is not a number'
+	SPEQ_FAKE=1 SPEQ_SPIN_US=-1 $(TEST_OUT)/queue-test 2>&1 >/dev/null | grep -q 'SPEQ_SPIN_US=-1 is not a number'
 	$(TEST_OUT)/speq-dxt --check
 	SPEQ_FAKE=1 $(TEST_OUT)/speq-dxt-fake --check --path spu
 	SPEQ_FAKE=1 $(TEST_OUT)/speq-dxt-fake --check --path auto
@@ -118,6 +130,9 @@ test:
 	$(TEST_OUT)/s3tc-stuck-test wait-spu
 	$(TEST_OUT)/s3tc-stuck-test grace
 	$(TEST_OUT)/s3tc-stuck-test stall
+$(OUT)/env-test: tests/env-test.c lib/env.h
+	@mkdir -p $(OUT)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -Ilib -Wextra -Werror $(LDFLAGS) -o $@ tests/env-test.c
 $(OUT)/dlopen-check: tests/dlopen-check.c lib/dxt-ref.c $(SPEQ_HDR)
 	@mkdir -p $(OUT)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -Ilib $(LDFLAGS) -o $@ tests/dlopen-check.c lib/dxt-ref.c -ldl

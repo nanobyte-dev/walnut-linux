@@ -39,10 +39,7 @@ struct speq *spq_pool(int *err)
 
 	pthread_mutex_lock(&lock);
 	if (!pool && !perr) {
-		e = getenv("SPEQ_POOL_SPES");
-		n = e && *e ? (unsigned)strtoul(e, NULL, 0) : SPEQ_DEADLINE_SPES;
-		if (!n)
-			n = SPEQ_DEADLINE_SPES;
+		n = spq_env_num("SPEQ_POOL_SPES", SPEQ_DEADLINE_SPES, 1, SPQ_ENV_SPES_MAX);
 		ret = spq_open_ex(&q, POOL_PROG, n, SPQ_OPEN_DEADLINE | SPQ_OPEN_FREE);
 		if (ret) {
 			perr = ret;

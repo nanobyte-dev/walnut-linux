@@ -25,6 +25,7 @@
 #include <time.h>
 #include <unistd.h>
 #include "speq-int.h"
+#include "env.h"
 
 #define SPIN_US		80	/* speq_wait spins this long before sleeping: a futex sleep costs ~62 us more than
 			 * spinning on the PS3 (speq-bench P2, 2026-10-16) */
@@ -108,12 +109,6 @@ static uint32_t idle_ticks(unsigned us)
 	return t > 0x7fffffff ? 0x7fffffff : t;
 }
 
-static unsigned env_uint(const char *name, unsigned def)
-{
-	const char *s = getenv(name);
-
-	return s && *s ? (unsigned)strtoul(s, NULL, 0) : def;
-}
 
 static struct speq_job *ring(struct speq *q, uint32_t seq)
 {
@@ -488,13 +483,13 @@ int spq_open_ex(struct speq **qp, const char *prog, unsigned nworkers, unsigned 
 	/* the SPUs' getllar/putllc and the parked futex: keep it resident (the job buffers
 	 * fault in through the worker's spu_run, which works); best effort */
 	mlock(cb, SPEQ_CB_SIZE);
-	q->spin_us = env_uint("SPEQ_SPIN_US", SPIN_US);
-	q->stall_ms = env_uint("SPEQ_SUBMIT_STALL_MS", STALL_MS);
-	q->free_ms = env_uint("SPEQ_FREE_MS", FREE_MS);
+	q->spin_us = spq_env_num("SPEQ_SPIN_US", SPIN_US, 0, 1000000);
+	q->stall_ms = spq_env_num("SPEQ_SUBMIT_STALL_MS", STALL_MS, 0, SPQ_ENV_MS_MAX);
+	q->free_ms = spq_env_num("SPEQ_FREE_MS", FREE_MS, 0, SPQ_ENV_MS_MAX);
 	q->ctl->abi = SPEQ_ABI_VERSION;
 	q->ctl->nworkers = q->nworkers;
 	q->ctl->tb_hz = spq_tb_hz();
-	q->ctl->idle_ticks = idle_ticks(env_uint("SPEQ_IDLE_US", IDLE_US));
+	q->ctl->idle_ticks = idle_ticks(spq_env_num("SPEQ_IDLE_US", IDLE_US, 0, SPQ_ENV_US_MAX));
 	q->ctl->order = q->order;
 	q->alive = q->nworkers;
 	pthread_mutex_lock(&queues_lock);
