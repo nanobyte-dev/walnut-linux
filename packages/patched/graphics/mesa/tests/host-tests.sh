@@ -38,7 +38,11 @@
 #   placement      0059: NV30_PS3_IDX_GART and NV30_PS3_FP_GART (state: both off as before, index buffers and
 #                  fragment programs in GART when on, a busy GART index buffer waited for and never staged and
 #                  GPU-copied; golden: the placement of a list of buffers with each switch against the default's:
-#                  only the index buffers' and the fragment program's domains differ)
+#                  only the index buffers' and the fragment program's domains differ); default (0069, 0070): both
+#                  on by default on the PS3 only; migrate (0070): an index buffer found in VRAM moves to GART with
+#                  one GPU copy kicked on its own, cpu_only, the arrays validated again; blit (0069): every move of a
+#                  program to VRAM is under !fp_gart; fix-off: nv30_resource.c without the kick, without cpu_only,
+#                  and the defaults as before, each must fail
 #   fb-window      0060: nv30_validate_fb's small-surface hack (a 2x2 drawn as a 16x2 block from window origin x)
 #                  clips to the block (state); the stream of four targets against the file before 0060: only
 #                  the two hacks' clip words differ (golden)
@@ -53,7 +57,7 @@ t=${MESA_TESTS:-packages/patched/graphics/mesa/tests}
 S=${1:-}; shift || true
 declare -A PARTS=([forcedxt]="" [staging-pool]="" [vtx-snorm8]="unpack vpsim" [minmax-vmx]="host ppc64"
 	[query-steal]="" [query-lost]="end steal destroy elapsed failed deadline deadline-edge begin-sent two-ctx own-begin stale no-slot disowned wait-option late x86 fix-off" [alloc-fail]="upload mm-fallback mm-nomem fence fence-cancel pushbuf-flush pushbuf-destroy fix-off"
-	[transfer-cpu]="fix-off" [blit-state]="state golden" [placement]="state golden" [fb-window]="state golden" [point-smooth]="" [submit-fail]="ecanceled failed notify ratelimit ok threads fix-off" [bo-domain]="state fix-off" [fragprog]="txb rep end golden fix-off")
+	[transfer-cpu]="fix-off" [blit-state]="state golden" [placement]="state golden default migrate blit fix-off" [fb-window]="state golden" [point-smooth]="" [submit-fail]="ecanceled failed notify ratelimit ok threads fix-off" [bo-domain]="state fix-off" [fragprog]="txb rep end golden fix-off")
 if [ "$S" = --list ]; then
 	for s in forcedxt staging-pool vtx-snorm8 minmax-vmx query-steal query-lost alloc-fail transfer-cpu blit-state placement fb-window point-smooth submit-fail bo-domain fragprog; do
 		echo "$s ${PARTS[$s]}"; done
@@ -310,7 +314,10 @@ placement)
 	grep -q 'NV30_PS3_IDX_GART' $M/src/gallium/drivers/nouveau/nv30/nv30_screen.c || {
 		echo "no NV30_PS3_IDX_GART in this tree (before 0059)"; wants state && result state 1; wants golden && result golden 77; exit 1; }
 	gen || exit 1
-	mcc $T/placement-test $t/placement-test.c -Wall -Werror -Wno-unused-function || { echo "placement-test.c does not build against $M"; wants state && result state 1; wants golden && result golden 1; exit 1; }
+	PD=; grep -q nv30_ps3_fp_gart_default $M/src/gallium/drivers/nouveau/nv30/nv30_screen.h && PD=-DNV30_HAVE_GART_DEFAULT	# 0069
+	grep -q nv30_idxbuf_to_gart $M/src/gallium/drivers/nouveau/nv30/nv30_resource.c && PD="$PD -DNV30_HAVE_IDX_MIGRATE"	# 0070
+	# shellcheck disable=SC2086
+	mcc $T/placement-test $t/placement-test.c -Wall -Werror -Wno-unused-function $PD || { echo "placement-test.c does not build against $M"; wants state && result state 1; wants golden && result golden 1; exit 1; }
 	export ASAN_OPTIONS=detect_leaks=0
 	if wants state; then $T/placement-test; result state $?; fi
 	if wants golden; then
@@ -328,6 +335,48 @@ placement)
 			[ $rc != 0 ] || echo "ok   golden: IDX_GART moves the static and dynamic index buffers, FP_GART the fragment program, nothing else"
 		fi
 		result golden $rc
+	fi
+	# 0069, 0070: the defaults; the move of an index buffer found in VRAM
+	if wants default; then
+		if [ -z "$PD" ]; then result default 77; else $T/placement-test default; result default $?; fi
+	fi
+	if wants migrate; then
+		if [[ $PD != *IDX_MIGRATE* ]]; then result migrate 77; else $T/placement-test migrate; result migrate $?; fi
+	fi
+	# 0069: every move of a fragment program's buffer to VRAM is under !fp_gart (the program's and the blit's)
+	if wants blit; then
+		if [ -z "$PD" ]; then result blit 77; else
+			n=$(grep -B2 'nouveau_buffer_migrate(.*NOUVEAU_BO_VRAM)' $M/src/gallium/drivers/nouveau/nv30/nv30_fragprog.c \
+				$M/src/gallium/drivers/nouveau/nv30/nv30_transfer.c | grep -c 'fp_gart')
+			m=$(cat $M/src/gallium/drivers/nouveau/nv30/nv30_fragprog.c $M/src/gallium/drivers/nouveau/nv30/nv30_transfer.c |
+				grep -c 'nouveau_buffer_migrate(.*NOUVEAU_BO_VRAM)')
+			[ "$n" = "$m" ] && [ "$m" = 2 ] && echo "ok   blit: both moves of a program to VRAM (the program's, the blit's) are under !fp_gart"
+			result blit $([ "$n" = "$m" ] && [ "$m" = 2 ]; echo $?)
+		fi
+	fi
+	if wants fix-off; then
+		if [[ $PD != *IDX_MIGRATE* ]]; then result fix-off 77; else
+			# nv30_resource.c without the kick, without cpu_only, then the defaults as before 0069/0070: each must fail
+			O=$(realpath -m $T/placement-before); rm -rf $O; mkdir -p $O/nv30; rc=0
+			R=$M/src/gallium/drivers/nouveau/nv30/nv30_resource.c
+			for v in kick cpu_only; do
+				case $v in
+				kick) sed '/^bool$/,/^}$/{/PUSH_KICK(nv30->base.pushbuf);/d}' $R > $O/nv30/nv30_resource.c ;;
+				cpu_only) sed '/^bool$/,/^}$/{/res->cpu_only = 1;/d}' $R > $O/nv30/nv30_resource.c ;;
+				esac
+				cp $t/placement-test.c $O/test.c
+				sed -i 's|#include "nv30/nv30_resource.c"|#include "'$O'/nv30/nv30_resource.c"|' $O/test.c
+				# shellcheck disable=SC2086
+				mcc $O/test-$v $O/test.c -Wall -Werror -Wno-unused-function $PD -I$t &&
+					expect_fail "0070 without the $v" "FAIL .*(not kicked|cpu_only 0)" $O/test-$v migrate || rc=1
+			done
+			sed 's/^   return ps3;$/   return false;/' $M/src/gallium/drivers/nouveau/nv30/nv30_screen.h > $O/nv30/nv30_screen.h
+			cp $M/src/gallium/drivers/nouveau/nv30/*.h $O/nv30/ 2>/dev/null; sed -i 's/^   return ps3;$/   return false;/' $O/nv30/nv30_screen.h
+			# shellcheck disable=SC2086
+			mcc $O/test-default $t/placement-test.c -Wall -Werror -Wno-unused-function $PD -I$O &&
+				expect_fail "0069/0070 defaults off" "FAIL .*default: PS3 0" $O/test-default default || rc=1
+			result fix-off $rc
+		fi
 	fi
 	;;
 fb-window)

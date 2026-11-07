@@ -52,3 +52,5 @@
 0066-nv30-the-texture-cache-is-invalidated-before-every-draw-off-the-PS3.patch
 0067-nv30-a-fragment-program-loop-ends-on-an-instruction-slot.patch
 0068-nv30-a-fragment-program-that-closes-an-IF-or-a-loop-is-ended-by-the-appended-NOP.patch
+0069-nv30-on-the-PS3-fragment-programs-are-in-GART-by-default-the-blit-s-program-too.patch
+0070-nv30-on-the-PS3-index-buffers-are-in-GART-by-default-one-found-in-VRAM-moves-there.patch

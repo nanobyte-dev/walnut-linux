@@ -1,0 +1,67 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Sat, 7 Nov 2026 12:29:17 +0200
+Subject: nv30: on the PS3, fragment programs are in GART by default, the
+ blit's program too
+
+The RSX driver runs fragment programs only from its own checked copies of programs in
+GART and refuses a program in VRAM (ps3rsx, the fragment program cache). NV30_PS3_FP_GART
+(0059) is therefore on by default on the PS3: a program's buffer is a stream (GART) buffer,
+written by the CPU and never migrated to VRAM. NV30_PS3_FP_GART=0 puts programs back in
+VRAM as before, for a measurement against an older ps3rsx; the current one refuses them.
+Off the PS3 the switch does nothing, as before.
+
+The program the 3D blit (nv30_transfer_rect_fragprog) uses was always moved to VRAM after
+its upload; it now follows the same switch and stays in GART on the PS3. The constant
+change path's stream copies (0031) were in GART already.
+
+Forwarded: no
+
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_screen.c b/src/gallium/drivers/nouveau/nv30/nv30_screen.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_screen.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_screen.c
+@@ -562,9 +562,10 @@ nv30_screen_create(struct nouveau_device *dev)
+    screen->gart_textures = ps3 && debug_get_bool_option("NV30_GART_TEXTURES", true);
+    screen->tex_invalidate_always = debug_get_bool_option("NV30_TEX_INVALIDATE_ALWAYS",
+                                                           nv30_tex_invalidate_always_default(ps3));
+-   /* placement measurements, PS3 only, off by default: where index buffers and fragment programs live */
++   /* placement, PS3 only: where index buffers and fragment programs live (NV30_PS3_FP_GART=0 puts the
++    * programs back in VRAM, which ps3rsx refuses) */
+    screen->idx_gart = ps3 && debug_get_bool_option("NV30_PS3_IDX_GART", false);
+-   screen->fp_gart = ps3 && debug_get_bool_option("NV30_PS3_FP_GART", false);
++   screen->fp_gart = ps3 && debug_get_bool_option("NV30_PS3_FP_GART", nv30_ps3_fp_gart_default(ps3));
+    screen->fp_const_vram = debug_get_bool_option("NV30_FP_CONST_VRAM", !ps3);
+    screen->index_upload = debug_get_num_option("NV30_INDEX_UPLOAD", ps3 ? 32 : 0);
+    screen->ctx_state_keep = debug_get_bool_option("NV30_CTX_STATE_KEEP", false);
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_screen.h b/src/gallium/drivers/nouveau/nv30/nv30_screen.h
+--- a/src/gallium/drivers/nouveau/nv30/nv30_screen.h
++++ b/src/gallium/drivers/nouveau/nv30/nv30_screen.h
+@@ -30,6 +30,14 @@ nv30_tex_invalidate_always_default(bool ps3)
+    return !ps3;
+ }
+ 
++/* NV30_PS3_FP_GART's default: on, on the PS3, where ps3rsx runs fragment programs only from its own
++ * checked copies of programs in GART and refuses one in VRAM; the switch does nothing elsewhere */
++static inline bool
++nv30_ps3_fp_gart_default(bool ps3)
++{
++   return ps3;
++}
++
+ /* NV30_QUERY_WAIT: -1 (and anything below) spins, 0 to 1000000 microseconds of spinning first */
+ static inline int
+ nv30_query_wait_option(int64_t v)
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_transfer.c b/src/gallium/drivers/nouveau/nv30/nv30_transfer.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_transfer.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_transfer.c
+@@ -163,7 +163,9 @@ nv30_transfer_rect_fragprog(struct nv30_context *nv30)
+          }
+ 
+          fp = nv04_resource(nv30->blit_fp);
+-         nouveau_buffer_migrate(&nv30->base, fp, NOUVEAU_BO_VRAM);
++         /* NV30_PS3_FP_GART: stays in GART, as every fragment program (nv30_fragprog_upload) */
++         if (likely(!nv30->screen->fp_gart))
++            nouveau_buffer_migrate(&nv30->base, fp, NOUVEAU_BO_VRAM);
+       }
+    }
+ 

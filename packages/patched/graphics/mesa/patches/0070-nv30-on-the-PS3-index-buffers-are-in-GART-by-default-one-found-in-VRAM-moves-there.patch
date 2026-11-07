@@ -1,0 +1,119 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Sat, 7 Nov 2026 12:31:56 +0200
+Subject: nv30: on the PS3, index buffers are in GART by default; one found in
+ VRAM moves there at its first indexed draw
+
+The RSX driver fetches a draw's indices only from its own copies of index ranges in GART and
+refuses an index buffer in VRAM (ps3rsx, the index copies). NV30_PS3_IDX_GART (0059) is
+therefore on by default on the PS3: a buffer made as an index buffer (and not also as a vertex
+buffer) is created in GART and only the CPU writes it. NV30_PS3_IDX_GART=0 keeps the old
+placement, for a measurement against an older ps3rsx; the current one refuses it. Off the PS3
+nothing changes.
+
+A buffer used for indices that went to VRAM because it was made for another use first (a
+vertex buffer, a buffer with no bind) moves to GART at its first indexed draw on the GPU path,
+for good (nv30_idxbuf_to_gart): one GPU copy of its contents, CPU-written from then on like the
+others, and the arrays validated again since it may be one of them. The copy is kicked in a
+submission of its own: the kernel's copy of the indices waits for a GPU write into them that
+is still in flight, but refuses a draw whose indices a GPU write earlier in the same submission
+touched. Without room in GART the buffer stays in VRAM and the kernel refuses the draw.
+
+Forwarded: no
+
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_resource.c b/src/gallium/drivers/nouveau/nv30/nv30_resource.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_resource.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_resource.c
+@@ -68,6 +68,29 @@ nv30_resource_create(struct pipe_screen *pscreen,
+    }
+ }
+ 
++/*
++ * NV30_PS3_IDX_GART: ps3rsx copies a draw's indices only out of GART and refuses an index buffer in
++ * VRAM, so a buffer that went to VRAM because it was made for another use (a vertex buffer, a buffer
++ * with no bind) moves to GART at its first indexed draw, for good, written by the CPU from then on
++ * (cpu_only, as nv30_resource_create's index buffers). The GPU's copy of its contents is kicked in a
++ * submission of its own: the kernel's copy of the indices waits for a GPU write still in flight, where
++ * one earlier in the same submission would get the draw refused. The arrays are validated again (the
++ * buffer may be one of them). false: no room in GART, the buffer stays in VRAM.
++ */
++bool
++nv30_idxbuf_to_gart(struct nv30_context *nv30, struct nv04_resource *res)
++{
++   if (res->domain != NOUVEAU_BO_VRAM)
++      return true;
++   if (!nouveau_buffer_migrate(&nv30->base, res, NOUVEAU_BO_GART))
++      return false;
++   res->cpu_only = 1;
++   nv30->dirty |= NV30_NEW_ARRAYS;
++   nv30->base.vbo_dirty = true;
++   PUSH_KICK(nv30->base.pushbuf);
++   return true;
++}
++
+ static void
+ nv30_resource_destroy(struct pipe_screen *pscreen, struct pipe_resource *res)
+ {
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_resource.h b/src/gallium/drivers/nouveau/nv30/nv30_resource.h
+--- a/src/gallium/drivers/nouveau/nv30/nv30_resource.h
++++ b/src/gallium/drivers/nouveau/nv30/nv30_resource.h
+@@ -68,6 +68,11 @@ nv30_miptree_get_handle(struct pipe_screen *pscreen,
+ void
+ nv30_miptree_destroy(struct pipe_screen *pscreen, struct pipe_resource *pt);
+ 
++struct nv30_context;
++struct nv04_resource;
++bool
++nv30_idxbuf_to_gart(struct nv30_context *nv30, struct nv04_resource *res);
++
+ void
+ nv30_resource_copy_region(struct pipe_context *pipe,
+                           struct pipe_resource *dst, unsigned dst_level,
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_screen.c b/src/gallium/drivers/nouveau/nv30/nv30_screen.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_screen.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_screen.c
+@@ -562,9 +562,9 @@ nv30_screen_create(struct nouveau_device *dev)
+    screen->gart_textures = ps3 && debug_get_bool_option("NV30_GART_TEXTURES", true);
+    screen->tex_invalidate_always = debug_get_bool_option("NV30_TEX_INVALIDATE_ALWAYS",
+                                                           nv30_tex_invalidate_always_default(ps3));
+-   /* placement, PS3 only: where index buffers and fragment programs live (NV30_PS3_FP_GART=0 puts the
+-    * programs back in VRAM, which ps3rsx refuses) */
+-   screen->idx_gart = ps3 && debug_get_bool_option("NV30_PS3_IDX_GART", false);
++   /* placement, PS3 only: where index buffers and fragment programs live (NV30_PS3_IDX_GART=0 and
++    * NV30_PS3_FP_GART=0 put them back in VRAM, which ps3rsx refuses) */
++   screen->idx_gart = ps3 && debug_get_bool_option("NV30_PS3_IDX_GART", nv30_ps3_idx_gart_default(ps3));
+    screen->fp_gart = ps3 && debug_get_bool_option("NV30_PS3_FP_GART", nv30_ps3_fp_gart_default(ps3));
+    screen->fp_const_vram = debug_get_bool_option("NV30_FP_CONST_VRAM", !ps3);
+    screen->index_upload = debug_get_num_option("NV30_INDEX_UPLOAD", ps3 ? 32 : 0);
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_screen.h b/src/gallium/drivers/nouveau/nv30/nv30_screen.h
+--- a/src/gallium/drivers/nouveau/nv30/nv30_screen.h
++++ b/src/gallium/drivers/nouveau/nv30/nv30_screen.h
+@@ -38,6 +38,14 @@ nv30_ps3_fp_gart_default(bool ps3)
+    return ps3;
+ }
+ 
++/* NV30_PS3_IDX_GART's default: on, on the PS3, where ps3rsx fetches a draw's indices only from its own
++ * copies of index ranges in GART and refuses an index buffer in VRAM; nothing elsewhere */
++static inline bool
++nv30_ps3_idx_gart_default(bool ps3)
++{
++   return ps3;
++}
++
+ /* NV30_QUERY_WAIT: -1 (and anything below) spins, 0 to 1000000 microseconds of spinning first */
+ static inline int
+ nv30_query_wait_option(int64_t v)
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_vbo.c b/src/gallium/drivers/nouveau/nv30/nv30_vbo.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_vbo.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_vbo.c
+@@ -742,6 +742,10 @@ nv30_draw_vbo(struct pipe_context *pipe, const struct pipe_draw_info *info,
+    if (nv30->vbo_user && !(nv30->dirty & (NV30_NEW_VERTEX | NV30_NEW_ARRAYS)))
+       nv30_update_user_vbufs(nv30);
+ 
++   /* NV30_PS3_IDX_GART: an index buffer in VRAM moves to GART first (nv30_idxbuf_to_gart) */
++   if (unlikely(nv30->screen->idx_gart) && info->index_size > 1 && !info->has_user_indices)
++      nv30_idxbuf_to_gart(nv30, nv04_resource(info->index.resource));
++
+    /* The index buffer the GPU fetches from is referenced before validation, like every other
+     * buffer a draw reads: then nv30_state_validate puts it in the kernel's buffer list and
+     * fences it. Referenced only while emitting the draw (as before), it was in neither, so

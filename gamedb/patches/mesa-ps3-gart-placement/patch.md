@@ -4,17 +4,19 @@ patches = ["patches/0059-nv30-on-the-PS3-optional-placement-of-index-buffers-and
 aliases = ["Mesa 0059"]
 category = "performance"
 switch = "NV30_PS3_IDX_GART"
-default = "off"
+default = "off; on on the PS3 since 0069 (programs) and 0070 (index buffers)"
 gating = "is_ps3"
 forwarded = "no"
 tests = ["mesa-placement"]
 batches = []
 +++
 
-# Index buffers and fragment programs in GART, to be measured
+# Index buffers and fragment programs in GART
 
-Two switches, off by default and PS3 only (the default placement is untouched), for a measurement
-session before the placement is decided:
+Two switches, PS3 only, added off by default for a measurement session; since
+[mesa-fp-gart-default](../mesa-fp-gart-default/patch.md) (0069) and
+[mesa-idx-gart-default](../mesa-idx-gart-default/patch.md) (0070) both are on by default on the PS3,
+where ps3rsx takes fragment programs and indices only from GART:
 
 - `NV30_PS3_IDX_GART=1`: a buffer bound as an index buffer (and not as a vertex buffer) is created in GART
   instead of VRAM. The CPU writes it directly; a buffer the GPU still reads is waited for when the CPU maps
@@ -44,4 +46,6 @@ NV30_PS3_FP_GART=1 NV30_PS3_IDX_GART=1+NV30_PS3_FP_GART=1"`), so one Mesa build 
 
 ## Validation
 
-Not yet measured on the PS3.
+Session 4 (2026-11-06): the Mesa A/B with both switches on against both off, 70 runs (BananaBread, Luanti view120,
+OpenArena, Neverball, Trigger Rally, ClassiCube, the X loop): no frame-time regression; memory readings moved a few MB
+between VRAM and GART per game with no clear win either way.

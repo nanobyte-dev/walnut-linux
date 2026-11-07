@@ -1,12 +1,17 @@
 /* placement-test: Mesa patch 0059 (NV30_PS3_IDX_GART, NV30_PS3_FP_GART: where index buffers and fragment
- * programs live, PS3 only, off by default). nouveau_buffer.c and nv30_resource.c are compiled in whole
- * against a fake device that records where buffers go:
+ * programs live, PS3 only; on by default on the PS3 since 0069 and 0070). nouveau_buffer.c and
+ * nv30_resource.c are compiled in whole against a fake device that records where buffers go:
  *   default (both switches off): an index buffer is created exactly as before (VRAM for static and
  *     dynamic usage, GART for stream usage), cpu_only never set, a busy buffer takes the staging route;
  *   NV30_PS3_IDX_GART: an index buffer (alone) is created in GART with cpu_only, a vertex buffer, a
  *     buffer that is both, and a non-PS3 screen are not; mapping a busy cpu_only buffer for writing waits for
  *     the GPU and returns the direct map, never a staging area (no GPU copy into it), whatever the
  *     usage flags (discard range included), and DONTBLOCK returns NULL;
+ *   "default" (0069, 0070): both switches default on, on the PS3, off elsewhere;
+ *   "migrate" (0070): an index buffer in VRAM (a vertex buffer too, or one with no bind) moves to GART at
+ *     its first indexed draw (nv30_idxbuf_to_gart): one GPU copy, cpu_only from then on, the push buffer
+ *     kicked right after the copy (the kernel's index copy waits for a write still in flight but refuses
+ *     one earlier in the same submission), the arrays validated again; a GART buffer is left alone;
  *   "dump": the placement of a list of buffers as lines, for the golden diff in host-tests.sh: with a
  *     switch on only the domain of the index buffers differs from the default's list.
  * (tools/run-tests.sh --only mesa-placement; skipped without build/work/mesa) */
@@ -19,7 +24,8 @@ static int fails, checks;
 	printf(__VA_ARGS__); printf("\n"); } } while (0)
 
 /* --- the fake device ---------------------------------------------------------------------- */
-static int gpu_busy, fence_waits, copies;
+static int gpu_busy, fence_waits, copies, kicks;
+int nouveau_pushbuf_kick(struct nouveau_pushbuf *push) { (void)push; kicks++; return 0; }
 static struct nouveau_fence the_fence;
 
 int nouveau_bo_new(struct nouveau_device *dev, uint32_t flags, uint32_t align, uint64_t size,
@@ -152,6 +158,64 @@ int main(int argc, char **argv)
 	struct pipe_resource *r;
 	struct nv04_resource *b;
 
+#ifdef NV30_HAVE_GART_DEFAULT
+	if (argc > 1 && !strcmp(argv[1], "default")) {
+		CHECK(nv30_ps3_fp_gart_default(true) && !nv30_ps3_fp_gart_default(false),
+		      "NV30_PS3_FP_GART default: PS3 %d, other %d, want 1 and 0", nv30_ps3_fp_gart_default(true),
+		      nv30_ps3_fp_gart_default(false));
+#ifdef NV30_HAVE_IDX_MIGRATE
+		CHECK(nv30_ps3_idx_gart_default(true) && !nv30_ps3_idx_gart_default(false),
+		      "NV30_PS3_IDX_GART default: PS3 %d, other %d, want 1 and 0", nv30_ps3_idx_gart_default(true),
+		      nv30_ps3_idx_gart_default(false));
+#endif
+		printf("%s: %d checks, %d failed\n", fails ? "FAIL" : "ok", checks, fails);
+		return fails != 0;
+	}
+#endif
+#ifdef NV30_HAVE_IDX_MIGRATE
+	if (argc > 1 && !strcmp(argv[1], "migrate")) {
+		static const unsigned binds[] = { PIPE_BIND_VERTEX_BUFFER | PIPE_BIND_INDEX_BUFFER, 0 };
+		struct nv30_context nv;
+		struct nouveau_pushbuf push = { 0 };
+		struct nouveau_pushbuf_priv ppriv = { 0 };
+
+		push.user_priv = &ppriv;	/* PUSH_KICK takes the screen's fence lock */
+
+		for (unsigned i = 0; i < ARRAY_SIZE(binds); i++) {
+			setup(true, true, false);
+			memset(&nv, 0, sizeof(nv));
+			nv.base = ctx;
+			nv.base.pushbuf = &push;
+			ppriv.screen = &screen.base;
+			r = mk(binds[i], PIPE_USAGE_DEFAULT, 4096);
+			b = nv04_resource(r);
+			CHECK(b->domain == NOUVEAU_BO_VRAM, "migrate: bind %#x starts in %s", binds[i], dom(r));
+			util_range_add(&b->base, &b->valid_buffer_range, 0, 4096);
+			copies = kicks = 0;
+			CHECK(nv30_idxbuf_to_gart(&nv, b), "migrate: bind %#x not moved", binds[i]);
+			CHECK(b->domain == NOUVEAU_BO_GART && b->cpu_only, "migrate: bind %#x is %s, cpu_only %d", binds[i],
+			      dom(r), b->cpu_only);
+			CHECK(copies == 1, "migrate: bind %#x moved with %d GPU copies, want 1", binds[i], copies);
+			CHECK(kicks == 1, "migrate: the copy not kicked on its own (%d kicks)", kicks);
+			CHECK((nv.dirty & NV30_NEW_ARRAYS) && nv.base.vbo_dirty, "migrate: the arrays not validated again");
+			copies = kicks = 0;
+			CHECK(nv30_idxbuf_to_gart(&nv, b) && copies == 0 && kicks == 0,
+			      "migrate: a GART buffer copied again (%d copies, %d kicks)", copies, kicks);
+		}
+		/* an index buffer made in GART (0059): nothing to do */
+		setup(true, true, false);
+		memset(&nv, 0, sizeof(nv));
+		nv.base = ctx;
+		nv.base.pushbuf = &push;
+		ppriv.screen = &screen.base;
+		b = nv04_resource(mk(PIPE_BIND_INDEX_BUFFER, PIPE_USAGE_DEFAULT, 4096));
+		copies = kicks = 0;
+		CHECK(nv30_idxbuf_to_gart(&nv, b) && copies == 0 && kicks == 0 && b->domain == NOUVEAU_BO_GART,
+		      "migrate: an index buffer in GART touched");
+		printf("%s: %d checks, %d failed\n", fails ? "FAIL" : "ok", checks, fails);
+		return fails != 0;
+	}
+#endif
 	if (argc > 1 && !strcmp(argv[1], "dump")) {
 		setup(true, argc > 2 && strchr(argv[2], 'i'), argc > 2 && strchr(argv[2], 'f'));
 		dump_list();
