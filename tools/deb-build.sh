@@ -16,6 +16,7 @@ set -euo pipefail
 # execute a shifted fragment.
 {
 PKG=$1
+. tools/lib/chroot.sh
 PD=$(tools/pkg-dir.sh "$PKG")
 . "$PD/package.conf"
 NOCHECK=nocheck; [ "${CHECK:-0}" = 1 ] && NOCHECK=
@@ -76,17 +77,10 @@ ARCHBUILD=-b; [ "${BUILD:-native}" = split ] && ARCHBUILD=-B
 R=$PWD/build/chroot/run-$PKG
 mkdir -p build/ccache build/chroot
 
-# Unmount everything under the chroot. Nothing may walk the tree (chown -R, rm -r) while /sys or
-# /dev are bound into it: in this privileged container they are the host's.
-unmount_all() {
-	for m in build/ccache dev proc sys; do umount -R -l "$R/$m" 2>/dev/null || true; done
-	if grep -q " $R/" /proc/mounts; then echo "!! still mounted under $R" >&2; return 1; fi
-}
-cleanup() {
-	unmount_all && rm -rf --one-file-system "$R"
-}
-trap cleanup EXIT
-cleanup
+# tools/lib/chroot.sh: nothing may walk the tree (chown -R, rm -r) while /sys or /dev are bound into it (in this
+# privileged container they are the host's); chroot_close unmounts, checks, and only then removes it.
+trap 'chroot_close "$R"' EXIT
+chroot_close "$R"
 
 hash=$(sha256sum "build/src/$PKG/$SOURCE-$UPVER/debian/control" | cut -c1-12)
 DEPS=build/chroot/$PKG-deps-$hash.tar
@@ -100,10 +94,8 @@ if [ -e "$DEPS" ]; then
 else
 	tar -xf build/chroot/sid-ppc64.tar -C "$R"
 fi
-mkdir -p "$R/proc" "$R/sys" "$R/dev"
-mount -t proc proc "$R/proc"; mount -t sysfs -o ro sysfs "$R/sys"; mount --rbind /dev "$R/dev"
-mkdir -p "$R/build/ccache" "$R/build/reproducible-path"
-mount --bind build/ccache "$R/build/ccache"
+chroot_open "$R" "$PWD/build/ccache:/build/ccache"
+mkdir -p "$R/build/reproducible-path"
 cp /etc/resolv.conf "$R/etc/resolv.conf"
 # Build dependencies among our own builds (package.conf LOCAL_DEPS="<dir> ...": build/debs/<dir>),
 # served to apt in the chroot as a flat repository
@@ -121,7 +113,7 @@ for f in build/src/"$PKG"/*.tar.*; do
 done
 for f in build/src/"$PKG"/*.orig*.tar.*; do [ ! -e "$f" ] || cp -L "$f" "$R/build/"; done
 
-in_chroot() { chroot "$R" /usr/bin/env -i PATH=/usr/lib/ccache:/usr/sbin:/usr/bin:/sbin:/bin \
+in_chroot() { chroot_run "$R" PATH=/usr/lib/ccache:/usr/sbin:/usr/bin:/sbin:/bin \
 	HOME=/root LANG=C.UTF-8 DEBIAN_FRONTEND=noninteractive "$@"; }
 
 T0=$(date +%s)
@@ -168,7 +160,7 @@ T2=$(date +%s)
 echo ">> built in $((T2 - T1)) s"
 
 in_chroot sh -c "CCACHE_DIR=/build/ccache ccache -s" | grep -E "Hits|Misses|Cache size" || true
-unmount_all
+chroot_unmount "$R"
 META=$OUT; [ "${BUILD:-native}" = cross-linux ] && META=$OUT/native && mkdir -p "$META"
 # a build that made no .deb is a failure, never an empty success; debug symbols and metadata are optional
 debs=("$R"/build/reproducible-path/*.deb)
@@ -177,7 +169,7 @@ cp "${debs[@]}" "$OUT/"
 for f in "$R"/build/reproducible-path/*.ddeb; do [ ! -e "$f" ] || cp "$f" "$OUT/"; done
 for f in "$R"/build/reproducible-path/*.buildinfo "$R"/build/reproducible-path/*.changes; do [ ! -e "$f" ] || cp "$f" "$META/"; done
 mv "build/chroot/$PKG-build.log" "$META/build.log"
-# only our outputs (never the chroot tree: see unmount_all)
+# only our outputs (never the chroot tree: see tools/lib/chroot.sh)
 chown -R "$OWNER" "$OUT" build/ccache
 chown "$OWNER" build/chroot build/chroot/*.tar build/chroot/*.log 2>/dev/null || true
 finish_out
