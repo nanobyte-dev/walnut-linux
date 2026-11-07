@@ -24,6 +24,7 @@ OUT=build/testsets/ladder
 JOBS=${JOBS:-8}
 [ -d "$C/.git" ] || { echo "!! no clone at $C (tools/ladder.py --prepare)"; exit 1; }
 [ -x "$XCC_TREE/usr/bin/powerpc64-linux-gnu-gcc-16" ] || { echo "!! no toolchain in $XCC_TREE (make xcc-toolchain)"; exit 1; }
+. tools/lib/chroot.sh
 . packages/patched/graphics/mesa/package.conf
 UPVER=${VERSION%-*}; UPVER=${UPVER#*:}
 CTL=build/src/mesa/$SOURCE-$UPVER/debian/control
@@ -31,24 +32,18 @@ CTL=build/src/mesa/$SOURCE-$UPVER/debian/control
 DEPS=build/chroot/mesa-deps-$(sha256sum "$CTL" | cut -c1-12).tar
 [ -e "$DEPS" ] || { echo "!! no $DEPS: make mesa-deb once makes it"; exit 1; }
 R=/xcc/run-ladder-mesa
-unmount_all() {
-	for m in x86 build/ccache ladder dev proc sys; do umount -R -l "$R/$m" 2>/dev/null || true; done
-	if grep -q " $R/" /proc/mounts; then echo "!! still mounted under $R" >&2; return 1; fi
-}
 cleanup() {	# the clone and the outputs back to their owner even when a build failed (git ran as root)
-	unmount_all && rm -rf --one-file-system "$R"
+	local rc=0
+	chroot_close "$R" || rc=1	# still mounted: the tree stays, and the owner fixes below still run
 	chown -R "$OWNER" "$OUT" "$C" "$L"/*.log /xcc/ccache 2>/dev/null || true
 	[ ! -d "$B" ] || chown -R "$OWNER" "$B"
+	return $rc
 }
 trap cleanup EXIT
 cleanup
 mkdir -p "$R" /xcc/ccache
 tar -xf "$DEPS" -C "$R"
-mkdir -p "$R/proc" "$R/sys" "$R/dev" "$R/x86" "$R/build/ccache" "$R/ladder"
-mount -t proc proc "$R/proc"; mount -t sysfs -o ro sysfs "$R/sys"; mount --rbind /dev "$R/dev"
-mount --bind /xcc/ccache "$R/build/ccache"
-mount --bind -o ro "$XCC_TREE" "$R/x86"
-mount --bind "$L" "$R/ladder"
+chroot_open "$R" /xcc/ccache:/build/ccache "$XCC_TREE:/x86:ro" "$L:/ladder"
 mkdir -p "$R/lib64" "$R/usr/local/bin"
 ln -sfn /x86/usr/lib64/ld-linux-x86-64.so.2 "$R/lib64/ld-linux-x86-64.so.2"
 for d in usr/lib/x86_64-linux-gnu usr/powerpc64-linux-gnu usr/lib/gcc-cross usr/libexec/gcc-cross; do
@@ -57,7 +52,7 @@ for d in usr/lib/x86_64-linux-gnu usr/powerpc64-linux-gnu usr/lib/gcc-cross usr/
 done
 for f in "$XCC_TREE"/usr/bin/powerpc64-linux-gnu-*; do ln -sfn "/x86/usr/bin/${f##*/}" "$R/usr/local/bin/${f##*/}"; done
 ln -sfn /x86/usr/bin/ccache "$R/usr/local/bin/ccache"
-in_chroot() { chroot "$R" /usr/bin/env -i PATH=/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin HOME=/root LANG=C.UTF-8 \
+in_chroot() { chroot_run "$R" PATH=/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin HOME=/root LANG=C.UTF-8 \
 	CCACHE_DIR=/build/ccache CCACHE_BASEDIR=/ladder CCACHE_NOHASHDIR=1 CCACHE_MAXSIZE=20G CCACHE_COMPILERCHECK=content \
 	nice -n 10 ionice -c3 "$@"; }
 TRIPLET=powerpc64-linux-gnu
