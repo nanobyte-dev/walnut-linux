@@ -38,4 +38,11 @@ The kernel's rule stays as it is: the client now has the bytes it declares. `mes
 nv30_transfer.c against a fake device and checks every SIFM copy's words against a model of the kernel's rule: the pool-class
 edges, SuperTuxKart's 33x21, quakespasm's and etr's sizes and a sweep, with the staging pool and without; `nv30_sifm_src_bytes`
 equal to the kernel's count on random rects; a short source taken by the 3D blit; a page-exact linear level copied into a swizzled
-texture. `fix-off` takes out the staging row, the guard and the texture row, each of which must fail.
+texture; and the copy session 6's SuperTuxKart push dump has the kernel refuse (chan1-s2.push, submit 28: a 35x21 glyph at
+(219, 154) of a 256x256 swizzled page, SIZE 36x22, pitch 192, 4176 bytes counted in a 4 KiB staging buffer): its recorded words are
+refused by the model, and the same upload here sends the same words from a buffer that holds them. `fix-off` takes out the staging
+row (at 33x21 and at the dump's copy), the guard and the texture row, each of which must fail.
+
+Stable users have it too: ps3rsx 0.1403's slice a/b sifm rule refuses the same copy. The SIFM and staging code is the same in
+Mesa 1219 (walnut-stable); 0075 applies there except its nv30_screen.h hunk, and 1219 has no `idx_stats`, so a backport counts
+the guard's copies without the power-of-two lines.

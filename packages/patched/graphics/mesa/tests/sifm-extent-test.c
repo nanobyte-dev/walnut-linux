@@ -17,6 +17,10 @@
  *             guard counts it, the 3D blit copies it instead
  *   copy      resource_copy_region from a linear 1024x3 texture (12 KiB, page-exact) into a swizzled
  *             one: the miptree's row of padding keeps it on SIFM
+ *   stk       the copy session 6's SuperTuxKart push dump has ps3rsx refuse (Mesa 1498: chan1-s2.push,
+ *             submit 28, a 35x21 glyph at (219, 154) of a 256x256 swizzled page from a 4 KiB staging
+ *             buffer): its recorded words through the kernel model are refused (4176 bytes counted in
+ *             4096); the same upload here sends the same words but OFFSET, from a buffer that holds them
  * Exit 0 when every check passed. (host-tests.sh sifm-extent; tools/run-tests.sh --only mesa-sifm-extent) */
 #include "nv30/nv30_miptree.c"
 #include "nv30/nv30_transfer.c"
@@ -447,6 +451,54 @@ static void test_copy(void)
 	pipe_resource_reference(&swz, NULL);
 }
 
+/* the SIFM words of the refused copy in session 6's SuperTuxKart dump (lane A, 0 gaps): COLOR_FORMAT
+ * A8R8G8B8, SRCCOPY, CLIP and OUT at (219, 154) 35x21, steps 1.0, SIZE 36x22, pitch 192 with the
+ * centre origin and point sampling, POINT 0; its source the first bytes of a 0x1000-byte GART buffer */
+static const struct { uint32_t m, v; } stk_words[] = {
+	{ 0x300, 0x00000003 }, { 0x304, 0x00000003 }, { 0x308, 0x009a00db }, { 0x30c, 0x00150023 },
+	{ 0x310, 0x009a00db }, { 0x314, 0x00150023 }, { 0x318, 0x00100000 }, { 0x31c, 0x00100000 },
+	{ 0x400, 0x00160024 }, { 0x404, 0x000100c0 }, { 0x408, 0x010ae000 }, { 0x40c, 0x00000000 },
+};
+
+static void test_stk(void)
+{
+	static uint32_t st[0x2000 / 4];
+	struct pipe_resource *pt = texture(256, 256);
+	struct pipe_box box = BOX(219, 154, 35, 21);
+	struct pipe_transfer *tx = NULL;
+
+	for (unsigned i = 0; i < ARRAY_SIZE(stk_words); i++)
+		st[stk_words[i].m / 4] = stk_words[i].v;
+	CHECK(k_len(st) == 4176, "stk: the model counts %llu bytes for the recorded copy, the kernel 4176",
+	      (unsigned long long)k_len(st));
+	/* the same upload: the same words, OFFSET aside, and the buffer now holds them */
+	const uint32_t *start = mark(), *w;
+	void *map = nv30_miptree_transfer_map(&ctx.base.pipe, pt, 0, PIPE_MAP_WRITE, &box, &tx);
+	CHECK(map && tx, "stk: the map failed");
+	if (tx)
+		nv30_miptree_transfer_unmap(&ctx.base.pipe, tx);
+	struct sifm_seen r = decode(start, pushbuf.cur);
+	unsigned diff = 0;
+
+	memset(st, 0, sizeof(st));
+	for (w = start; w < pushbuf.cur;) {	/* the SIFM words as sent */
+		uint32_t h = *w++, n = (h >> 18) & 0x7ff, sub = (h >> 13) & 7, m = h & 0x1ffc;
+
+		for (uint32_t i = 0; i < n && w < pushbuf.cur; i++, w++)
+			if (sub == 5)
+				st[(m + 4 * i) / 4] = *w;
+	}
+	for (unsigned i = 0; i < ARRAY_SIZE(stk_words); i++)
+		if (stk_words[i].m != 0x408 && st[stk_words[i].m / 4] != stk_words[i].v && diff++ < 3)
+			printf("  method %#x: %#010x, the dump %#010x\n", stk_words[i].m, st[stk_words[i].m / 4],
+			       stk_words[i].v);
+	CHECK(r.n == 1 && !diff, "stk: the upload sent %u SIFM copies, %u words unlike the dump's", r.n, diff);
+	CHECK(!r.over && r.len == 4176, "stk: the copy (%llu bytes counted) past its buffer",
+	      (unsigned long long)r.len);
+	signal_fences();
+	pipe_resource_reference(&pt, NULL);
+}
+
 int main(void)
 {
 	setup();
@@ -454,6 +506,7 @@ int main(void)
 	test_model();
 	test_guard();
 	test_copy();
+	test_stk();
 	printf("%s: %d checks, %d failed\n", fails ? "FAIL" : "ok", checks, fails);
 	return fails != 0;
 }

@@ -69,7 +69,9 @@
 #                  sifm rule): state (uploads into a swizzled texture at the pool-class edges, SuperTuxKart's 33x21,
 #                  quakespasm's 256x11, etr's 26x31 and a sweep; nv30_sifm_src_bytes equal to the kernel's count; a
 #                  source whose buffer is short taken by the 3D blit, counted; a linear level copied into a
-#                  swizzled texture); fix-off: the staging row, the guard and the miptree row each taken out must fail
+#                  swizzled texture; session 6's SuperTuxKart copy: its recorded words refused by the model, the
+#                  same upload sending the same words from a buffer that holds them); fix-off: the staging row
+#                  (at 33x21 and at the dump's copy), the guard and the miptree row each taken out must fail
 # Each part prints "RESULT <suite>:<part> pass|fail|skip" (tools/ladder.py reads them). Exit 0 when every
 # part passed, 77 when the tree lacks what the suite tests (its patch) or a tool is missing, else 1.
 set -u
@@ -740,6 +742,7 @@ sifm-extent)
 		}
 		off staging-row nv30_miptree.c 'size += tx->base.stride;' ';' \
 			'FAIL .*SuperTuxKart: 33x21.*the guard sent it another way' || r=1
+		off staging-row-stk nv30_miptree.c 'size += tx->base.stride;' ';' 'FAIL .*stk: the upload sent 0 SIFM' || r=1
 		off guard nv30_transfer.c 'src->offset + nv30_sifm_src_bytes(src, dst, filter == NEAREST) > src->bo->size) {' \
 			'0) {' 'FAIL .*guard: 1 SIFM copies of a source whose buffer ends inside' || r=1
 		off miptree-row nv30_miptree.c 'size += mt->uniform_pitch;' ';' 'FAIL .*copy: a 1024x3 level' || r=1
