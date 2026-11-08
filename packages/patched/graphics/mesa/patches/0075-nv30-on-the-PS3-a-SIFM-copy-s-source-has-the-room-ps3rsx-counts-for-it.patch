@@ -1,0 +1,180 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Sun, 8 Nov 2026 09:38:55 +0200
+Subject: nv30: on the PS3, a SIFM copy's source has the room ps3rsx counts for
+ it
+
+ps3rsx refuses a scaled-image (SIFM) copy whose source might be read past the end of its buffer
+(validate.c, sifm_check). It doesn't know whether the engine clamps its reads to the declared
+IMAGE_IN_SIZE, so it counts the larger of that size and the texels the steps sample.
+nv30_transfer_rect_sifm declares align(w, 2) x align(h, 2), so an odd-height source counts one row
+more than it has. A texture upload into a swizzled texture copies the staging buffer by SIFM, and
+the staging buffer held exactly the box's rows rounded to its pool class: when the class left less
+than a row (a 33x21 RGBA box: 4032 bytes in a 4 KiB class, 4168 counted) the submission was
+refused, and its draws and the upload were lost (SuperTuxKart, 15 s into its load).
+
+- An odd-height upload's staging buffer gets one row more, after the layout: layer_stride and the
+  offsets stay, and a stride (a multiple of 64) holds align(w, 2) texels.
+- A linear texture gets one row more at its buffer's end, for its last level copied by SIFM
+  (resource_copy_region into a swizzled texture, a resolve).
+- nv30_transfer_sifm checks the kernel's count (nv30_sifm_extent.h, the kernel's formula on the
+  words this file sends) against the source's buffer and leaves a copy that wouldn't fit to the
+  next method: the 3D blit, or the CPU for a one-byte swizzled destination (mappable on the PS3:
+  textures are made in the CPU-visible VRAM or in GART). A scaled copy never reaches the CPU path.
+  The first such copy, and with NV30_PS3_IDX_STATS=1 every power of two, prints a line.
+
+Nothing changes off the PS3. The kernel's rule stays as it is: the client now has the bytes it
+declares.
+
+Forwarded: no
+
+diff --git a/src/gallium/drivers/nouveau/meson.build b/src/gallium/drivers/nouveau/meson.build
+--- a/src/gallium/drivers/nouveau/meson.build
++++ b/src/gallium/drivers/nouveau/meson.build
+@@ -52,6 +52,7 @@ files_libnouveau = files(
+   'nv30/nv30_state_validate.c',
+   'nv30/nv30_texture.c',
+   'nv30/nv30_transfer.c',
++  'nv30/nv30_sifm_extent.h',
+   'nv30/nv30_transfer.h',
+   'nv30/nv30_vbo.c',
+   'nv30/nv30_vertprog.c',
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_miptree.c b/src/gallium/drivers/nouveau/nv30/nv30_miptree.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_miptree.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_miptree.c
+@@ -693,6 +693,12 @@ nv30_miptree_transfer_map(struct pipe_context *pipe, struct pipe_resource *pt,
+                box->width, box->height, &tx->img);
+ 
+    unsigned size = tx->base.layer_stride * tx->base.box.depth;
++   /* PS3: a copy out of the staging buffer by SIFM (into a swizzled texture) declares its source
++    * align(h, 2) rows high, and ps3rsx checks all of them inside the buffer (nv30_sifm_extent.h):
++    * an odd-height box gets one row more at the end (the layout and layer_stride stay; a row of
++    * stride bytes holds align(w, 2) texels, the stride being a multiple of 64) */
++   if (nv30->screen->base.is_ps3 && (tx->nblocksy & 1))
++      size += tx->base.stride;
+    tx->pooled_size = 0;
+    if (nv30->screen->staging_max && !(usage & PIPE_MAP_READ) &&
+        size <= NV30_STAGING_POOL_MAX_BO) {
+@@ -946,6 +952,12 @@ nv30_miptree_create(struct pipe_screen *pscreen,
+       size = mt->layer_size * 6;
+    }
+ 
++   /* PS3: a linear texture's level copied by SIFM (resource_copy_region into a swizzled texture,
++    * a resolve) is declared align(h, 2) rows high, and ps3rsx checks all of them inside the buffer
++    * (nv30_sifm_extent.h): one row more at the end, for the last level */
++   if (nv30_screen(pscreen)->base.is_ps3 && mt->uniform_pitch)
++      size += mt->uniform_pitch;
++
+    /* nv30_transfer_rect_cpu maps textures; on the PS3, VRAM above 224 MB has no CPU mapping,
+     * so ask for the CPU-visible part (NOUVEAU_GEM_DOMAIN_MAPPABLE). */
+    ret = nouveau_bo_new(dev, NOUVEAU_BO_VRAM |
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_screen.h b/src/gallium/drivers/nouveau/nv30/nv30_screen.h
+--- a/src/gallium/drivers/nouveau/nv30/nv30_screen.h
++++ b/src/gallium/drivers/nouveau/nv30/nv30_screen.h
+@@ -88,6 +88,7 @@ struct nv30_screen {
+    uint32_t idx_moves_cpu, idx_moves_gpu, idx_moves_failed, idx_kicks;
+    bool idx_split;             /* NV30_PS3_IDX_SPLIT: indexed draws past ps3rsx's per-binding cap in pieces */
+    uint32_t idx_splits, idx_converted, idx_split_failed, idx_split_kicks, idx_split_dropped;
++   uint32_t sifm_guarded;      /* copies the SIFM extent guard (nv30_transfer.c) sent another way */
+    bool fp_gart;               /* NV30_PS3_FP_GART: fragment programs in GART, not VRAM */
+    bool fp_const_vram;         /* NV30_FP_CONST_VRAM: constant changes re-upload the VRAM program */
+    unsigned index_upload;      /* NV30_INDEX_UPLOAD: least count of CPU-held indices uploaded */
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_sifm_extent.h b/src/gallium/drivers/nouveau/nv30/nv30_sifm_extent.h
+new file mode 100644
+--- /dev/null
++++ b/src/gallium/drivers/nouveau/nv30/nv30_sifm_extent.h
+@@ -0,0 +1,46 @@
++#ifndef __NV30_SIFM_EXTENT_H__
++#define __NV30_SIFM_EXTENT_H__
++
++#include <stdbool.h>
++#include <stdint.h>
++
++#include "nv30/nv30_transfer.h"
++
++/*
++ * PS3: ps3rsx refuses a scaled-image (SIFM) copy whose source might be read past the end of its
++ * buffer (validate.c, sifm_check). It doesn't know whether the engine clamps its reads to the
++ * declared IMAGE_IN_SIZE, so it takes the larger of that size and the texels the steps sample,
++ * the last output's texel plus, with bilinear filtering, the next one. nv30_transfer_rect_sifm
++ * declares align(w, 2) x align(h, 2): an odd-height source counts one row more than it has.
++ * These are the kernel's numbers for the words nv30_transfer_rect_sifm sends.
++ */
++
++/* One past the last source texel along an axis: from p (12.4), the step d (12.20) and n outputs */
++static inline uint64_t
++nv30_sifm_end(uint32_t p, uint32_t d, uint32_t n, bool nearest)
++{
++   uint64_t last = ((uint64_t)(p & 0xffff) << 16) + (uint64_t)d * (n - 1);
++
++   if (nearest)
++      last += d / 2;   /* ORIGIN_CENTER */
++   return (last >> 20) + 1 + !nearest;   /* FILTER_BILINEAR reads the next texel too */
++}
++
++/* The bytes from src's offset the kernel takes the copy src -> dst to read */
++static inline uint64_t
++nv30_sifm_src_bytes(const struct nv30_rect *src, const struct nv30_rect *dst, bool nearest)
++{
++   uint32_t ow = dst->x1 - dst->x0, oh = dst->y1 - dst->y0;
++   uint32_t dudx = ((src->x1 - src->x0) << 20) / ow;
++   uint32_t dvdy = ((src->y1 - src->y0) << 20) / oh;
++   uint64_t cols = nv30_sifm_end(src->x0 << 4, dudx, ow, nearest);
++   uint64_t rows = nv30_sifm_end(src->y0 << 4, dvdy, oh, nearest);
++
++   if (cols < ((src->w + 1) & ~1u))
++      cols = (src->w + 1) & ~1u;   /* IMAGE_IN_SIZE: align(w, 2) */
++   if (rows < ((src->h + 1) & ~1u))
++      rows = (src->h + 1) & ~1u;   /* and align(h, 2) */
++   return (uint64_t)(src->pitch & 0xffff) * (rows - 1) + cols * src->cpp;
++}
++
++#endif
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_transfer.c b/src/gallium/drivers/nouveau/nv30/nv30_transfer.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_transfer.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_transfer.c
+@@ -36,6 +36,7 @@
+ #include "nv30/nv30-40_3d.xml.h"
+ 
+ #include "nv30/nv30_context.h"
++#include "nv30/nv30_sifm_extent.h"
+ #include "nv30/nv30_transfer.h"
+ #include "nv30/nv30_winsys.h"
+ 
+@@ -448,12 +449,36 @@ nv30_transfer_rect_blit(XFER_ARGS)
+    }
+ }
+ 
++/* NV30_PS3_IDX_STATS=1, and always the first: a stderr line each time the count of copies the
++ * SIFM guard below sent another way passes a power of two */
++static void
++nv30_sifm_guard_count(struct nv30_screen *screen)
++{
++   uint32_t v = p_atomic_inc_return(&screen->sifm_guarded);
++
++   if (v == 1 || (unlikely(screen->idx_stats) && !(v & (v - 1))))
++      fprintf(stderr, "nv30: %u copies whose SIFM source would pass its buffer's end taken by the 3D "
++              "blit or the CPU instead\n", v);
++}
++
+ static bool
+ nv30_transfer_sifm(XFER_ARGS)
+ {
+    if (!src->pitch || src->w > 1024 || src->h > 1024 || src->w < 2 || src->h < 2)
+       return false;
+ 
++   /* PS3: the extent ps3rsx checks (nv30_sifm_extent.h) inside the source's buffer, or ps3rsx
++    * refuses the submission and the copy is lost with everything queued in it. The staging buffers
++    * and linear textures have the room (nv30_miptree.c), so this only catches a source nothing
++    * padded; the next method, the 3D blit, then copies it on the GPU (the CPU for a one-byte
++    * swizzled destination, which on the PS3 is always mappable: textures are made in the
++    * CPU-visible VRAM or in GART) */
++   if (nv30->screen->base.is_ps3 && src->bo && dst->x1 > dst->x0 && dst->y1 > dst->y0 &&
++       src->offset + nv30_sifm_src_bytes(src, dst, filter == NEAREST) > src->bo->size) {
++      nv30_sifm_guard_count(nv30->screen);
++      return false;
++   }
++
+    if (src->d > 1 || dst->d > 1)
+       return false;
+ 

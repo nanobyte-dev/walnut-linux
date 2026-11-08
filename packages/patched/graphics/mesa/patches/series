@@ -58,3 +58,4 @@
 0072-nv30-on-the-PS3-an-indexed-draw-past-the-kernel-s-per-binding-cap-is-drawn-in-pieces.patch
 0073-nv30-on-the-PS3-every-index-binding-keeps-within-the-kernel-s-share-and-never-spans-two-submissions.patch
 0074-nv30-on-the-PS3-no-submission-ends-inside-an-indexed-draw-s-primitive.patch
+0075-nv30-on-the-PS3-a-SIFM-copy-s-source-has-the-room-ps3rsx-counts-for-it.patch

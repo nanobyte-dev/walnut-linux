@@ -176,6 +176,13 @@ group = "mesa"
 ci_skip = { "mesa-idx-split" = "needs build/work/mesa" }
 
 [[suite]]
+name = "mesa-sifm-extent"
+what = "Mesa 0075: on the PS3 every SIFM copy's source fits the extent ps3rsx checks: nv30_miptree.c and nv30_transfer.c whole against a fake device, each copy's words against a model of the kernel's sifm rule; uploads into a swizzled texture at the staging pool's class edges (SuperTuxKart's 33x21), quakespasm's 256x11 and etr's 26x31 and a sweep, with and without the pool; nv30_sifm_src_bytes equal to the kernel's count; a short source taken by the 3D blit and counted; a page-exact linear level copied into a swizzled texture; the staging row, the guard and the texture row each taken out fails"
+run = ["packages/patched/graphics/mesa/tests/host-tests.sh", "sifm-extent"]
+group = "mesa"
+ci_skip = { "mesa-sifm-extent" = "needs build/work/mesa" }
+
+[[suite]]
 name = "mesa-submit-fail"
 what = "Mesa 0061: the winsys's push buffer submission (nouveau.c whole, a fake kernel): a cancelled and a failed submission both count in nouveau_device::cancelled, none lost under four threads; the file before the patch fails"
 run = ["packages/patched/graphics/mesa/tests/host-tests.sh", "submit-fail"]

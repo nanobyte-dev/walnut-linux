@@ -64,6 +64,12 @@
 #                  into the winsys for space when there is room (0074)), golden (draws under the cap: the words of
 #                  nv30_vbo.c before 0072, identical); fix-off: each rule of the header and of nv30_vbo.c taken out
 #                  must fail
+#   sifm-extent    0075: on the PS3 every SIFM copy's source fits the extent ps3rsx checks (sifm-extent-test.c:
+#                  nv30_miptree.c and nv30_transfer.c whole, the words checked against a model of the kernel's
+#                  sifm rule): state (uploads into a swizzled texture at the pool-class edges, SuperTuxKart's 33x21,
+#                  quakespasm's 256x11, etr's 26x31 and a sweep; nv30_sifm_src_bytes equal to the kernel's count; a
+#                  source whose buffer is short taken by the 3D blit, counted; a linear level copied into a
+#                  swizzled texture); fix-off: the staging row, the guard and the miptree row each taken out must fail
 # Each part prints "RESULT <suite>:<part> pass|fail|skip" (tools/ladder.py reads them). Exit 0 when every
 # part passed, 77 when the tree lacks what the suite tests (its patch) or a tool is missing, else 1.
 set -u
@@ -74,9 +80,9 @@ t=${MESA_TESTS:-packages/patched/graphics/mesa/tests}
 S=${1:-}; shift || true
 declare -A PARTS=([forcedxt]="" [staging-pool]="" [vtx-snorm8]="unpack vpsim" [minmax-vmx]="host ppc64"
 	[query-steal]="" [query-lost]="end steal destroy elapsed failed deadline deadline-edge begin-sent two-ctx own-begin stale no-slot disowned wait-option late x86 fix-off" [alloc-fail]="upload mm-fallback mm-nomem fence fence-cancel pushbuf-flush pushbuf-destroy fix-off"
-	[transfer-cpu]="fix-off" [blit-state]="state golden" [placement]="state golden default migrate blit wiring fix-off" [fb-window]="state golden" [point-smooth]="" [submit-fail]="ecanceled failed notify ratelimit ok threads fix-off" [bo-domain]="state fix-off" [fragprog]="txb rep end golden fix-off" [idx-split]="model cap wiring stream golden fix-off")
+	[transfer-cpu]="fix-off" [blit-state]="state golden" [placement]="state golden default migrate blit wiring fix-off" [fb-window]="state golden" [point-smooth]="" [submit-fail]="ecanceled failed notify ratelimit ok threads fix-off" [bo-domain]="state fix-off" [fragprog]="txb rep end golden fix-off" [idx-split]="model cap wiring stream golden fix-off" [sifm-extent]="state fix-off")
 if [ "$S" = --list ]; then
-	for s in forcedxt staging-pool vtx-snorm8 minmax-vmx query-steal query-lost alloc-fail transfer-cpu blit-state placement fb-window point-smooth submit-fail bo-domain fragprog idx-split; do
+	for s in forcedxt staging-pool vtx-snorm8 minmax-vmx query-steal query-lost alloc-fail transfer-cpu blit-state placement fb-window point-smooth submit-fail bo-domain fragprog idx-split sifm-extent; do
 		echo "$s ${PARTS[$s]}"; done
 	exit 0
 fi
@@ -286,7 +292,8 @@ transfer-cpu)
 		if [ -z "$c" ]; then
 			echo "SKIP ${TEST_SUITE:-mesa-transfer-cpu}:fix-off no 0063 commit in $M"; result fix-off 77
 		else
-			for f in nv30_miptree.c nv30_screen.h nv30_staging_policy.h; do git -C $M show "$c^:$D/$f" > $O/nv30/$f || exit 1; done
+			# (nv30_transfer.c of the same commit: today's reads screen fields that header lacks, 0075)
+			for f in nv30_miptree.c nv30_screen.h nv30_staging_policy.h nv30_transfer.c; do git -C $M show "$c^:$D/$f" > $O/nv30/$f || exit 1; done
 			mcc $O/test $t/transfer-cpu-test.c -Wall -Werror -I$O &&
 			expect_fail "0063 off: idle small-pool buffers" 'FAIL .*after a put 1.2 s on' $O/test
 			result fix-off $?
@@ -710,6 +717,34 @@ point-smooth)
 		$M/src/util/ralloc.c $M/src/util/u_dynarray.c &&
 		ASAN_OPTIONS=detect_leaks=0 $T/point-smooth-test
 	result "" $?
+	;;
+sifm-extent)
+	[ -e $M/src/gallium/drivers/nouveau/nv30/nv30_sifm_extent.h ] || skip "no $M with Mesa 0075 (make mesa-work)"
+	U=-Wl,--unresolved-symbols=ignore-all
+	gen || exit 1
+	if wants state; then
+		mcc $T/sifm-extent-test $t/sifm-extent-test.c -Wall -Werror $U &&
+			ASAN_OPTIONS=detect_leaks=0 $T/sifm-extent-test
+		result state $?
+	fi
+	if wants fix-off; then
+		# each rule of 0075 taken out of a copy of its file: the test must fail at that rule's case
+		D=src/gallium/drivers/nouveau/nv30 r=0
+		off() {	# off NAME FILE FROM TO REGEX
+			local O=$T/sifm-off-$1
+			rm -rf $O; mkdir -p $O/nv30; cp $M/$D/$2 $O/nv30/$2
+			FROM=$3 TO=$4 perl -0777 -i -pe 'my $n = () = /\Q$ENV{FROM}\E/g; $n == 1 or die "found $n times\n";
+				s/\Q$ENV{FROM}\E/$ENV{TO}/' $O/nv30/$2 || return 1
+			mcc $O/test $t/sifm-extent-test.c -Wall -Werror $U -I$O &&
+				ASAN_OPTIONS=detect_leaks=0 expect_fail "0075 off: $1" "$5" $O/test
+		}
+		off staging-row nv30_miptree.c 'size += tx->base.stride;' ';' \
+			'FAIL .*SuperTuxKart: 33x21.*the guard sent it another way' || r=1
+		off guard nv30_transfer.c 'src->offset + nv30_sifm_src_bytes(src, dst, filter == NEAREST) > src->bo->size) {' \
+			'0) {' 'FAIL .*guard: 1 SIFM copies of a source whose buffer ends inside' || r=1
+		off miptree-row nv30_miptree.c 'size += mt->uniform_pitch;' ';' 'FAIL .*copy: a 1024x3 level' || r=1
+		result fix-off $r
+	fi
 	;;
 esac
 [ $fails = 0 ]
