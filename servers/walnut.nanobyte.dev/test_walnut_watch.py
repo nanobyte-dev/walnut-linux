@@ -944,8 +944,8 @@ class DeployKeys(unittest.TestCase):
 
 
 class Fail2ban(unittest.TestCase):
-	"""V7: the 401 filter matches failed logins on /licensed/ and /ccache/ and nothing else; the jail ships disabled and
-	never bans the docker gateway"""
+	"""V7: the 401 filter matches failed logins on /licensed/ and /ccache/ and nothing else; the jail ships enabled, reads
+	both logs and never bans a docker gateway or private address"""
 	def regex(self):
 		conf = slurp(os.path.join(os.path.dirname(WATCH), "fail2ban/walnut-401.filter"))
 		rx = re.search(r"^failregex = (.*)$", conf, re.M).group(1)
@@ -963,8 +963,12 @@ class Fail2ban(unittest.TestCase):
 
 	def test_jail(self):
 		jail = slurp(os.path.join(os.path.dirname(WATCH), "fail2ban/walnut-401.jail"))
-		self.assertRegex(jail, r"(?m)^enabled\s*=\s*false$")
-		self.assertIn("172.16.0.0/12", re.search(r"(?m)^ignoreip\s*=(.*)$", jail).group(1))	# the docker gateway is never banned
+		self.assertRegex(jail, r"(?m)^enabled\s*=\s*true$")
+		ignore = re.search(r"(?m)^ignoreip\s*=(.*)$", jail).group(1).split()
+		for net in ("172.16.0.0/12", "10.0.0.0/8", "192.168.0.0/16"):	# a docker gateway, whatever its pool, is never banned
+			self.assertIn(net, ignore)
+		for log in ("/data/nanobyte/MainProxy/Logs/access.log", "/data/nanobyte/MainProxy/Logs/walnut.log"):
+			self.assertRegex(jail, r"(?m)^\s*(logpath\s*=\s*)?%s$" % re.escape(log))
 
 
 class CheckHeaders(unittest.TestCase):

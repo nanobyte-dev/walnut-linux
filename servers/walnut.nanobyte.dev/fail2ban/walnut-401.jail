@@ -1,9 +1,9 @@
 # walnut-401: ten 401s on /licensed/ or /ccache/ from one address in ten minutes ban it for an hour, in DOCKER-USER
-# like walnut-upload. DISABLED until the sitting has confirmed the log path and format below and that a request from an
-# IPv6 client is logged with its own address (docker-proxy may log the gateway): a jail on the gateway would ban nobody
-# (172.16.0.0/12 is ignored, below) or, without that, everybody. Enable with `enabled = true` and a fail2ban reload.
+# like walnut-upload. Enabled on the server by the owner (2026-11-08) after the sitting checked the log paths and format
+# below and that clients are logged with their own address (docker-proxy may log the gateway): a jail on the gateway
+# would ban nobody (the private ranges a docker pool uses are ignored, below) or, without that, everybody.
 [walnut-401]
-enabled   = false
+enabled   = true
 backend   = auto
 # /licensed/ 401s are in the shared access.log, /ccache/ 401s in walnut.log (the CI paths' own log)
 logpath   = /data/nanobyte/MainProxy/Logs/access.log
@@ -14,4 +14,4 @@ findtime  = 10m
 bantime   = 1h
 banaction = docker-user
 action    = %(banaction)s[name=%(__name__)s]
-ignoreip  = 127.0.0.1/8 ::1 172.16.0.0/12 100.64.0.0/10
+ignoreip  = 127.0.0.1/8 ::1 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 100.64.0.0/10

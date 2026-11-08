@@ -23,7 +23,7 @@ fail2ban() {
 	install_if_changed "$s/walnut-upload.filter" $f/filter.d/walnut-upload.conf
 	install_if_changed "$s/walnut-upload.jail" $f/jail.d/walnut-upload.conf
 	install_if_changed "$s/walnut-401.filter" $f/filter.d/walnut-401.conf
-	# shipped disabled; never overwritten once the sitting has set it up
+	# installed only when absent: a host's own copy (the owner's, after the sitting) is never overwritten
 	[ -e $f/jail.d/walnut-401.conf ] || root install -m 644 "$s/walnut-401.jail" $f/jail.d/walnut-401.conf
 	run rm "$s/walnut-upload.filter" "$s/walnut-upload.jail" "$s/walnut-401.filter" "$s/walnut-401.jail"
 	root fail2ban-client reload >/dev/null
