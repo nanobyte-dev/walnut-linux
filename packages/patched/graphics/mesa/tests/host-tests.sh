@@ -88,6 +88,9 @@
 #                  mm_GART, the pool off by default, retention off by default, two empty slabs kept, the kept
 #                  slab left on the free list in use, the peak, the freed slabs or the bytes freed not
 #                  counted, the line on by default: each must fail
+#   fence-pool     0077: NV30_FENCE_BO_POOL's default, 16 on the PS3 and 0 elsewhere (fence-pool-test.c:
+#                  nv30_screen.h), within the pool's room (nouveau_fence.h); wiring (nv30_screen.c reads the option
+#                  through it); fix-off: the PS3 default 0, the option read with a literal: each must fail
 # Each part prints "RESULT <suite>:<part> pass|fail|skip" (tools/ladder.py reads them). Exit 0 when every
 # part passed, 77 when the tree lacks what the suite tests (its patch) or a tool is missing, else 1.
 set -u
@@ -99,9 +102,9 @@ S=${1:-}; shift || true
 declare -A PARTS=([forcedxt]="" [staging-pool]="" [vtx-snorm8]="unpack vpsim" [minmax-vmx]="host ppc64"
 	[query-steal]="" [query-lost]="end steal destroy elapsed failed deadline deadline-edge begin-sent two-ctx own-begin stale no-slot disowned wait-option late x86 fix-off" [alloc-fail]="upload mm-fallback mm-nomem fence fence-cancel pushbuf-flush pushbuf-destroy fix-off"
 	[transfer-cpu]="fix-off" [blit-state]="state golden" [placement]="state golden default migrate blit wiring fix-off" [fb-window]="state golden" [point-smooth]="" [submit-fail]="ecanceled failed notify ratelimit ok threads fix-off" [bo-domain]="state fix-off" [fragprog]="txb rep end golden fix-off" [idx-split]="model cap wiring stream golden fix-off" [sifm-extent]="state fix-off"
-	[gart-pool]="choice keep stats wiring fix-off")
+	[gart-pool]="choice keep stats wiring fix-off" [fence-pool]="default wiring fix-off")
 if [ "$S" = --list ]; then
-	for s in forcedxt staging-pool vtx-snorm8 minmax-vmx query-steal query-lost alloc-fail transfer-cpu blit-state placement fb-window point-smooth submit-fail bo-domain fragprog idx-split sifm-extent gart-pool; do
+	for s in forcedxt staging-pool vtx-snorm8 minmax-vmx query-steal query-lost alloc-fail transfer-cpu blit-state placement fb-window point-smooth submit-fail bo-domain fragprog idx-split sifm-extent gart-pool fence-pool; do
 		echo "$s ${PARTS[$s]}"; done
 	exit 0
 fi
@@ -850,6 +853,39 @@ gart-pool)
 			nouveau_mm.c '   p_atomic_add(&cache->allocated, -(int64_t)((uint64_t)slab->count << slab->order));' '' || r=1
 		off stats-default stats 'FAIL .*stats: a line at the end without NV30_PS3_GART_STATS' \
 			nouveau_mm_ps3.h 'debug_get_bool_option("NV30_PS3_GART_STATS", false)' 'debug_get_bool_option("NV30_PS3_GART_STATS", true)' || r=1
+		result fix-off $r
+	fi
+	;;
+fence-pool)
+	[ -e $M/src/gallium/drivers/nouveau/nv30/nv30_screen.h ] || skip "no Mesa tree at $M (make mesa-work)"
+	grep -q nv30_fence_bo_pool_default $M/src/gallium/drivers/nouveau/nv30/nv30_screen.h || {
+		echo "no nv30_fence_bo_pool_default in this tree (before 0077)"; for p in default wiring; do wants $p && result $p 1; done
+		wants fix-off && result fix-off 77; exit 1; }
+	gen || exit 1
+	export ASAN_OPTIONS=detect_leaks=0
+	U=-Wl,--unresolved-symbols=ignore-all
+	wire='debug_get_num_option("NV30_FENCE_BO_POOL", nv30_fence_bo_pool_default(ps3))'
+	if wants default; then
+		mcc $T/fence-pool-test $t/fence-pool-test.c -Wall -Werror -Wno-unused-function $U && $T/fence-pool-test
+		result default $?
+	fi
+	if wants wiring; then
+		rc=0; grep -qF "$wire" $M/src/gallium/drivers/nouveau/nv30/nv30_screen.c || rc=1
+		[ $rc = 0 ] && echo "wiring: nv30_screen.c reads NV30_FENCE_BO_POOL with its PS3 default" ||
+			echo "FAIL wiring: NV30_FENCE_BO_POOL not read through nv30_fence_bo_pool_default(ps3)"
+		result wiring $rc
+	fi
+	if wants fix-off; then
+		r=0 O=$T/fence-pool-off; rm -rf $O; mkdir -p $O/nv30
+		cp $M/src/gallium/drivers/nouveau/nv30/nv30_screen.h $M/src/gallium/drivers/nouveau/nv30/nv30_screen.c $O/nv30/
+		FROM='return ps3 ? 16 : 0;' TO='return 0;' perl -0777 -i -pe 'my $n = () = /\Q$ENV{FROM}\E/g;
+			$n == 1 or die "found $n times\n"; s/\Q$ENV{FROM}\E/$ENV{TO}/' $O/nv30/nv30_screen.h || r=1
+		mcc $O/test $t/fence-pool-test.c -Wall -Werror -Wno-unused-function $U -I$O &&
+			expect_fail "0077 off: the PS3 default 0" 'FAIL .*NV30_FENCE_BO_POOL default: PS3 0' $O/test || r=1
+		FROM="$wire" TO='debug_get_num_option("NV30_FENCE_BO_POOL", 0)' perl -0777 -i -pe 'my $n = () = /\Q$ENV{FROM}\E/g;
+			$n == 1 or die "found $n times\n"; s/\Q$ENV{FROM}\E/$ENV{TO}/' $O/nv30/nv30_screen.c || r=1
+		if grep -qF "$wire" $O/nv30/nv30_screen.c; then echo "FAIL 0077 off: the literal still passes the wiring"; r=1
+		else echo "ok   0077 off: the option read with a literal: the wiring check fails as expected"; fi
 		result fix-off $r
 	fi
 	;;

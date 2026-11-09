@@ -1,0 +1,56 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Tue, 10 Nov 2026 10:00:00 +0200
+Subject: nv30: on the PS3, the fence wait buffer pool is on by default (16)
+
+0034's NV30_FENCE_BO_POOL keeps the 4 KiB GART wait buffers of signalled fences for the next fences,
+instead of a GEM object made and closed at every submission. It stayed off by default because it
+measured neutral on ClassiCube (2026-10-18). On the PS3 the per-submission make and close now cost
+measurably in the kernel: with 16, BananaBread's kernel time fell by about 1 ms a frame and Trigger
+Rally's by about 0.35 ms (2026-11-09), and the stock module gained about as much as the test one. X
+can't be given the variable (Xorg.wrap clears the environment), so the default is what it runs with.
+Nothing changes in what the pool does (0034: a buffer is reused only once its fence is signalled or
+was never emitted; the pool is drained before the device goes); it pins 16 x 4 KiB of GART.
+
+The default is 16 on the PS3 (nv30_fence_bo_pool_default) and stays 0 elsewhere; NV30_FENCE_BO_POOL=N
+sets it, 0 off.
+
+Forwarded: no
+
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_screen.c b/src/gallium/drivers/nouveau/nv30/nv30_screen.c
+index a6d77ab..bb40a85 100644
+--- a/src/gallium/drivers/nouveau/nv30/nv30_screen.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_screen.c
+@@ -586,9 +586,10 @@ nv30_screen_create(struct nouveau_device *dev)
+    screen->point_smooth = debug_get_bool_option("NV30_POINT_SMOOTH", true);
+    /* NV30_FENCE_BO_POOL=N: keep up to N wait buffers of deleted fences for the next fences
+     * instead of a 4 KiB GART buffer allocation and free per submission (nouveau_fence.h); 0: off.
++    * The default is 16 on the PS3, 0 elsewhere (nv30_fence_bo_pool_default).
+     */
+    screen->base.fence.bo_pool_max =
+-      CLAMP(debug_get_num_option("NV30_FENCE_BO_POOL", 0), 0,
++      CLAMP(debug_get_num_option("NV30_FENCE_BO_POOL", nv30_fence_bo_pool_default(ps3)), 0,
+             (int64_t)ARRAY_SIZE(screen->base.fence.bo_pool));
+    /* NV30_QUERY_WAIT=US: a query result the caller waits for is spun on for at most US
+     * microseconds (at low SMT priority), then waited for in the kernel on the fence of the
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_screen.h b/src/gallium/drivers/nouveau/nv30/nv30_screen.h
+index 329cbc4..57a87c3 100644
+--- a/src/gallium/drivers/nouveau/nv30/nv30_screen.h
++++ b/src/gallium/drivers/nouveau/nv30/nv30_screen.h
+@@ -46,6 +46,16 @@ nv30_ps3_idx_gart_default(bool ps3)
+    return ps3;
+ }
+ 
++/* NV30_FENCE_BO_POOL's default: 16 on the PS3, 0 elsewhere. Without the pool a fence's 4 KiB wait buffer is a GEM
++ * object made and closed at every submission; the pool reuses the buffers of signalled fences only (0034), so no
++ * batch the GPU still runs references one. X can't be given the variable (Xorg.wrap clears the environment), so
++ * the default is what it gets. */
++static inline int
++nv30_fence_bo_pool_default(bool ps3)
++{
++   return ps3 ? 16 : 0;
++}
++
+ /* NV30_QUERY_WAIT: -1 (and anything below) spins, 0 to 1000000 microseconds of spinning first */
+ static inline int
+ nv30_query_wait_option(int64_t v)
