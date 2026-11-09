@@ -1,0 +1,428 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Tue, 10 Nov 2026 10:00:00 +0200
+Subject: nouveau: on the PS3, stream storage gets a GART pool of its own, slab
+ retention gets a switch, and the GART slabs get a stats line
+
+nouveau_mm suballocates every GART buffer from shared slabs by size class, so the storage the CPU
+rewrites all the time (u_upload's stream buffers, so nv30's fragment programs since 0069 and its
+index and vertex uploads, staging buffers, persistent and coherent maps, client arrays uploaded at
+every draw) shares slab objects with long-lived GART buffers such as index buffers. On the PS3
+(is_ps3):
+
+- A second GART suballocator, mm_GART_stream, on the same size classes (nouveau_mm_ps3_init, at
+  screen init once mm_GART is made). nouveau_buffer_gart_mm chooses the pool once per allocation,
+  from the buffer's usage and flags: stream buffers, staging buffers, persistent and coherent ones
+  and user-memory buffers go there, and so do transfer staging and readback areas
+  (nouveau_transfer_staging). Everything else stays in mm_GART: index buffers made in GART, nv30's
+  moves of index buffers to GART (a stream one goes to the stream pool), buffers that fell back from
+  VRAM. NV30_PS3_GART_POOL=0: one pool, as before.
+- NV30_PS3_MM_KEEP_SLAB=N: each size class of the two GART pools keeps N empty slabs for its next
+  allocations and frees the slabs that empty past them, the oldest first (0 frees every slab that
+  empties). The default is -1, every one kept: nouveau_mm never freed a slab, one that emptied went
+  on its bucket's free list and stayed there until the screen's end (nouveau_mm_destroy), and that
+  stays so. Freeing isn't the default because each free is a GEM close, and a load that crosses a
+  slab boundary every frame would make and free a slab every frame; a non-default N gives a peak's
+  slabs (a level load) back, for measuring. With N set, a live buffer gets the memory it got before,
+  except that its bucket has at most N empty slabs to take, and a slab's object closes only at its
+  last reference, so after any pending submission that uses it. The screen's end frees the kept slabs.
+- NV30_PS3_GART_STATS=1: a stderr line at the screen's end, for each pool: the bytes of slab objects
+  it holds, their peak, the slabs made and freed and the empty ones kept. The counts change only
+  when a slab is made or freed, so they cost nothing per allocation.
+
+GART cost: the split adds at most one part-used slab for each size class both pools use at once (in
+practice the small classes' 4-128 KiB slabs, and a 4 MiB one only when both pools hold 1 MiB
+buffers). mm_VRAM and other GPUs keep every slab and one GART pool, as before.
+
+Forwarded: no
+
+diff --git a/src/gallium/drivers/nouveau/meson.build b/src/gallium/drivers/nouveau/meson.build
+index fe7aa4b..36ed805 100644
+--- a/src/gallium/drivers/nouveau/meson.build
++++ b/src/gallium/drivers/nouveau/meson.build
+@@ -15,6 +15,7 @@ files_libnouveau = files(
+   'nouveau_heap.h',
+   'nouveau_mm.c',
+   'nouveau_mm.h',
++  'nouveau_mm_ps3.h',
+   'nouveau_screen.c',
+   'nouveau_screen.h',
+   'nouveau_video.c',
+diff --git a/src/gallium/drivers/nouveau/nouveau_buffer.c b/src/gallium/drivers/nouveau/nouveau_buffer.c
+index 058ed05..a258785 100644
+--- a/src/gallium/drivers/nouveau/nouveau_buffer.c
++++ b/src/gallium/drivers/nouveau/nouveau_buffer.c
+@@ -72,6 +72,23 @@ nouveau_buffer_copy_freed(struct nv04_resource *buf)
+    p_atomic_dec(&screen->sysmem_copy.count);
+ }
+ 
++/* PS3 (nouveau_mm_ps3.h): the GART pool of buf's new storage, from its usage and flags. Storage
++ * the CPU rewrites all the time (stream, staging, persistent, coherent buffers, so u_upload's, and a
++ * user buffer's upload at each draw) goes to mm_GART_stream, out of the other buffers' slab objects;
++ * the rest, and everything without a stream pool, to mm_GART. */
++struct nouveau_mman *
++nouveau_buffer_gart_mm(struct nouveau_screen *screen, const struct nv04_resource *buf)
++{
++   const enum pipe_resource_usage usage = buf->base.usage;
++
++   if (screen->mm_GART_stream &&
++       (usage == PIPE_USAGE_STREAM || usage == PIPE_USAGE_STAGING ||
++        (buf->base.flags & (PIPE_RESOURCE_FLAG_MAP_PERSISTENT | PIPE_RESOURCE_FLAG_MAP_COHERENT)) ||
++        (buf->status & NOUVEAU_BUFFER_STATUS_USER_MEMORY)))
++      return screen->mm_GART_stream;
++   return screen->mm_GART;
++}
++
+ static inline bool
+ nouveau_buffer_allocate(struct nouveau_screen *screen,
+                         struct nv04_resource *buf, unsigned domain)
+@@ -86,7 +103,7 @@ nouveau_buffer_allocate(struct nouveau_screen *screen,
+       NOUVEAU_DRV_STAT(screen, buf_obj_current_bytes_vid, buf->base.width0);
+    } else
+    if (domain == NOUVEAU_BO_GART) {
+-      buf->mm = nouveau_mm_allocate(screen->mm_GART, size,
++      buf->mm = nouveau_mm_allocate(nouveau_buffer_gart_mm(screen, buf), size,
+                                     &buf->bo, &buf->offset);
+       if (!buf->bo)
+          return false;
+@@ -231,13 +248,14 @@ nouveau_transfer_staging(struct nouveau_context *nv,
+       if (tx->map)
+          tx->map += adj;
+    } else {
+-      tx->mm =
+-         nouveau_mm_allocate(nv->screen->mm_GART, size, &tx->bo, &tx->offset);
++      /* (PS3: in the stream pool, with the other storage rewritten all the time) */
++      struct nouveau_mman *mm = nv->screen->mm_GART_stream ? nv->screen->mm_GART_stream
++                                                           : nv->screen->mm_GART;
++      tx->mm = nouveau_mm_allocate(mm, size, &tx->bo, &tx->offset);
+       if (!tx->bo) {
+          /* out of GART: the GPU's work so far holds staging and freed storage back */
+          nouveau_fence_wait_idle(nv);
+-         tx->mm =
+-            nouveau_mm_allocate(nv->screen->mm_GART, size, &tx->bo, &tx->offset);
++         tx->mm = nouveau_mm_allocate(mm, size, &tx->bo, &tx->offset);
+       }
+       if (tx->bo) {
+          tx->offset += adj;
+diff --git a/src/gallium/drivers/nouveau/nouveau_buffer.h b/src/gallium/drivers/nouveau/nouveau_buffer.h
+index b0747ae..3a7cfa9 100644
+--- a/src/gallium/drivers/nouveau/nouveau_buffer.h
++++ b/src/gallium/drivers/nouveau/nouveau_buffer.h
+@@ -129,6 +129,10 @@ void
+ nouveau_buffer_invalidate(struct pipe_context *pipe,
+                           struct pipe_resource *resource);
+ 
++/* PS3: the GART pool of a buffer's new storage (mm_GART_stream or mm_GART: nouveau_buffer.c) */
++struct nouveau_mman *
++nouveau_buffer_gart_mm(struct nouveau_screen *, const struct nv04_resource *);
++
+ /* Copy data to a scratch buffer and return address & bo the data resides in.
+  * Returns 0 on failure.
+  */
+diff --git a/src/gallium/drivers/nouveau/nouveau_mm.c b/src/gallium/drivers/nouveau/nouveau_mm.c
+index ed77444..84175fd 100644
+--- a/src/gallium/drivers/nouveau/nouveau_mm.c
++++ b/src/gallium/drivers/nouveau/nouveau_mm.c
+@@ -29,7 +29,7 @@ struct mm_bucket {
+    struct list_head free;
+    struct list_head used;
+    struct list_head full;
+-   int num_free;
++   int num_free; /* the slabs on free: empty ones */
+    simple_mtx_t lock;
+ };
+ 
+@@ -38,7 +38,12 @@ struct nouveau_mman {
+    struct mm_bucket bucket[MM_NUM_BUCKETS];
+    uint32_t domain;
+    union nouveau_bo_config config;
+-   uint64_t allocated;
++   uint64_t allocated; /* bytes of the slab objects held */
++   /* empty slabs each bucket keeps for its next allocations, past which a slab that empties is freed;
++    * -1: every one, for good (nouveau_mm_set_keep: PS3 only, nouveau_mm_ps3.h) */
++   int keep;
++   uint64_t peak; /* the most of allocated */
++   uint32_t slabs_made, slabs_freed;
+ };
+ 
+ struct mm_slab {
+@@ -154,8 +159,13 @@ mm_slab_new(struct nouveau_mman *cache, struct mm_bucket *bucket, int chunk_orde
+ 
+    assert(bucket == mm_bucket_by_order(cache, chunk_order));
+    list_add(&slab->head, &bucket->free);
++   bucket->num_free++;
+ 
+-   p_atomic_add(&cache->allocated, size);
++   p_atomic_inc(&cache->slabs_made);
++   uint64_t now = p_atomic_add_return(&cache->allocated, size);
++   for (uint64_t peak = p_atomic_read(&cache->peak), was; now > peak; peak = was)
++      if ((was = p_atomic_cmpxchg(&cache->peak, peak, now)) == peak)
++         break;
+ 
+    if (nouveau_mesa_debug)
+       debug_printf("MM: new slab, total memory = %"PRIu64" KiB\n",
+@@ -209,6 +219,7 @@ nouveau_mm_allocate(struct nouveau_mman *cache,
+ 
+       list_del(&slab->head);
+       list_add(&slab->head, &bucket->used);
++      bucket->num_free--;
+    }
+ 
+    *offset = mm_slab_alloc(slab) << slab->order;
+@@ -227,11 +238,23 @@ nouveau_mm_allocate(struct nouveau_mman *cache,
+    return alloc;
+ }
+ 
++/* a slab no bucket holds any more: its object goes (once the buffers' own references to it have) */
++static void
++mm_slab_release(struct nouveau_mman *cache, struct mm_slab *slab)
++{
++   p_atomic_add(&cache->allocated, -(int64_t)((uint64_t)slab->count << slab->order));
++   p_atomic_inc(&cache->slabs_freed);
++   nouveau_bo_ref(NULL, &slab->bo);
++   FREE(slab);
++}
++
+ void
+ nouveau_mm_free(struct nouveau_mm_allocation *alloc)
+ {
+    struct mm_slab *slab = (struct mm_slab *)alloc->priv;
+-   struct mm_bucket *bucket = mm_bucket_by_order(slab->cache, slab->order);
++   struct nouveau_mman *cache = slab->cache;
++   struct mm_bucket *bucket = mm_bucket_by_order(cache, slab->order);
++   struct mm_slab *surplus = NULL;
+ 
+    simple_mtx_lock(&bucket->lock);
+    mm_slab_free(slab, alloc->offset >> slab->order);
+@@ -239,6 +262,12 @@ nouveau_mm_free(struct nouveau_mm_allocation *alloc)
+    if (slab->free == slab->count) {
+       list_del(&slab->head);
+       list_addtail(&slab->head, &bucket->free);
++      /* past the empty slabs the bucket keeps, the oldest empty one goes */
++      if (++bucket->num_free > cache->keep && cache->keep >= 0) {
++         surplus = list_first_entry(&bucket->free, struct mm_slab, head);
++         list_del(&surplus->head);
++         bucket->num_free--;
++      }
+    } else
+    if (slab->free == 1) {
+       list_del(&slab->head);
+@@ -246,6 +275,8 @@ nouveau_mm_free(struct nouveau_mm_allocation *alloc)
+    }
+    simple_mtx_unlock(&bucket->lock);
+ 
++   if (surplus)
++      mm_slab_release(cache, surplus);
+    FREE(alloc);
+ }
+ 
+@@ -269,11 +300,15 @@ nouveau_mm_create(struct nouveau_device *dev, uint32_t domain,
+    cache->domain = domain;
+    cache->config = *config;
+    cache->allocated = 0;
++   cache->keep = -1;
++   cache->peak = 0;
++   cache->slabs_made = cache->slabs_freed = 0;
+ 
+    for (i = 0; i < MM_NUM_BUCKETS; ++i) {
+       list_inithead(&cache->bucket[i].free);
+       list_inithead(&cache->bucket[i].used);
+       list_inithead(&cache->bucket[i].full);
++      cache->bucket[i].num_free = 0;
+       simple_mtx_init(&cache->bucket[i].lock, mtx_plain);
+    }
+ 
+@@ -314,3 +349,28 @@ nouveau_mm_destroy(struct nouveau_mman *cache)
+ 
+    FREE(cache);
+ }
++
++/* before the pool's first allocation: the empty slabs each of its buckets keeps (-1: all) */
++void
++nouveau_mm_set_keep(struct nouveau_mman *cache, int keep)
++{
++   if (cache)
++      cache->keep = keep;
++}
++
++void
++nouveau_mm_get_stats(struct nouveau_mman *cache, struct nouveau_mm_stats *st)
++{
++   memset(st, 0, sizeof(*st));
++   if (!cache)
++      return;
++   st->bytes = p_atomic_read(&cache->allocated);
++   st->peak = p_atomic_read(&cache->peak);
++   st->slabs_made = p_atomic_read(&cache->slabs_made);
++   st->slabs_freed = p_atomic_read(&cache->slabs_freed);
++   for (int i = 0; i < MM_NUM_BUCKETS; ++i) {
++      simple_mtx_lock(&cache->bucket[i].lock);
++      st->kept += cache->bucket[i].num_free;
++      simple_mtx_unlock(&cache->bucket[i].lock);
++   }
++}
+diff --git a/src/gallium/drivers/nouveau/nouveau_mm.h b/src/gallium/drivers/nouveau/nouveau_mm.h
+index 7b32ba3..349ed6f 100644
+--- a/src/gallium/drivers/nouveau/nouveau_mm.h
++++ b/src/gallium/drivers/nouveau/nouveau_mm.h
+@@ -1,6 +1,8 @@
+ #ifndef __NOUVEAU_MM_H__
+ #define __NOUVEAU_MM_H__
+ 
++#include <stdint.h>
++
+ union nouveau_bo_config;
+ struct nouveau_mman;
+ 
+@@ -29,4 +31,16 @@ nouveau_mm_free(struct nouveau_mm_allocation *);
+ extern void
+ nouveau_mm_free_work(void *);
+ 
++/* PS3 (nouveau_mm_ps3.h): the empty slabs a pool keeps, and its counts */
++struct nouveau_mm_stats {
++   uint64_t bytes, peak; /* of the slab objects held */
++   unsigned slabs_made, slabs_freed, kept; /* (kept: the empty ones now) */
++};
++
++extern void
++nouveau_mm_set_keep(struct nouveau_mman *, int keep);
++
++extern void
++nouveau_mm_get_stats(struct nouveau_mman *, struct nouveau_mm_stats *);
++
+ #endif // __NOUVEAU_MM_H__
+diff --git a/src/gallium/drivers/nouveau/nouveau_mm_ps3.h b/src/gallium/drivers/nouveau/nouveau_mm_ps3.h
+new file mode 100644
+index 0000000..ae29ffc
+--- /dev/null
++++ b/src/gallium/drivers/nouveau/nouveau_mm_ps3.h
+@@ -0,0 +1,64 @@
++#ifndef __NOUVEAU_MM_PS3_H__
++#define __NOUVEAU_MM_PS3_H__
++
++#include <inttypes.h>
++#include <stdio.h>
++
++#include "util/u_debug.h"
++#include "util/u_math.h"
++
++#include "nouveau_mm.h"
++#include "nouveau_screen.h"
++
++/*
++ * The PS3's GART pools (nouveau_screen_init, once mm_GART is made; is_ps3 only):
++ * - NV30_PS3_GART_POOL (default 1): a second GART suballocator, mm_GART_stream, on the same size
++ *   classes, for the storage that is rewritten all the time: stream, staging, persistent, coherent and
++ *   user-memory buffers (nouveau_buffer_gart_mm) and transfer staging and readback areas
++ *   (nouveau_transfer_staging), so they share slab objects only with each other and the other GART
++ *   buffers (index buffers, buffers moved to GART) share theirs only with long-lived storage. The
++ *   pool is chosen once per allocation; 0: one pool, as before.
++ * - NV30_PS3_MM_KEEP_SLAB=N (default -1: none is ever freed, as before 0077, and as mm_VRAM keeps
++ *   on): each size class of the two GART pools keeps N empty slabs for its next allocations and frees
++ *   the slabs that empty past them; 0: every slab that empties is freed. Not the default: each free
++ *   closes a GEM object, and a load that crosses a slab boundary every frame would make and free a
++ *   slab every frame.
++ * - NV30_PS3_GART_STATS=1: a stderr line at the screen's end with each pool's bytes of slab objects,
++ *   their peak, the slabs made and freed and the empty ones kept (counted always: at a slab's making
++ *   and freeing only).
++ */
++static inline void
++nouveau_mm_ps3_init(struct nouveau_screen *screen, union nouveau_bo_config *config)
++{
++   const int keep = CLAMP(debug_get_num_option("NV30_PS3_MM_KEEP_SLAB", -1), -1, 64);
++
++   screen->gart_stats = debug_get_bool_option("NV30_PS3_GART_STATS", false);
++   if (debug_get_bool_option("NV30_PS3_GART_POOL", true))
++      screen->mm_GART_stream = nouveau_mm_create(screen->device, NOUVEAU_BO_GART | NOUVEAU_BO_MAP,
++                                                 config);
++   nouveau_mm_set_keep(screen->mm_GART, keep);
++   nouveau_mm_set_keep(screen->mm_GART_stream, keep);
++}
++
++/* the screen's end, before mm_GART goes: the stats line, and the stream pool */
++static inline void
++nouveau_mm_ps3_fini(struct nouveau_screen *screen)
++{
++   if (screen->gart_stats) {
++      struct nouveau_mm_stats g, s;
++      nouveau_mm_get_stats(screen->mm_GART, &g);
++      nouveau_mm_get_stats(screen->mm_GART_stream, &s);
++      fprintf(stderr, "nv30: GART slabs at the end (NV30_PS3_GART_STATS): mm_GART %" PRIu64 " KiB, peak %"
++              PRIu64 " KiB, %u made, %u freed, %u kept empty; ", g.bytes >> 10, g.peak >> 10, g.slabs_made,
++              g.slabs_freed, g.kept);
++      if (screen->mm_GART_stream)
++         fprintf(stderr, "mm_GART_stream %" PRIu64 " KiB, peak %" PRIu64 " KiB, %u made, %u freed, "
++                 "%u kept empty\n", s.bytes >> 10, s.peak >> 10, s.slabs_made, s.slabs_freed, s.kept);
++      else
++         fprintf(stderr, "mm_GART_stream off\n");
++   }
++   nouveau_mm_destroy(screen->mm_GART_stream);
++   screen->mm_GART_stream = NULL;
++}
++
++#endif // __NOUVEAU_MM_PS3_H__
+diff --git a/src/gallium/drivers/nouveau/nouveau_screen.c b/src/gallium/drivers/nouveau/nouveau_screen.c
+index 87e4e5f..713df16 100644
+--- a/src/gallium/drivers/nouveau/nouveau_screen.c
++++ b/src/gallium/drivers/nouveau/nouveau_screen.c
+@@ -28,6 +28,7 @@
+ #include "nouveau_context.h"
+ #include "nouveau_fence.h"
+ #include "nouveau_mm.h"
++#include "nouveau_mm_ps3.h"
+ #include "nouveau_buffer.h"
+ 
+ #include <compiler/glsl_types.h>
+@@ -487,6 +488,10 @@ nouveau_screen_init(struct nouveau_screen *screen, struct nouveau_device *dev)
+                                        NOUVEAU_BO_GART | NOUVEAU_BO_MAP,
+                                        &mm_config);
+    screen->mm_VRAM = nouveau_mm_create(dev, NOUVEAU_BO_VRAM, &mm_config);
++   /* PS3: a GART pool of its own for storage rewritten all the time, the empty slabs kept
++    * (NV30_PS3_GART_POOL, NV30_PS3_MM_KEEP_SLAB, NV30_PS3_GART_STATS: nouveau_mm_ps3.h) */
++   if (screen->is_ps3)
++      nouveau_mm_ps3_init(screen, &mm_config);
+ 
+    return 0;
+ 
+@@ -506,6 +511,8 @@ nouveau_screen_fini(struct nouveau_screen *screen)
+       os_munmap(screen->svm_cutout, screen->svm_cutout_size);
+ 
+    nouveau_fence_bo_pool_drain(&screen->fence);
++   if (screen->is_ps3)
++      nouveau_mm_ps3_fini(screen);
+    nouveau_mm_destroy(screen->mm_GART);
+    nouveau_mm_destroy(screen->mm_VRAM);
+ 
+diff --git a/src/gallium/drivers/nouveau/nouveau_screen.h b/src/gallium/drivers/nouveau/nouveau_screen.h
+index 7115be8..4bd12f3 100644
+--- a/src/gallium/drivers/nouveau/nouveau_screen.h
++++ b/src/gallium/drivers/nouveau/nouveau_screen.h
+@@ -50,6 +50,11 @@ struct nouveau_screen {
+ 
+    struct nouveau_mman *mm_VRAM;
+    struct nouveau_mman *mm_GART;
++   /* PS3 (nouveau_mm_ps3.h): GART storage that is rewritten all the time (stream, staging,
++    * persistent, coherent and user-memory buffers, transfer staging), out of mm_GART's slabs; NULL:
++    * all of it in mm_GART, as before */
++   struct nouveau_mman *mm_GART_stream;
++   bool gart_stats; /* NV30_PS3_GART_STATS: the pools' line at the screen's end */
+ 
+    int64_t cpu_gpu_time_delta;
+ 
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_resource.c b/src/gallium/drivers/nouveau/nv30/nv30_resource.c
+index 4cb5b69..26b5592 100644
+--- a/src/gallium/drivers/nouveau/nv30/nv30_resource.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_resource.c
+@@ -94,10 +94,10 @@ nv30_idxbuf_gart(struct nv30_context *nv30, struct nv04_resource *buf, struct no
+    struct nouveau_mm_allocation *mm;
+ 
+    *bo = NULL;
+-   mm = nouveau_mm_allocate(screen->mm_GART, size, bo, offset);
++   mm = nouveau_mm_allocate(nouveau_buffer_gart_mm(screen, buf), size, bo, offset);
+    if (!*bo) {
+       nouveau_fence_wait_idle(&nv30->base);
+-      mm = nouveau_mm_allocate(screen->mm_GART, size, bo, offset);
++      mm = nouveau_mm_allocate(nouveau_buffer_gart_mm(screen, buf), size, bo, offset);
+    }
+    return *bo ? mm : NULL;
+ }
