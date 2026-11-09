@@ -8,7 +8,7 @@ switch = "NV30_FENCE_BO_POOL"
 default = "16 on the PS3 (0077), 0 (off) elsewhere"
 gating = "is_ps3"
 forwarded = "no"
-tests = []
+tests = ["mesa-fence-pool:default", "mesa-fence-pool:wiring", "mesa-fence-pool:fix-off"]
 batches = ["2026-10-18-mesa-407-switches"]
 +++
 

@@ -7,7 +7,7 @@ switch = "NV30_PS3_GART_POOL"
 default = "1 (on); NV30_PS3_MM_KEEP_SLAB -1 (every slab kept); NV30_PS3_GART_STATS 0 (off)"
 gating = "is_ps3"
 forwarded = "no"
-tests = []
+tests = ["mesa-gart-pool:choice", "mesa-gart-pool:keep", "mesa-gart-pool:stats", "mesa-gart-pool:wiring", "mesa-gart-pool:fix-off"]
 batches = []
 +++
 

@@ -183,6 +183,20 @@ group = "mesa"
 ci_skip = { "mesa-sifm-extent" = "needs build/work/mesa" }
 
 [[suite]]
+name = "mesa-gart-pool"
+what = "Mesa 0076: on the PS3 stream and staging storage takes its own GART pool (nouveau_mm.c and nouveau_buffer.c against a fake device): which buffers take which pool, with NV30_PS3_GART_POOL=0 one pool as before; slab retention at NV30_PS3_MM_KEEP_SLAB -1 (the default, every slab kept), 0, 1 and 2 under a random load checked after every step, a slab whose last chunk is freed while a submission still holds it closed only at the last reference; the GART_STATS line; the screen wiring; each rule taken out fails"
+run = ["packages/patched/graphics/mesa/tests/host-tests.sh", "gart-pool"]
+group = "mesa"
+ci_skip = { "mesa-gart-pool" = "needs build/work/mesa" }
+
+[[suite]]
+name = "mesa-fence-pool"
+what = "Mesa 0077: NV30_FENCE_BO_POOL's default is 16 on the PS3 and 0 elsewhere, and the screen reads the variable with that default; each rule taken out fails"
+run = ["packages/patched/graphics/mesa/tests/host-tests.sh", "fence-pool"]
+group = "mesa"
+ci_skip = { "mesa-fence-pool" = "needs build/work/mesa" }
+
+[[suite]]
 name = "mesa-submit-fail"
 what = "Mesa 0061: the winsys's push buffer submission (nouveau.c whole, a fake kernel): a cancelled and a failed submission both count in nouveau_device::cancelled, none lost under four threads; the file before the patch fails"
 run = ["packages/patched/graphics/mesa/tests/host-tests.sh", "submit-fail"]

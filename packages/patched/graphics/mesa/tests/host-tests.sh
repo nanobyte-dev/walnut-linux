@@ -858,9 +858,8 @@ gart-pool)
 	;;
 fence-pool)
 	[ -e $M/src/gallium/drivers/nouveau/nv30/nv30_screen.h ] || skip "no Mesa tree at $M (make mesa-work)"
-	grep -q nv30_fence_bo_pool_default $M/src/gallium/drivers/nouveau/nv30/nv30_screen.h || {
-		echo "no nv30_fence_bo_pool_default in this tree (before 0077)"; for p in default wiring; do wants $p && result $p 1; done
-		wants fix-off && result fix-off 77; exit 1; }
+	grep -q nv30_fence_bo_pool_default $M/src/gallium/drivers/nouveau/nv30/nv30_screen.h ||
+		skip "no $M with Mesa 0077 (make mesa-work)"
 	gen || exit 1
 	export ASAN_OPTIONS=detect_leaks=0
 	U=-Wl,--unresolved-symbols=ignore-all
