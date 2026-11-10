@@ -3,8 +3,8 @@
 # Each entry: due = "YYYY-MM-DD", what = "...".
 
 [[reminder]]
-due = "2026-11-10"
-what = "Review the apt cache's \"outside the snapshot allowlist\" log lines and fix the allowlist (servers/walnut.nanobyte.dev/repo.conf); it stays log-only until the switch to refusing on docs/release/ALPHA.md's before-release list."
+due = "2026-11-24"
+what = "Read the apt cache's \"outside the snapshot allowlist\" log lines again (the allowlist per archive, with trixie's source indices, is deployed by then): build traffic should no longer show; fix the allowlist for anything that does. It stays log-only until the switch to refusing on docs/release/ALPHA.md's before-release list."
 
 [[reminder]]
 due = "2027-03-01"

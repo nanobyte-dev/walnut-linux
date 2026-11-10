@@ -351,6 +351,11 @@ what = "servers/walnut.nanobyte.dev/server-apply.sh in its dry mode (fail2ban, u
 run = ["python3", "-I", "servers/walnut.nanobyte.dev/test_server_apply.py"]
 
 [[suite]]
+name = "snapshot-allowlist"
+what = "repo.conf's log-only snapshot allowlist: the builds' suites and architectures (sid, unstable, trixie and trixie-security sources; ppc64, amd64, all) aren't logged, others are"
+run = ["python3", "-I", "servers/walnut.nanobyte.dev/test_snapshot_allowlist.py"]
+
+[[suite]]
 name = "walnut-repo"
 what = "apt-repo/walnut-repo.py against the real walnut-watch: testing, stable and the password-protected licensed suite"
 run = ["python3", "apt-repo/test_walnut_repo.py"]
