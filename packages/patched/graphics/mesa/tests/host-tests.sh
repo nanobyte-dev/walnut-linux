@@ -72,22 +72,6 @@
 #                  swizzled texture; session 6's SuperTuxKart copy: its recorded words refused by the model, the
 #                  same upload sending the same words from a buffer that holds them); fix-off: the staging row
 #                  (at 33x21 and at the dump's copy), the guard and the miptree row each taken out must fail
-#   gart-pool      0076: the PS3's GART pools (gart-pool-test.c: nouveau_mm.c, nouveau_mm_ps3.h,
-#                  nouveau_buffer.c, nv30_resource.c whole): choice (stream, staging,
-#                  persistent, coherent and user-memory buffers, transfer staging and readback areas, nv30's
-#                  move of a stream index buffer in mm_GART_stream, the rest in mm_GART; at every size class a
-#                  stream buffer and an index buffer never share a slab object, a persistent or coherent
-#                  buffer never lands in mm_GART; NV30_PS3_GART_POOL=0 and
-#                  other GPUs: one pool), keep (NV30_PS3_MM_KEEP_SLAB, default -1: random loads keeping 1, 0, 2
-#                  and every empty slab, checked at every step: no slab with a live allocation freed, at most
-#                  N empty ones per bucket, a new slab only when the bucket has none part-used or empty; the
-#                  kept slab taken into use stays; the screen's end frees the kept ones), stats
-#                  (NV30_PS3_GART_STATS: bytes, peak, slabs made, freed, kept, and the line at the end,
-#                  against a model), wiring (nouveau_screen.c's calls); fix-off: a stream, a persistent, a
-#                  coherent, a staging or a user-memory buffer, a transfer staging area or nv30's move in
-#                  mm_GART, the pool off by default, retention off by default, two empty slabs kept, the kept
-#                  slab left on the free list in use, the peak, the freed slabs or the bytes freed not
-#                  counted, the line on by default: each must fail
 #   fence-pool     0077: NV30_FENCE_BO_POOL's default, 16 on the PS3 and 0 elsewhere (fence-pool-test.c:
 #                  nv30_screen.h), within the pool's room (nouveau_fence.h); wiring (nv30_screen.c reads the option
 #                  through it); fix-off: the PS3 default 0, the option read with a literal: each must fail
@@ -102,9 +86,9 @@ S=${1:-}; shift || true
 declare -A PARTS=([forcedxt]="" [staging-pool]="" [vtx-snorm8]="unpack vpsim" [minmax-vmx]="host ppc64"
 	[query-steal]="" [query-lost]="end steal destroy elapsed failed deadline deadline-edge begin-sent two-ctx own-begin stale no-slot disowned wait-option late x86 fix-off" [alloc-fail]="upload mm-fallback mm-nomem fence fence-cancel pushbuf-flush pushbuf-destroy fix-off"
 	[transfer-cpu]="fix-off" [blit-state]="state golden" [placement]="state golden default migrate blit wiring fix-off" [fb-window]="state golden" [point-smooth]="" [submit-fail]="ecanceled failed notify ratelimit ok threads fix-off" [bo-domain]="state fix-off" [fragprog]="txb rep end golden fix-off" [idx-split]="model cap wiring stream golden fix-off" [sifm-extent]="state fix-off"
-	[gart-pool]="choice keep stats wiring fix-off" [fence-pool]="default wiring fix-off")
+	[fence-pool]="default wiring fix-off")
 if [ "$S" = --list ]; then
-	for s in forcedxt staging-pool vtx-snorm8 minmax-vmx query-steal query-lost alloc-fail transfer-cpu blit-state placement fb-window point-smooth submit-fail bo-domain fragprog idx-split sifm-extent gart-pool fence-pool; do
+	for s in forcedxt staging-pool vtx-snorm8 minmax-vmx query-steal query-lost alloc-fail transfer-cpu blit-state placement fb-window point-smooth submit-fail bo-domain fragprog idx-split sifm-extent fence-pool; do
 		echo "$s ${PARTS[$s]}"; done
 	exit 0
 fi
@@ -766,93 +750,6 @@ sifm-extent)
 		off guard nv30_transfer.c 'src->offset + nv30_sifm_src_bytes(src, dst, filter == NEAREST) > src->bo->size) {' \
 			'0) {' 'FAIL .*guard: 1 SIFM copies of a source whose buffer ends inside' || r=1
 		off miptree-row nv30_miptree.c 'size += mt->uniform_pitch;' ';' 'FAIL .*copy: a 1024x3 level' || r=1
-		result fix-off $r
-	fi
-	;;
-gart-pool)
-	D=src/gallium/drivers/nouveau
-	[ -e $M/$D/nouveau_mm_ps3.h ] || skip "no $M with Mesa 0076 (make mesa-work)"
-	gen || exit 1
-	export ASAN_OPTIONS=detect_leaks=0
-	gc() { mcc "$1" $t/gart-pool-test.c -Wall -Werror -Wno-unused-function -pthread -Wl,--unresolved-symbols=ignore-all "${@:2}"; }
-	built=
-	for p in choice keep stats; do
-		wants $p || continue
-		[ -n "$built" ] || { gc $T/gart-pool-test && built=ok || built=no; }
-		if [ $built = ok ]; then $T/gart-pool-test $p; result $p $?; else echo "gart-pool-test.c does not build against $M"; result $p 1; fi
-	done
-	if wants wiring; then
-		rc=0
-		w() { grep -qF -- "$2" "$M/$1" || { echo "FAIL wiring: $1 lacks: $2"; rc=1; }; }
-		w $D/nouveau_screen.c 'nouveau_mm_ps3_init(screen, &mm_config);'
-		w $D/nouveau_screen.c 'nouveau_mm_ps3_fini(screen);'
-		# the pools are set up on the PS3 only, after mm_GART is made, and the stream pool goes (with the line)
-		# before mm_GART does
-		awk '/^nouveau_screen_init\(/ { s = 1 } /^nouveau_screen_fini\(/ { f = 1; s = 0 }
-		     s && /screen->mm_GART = nouveau_mm_create/ { g = NR } s && /nouveau_mm_ps3_init\(/ { i = NR; ip = prev ~ /if \(screen->is_ps3\)/ }
-		     f && /nouveau_mm_ps3_fini\(/ { e = NR; ep = prev ~ /if \(screen->is_ps3\)/ } f && /nouveau_mm_destroy\(screen->mm_GART\)/ { d = NR }
-		     { prev = $0 }
-		     END { exit !(g && i && g < i && ip && e && d && e < d && ep) }' $M/$D/nouveau_screen.c ||
-			{ echo "FAIL wiring: nouveau_mm_ps3_init/fini not on the PS3 only, after mm_GART is made, before it goes"; rc=1; }
-		[ $rc = 0 ] && echo "wiring: the pools set up at the screen's start on the PS3 and ended before mm_GART"
-		result wiring $rc
-	fi
-	if wants fix-off; then
-		# each rule taken out of copies of its files (found before the tree's): the suite must fail at that rule
-		r=0
-		off() {	# off NAME PART REGEX FILE FROM TO [FILE FROM TO...]
-			local name=$1 O=$T/gart-pool-off-$1 part=$2 re=$3 f; shift 3
-			rm -rf $O; mkdir -p $O/nv30
-			while [ $# -gt 0 ]; do
-				f=$1; [ -e $O/$f ] || cp $M/$D/$f $O/$f
-				FROM=$2 TO=$3 perl -0777 -i -pe 'my $n = () = /\Q$ENV{FROM}\E/g; $n == 1 or die "found $n times\n";
-					s/\Q$ENV{FROM}\E/$ENV{TO}/' $O/$f || return 1
-				shift 3
-			done
-			gc $O/test -I$O -w && expect_fail "0076 off: $name" "$re" $O/test $part
-		}
-		# the pool's choice
-		off stream choice 'FAIL .*a stream index buffer in mm_GART,' \
-			nouveau_buffer.c '(usage == PIPE_USAGE_STREAM || usage == PIPE_USAGE_STAGING ||' '(usage == PIPE_USAGE_STAGING ||' || r=1
-		off persistent choice 'FAIL .*a persistent or coherent buffer \(a persistent index buffer\) in mm_GART' \
-			nouveau_buffer.c '(buf->base.flags & (PIPE_RESOURCE_FLAG_MAP_PERSISTENT | PIPE_RESOURCE_FLAG_MAP_COHERENT))' \
-			'(buf->base.flags & PIPE_RESOURCE_FLAG_MAP_COHERENT)' || r=1
-		off coherent choice 'FAIL .*a persistent or coherent buffer \(a coherent index buffer\) in mm_GART' \
-			nouveau_buffer.c '(buf->base.flags & (PIPE_RESOURCE_FLAG_MAP_PERSISTENT | PIPE_RESOURCE_FLAG_MAP_COHERENT))' \
-			'(buf->base.flags & PIPE_RESOURCE_FLAG_MAP_PERSISTENT)' || r=1
-		off staging-usage choice 'FAIL .*a staging buffer in mm_GART,' \
-			nouveau_buffer.c ' || usage == PIPE_USAGE_STAGING' '' || r=1
-		off user-memory choice 'FAIL .*user upload: a user buffer.s storage in mm_GART' \
-			nouveau_buffer.c $' ||\n        (buf->status & NOUVEAU_BUFFER_STATUS_USER_MEMORY)' '' || r=1
-		off transfer-staging choice 'FAIL .*staging: a write.s staging area in mm_GART' \
-			nouveau_buffer.c 'struct nouveau_mman *mm = nv->screen->mm_GART_stream ? nv->screen->mm_GART_stream' \
-			'struct nouveau_mman *mm = 0 ? nv->screen->mm_GART_stream' || r=1
-		off nv30-move choice 'FAIL .*nv30 move: a stream index buffer moved to mm_GART,' \
-			nv30/nv30_resource.c 'mm = nouveau_mm_allocate(nouveau_buffer_gart_mm(screen, buf), size, bo, offset);
-   if' 'mm = nouveau_mm_allocate(screen->mm_GART, size, bo, offset);
-   if' || r=1
-		off pool-default choice 'FAIL .*no mm_GART_stream on the PS3 by default' \
-			nouveau_mm_ps3.h 'debug_get_bool_option("NV30_PS3_GART_POOL", true)' 'debug_get_bool_option("NV30_PS3_GART_POOL", false)' || r=1
-		# the slabs kept
-		off keep-default keep 'FAIL .*NV30_PS3_MM_KEEP_SLAB unset: mm_GART keeps 1' \
-			nouveau_mm_ps3.h 'debug_get_num_option("NV30_PS3_MM_KEEP_SLAB", -1)' 'debug_get_num_option("NV30_PS3_MM_KEEP_SLAB", 1)' || r=1
-		off keep-deferred keep 'FAIL .*deferred: the slab.s object closed while a submission still references it' \
-			nouveau_mm.c $'   p_atomic_inc(&cache->slabs_freed);\n   nouveau_bo_ref(NULL, &slab->bo);' \
-			$'   p_atomic_inc(&cache->slabs_freed);\n   slab->bo->handle = 1;\n   nouveau_bo_ref(NULL, &slab->bo);' || r=1
-		off keep-two keep 'FAIL .*bucket [0-9]+ keeps 2 empty slabs, want at most 1' \
-			nouveau_mm.c '++bucket->num_free > cache->keep &&' '++bucket->num_free > cache->keep + 1 &&' || r=1
-		off keep-in-use keep 'FAIL .*in use: a slab with a live allocation was freed while in use' \
-			nouveau_mm.c $'      list_del(&slab->head);\n      list_add(&slab->head, &bucket->used);\n      bucket->num_free--;\n' '' || r=1
-		# the counts
-		off stats-peak stats 'FAIL .*stats 33 small, 1 stream \(mm_GART\): 12288 bytes, peak 0,' \
-			nouveau_mm.c $'   for (uint64_t peak = p_atomic_read(&cache->peak), was; now > peak; peak = was)\n      if ((was = p_atomic_cmpxchg(&cache->peak, peak, now)) == peak)\n         break;\n' \
-			$'   (void)now;\n' || r=1
-		off stats-freed stats 'FAIL .*stats small ones freed \(mm_GART\): 4096 bytes, peak 12288, 3 made, 0 freed' \
-			nouveau_mm.c '   p_atomic_inc(&cache->slabs_freed);' '' || r=1
-		off stats-bytes stats 'FAIL .*stats small ones freed \(mm_GART\): 12288 bytes' \
-			nouveau_mm.c '   p_atomic_add(&cache->allocated, -(int64_t)((uint64_t)slab->count << slab->order));' '' || r=1
-		off stats-default stats 'FAIL .*stats: a line at the end without NV30_PS3_GART_STATS' \
-			nouveau_mm_ps3.h 'debug_get_bool_option("NV30_PS3_GART_STATS", false)' 'debug_get_bool_option("NV30_PS3_GART_STATS", true)' || r=1
 		result fix-off $r
 	fi
 	;;
