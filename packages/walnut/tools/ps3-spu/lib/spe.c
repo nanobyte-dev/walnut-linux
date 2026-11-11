@@ -45,16 +45,45 @@ static long spu_run(int fd, unsigned *npc, unsigned *event)
 }
 #endif
 
-/* Where spufs is mounted (/proc/mounts), and how many SPEs Linux has
- * (/sys/devices/system/spu/spuN: 6 on the PS3) */
+/* The SPEs under SYSDIR (spuN) that spufs can give us. One whose "reserved" attribute reads 1
+ * belongs to a kernel driver (kernel local/0058, spu_kernel_reserve) and is not counted: spufs
+ * would time-slice six contexts on five SPEs. A kernel without the attribute reserves none. */
+int spq_count_spes(const char *sysdir, unsigned *nspe)
+{
+	char path[512], val[8];
+	struct dirent *d;
+	DIR *s = opendir(sysdir);
+	unsigned n = 0, k;
+	FILE *f;
+
+	if (!s)
+		return -ENOENT;
+	while ((d = readdir(s))) {
+		if (sscanf(d->d_name, "spu%u", &k) != 1)
+			continue;
+		snprintf(path, sizeof(path), "%s/%s/reserved", sysdir, d->d_name);
+		f = fopen(path, "r");
+		if (f) {
+			int reserved = fgets(val, sizeof(val), f) && val[0] == '1';
+
+			fclose(f);
+			if (reserved)
+				continue;
+		}
+		n++;
+	}
+	closedir(s);
+	*nspe = n;
+	return n ? 0 : -EBUSY;
+}
+
+/* Where spufs is mounted (/proc/mounts), and how many SPEs it has
+ * (/sys/devices/system/spu/spuN: 6 on the PS3, less the ones a kernel driver reserved) */
 int spq_spufs_probe(char *mnt, size_t len, unsigned *nspe)
 {
 	char dev[64], dir[256], type[32];
-	struct dirent *d;
 	FILE *f = fopen("/proc/mounts", "r");
-	DIR *s;
 	int found = 0;
-	unsigned n = 0, k;
 
 	if (!f)
 		return -ENOENT;
@@ -66,15 +95,7 @@ int spq_spufs_probe(char *mnt, size_t len, unsigned *nspe)
 	fclose(f);
 	if (!found)
 		return -ENOENT;
-	s = opendir("/sys/devices/system/spu");
-	if (!s)
-		return -ENOENT;
-	while ((d = readdir(s)))
-		if (sscanf(d->d_name, "spu%u", &k) == 1)
-			n++;
-	closedir(s);
-	*nspe = n;
-	return n ? 0 : -EBUSY;
+	return spq_count_spes("/sys/devices/system/spu", nspe);
 }
 
 /* An SPU ELF that fits the local store and carries our ABI word (section .speq_abi, put

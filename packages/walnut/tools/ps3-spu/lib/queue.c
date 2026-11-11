@@ -445,8 +445,12 @@ int spq_open_ex(struct speq **qp, const char *prog, unsigned nworkers, unsigned 
 	q->order = flags & SPQ_OPEN_DEADLINE ? SPEQ_ORDER_DEADLINE : SPEQ_ORDER_FIFO;
 	if (use_fake()) {
 #ifdef SPEQ_FAKE
+		const char *sys = getenv("SPEQ_FAKE_SYSFS");	/* a stand-in for /sys/devices/system/spu */
+
 		q->be = &spq_fake;
 		nspe = 6;
+		if (sys && *sys && (ret = spq_count_spes(sys, &nspe)))
+			goto fail;
 #endif
 	} else {
 		ret = spq_spufs_probe(q->spufs, sizeof(q->spufs), &nspe);

@@ -102,6 +102,7 @@ void spq_pool_check(struct speq *q, int ret);
 /* spe.c */
 extern const struct spq_backend spq_spufs;
 int spq_spufs_probe(char *mnt, size_t len, unsigned *nspe);
+int spq_count_spes(const char *sysdir, unsigned *nspe);
 int spq_load_program(struct speq *q, const char *prog);
 int spq_elf_check(const uint8_t *img, size_t size, uint32_t *entry);
 

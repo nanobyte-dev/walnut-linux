@@ -8,6 +8,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
 #include "bench.h"
@@ -245,6 +246,64 @@ int main(int argc, char **argv)
 	check(speq_open(&q, "bench.spu", 0, SPEQ_OPEN_BULK) == 0 && speq_nworkers(q) == 4,
 	      "bulk queue alone, nworkers 0: 4 of 6 (two left to deadline queues)");
 	speq_close(q);
+
+	/* a kernel driver holds one SPE (kernel local/0058: /sys/devices/system/spu/spuN/reserved reads 1):
+	 * libspeq counts 5, a bulk queue gets 3 and leaves 2 to the deadline queues */
+	{
+		char dir[] = "/tmp/speq-sysfs-XXXXXX", path[128];
+		unsigned n = 0, k;
+		FILE *f;
+
+		check(mkdtemp(dir) != NULL, "a fake /sys/devices/system/spu");
+		for (k = 0; k < 6; k++) {
+			snprintf(path, sizeof(path), "%s/spu%u", dir, k);
+			mkdir(path, 0755);
+			if (k == 3)	/* a kernel without the attribute: counted */
+				continue;
+			snprintf(path, sizeof(path), "%s/spu%u/reserved", dir, k);
+			f = fopen(path, "w");
+			if (f) {
+				fputs(k == 5 ? "1\n" : "0\n", f);
+				fclose(f);
+			}
+		}
+		snprintf(path, sizeof(path), "%s/power", dir);	/* not an SPE */
+		mkdir(path, 0755);
+		check(spq_count_spes(dir, &n) == 0 && n == 5, "spq_count_spes: 6 SPEs, one reserved: 5");
+		setenv("SPEQ_FAKE_SYSFS", dir, 1);
+		check(speq_open(&q, "bench.spu", 0, 0) == 0 && speq_nworkers(q) == 5,
+		      "one SPE reserved: nworkers 0 gets 5");
+		speq_close(q);
+		check(speq_open(&q, "bench.spu", 0, SPEQ_OPEN_BULK) == 0 && speq_nworkers(q) == 3,
+		      "one SPE reserved: a bulk queue gets 3 (two left to deadline queues)");
+		check(q && speq_run(q, &(struct speq_job){ .op = BENCH_NOP }) == 0, "... and runs jobs");
+		check(speq_open(&q2, "bench.spu", 0, 0) == 0 && speq_nworkers(q2) == 2,
+		      "... next to it, nworkers 0 gets the 2 left");
+		speq_close(q2);
+		speq_close(q);
+		check(speq_open(&q, "bench.spu", 9, 0) == 0 && speq_nworkers(q) == 5,
+		      "one SPE reserved: 9 asked for, 5 given");
+		speq_close(q);
+		snprintf(path, sizeof(path), "%s/spu5/reserved", dir);
+		f = fopen(path, "w");
+		if (f) {
+			fputs("0\n", f);
+			fclose(f);
+		}
+		check(spq_count_spes(dir, &n) == 0 && n == 6, "given back: 6");
+		for (k = 0; k < 6; k++) {
+			snprintf(path, sizeof(path), "%s/spu%u/reserved", dir, k);
+			unlink(path);
+			snprintf(path, sizeof(path), "%s/spu%u", dir, k);
+			rmdir(path);
+		}
+		snprintf(path, sizeof(path), "%s/power", dir);
+		rmdir(path);
+		rmdir(dir);
+		check(spq_count_spes(dir, &n) == -ENOENT, "no sysfs directory: -ENOENT");
+		check(speq_open(&q, "bench.spu", 0, 0) == -ENOENT && !q, "... and speq_open fails with it");
+		unsetenv("SPEQ_FAKE_SYSFS");
+	}
 
 	/* deadline order (the pool's queue): the earliest deadline first, ties in arrival order */
 	{
