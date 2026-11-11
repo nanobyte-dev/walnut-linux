@@ -23,6 +23,10 @@ touches. `spu_base.c` gets four calls, exported GPL like the rest of the SPU API
   sets it, the SLBs invalidated, LSLR, privileged control and the channels reset, the local store cleared,
   the outbound mailboxes drained and every class's status cleared. After a 50 ms grace period the driver's
   four callbacks go in; it gets the SPE with every class still masked.
+- The exported name is `spu_kernel_reserve_v1(ops, ops_size)` (`SPU_KERNEL_API_VERSION` 1); drivers
+  call `spu_kernel_reserve(ops)`, an inline in `asm/spu.h` that passes the size of the ops they were built
+  with, and another size is refused. There is no symbol versioning, so a driver built against another
+  layout either doesn't link or is refused.
 - `spu_kernel_reset(spu)`, the same reset for the driver's restart: no allocation, no firmware.
 - `spu_kernel_ls_decode(spu, on)`: SR1 0x32 or 0x33, so the local store isn't reachable through an
   effective address while the program runs.

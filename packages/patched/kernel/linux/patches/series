@@ -37,7 +37,7 @@
 # local/0055: ps3fb's direct GPU interface from ps3/0030 (PS3GPU_IOCTL_INFO/ENTER/EXIT, /dev/ps3gpu_*) is root only and takes
 #   its arguments through get_user; the attribute and cursor ioctls are removed (nothing used them); a direct session
 #   ends by itself when its process is gone. ps3rsx is unaffected.
-# local/0058: a kernel driver can reserve an SPE (spu_kernel_reserve/reset/ls_decode/release in spu_base.c): it leaves spufs's
+# local/0058: a kernel driver can reserve an SPE (spu_kernel_reserve_v1 behind spu_kernel_reserve, reset, ls_decode, release): it leaves spufs's
 #   node list (list_del_rcu: spusched_thread's parked cursor), stays SPU_USED, is reset from nothing (SR1 0x33, SLBs
 #   invalidated, MFC purged, mailboxes drained, status cleared), handed over with every class masked after a 50 ms grace
 #   period; given back only when proven quiet, else kept until reboot with the driver's module pinned; stub callbacks;

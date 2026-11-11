@@ -33,10 +33,12 @@ files=$(sed -n 's|^diff --git a/\([^ ]*\) b/.*|\1|p' "$P" | sort -u | tr '\n' ' 
 	&& ok "the patch touches only asm/spu.h and spu_base.c" || bad "the patch touches: $files"
 if grep -qE '^\+.*\blv1_' "$P"; then bad "an added line calls lv1: $(grep -E '^\+.*\blv1_' "$P" | head -1)"
 else ok "no hypervisor call added"; fi
-for f in spu_kernel_reserve spu_kernel_reset spu_kernel_ls_decode spu_kernel_release; do
+for f in spu_kernel_reserve_v1 spu_kernel_reset spu_kernel_ls_decode spu_kernel_release; do
 	grep -qx "+EXPORT_SYMBOL_GPL($f);" "$P" || bad "$f not exported GPL"
 done
 grep -qE '^\+EXPORT_SYMBOL\(' "$P" && bad "a non-GPL export" || ok "the four functions exported GPL, nothing else"
+grep -qx '+#define SPU_KERNEL_API_VERSION 1' "$P" && grep -qx '+	return spu_kernel_reserve_v1(ops, sizeof(struct spu_kernel_ops));' "$P" \
+	&& ok "the exported reserve carries the API version, the header's wrapper passes the size" || bad "no versioned reserve"
 grep -qx '+	spu_kernel_init();' "$P" && ok "init_spu_base calls spu_kernel_init" || bad "spu_kernel_init not called"
 grep -qx 'local/0058-spu-kernel-reserve.patch' $KD/patches/series && ok "the series carries 0058" || bad "0058 not in the series"
 
@@ -207,6 +209,8 @@ off reboot-skips-dead "the reboot notifier skipped the given-up SPE" \
 	"if (spu->kernel_state == SPU_KERNEL_NONE)$N$T$T${T}continue;" "if (spu->kernel_state != SPU_KERNEL_RESERVED)$N$T$T${T}continue;"
 off reboot-silent "the notifier didn't log the failed quiesce" \
 	"$T${T}if (!spu_kernel_quiesce(spu))$N$T$T${T}pr_warn(\"spu%d: not quiet at shutdown\\n\", spu->number);$N" "$T${T}spu_kernel_quiesce(spu);$N"
+off ops-size-unchecked "FAIL: ops of another size not refused" \
+	"${T}if (ops_size != sizeof(*ops))$N$T${T}return ERR_PTR(-EINVAL);$N" ''
 off reboot-not-final "FAIL: reserve after the reboot notifier" \
 	"${T}spu_kernel_down = true;$N" ''
 off sysfs-zero "FAIL: sysfs reserved reads" \

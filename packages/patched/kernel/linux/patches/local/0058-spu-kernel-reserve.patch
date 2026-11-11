@@ -27,6 +27,12 @@ never schedules, preempts or touches. spu_base.c gets:
   class's status cleared, the queue resumed. Then a grace period (50 ms,
   masked, then masked and cleared again) and only then the driver's
   callbacks: nothing of spufs's last context reaches them.
+- The exported name is spu_kernel_reserve_v1(ops, ops_size)
+  (SPU_KERNEL_API_VERSION 1); drivers call spu_kernel_reserve(ops), an
+  inline in asm/spu.h that passes sizeof(struct spu_kernel_ops), and
+  another size is refused. Without symbol versioning, a driver built
+  against another layout of the ops either doesn't link or is refused,
+  and its fields are never called as the wrong callbacks.
 - spu_kernel_reset(spu): the same reset for the driver's restart path;
   no allocation and no firmware load.
 - spu_kernel_ls_decode(spu, on): SR1 0x32 or 0x33, so the LS isn't
@@ -59,7 +65,7 @@ Forwarded: no
 diff --git a/arch/powerpc/include/asm/spu.h b/arch/powerpc/include/asm/spu.h
 --- a/arch/powerpc/include/asm/spu.h
 +++ b/arch/powerpc/include/asm/spu.h
-@@ -105,6 +105,30 @@ enum spu_utilization_state {
+@@ -105,6 +105,47 @@ enum spu_utilization_state {
  	SPU_UTIL_MAX
  };
  
@@ -85,12 +91,29 @@ diff --git a/arch/powerpc/include/asm/spu.h b/arch/powerpc/include/asm/spu.h
 +	void (*mfc_callback)(struct spu *spu);
 +	struct module *owner;
 +};
++
++/*
++ * The calls (spu_base.c).  The exported name carries the API version and
++ * reserve checks the size of the ops it is given: there is no symbol
++ * versioning, so a driver built against another struct spu_kernel_ops
++ * must fail to load or be refused, never have its fields called as the
++ * wrong callbacks.  Drivers call spu_kernel_reserve().
++ */
++#define SPU_KERNEL_API_VERSION 1
++struct spu *spu_kernel_reserve_v1(const struct spu_kernel_ops *ops, size_t ops_size);
++static inline struct spu *spu_kernel_reserve(const struct spu_kernel_ops *ops)
++{
++	return spu_kernel_reserve_v1(ops, sizeof(struct spu_kernel_ops));
++}
++int spu_kernel_reset(struct spu *spu);
++int spu_kernel_ls_decode(struct spu *spu, bool on);
++int spu_kernel_release(struct spu *spu);
 +/* --- end of SPEs reserved for a kernel driver --- */
 +
  struct spu {
  	const char *name;
  	unsigned long local_store_phys;
-@@ -115,6 +139,8 @@ struct spu {
+@@ -115,6 +156,8 @@ struct spu {
  	struct list_head cbe_list;
  	struct list_head full_list;
  	enum { SPU_FREE, SPU_USED } alloc_state;
@@ -99,18 +122,6 @@ diff --git a/arch/powerpc/include/asm/spu.h b/arch/powerpc/include/asm/spu.h
  	int number;
  	unsigned int irqs[3];
  	u32 node;
-@@ -196,6 +222,11 @@ void spu_setup_kernel_slbs(struct spu *spu, struct spu_lscsa *lscsa,
- 		void *code, int code_size);
- 
- extern void spu_invalidate_slbs(struct spu *spu);
-+
-+struct spu *spu_kernel_reserve(const struct spu_kernel_ops *ops);
-+int spu_kernel_reset(struct spu *spu);
-+int spu_kernel_ls_decode(struct spu *spu, bool on);
-+int spu_kernel_release(struct spu *spu);
- extern void spu_associate_mm(struct spu *spu, struct mm_struct *mm);
- int spu_64k_pages_available(void);
- 
 diff --git a/arch/powerpc/platforms/cell/spu_base.c b/arch/powerpc/platforms/cell/spu_base.c
 --- a/arch/powerpc/platforms/cell/spu_base.c
 +++ b/arch/powerpc/platforms/cell/spu_base.c
@@ -125,7 +136,7 @@ diff --git a/arch/powerpc/platforms/cell/spu_base.c b/arch/powerpc/platforms/cel
  #include <asm/spu.h>
  #include <asm/spu_priv1.h>
  #include <asm/spu_csa.h>
-@@ -476,6 +480,507 @@ void spu_init_channels(struct spu *spu)
+@@ -476,6 +480,512 @@ void spu_init_channels(struct spu *spu)
  }
  EXPORT_SYMBOL_GPL(spu_init_channels);
  
@@ -420,23 +431,28 @@ diff --git a/arch/powerpc/platforms/cell/spu_base.c b/arch/powerpc/platforms/cel
 +}
 +
 +/**
-+ * spu_kernel_reserve - take a free SPE from spufs for a kernel driver
++ * spu_kernel_reserve_v1 - take a free SPE from spufs for a kernel driver
 + * @ops: the driver's interrupt callbacks (all four) and its module (owner,
 + *	THIS_MODULE; NULL for built-in code)
++ * @ops_size: sizeof(struct spu_kernel_ops) as the driver was built with
++ *	(spu_kernel_reserve() in asm/spu.h passes it); another size is refused
 + *
 + * Returns the SPE stopped, its LS cleared, SR1 0x33, its MFC empty and
 + * running, its outbound mailboxes empty, every interrupt class masked with
 + * its status clear, and @ops installed; none of @ops runs before this
-+ * returns.  Or ERR_PTR: -EINVAL (@ops incomplete), -EBUSY (no free SPE),
++ * returns.  Or ERR_PTR: -EINVAL (@ops incomplete or of another size),
++ * -EBUSY (no free SPE),
 + * -EIO (the SPE taken didn't reset; it is either back with spufs or, if it
 + * wasn't quiet, kept from it; don't retry), -ESHUTDOWN.  Process context;
 + * it sleeps for the grace period.
 + */
-+struct spu *spu_kernel_reserve(const struct spu_kernel_ops *ops)
++struct spu *spu_kernel_reserve_v1(const struct spu_kernel_ops *ops, size_t ops_size)
 +{
 +	struct spu *spu = NULL, *s;
 +	int node, ret;
 +
++	if (ops_size != sizeof(*ops))
++		return ERR_PTR(-EINVAL);
 +	if (!ops || !ops->stop_callback || !ops->ibox_callback || !ops->wbox_callback ||
 +	    !ops->mfc_callback)
 +		return ERR_PTR(-EINVAL);
@@ -489,7 +505,7 @@ diff --git a/arch/powerpc/platforms/cell/spu_base.c b/arch/powerpc/platforms/cel
 +	mutex_unlock(&spu_kernel_mutex);
 +	return ERR_PTR(ret);
 +}
-+EXPORT_SYMBOL_GPL(spu_kernel_reserve);
++EXPORT_SYMBOL_GPL(spu_kernel_reserve_v1);
 +
 +/**
 + * spu_kernel_reset - bring a reserved SPE back to the state reserve gives
@@ -633,7 +649,7 @@ diff --git a/arch/powerpc/platforms/cell/spu_base.c b/arch/powerpc/platforms/cel
  static struct bus_type spu_subsys = {
  	.name = "spu",
  	.dev_name = "spu",
-@@ -791,6 +1296,7 @@ static int __init init_spu_base(void)
+@@ -791,6 +1301,7 @@ static int __init init_spu_base(void)
  	crash_register_spus(&spu_full_list);
  	mutex_unlock(&spu_full_list_mutex);
  	spu_add_dev_attr(&dev_attr_stat);

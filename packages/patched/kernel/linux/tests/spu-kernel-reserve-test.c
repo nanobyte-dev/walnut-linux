@@ -694,6 +694,11 @@ static void t_skip(void)
 	s = reserve();
 	CHECK(IS_ERR(s) && PTR_ERR(s) == -EBUSY, "no free SPE left: expected -EBUSY");
 	CHECK(spu_kernel_reserve(NULL) == ERR_PTR(-EINVAL), "reserve(NULL) not refused");
+	/* a driver built against another struct spu_kernel_ops: refused, nothing taken */
+	CHECK(spu_kernel_reserve_v1(&drv_ops, sizeof(drv_ops) - sizeof(void *)) == ERR_PTR(-EINVAL) &&
+	      spu_kernel_reserve_v1(&drv_ops, sizeof(drv_ops) + sizeof(void *)) == ERR_PTR(-EINVAL),
+	      "ops of another size not refused");
+	CHECK(SPU_KERNEL_API_VERSION == 1, "SPU_KERNEL_API_VERSION %d", SPU_KERNEL_API_VERSION);
 	{
 		struct spu_kernel_ops part = drv_ops;
 
