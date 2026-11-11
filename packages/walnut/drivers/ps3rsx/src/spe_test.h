@@ -15,6 +15,9 @@
  *                     program reloaded and its known answer checked again
  *   noirq             a job that finishes without the interrupt, waited for by interrupt: it must end on
  *                     the done word at the budget, not as a timeout
+ *   diff N            N pages (1-32) through the program's own differential job: the four-lane Poly1305
+ *                     against the scalar one (half the keys with r at its clamp maximum, one page all 0xff)
+ *                     and the four-block ChaCha20 against the scalar one, on this SPE
  *   stats             the counters
  * The hook's pages (3 x 32) are allocated with the ring and kept like it: freed at unload only if the
  * SPE was seen quiet.
@@ -149,6 +152,32 @@ static void t_seal(struct ps3rsx_spe *spe, unsigned int n)
 	    j->page[0].status == VSEAL_ST_BADTAG ? "refused" : "ACCEPTED", bad, bad ? "FAIL" : "ok");
 }
 
+static void t_diff(struct ps3rsx_spe *spe, unsigned int n)
+{
+	struct vseal_job *j;
+	unsigned int i, idx, bad = 0;
+	int ret;
+
+	n = clamp(n, 1u, (unsigned int)VSEAL_PAGES_MAX);
+	j = tjob(spe, VSEAL_OP_TEST_DIFF, n, &idx);
+	for (i = 0; i < n; i++) {
+		get_random_bytes(tpage(spe, 0, i), VSEAL_PAGE);
+		if (i == 1)
+			memset(tpage(spe, 0, i), 0xff, VSEAL_PAGE);
+		j->page[i].src = (unsigned long)tpage(spe, 0, i);
+		j->page[i].dst = (unsigned long)tpage(spe, 1, i);
+		get_random_bytes(&j->page[i].ctr, sizeof(j->page[i].ctr));
+		get_random_bytes(j->page[i].ad, 16);
+		get_random_bytes(j->page[i].tag, 16);
+		if (i % 2)
+			memset(j->page[i].ad, 0xff, 16);	/* r at its clamp maximum */
+	}
+	ret = run_job(spe, idx, SPE_PATH_RAM);
+	for (i = 0; i < n; i++)
+		bad += j->page[i].status != VSEAL_ST_OK;
+	say(spe, "diff x%u: %d, %u pages where vector != scalar: %s\n", n, ret, bad, ret || bad ? "FAIL" : "ok");
+}
+
 static void t_slow(struct ps3rsx_spe *spe, unsigned int n, unsigned int ticks)
 {
 	u64 r0 = spe->restarts, e0 = spe->extended;
@@ -220,6 +249,8 @@ static ssize_t vseal_write(struct file *f, const char __user *buf, size_t len, l
 		t_echo(spe, a);
 	else if (sscanf(cmd, "seal %u", &a) == 1)
 		t_seal(spe, a);
+	else if (sscanf(cmd, "diff %u", &a) == 1)
+		t_diff(spe, a);
 	else if (sscanf(cmd, "slow %u %u", &a, &b) == 2)
 		t_slow(spe, a, b);
 	else if (!strncmp(cmd, "hang", 4))

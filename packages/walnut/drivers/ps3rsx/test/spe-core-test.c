@@ -94,6 +94,9 @@ static void check_descriptors(void)
 	J.page[0].src = RAM;
 	J.page[0].dst = RAM + 4096;
 	check(spe_check_job(&J, win, 3, 0) != 0, "slow refused outside test builds");
+	J.op = VSEAL_OP_TEST_DIFF;
+	check(spe_check_job(&J, win, 3, 0) != 0, "diff refused outside test builds");
+	check(spe_check_job(&J, win, 3, 1) == 0, "diff accepted in a test build");
 	mk(77, 0);
 	check(spe_check_job(&J, win, 3, 1) != 0, "an unknown op refused");
 	mk(VSEAL_OP_ECHO, 0);

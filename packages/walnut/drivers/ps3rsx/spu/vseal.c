@@ -93,6 +93,34 @@ static int page_ops(uint32_t op)
 	return op == VSEAL_OP_SEAL || op == VSEAL_OP_OPEN || op == VSEAL_OP_TEST_SLOW;
 }
 
+/* TEST_DIFF: the vector code against the scalar code on this SPU, page by page (no pipeline: one get
+ * into buffer 0, the scalar ChaCha20 into buffer 1, the vector one into buffer 2) */
+static void diff(uint64_t seq)
+{
+	uint32_t n = JOB->npages, i;
+
+	for (i = 0; i < n; i++) {
+		struct vseal_page *pg = &JOB->page[i];
+		uint8_t key[32], t1[16], t2[16], nonce[12];
+
+		DMA_WAIT(1u << TAG_BUF(0));
+		DMA_GETF(BUF(0), pg->src, VSEAL_PAGE, TAG_BUF(0));
+		DMA_WAIT(1u << TAG_BUF(0));
+		memcpy(key, pg->ad, 16);
+		memcpy(key + 16, pg->tag, 16);
+		v2_poly1305_x4(key, BUF(0), VSEAL_PAGE, t1);
+		v2_poly1305(key, BUF(0), VSEAL_PAGE, t2);
+		v2_nonce_from_counter(pg->ctr, nonce);
+		v2_chacha20_xor(PARAM->key, nonce, 1, BUF(1), BUF(0), VSEAL_PAGE);
+		v2_chacha20_xor_x4(PARAM->key, nonce, 1, BUF(2), BUF(0), VSEAL_PAGE);
+		pg->status = !v2_ct_differs(t1, t2, 16) && !v2_ct_differs(BUF(1), BUF(2), VSEAL_PAGE) ?
+			     VSEAL_ST_OK : VSEAL_ST_BADTAG;
+		memcpy(pg->tag, t1, 16);
+		progress++;
+		status_update(seq);
+	}
+}
+
 static int job_ok(void)
 {
 	uint32_t i, n = JOB->npages;
@@ -108,6 +136,7 @@ static int job_ok(void)
 	case VSEAL_OP_SEAL:
 	case VSEAL_OP_OPEN:
 	case VSEAL_OP_TEST_SLOW:
+	case VSEAL_OP_TEST_DIFF:
 		break;
 	default:
 		return 0;
@@ -217,6 +246,8 @@ void vseal_job(uint32_t idx)
 				wait_ticks(1u << 20);	/* no progress, no answer */
 		if (op == VSEAL_OP_GOLDEN)
 			golden();
+		else if (op == VSEAL_OP_TEST_DIFF)
+			diff(seq);
 		else if (page_ops(op))
 			pages(op, seq);
 	}

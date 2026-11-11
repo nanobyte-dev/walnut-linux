@@ -79,6 +79,7 @@ static inline int spe_check_job(const struct vseal_job *j, const struct spe_wind
 		dk = test ? SPE_WIN_VRAM | SPE_WIN_RAM : SPE_WIN_VRAM;
 		break;
 	case VSEAL_OP_TEST_SLOW:
+	case VSEAL_OP_TEST_DIFF:
 		if (!test)
 			return VSEAL_PAGES_MAX + 2;
 		sk = SPE_WIN_RAM;

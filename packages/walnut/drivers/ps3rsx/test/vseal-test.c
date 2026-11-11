@@ -294,6 +294,23 @@ int main(void)
 		run(3);
 		check(j->done == j->seq && status_line.progress == p0 + 5 && status_line.last_seq == j->seq,
 		      "slow: the progress counter rises a page at a time", 0);
+		j = job(1, VSEAL_OP_TEST_DIFF, 6);
+		for (i = 0; i < 6; i++) {
+			tfill(pt[i], VSEAL_PAGE);
+			if (i == 1)
+				memset(pt[i], 0xff, VSEAL_PAGE);
+			j->page[i].src = (uintptr_t)pt[i];
+			j->page[i].dst = (uintptr_t)out[i];
+			j->page[i].ctr = trnd();
+			tfill(j->page[i].ad, 16);
+			tfill(j->page[i].tag, 16);
+			if (i >= 2)
+				memset(j->page[i].ad, 0xff, 16);	/* r at its clamp maximum */
+			sentinel(out[i]);
+		}
+		run(1);
+		for (i = 0; i < 6; i++)
+			check(j->page[i].status == VSEAL_ST_OK && is_sentinel(out[i]), "diff: vector = scalar, nothing put", i);
 		j = job(0, VSEAL_OP_TEST_NOIRQ, 0);
 		run(0);
 		check(j->done == j->seq && vs_irq_count == 0, "noirq: done, no interrupt", 0);

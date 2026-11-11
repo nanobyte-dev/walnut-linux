@@ -61,6 +61,10 @@ typedef uint64_t vs_u64;
 #define VSEAL_OP_TEST_SLOW	16	/* as SEAL, waiting arg decrementer ticks before each page */
 #define VSEAL_OP_TEST_HANG	17	/* spin without progress, never answer */
 #define VSEAL_OP_TEST_NOIRQ	18	/* as ECHO, without the interrupt mailbox write */
+#define VSEAL_OP_TEST_DIFF	19	/* each page src: the four-lane Poly1305 against the scalar one (key: the
+					 * page's ad || tag, so the kernel can pick r at its clamp maximum) and the
+					 * four-block ChaCha20 against the scalar one (nonce from ctr); status OK when
+					 * both agree, BADTAG when not; nothing is put */
 
 /* per-page and job status */
 #define VSEAL_ST_NONE		0
