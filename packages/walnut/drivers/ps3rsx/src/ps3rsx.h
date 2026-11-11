@@ -413,6 +413,7 @@ int ps3rsx_vswap_init(struct ps3rsx_device *rsx);
 void ps3rsx_vswap_fini(struct ps3rsx_device *rsx);
 bool ps3rsx_vswap_shrink(struct ps3rsx_device *rsx, u64 bytes);
 void ps3rsx_vswap_show(struct seq_file *m, struct ps3rsx_device *rsx);
+bool ps3rsx_vswap_pool_enabled(void);
 /* gart.c */
 int ps3rsx_gart_init(struct ps3rsx_device *rsx);
 void ps3rsx_gart_fini(struct ps3rsx_device *rsx);

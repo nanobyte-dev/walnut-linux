@@ -29,6 +29,7 @@ for v in "vseal-test VSEAL_FIXOFF_PLAIN_GET" "vseal-test VSEAL_FIXOFF_SPLIT_TAGS
 	"vseal-test VSEAL_FIXOFF_DONE_EARLY" \
 	"spe-core-test SPE_FIXOFF_NO_CHECK" "spe-core-test SPE_FIXOFF_NO_REFUSED" "spe-core-test SPE_FIXOFF_NO_TIMEOUT" \
 	"spe-core-test SPE_FIXOFF_RESTART_ON_SLOW" "spe-core-test SPE_FIXOFF_FREE_UNQUIET" \
+	"spe-core-test SPE_FIXOFF_RAM_WITHOUT_CHECK" \
 	"spe-run-test SPE_FIXOFF_GOLDEN_COUNTS" "spe-run-test SPE_FIXOFF_RESET_FAIL_NODEV" \
 	"spe-run-test SPE_FIXOFF_WAKE_IS_TIMEOUT" "spe-run-test SPE_FIXOFF_KEEP_RING" \
 	"spe-run-test SPE_FIXOFF_RELEASED_IS_FAILURE"; do

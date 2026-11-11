@@ -20,8 +20,10 @@
  * given up unquiet (spe_may_free); a job that returns SPE_RET_KEEP (-EHWPOISON) tells its caller the same
  * for its own pages, and ps3rsx_spe_must_keep() stays true for the boot.
  *
- * Without vswap.c using it (S4), the SPE isn't reserved by default: vswap_seal is 1 only in test builds
- * (PS3RSX_VSEAL_TEST), and a measurement run loads the release build with vswap_seal=1.
+ * The SPE is reserved at load only when the VRAM swap's pool is enabled (vswap_vram_mb > 0) and vswap_seal
+ * is on (until vswap.c uses the SPE: test builds only, or vswap_seal=1).
+ * The key is drawn here, at load, after wait_for_random_bytes() succeeded; vswap.c's rescue drain reads it
+ * through ps3rsx_spe_key() if the SPE is ever given up.
  */
 #include <linux/debugfs.h>
 #include <linux/delay.h>
@@ -56,7 +58,7 @@
 #ifdef PS3RSX_VSEAL_TEST
 static bool vswap_seal = true;
 #else
-static bool vswap_seal;
+static bool vswap_seal;		/* until vswap.c uses the SPE */
 #endif
 module_param(vswap_seal, bool, 0444);
 MODULE_PARM_DESC(vswap_seal, "Reserve an SPE at load to seal the VRAM swap's pages (default: test builds only)");
@@ -75,7 +77,6 @@ struct ps3rsx_spe {
 	u8 key[32];
 	struct vseal_param param;	/* the load's parameter block, built here (no allocation at a restart) */
 	struct completion irq;
-	bool released;			/* given back to spufs already (a quiet give-up) */
 	int release_ret;
 #ifdef PS3RSX_VSEAL_TEST
 	struct dentry *file;
@@ -248,9 +249,9 @@ void spe_hw_give_up(void *hw, int quiet)
 
 	drm_err(&spe->rsx->drm, "vseal: the SPE is no longer used this boot (%s); the VRAM swap uses the disk\n",
 		quiet ? "it was seen quiet" : "it was NOT seen quiet: every page it was given is kept");
-	if (quiet && !spe->released) {	/* back to spufs at once (libspeq gets it at its next open) */
+	if (quiet && !spe->ctl.released) {	/* back to spufs at once (libspeq gets it at its next open) */
 		spe->release_ret = spu_kernel_release(spe->spu);
-		spe->released = true;
+		spe->ctl.released = true;
 		if (spe->release_ret)
 			spe->ctl.keep_pages = 1;
 	}
@@ -324,12 +325,12 @@ int ps3rsx_spe_job(struct ps3rsx_device *rsx, unsigned int op, unsigned int npag
 
 int ps3rsx_spe_set_bounds(struct ps3rsx_device *rsx, const struct spe_window *w, unsigned int nw,
 			  const struct spe_window *refused, unsigned int nr,
-			  int (*ram_ok)(void *arg, u64 ea), void *arg)
+			  int (*page_ok)(void *arg, u64 ea, unsigned int kind), void *arg)
 {
 	struct ps3rsx_spe *spe = rsx->spe;
 	struct spe_bounds *b;
 
-	if (!spe || spe_windows_valid(w, nw) || nr + 2 > SPE_NREFUSED)
+	if (!spe || nr + 2 > SPE_NREFUSED || spe_bounds_valid(w, nw, refused, nr, page_ok != NULL))
 		return -EINVAL;
 	mutex_lock(&spe->lock);
 	b = &spe->ctl.bounds;
@@ -340,10 +341,15 @@ int ps3rsx_spe_set_bounds(struct ps3rsx_device *rsx, const struct spe_window *w,
 	b->refused[1] = (struct spe_window){ (unsigned long)spe->ctl.status, PAGE_SIZE, 0 };
 	memcpy(b->refused + 2, refused, nr * sizeof(*refused));
 	b->nrefused = nr + 2;
-	b->ram_ok = ram_ok;
-	b->ram_ok_arg = arg;
+	b->page_ok = page_ok;
+	b->page_ok_arg = arg;
 	mutex_unlock(&spe->lock);
 	return 0;
+}
+
+const u8 *ps3rsx_spe_key(struct ps3rsx_device *rsx)
+{
+	return rsx->spe ? rsx->spe->key : NULL;
 }
 
 bool ps3rsx_spe_ready(struct ps3rsx_device *rsx)
@@ -392,7 +398,7 @@ void ps3rsx_spe_init(struct ps3rsx_device *rsx)
 	struct spu *spu;
 	int ret;
 
-	if (!vswap_seal)
+	if (!vswap_seal || !ps3rsx_vswap_pool_enabled())
 		return;
 	if (!image_ok()) {
 		drm_err(&rsx->drm, "vseal: the embedded SPU program doesn't match its hash: no SPE taken\n");
@@ -438,10 +444,10 @@ void ps3rsx_spe_init(struct ps3rsx_device *rsx)
 	if (ret) {
 		/* a load that didn't answer: give the SPE back now, if it was seen quiet */
 		mutex_lock(&spe->lock);
-		if (!spe->ctl.keep_pages && !spe->released) {
+		if (!spe->ctl.keep_pages && !spe->ctl.released) {
 			spe->ctl.state = SPE_GONE;
 			spe->release_ret = spu_kernel_release(spu);
-			spe->released = true;
+			spe->ctl.released = true;
 		}
 		mutex_unlock(&spe->lock);
 		drm_err(&rsx->drm, "vseal: the SPU program didn't load or answer (%d): the SPE isn't used\n", ret);
@@ -456,12 +462,18 @@ void ps3rsx_spe_init(struct ps3rsx_device *rsx)
 	rsx->spe = spe;
 	drm_info(&rsx->drm, "vseal: SPE %d reserved, its program (%zu bytes) loaded and checked\n", spu->number,
 		 sizeof(VSEAL_IMAGE));
-#ifdef PS3RSX_VSEAL_TEST
-	spe_test_init(spe);
-#endif
 	return;
 fail:
 	spe_free(spe);
+}
+
+/* After drm_dev_register: the test hook's file (test builds) */
+void ps3rsx_spe_init_debugfs(struct ps3rsx_device *rsx)
+{
+#ifdef PS3RSX_VSEAL_TEST
+	if (rsx->spe && READ_ONCE(rsx->spe->ctl.state) == SPE_READY)
+		spe_test_init(rsx->spe);
+#endif
 }
 
 /* Before drm_dev_unregister: the test hook's file */
@@ -483,8 +495,8 @@ void ps3rsx_spe_fini(struct ps3rsx_device *rsx)
 		return;
 	mutex_lock(&spe->lock);
 	/* release masks every class, installs spu_base's stubs, and gives the SPE back only if quiet */
-	ret = spe->released ? spe->release_ret : spu_kernel_release(spe->spu);
-	spe->released = true;
+	ret = spe->ctl.released ? spe->release_ret : spu_kernel_release(spe->spu);
+	spe->ctl.released = true;
 	mutex_unlock(&spe->lock);
 	WRITE_ONCE(the_spe, NULL);
 	rsx->spe = NULL;

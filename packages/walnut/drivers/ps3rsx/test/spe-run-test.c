@@ -36,6 +36,11 @@ static struct {
 
 static struct spe_ctl C;
 
+static int fake_page_ok(void *arg, vs_u64 ea, unsigned int kind)
+{
+	return 1;
+}
+
 static struct fake {
 	vs_u64 now;
 	vs_u32 inbox[4];
@@ -74,6 +79,7 @@ static void fake_init(void)
 	C.bounds.refused[0] = (struct spe_window){ (uintptr_t)A.ring, sizeof(A.ring), 0 };
 	C.bounds.refused[1] = (struct spe_window){ (uintptr_t)A.status, sizeof(A.status), 0 };
 	C.bounds.nrefused = 2;
+	C.bounds.page_ok = fake_page_ok;
 }
 
 static void deliver(void)
@@ -468,9 +474,14 @@ int main(void)
 	/* a restart that raced the release (a late interrupt in its grace period): the reset says -EINVAL */
 	fresh();
 	F.reset_ret = -22;
+	C.released = 1;		/* (the release raced the restart) */
 	ret = run(VSEAL_OP_TEST_HANG, 0, SPE_PATH_RAM);
 	check(ret == SPE_RET_NODEV && !C.keep_pages && C.state == SPE_GONE && F.gave_up == 0 && C.restarts == 0 &&
 	      C.health.noprogress_restarts == 0, "a reset refused as released: stopped quietly, nothing counted, pages free");
+	fresh();
+	F.reset_ret = -22;		/* -EINVAL without our own release: kept */
+	ret = run(VSEAL_OP_TEST_HANG, 0, SPE_PATH_RAM);
+	check(ret == SPE_RET_KEEP && C.keep_pages && C.state == SPE_GONE, "-EINVAL without our release: kept");
 
 	/* slow but progressing: waited for, not restarted */
 	fresh();

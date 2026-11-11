@@ -156,12 +156,14 @@ static int ps3rsx_probe(struct platform_device *pdev)
 		ps3rsx_mem_fini(rsx);
 		return ret;
 	}
+	ps3rsx_spe_init(rsx);		/* the SPE for the swap's seals (spe.c): the pool's VRAM only with it */
 	ret = ps3rsx_vswap_init(rsx);
 	if (ret)
 		drm_warn(&rsx->drm, "no VRAM swap device: %d\n", ret);
 	ret = ps3rsx_kms_init(rsx);
 	if (ret) {
 		ps3rsx_vswap_fini(rsx);
+		ps3rsx_spe_fini(rsx);
 		ps3rsx_exec_fini(rsx);
 		ps3rsx_mem_fini(rsx);
 		return ret;
@@ -176,6 +178,7 @@ static int ps3rsx_probe(struct platform_device *pdev)
 		ps3rsx_kms_fini(rsx);
 		ps3rsx_console_fini(rsx);	/* as remove: own the GPU for the drain */
 		ps3rsx_vswap_fini(rsx);
+		ps3rsx_spe_fini(rsx);
 		ps3rsx_exec_fini(rsx);
 		ps3rsx_mem_fini(rsx);
 		return ret;
@@ -185,7 +188,7 @@ static int ps3rsx_probe(struct platform_device *pdev)
 		 rsx->gart_dynamic ? "on demand" : "reserved",
 		 rsx->info.xres, rsx->info.yres, rsx->info.line_length);
 	ps3rsx_pd_init(rsx);		/* the push dump (test builds): under the minor's debugfs */
-	ps3rsx_spe_init(rsx);		/* the SPE for the swap's seals (spe.c); without one, none */
+	ps3rsx_spe_init_debugfs(rsx);	/* the SPE's test hook (test builds) */
 	return 0;
 }
 

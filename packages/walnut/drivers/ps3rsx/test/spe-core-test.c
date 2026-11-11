@@ -34,9 +34,10 @@ static struct vseal_job J;
 static struct spe_bounds B;
 
 static vs_u64 not_gpu = RAM + (8 << 20);	/* a page the predicate says is mapped for the GPU */
-static int ram_ok(void *arg, vs_u64 ea)
+static vs_u64 not_slot = VRAM + (4 << 20);	/* a VRAM page the predicate says is no slot of the pool */
+static int page_ok(void *arg, vs_u64 ea, unsigned int kind)
 {
-	return ea != *(vs_u64 *)arg;
+	return kind == SPE_WIN_RAM ? ea != *(vs_u64 *)arg : ea != not_slot;
 }
 
 static void bounds(void)
@@ -49,8 +50,8 @@ static void bounds(void)
 	B.refused[1] = (struct spe_window){ RAM + (16 << 20) + 4 * 4096, 4096, 0 };
 	B.refused[2] = (struct spe_window){ RAM + (32 << 20), 1 << 20, 0 };
 	B.nrefused = 3;
-	B.ram_ok = ram_ok;
-	B.ram_ok_arg = &not_gpu;
+	B.page_ok = page_ok;
+	B.page_ok_arg = &not_gpu;
 }
 
 static void mk(unsigned int op, unsigned int n)
@@ -140,6 +141,28 @@ static void check_descriptors(void)
 		check(spe_windows_valid(w, 2) != 0, "a window of two kinds refused");
 		check(spe_windows_valid(w, SPE_NWIN + 1) != 0, "too many windows refused");
 	}
+	{
+		struct spe_window w[2] = { { BOUNCE, 4096, SPE_WIN_BOUNCE }, { RAM, 4096, SPE_WIN_RAM } };
+		struct spe_window r[1] = { { RAM + 8192, 4096, 0 } };
+
+		check(spe_bounds_valid(w, 2, r, 1, 1) == 0, "bounds with a predicate accepted");
+		check(spe_bounds_valid(w, 2, r, 1, 0) != 0, "a RAM window without a predicate refused");
+		check(spe_bounds_valid(w, 1, r, 1, 0) == 0, "a bounce-only set needs no predicate");
+		w[1].kind = SPE_WIN_VRAM;
+		check(spe_bounds_valid(w, 2, r, 1, 0) != 0, "a VRAM window without a predicate refused");
+		r[0] = (struct spe_window){ ~0ull - 4095, 8192, 0 };
+		check(spe_bounds_valid(w, 2, r, 1, 1) != 0, "a refused entry that wraps refused");
+		r[0] = (struct spe_window){ RAM + 100, 4096, 0 };
+		check(spe_bounds_valid(w, 2, r, 1, 1) != 0, "an unaligned refused entry refused");
+	}
+	mk(VSEAL_OP_SEAL, 1);
+	J.page[0].src = RAM;
+	J.page[0].dst = not_slot;
+	check(spe_check_job(&J, &B, 0) == 1, "a VRAM page the predicate refuses: refused");
+	B.page_ok = NULL;
+	J.page[0].dst = VRAM;
+	check(spe_check_job(&J, &B, 0) == 1, "no predicate: RAM and VRAM pages refused");
+	bounds();
 
 	mk(VSEAL_OP_SEAL, 0);
 	check(spe_check_job(&J, &B, 0) != 0, "0 pages refused");
@@ -257,8 +280,10 @@ static void check_waits(void)
 	spe_job_finished(&h, VSEAL_OP_OPEN);
 	check(h.noprogress_restarts == 0, "a good open clears it");
 
-	check(spe_after_reset(0) == SPE_FREE_OK && spe_after_reset(-5) == SPE_KEEP && spe_after_reset(-16) == SPE_KEEP &&
-	      spe_after_reset(-22) == SPE_RELEASED, "a reset's result: quiet, kept, released");
+	check(spe_after_reset(0, 0) == SPE_FREE_OK && spe_after_reset(-5, 0) == SPE_KEEP &&
+	      spe_after_reset(-16, 1) == SPE_KEEP && spe_after_reset(-22, 1) == SPE_RELEASED,
+	      "a reset's result: quiet, kept, released");
+	check(spe_after_reset(-22, 0) == SPE_KEEP, "-EINVAL without our own release: kept");
 	check(spe_ret_after_reset_failed() == SPE_RET_KEEP, "a failed reset's job returns -EHWPOISON");
 
 	/* the DMA targets' lifetime */

@@ -892,6 +892,12 @@ static const struct attribute_group *vswap_groups[] = { &vswap_group, NULL };
 
 /* --- setup -------------------------------------------------------------------------------- */
 
+/* Whether the pool may hold pages at all (the SPE client reserves an SPE only then) */
+bool ps3rsx_vswap_pool_enabled(void)
+{
+	return vswap_vram_mb != 0;
+}
+
 int ps3rsx_vswap_init(struct ps3rsx_device *rsx)
 {
 	struct queue_limits lim = {

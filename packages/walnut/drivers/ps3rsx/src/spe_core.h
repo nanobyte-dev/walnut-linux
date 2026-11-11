@@ -10,10 +10,10 @@
  *    destination must be a whole, 4 KiB aligned page. Refused ranges are checked first and always win (the
  *    job ring and the status line, the copy bounce, every GART-mapped chunk, the VRAM pool where plaintext
  *    would go); then the address must lie in a window of a kind the op allows (kernel RAM for plaintext;
- *    the VRAM pool, the bounce or kernel RAM for ciphertext); and a page in kernel RAM must pass the
- *    optional per-page predicate (the caller's "not mapped for the GPU"). So plaintext only ever lands in
- *    kernel RAM outside every GPU mapping, and a caller's bug can't point the SPE at the ring or anything
- *    refused.
+ *    the VRAM pool, the bounce or kernel RAM for ciphertext); and a page in a RAM or VRAM window must pass
+ *    the caller's per-page predicate (RAM: not mapped for the GPU; VRAM: a slot of the pool), which such
+ *    windows can't be given without. So plaintext only ever lands in kernel RAM outside every GPU mapping,
+ *    and a caller's bug can't point the SPE at the ring or anything refused.
  *  - Poll or interrupt by the job's expected SPE time, not its page count: a job expected to finish within
  *    SPE_POLL_US is polled; anything slower, and every job whose pages the SPE reads from VRAM, waits for the
  *    interrupt. A poll is bounded by its expected time plus a margin, then falls back to the interrupt.
@@ -59,8 +59,9 @@ struct spe_bounds {
 	unsigned int nwin;
 	struct spe_window refused[SPE_NREFUSED];
 	unsigned int nrefused;
-	int (*ram_ok)(void *arg, vs_u64 ea);	/* per page in a RAM window, or NULL */
-	void *ram_ok_arg;
+	/* per page in a RAM or VRAM window (kind: SPE_WIN_RAM or SPE_WIN_VRAM): 1 if it may be named */
+	int (*page_ok)(void *arg, vs_u64 ea, unsigned int kind);
+	void *page_ok_arg;
 };
 
 /* the path a job's source pages take, for its expected time */
@@ -90,7 +91,8 @@ static inline unsigned int spe_kind_of(const struct spe_bounds *b, vs_u64 ea)
 #endif
 	for (i = 0; i < b->nwin; i++)
 		if (spe_in(&b->win[i], ea)) {
-			if (b->win[i].kind == SPE_WIN_RAM && b->ram_ok && !b->ram_ok(b->ram_ok_arg, ea))
+			if (b->win[i].kind != SPE_WIN_BOUNCE &&
+			    (!b->page_ok || !b->page_ok(b->page_ok_arg, ea, b->win[i].kind)))
 				return 0;
 			return b->win[i].kind;
 		}
@@ -109,6 +111,30 @@ static inline int spe_windows_valid(const struct spe_window *w, unsigned int n)
 		if ((w[i].start | w[i].len) & (VSEAL_PAGE - 1) || !w[i].len || w[i].start + w[i].len < w[i].start ||
 		    (w[i].kind != SPE_WIN_RAM && w[i].kind != SPE_WIN_VRAM && w[i].kind != SPE_WIN_BOUNCE))
 			return -1;
+	return 0;
+}
+
+/* a whole bounds set as a caller gives it: the windows and the refused ranges valid (refused entries take
+ * any kind), and a predicate whenever a RAM or VRAM window is given */
+static inline int spe_bounds_valid(const struct spe_window *w, unsigned int nw, const struct spe_window *r,
+				   unsigned int nr, int has_page_ok)
+{
+	unsigned int i;
+
+	if (spe_windows_valid(w, nw) || nr > SPE_NREFUSED)
+		return -1;
+	for (i = 0; i < nr; i++) {
+		struct spe_window t = r[i];
+
+		t.kind = SPE_WIN_RAM;
+		if (spe_windows_valid(&t, 1))
+			return -1;
+	}
+#ifndef SPE_FIXOFF_RAM_WITHOUT_CHECK
+	for (i = 0; i < nw; i++)
+		if (w[i].kind != SPE_WIN_BOUNCE && !has_page_ok)
+			return -1;
+#endif
 	return 0;
 }
 
@@ -265,17 +291,17 @@ static inline void spe_job_finished(struct spe_health *h, unsigned int op)
 	h->noprogress_restarts = 0;
 }
 
-/* what a reset's result means for every page a descriptor named: 0, seen quiet; -EINVAL, the SPE isn't
- * ours any more (released: a restart that raced the release, which gave it back only once quiet); any
- * other error, it couldn't be seen stopped */
+/* what a reset's result means for every page a descriptor named: 0, seen quiet; -EINVAL after the client
+ * itself released the SPE (a restart that raced the release, which gave it back only once quiet): not ours
+ * any more; any other error, or -EINVAL without our release, it couldn't be seen stopped */
 enum spe_pages { SPE_FREE_OK, SPE_KEEP, SPE_RELEASED };
 
-static inline enum spe_pages spe_after_reset(int reset_ret)
+static inline enum spe_pages spe_after_reset(int reset_ret, int released)
 {
 	if (reset_ret == 0)
 		return SPE_FREE_OK;
 #ifndef SPE_FIXOFF_RELEASED_IS_FAILURE
-	if (reset_ret == -22)
+	if (reset_ret == -22 && released)
 		return SPE_RELEASED;
 #endif
 	return SPE_KEEP;

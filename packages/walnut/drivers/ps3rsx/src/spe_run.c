@@ -95,12 +95,12 @@ static int restart(struct spe_ctl *c, int progressed)
 	c->restarts++;
 	SPE_WR(c->waiting, 0);
 	ret = spe_hw_reset(c->hw);
-	if (spe_after_reset(ret) == SPE_RELEASED) {	/* released under us: stop quietly */
+	if (spe_after_reset(ret, c->released) == SPE_RELEASED) {	/* released under us: stop quietly */
 		c->restarts--;
 		c->state = SPE_GONE;
 		return SPE_RET_NODEV;
 	}
-	if (spe_after_reset(ret) == SPE_KEEP) {
+	if (spe_after_reset(ret, c->released) == SPE_KEEP) {
 		spe_restarted(&c->health, progressed, 0);
 		give_up(c, 0);
 		return spe_ret_after_reset_failed();
@@ -108,8 +108,8 @@ static int restart(struct spe_ctl *c, int progressed)
 	spe_restarted(&c->health, progressed, 1);
 	if (c->health.gone) {
 		zero_ring(c);
-		give_up(c, 1);
-		return SPE_RET_NODEV;
+		give_up(c, 1);		/* its release may still bury it: keep_pages */
+		return c->keep_pages ? SPE_RET_KEEP : SPE_RET_NODEV;
 	}
 	if (spe_start(c)) {
 		if (c->state != SPE_GONE)
@@ -143,8 +143,10 @@ int spe_run_job(struct spe_ctl *c, unsigned int idx, enum spe_path path)
 	vs_u64 seq, p0, now, deadline;
 	vs_u32 word;
 
+	if (c->keep_pages)		/* once kept, every job says so */
+		return SPE_RET_KEEP;
 	if (c->state != SPE_READY)
-		return c->keep_pages ? SPE_RET_KEEP : SPE_RET_NODEV;
+		return SPE_RET_NODEV;
 	if (idx >= VSEAL_JOBS)
 		return SPE_RET_INVAL;
 	j = &c->ring[idx];

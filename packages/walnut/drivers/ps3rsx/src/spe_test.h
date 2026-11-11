@@ -2,8 +2,9 @@
 /*
  * spe_test.h: the SPE client's debugfs hook, test builds only (PS3RSX_VSEAL_TEST:
  * DEB_BUILD_OPTIONS=ps3rsx-vseal, a ~dev version saying vseal; the test image vseal_spu_test.h). Included by
- * spe.c. The hook sets the client's bounds to its own pages (one RAM window, the ring and the status line
- * refused); it is for test builds without the swap using the SPE, and the two don't run together.
+ * spe.c. Its pages are kernel RAM, which the VRAM swap's bounds accept (its RAM window and predicate); without
+ * the swap's bounds (no backing partition yet) the hook sets its own: one RAM window over its pages, with a
+ * predicate that accepts only them. The hook's commands run under spe->lock, between the swap's jobs.
  *
  * debugfs dri/ps3rsx/ps3rsx_vseal (root, 0600). Write one command, read the report:
  *   golden            the known-answer job
@@ -279,8 +280,13 @@ static void t_stale(struct ps3rsx_spe *spe)
 	tjob(spe, VSEAL_OP_ECHO, 0, &idx);
 	a = !spe_run_job(c, idx, SPE_PATH_RAM);
 	a = a && spare_word(c, vseal_word(c->ring[idx].seq, idx), idx);	/* the finished job's word again */
-	tjob(spe, VSEAL_OP_ECHO, 0, &idx);
-	b = spare_word(c, vseal_word(spe_seq(c->gen, c->n + 7), idx), idx);	/* a job number not in the ring */
+	/* a valid descriptor in the slot, then a word for another job number: dropped by the word check */
+	j = tjob(spe, VSEAL_OP_ECHO, 0, &idx);
+	j->magic = VSEAL_MAGIC;
+	j->seq = spe_seq(c->gen, c->n + 3);
+	mb();
+	b = spare_word(c, vseal_word(spe_seq(c->gen, c->n + 7), idx), idx);
+	j->magic = 0;
 	/* words left in the inbound mailbox across a restart: a hang started by hand (so the SPU stops reading
 	 * its mailbox), a spare word behind it, then an echo, which times out; the reloaded program finds the
 	 * spare word and the echo's (if the reset kept them) and must drop both */
@@ -401,13 +407,26 @@ static const struct file_operations vseal_fops = {
 	.llseek = default_llseek,
 };
 
+static int tpages_ok(void *arg, vs_u64 ea, unsigned int kind)
+{
+	struct ps3rsx_spe *spe = arg;
+
+	return kind == SPE_WIN_RAM && ea >= (unsigned long)spe->tpages &&
+	       ea - (unsigned long)spe->tpages < 3 * VSEAL_PAGES_MAX * VSEAL_PAGE;
+}
+
 static void spe_test_init(struct ps3rsx_spe *spe)
 {
 	struct spe_bounds *b = &spe->ctl.bounds;
 
 	mutex_lock(&spe->lock);
-	b->win[0] = (struct spe_window){ (unsigned long)spe->tpages, 3 * VSEAL_PAGES_MAX * VSEAL_PAGE, SPE_WIN_RAM };
-	b->nwin = 1;
+	if (!b->nwin) {		/* the swap's bounds not set yet: the hook's own */
+		b->win[0] = (struct spe_window){ (unsigned long)spe->tpages, 3 * VSEAL_PAGES_MAX * VSEAL_PAGE,
+						 SPE_WIN_RAM };
+		b->nwin = 1;
+		b->page_ok = tpages_ok;
+		b->page_ok_arg = spe;
+	}
 	mutex_unlock(&spe->lock);
 	spe->file = debugfs_create_file("ps3rsx_vseal", 0600, spe->rsx->drm.primary->debugfs_root, spe,
 					&vseal_fops);

@@ -29,6 +29,7 @@ struct spe_ctl {
 	vs_u32 gen, n;			/* the load's generation, the job number */
 	enum spe_state state;
 	int keep_pages;			/* given up unquiet: nothing a descriptor named may be freed */
+	int released;			/* the client gave the SPE back (spu_kernel_release) */
 	int test;			/* test ops and RAM-to-RAM seals allowed (test builds' hook) */
 	struct spe_health health;
 	struct spe_bounds bounds;
