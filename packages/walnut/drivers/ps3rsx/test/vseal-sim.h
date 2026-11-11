@@ -7,7 +7,9 @@
  *  - at every issue, a few units of whatever is eligible move; a tag wait runs units until the group is
  *    empty.
  * An optional hook (vs_sim_hook) runs between units: the open tests use it to change ciphertext that a
- * get is reading (a torn or changed copy). */
+ * get is reading (a torn or changed copy). vs_done_watch, when set, is the job's done word in memory: a
+ * put that writes it while any other command is still queued is recorded (vs_done_early), since the
+ * done word must be the job's last write. */
 #ifndef VSEAL_SIM_H
 #define VSEAL_SIM_H
 
@@ -37,6 +39,8 @@ static uint32_t vs_rs = 1, vs_dec;
 static uint32_t vs_irq_value;
 static int vs_irq_count, vs_overflow;
 static void (*vs_sim_hook)(void);
+static uint8_t *vs_done_watch;
+static int vs_done_early;
 
 static uint32_t vs_rnd(void)
 {
@@ -95,8 +99,13 @@ static int vs_step(void)
 		u = c->size - c->moved < VS_UNIT ? c->size - c->moved : VS_UNIT;
 		if (c->kind == 0)
 			memcpy(c->ls + c->moved, c->ea + c->moved, u);
-		else
+		else {
+			if (vs_done_watch && c->ea + c->moved <= vs_done_watch && vs_done_watch < c->ea + c->moved + u)
+				for (j = 0; j < vs_nq; j++)
+					if (&vs_q[j] != c && !vs_q[j].done)
+						vs_done_early = 1;
 			memcpy(c->ea + c->moved, c->ls + c->moved, u);
+		}
 		c->moved += u;
 		if (c->moved == c->size)
 			c->done = 1;

@@ -33,10 +33,10 @@ TEST_VSEAL := $(if $(filter ps3rsx-vseal,$(DEB_BUILD_OPTIONS)),y)
 ifneq ($(if $(findstring vseal,$(DEB_VERSION)),y),$(TEST_VSEAL))
 $(error the version ($(DEB_VERSION)) and DEB_BUILD_OPTIONS disagree about ps3rsx-vseal)
 endif
-# the SPE client is built when the kernel's headers have local/0058 (spu_kernel_reserve)
-SPU_KERNEL := $(shell grep -qs spu_kernel_reserve $(KOBJ)/arch/powerpc/include/asm/spu.h \
-	$(KOBJ)/../linux-headers-$(KREL:-debug%=)-common/arch/powerpc/include/asm/spu.h \
-	/usr/src/linux-headers-*-common/arch/powerpc/include/asm/spu.h && echo y)
+# the SPE client is built when the target kernel's own headers have local/0058's interface
+# (SPU_KERNEL_API_VERSION 1, as src/Kbuild checks); no other installed headers count
+SPU_KERNEL := $(shell grep -qsE '^.define[[:space:]]+SPU_KERNEL_API_VERSION[[:space:]]+1$$' $(KOBJ)/arch/powerpc/include/asm/spu.h \
+	$(KOBJ)/../linux-headers-$(KREL:-debug%=)-common/arch/powerpc/include/asm/spu.h && echo y)
 ifeq ($(TEST_DUMP)$(TEST_P4COUNT),yy)
 $(error ps3rsx-pushdump and ps3rsx-p4count are separate test builds)
 endif
@@ -62,7 +62,7 @@ override_dh_auto_build:
 		{ echo "!! test_vseal in the module: $(if $(TEST_VSEAL),missing,not asked for)"; exit 1; }
 	if $(call has_parm,b/ps3rsx/ps3rsx.ko,vswap_seal); then [ "$(SPU_KERNEL)" = y ]; \
 		else [ "$(SPU_KERNEL)" != y ]; fi || \
-		{ echo "!! the SPE client (vswap_seal): $(if $(SPU_KERNEL),missing though the kernel has spu_kernel_reserve,built without spu_kernel_reserve)"; exit 1; }
+		{ echo "!! the SPE client (vswap_seal): $(if $(SPU_KERNEL),missing though the kernel has SPU_KERNEL_API_VERSION 1,built without SPU_KERNEL_API_VERSION 1)"; exit 1; }
 	if $(call has_parm,b/ps3rsx/ps3rsx.ko,test_clear_off); then [ "$(TEST_CLEAR)" = y ]; \
 		else [ "$(TEST_CLEAR)" != y ]; fi || \
 		{ echo "!! test_clear_off in the module: $(if $(TEST_CLEAR),missing,not asked for)"; exit 1; }

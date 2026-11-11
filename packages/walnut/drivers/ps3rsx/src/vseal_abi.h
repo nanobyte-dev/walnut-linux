@@ -12,23 +12,27 @@
  * exchange goes by DMA through the job ring in kernel RAM and the SPU's mailboxes.
  *
  * A job. The kernel fills one of VSEAL_JOBS descriptors in the ring (one 4 KiB page each, in pages that
- * are never freed while the SPE may run), then writes the descriptor's index to the SPU's inbound
- * mailbox. The SPU fetches the descriptor, checks it (op, page count, alignment), runs the pages
+ * are never freed while the SPE may run), then writes the job's word (vseal_word(): its index, its job
+ * number and the load's generation) to the SPU's inbound mailbox. The SPU fetches the descriptor's
+ * input part, runs it only if its seq gives the same word (a word left over from before a restart, or
+ * for another descriptor, is dropped unanswered), checks it (op, page count, alignment), runs the pages
  * through three LS buffers (one MFC tag group each; every get into a buffer fenced behind that buffer's
- * earlier put), writes each page's result back into the descriptor, then the job's done word, fenced
- * after everything else, and last its sequence number through the outbound interrupt mailbox. After
- * every page it also puts a progress counter into the status line, so a slow job can be told from a
- * stuck one.
+ * earlier put), writes the results into the descriptor's result part only (never its inputs), then the
+ * job's done word, fenced after everything else, and last the job's word through the outbound
+ * interrupt mailbox. After every page it puts a progress counter into the status line, so a slow job
+ * can be told from a stuck one.
  */
 #ifndef PS3RSX_VSEAL_ABI_H
 #define PS3RSX_VSEAL_ABI_H
 
 #ifdef __KERNEL__
+#include <linux/stddef.h>
 #include <linux/types.h>
 typedef u8 vs_u8;
 typedef u32 vs_u32;
 typedef u64 vs_u64;
 #else
+#include <stddef.h>
 #include <stdint.h>
 typedef uint8_t vs_u8;
 typedef uint32_t vs_u32;
@@ -36,7 +40,7 @@ typedef uint64_t vs_u64;
 #endif
 
 #define VSEAL_MAGIC		0x7653414cu	/* "vSAL" */
-#define VSEAL_ABI		1
+#define VSEAL_ABI		2		/* 2: inputs and results apart, the mailbox word */
 
 /* LS layout (offsets); every buffer 128-byte aligned, the program below VSEAL_LS_PROG_MAX */
 #define VSEAL_LS_SIZE		0x40000
@@ -57,7 +61,8 @@ typedef uint64_t vs_u64;
 #define VSEAL_OP_SEAL		2	/* page src (plaintext) -> dst (ciphertext), tag out */
 #define VSEAL_OP_OPEN		3	/* page src (ciphertext) -> dst (plaintext), only if the tag in matches */
 #define VSEAL_OP_GOLDEN		4	/* seal the program's built-in page under its built-in key: tag and FNV out */
-/* test builds' ops (the kernel refuses them in a release build; the program has them always) */
+/* test builds' ops: only in the test image (VSEAL_TEST_OPS; vseal_spu_test.h), and the kernel refuses them
+ * outside test builds */
 #define VSEAL_OP_TEST_SLOW	16	/* as SEAL, waiting arg decrementer ticks before each page */
 #define VSEAL_OP_TEST_HANG	17	/* spin without progress, never answer */
 #define VSEAL_OP_TEST_NOIRQ	18	/* as ECHO, without the interrupt mailbox write */
@@ -65,6 +70,8 @@ typedef uint64_t vs_u64;
 					 * page's ad || tag, so the kernel can pick r at its clamp maximum) and the
 					 * four-block ChaCha20 against the scalar one (nonce from ctr); status OK when
 					 * both agree, BADTAG when not; nothing is put */
+#define VSEAL_OP_TEST_BADADDR	20	/* one get from page[0].src, an address the kernel picked to have no
+					 * translation (a vmalloc guard page): the MFC faults, the job never ends */
 
 /* per-page and job status */
 #define VSEAL_ST_NONE		0
@@ -81,30 +88,50 @@ struct vseal_param {
 	vs_u32 pad[20];
 } __attribute__((aligned(128)));
 
-/* One page of a job: 64 bytes */
+/* One page of a job, its inputs: 64 bytes */
 struct vseal_page {
 	vs_u64 src, dst;		/* kernel EAs, 4 KiB aligned */
 	vs_u64 ctr;			/* the nonce: 0^32 || le64(ctr) */
 	vs_u8 ad[16];			/* le32 device page, le32 slot, format, 7 zero bytes */
-	vs_u8 tag[16];			/* seal: out; open: in */
-	vs_u32 status;			/* VSEAL_ST_*, out */
-	vs_u32 pad;
+	vs_u8 tag[16];			/* open: the tag to check (seal: unused) */
+	vs_u32 pad[2];
 };
 
-/* The descriptor: a 128-byte header and its pages */
+/* One page's result: 32 bytes */
+struct vseal_result {
+	vs_u8 tag[16];			/* seal: the tag; open, diff: the computed tag */
+	vs_u32 status;			/* VSEAL_ST_* */
+	vs_u32 pad[3];
+};
+
+/* The descriptor: inputs (a 128-byte header and the pages), which the SPU only reads, then results,
+ * which it only writes */
 struct vseal_job {
 	vs_u32 magic, op, npages, arg;
-	vs_u64 seq;			/* the generation (upper 32) and the job's sequence number (lower 32) */
+	vs_u64 seq;			/* the generation (upper 32) and the job's number (lower 32) */
+	vs_u32 pad[26];
+	struct vseal_page page[VSEAL_PAGES_MAX];
+	/* results */
 	vs_u64 done;			/* written last by the SPU: seq when finished */
 	vs_u32 status;			/* VSEAL_ST_OK or VSEAL_ST_INVALID */
 	vs_u32 fnv;			/* GOLDEN: the FNV-1a of the ciphertext */
-	vs_u32 pad[22];
-	struct vseal_page page[VSEAL_PAGES_MAX];
-} __attribute__((aligned(128)));
+	vs_u32 rpad[28];
+	struct vseal_result res[VSEAL_PAGES_MAX];
+} __attribute__((aligned(4096)));	/* one descriptor a 4 KiB page: ring[idx] is at ring_ea + idx * 4 KiB */
 
-#define VSEAL_DESC_BYTES	sizeof(struct vseal_job)
+#define VSEAL_IN_BYTES		offsetof(struct vseal_job, done)
+#define VSEAL_OUT_OFF		offsetof(struct vseal_job, done)
+#define VSEAL_DESC_BYTES	(offsetof(struct vseal_job, res) + VSEAL_PAGES_MAX * sizeof(struct vseal_result))
+#define VSEAL_OUT_BYTES		(VSEAL_DESC_BYTES - VSEAL_OUT_OFF)
 
-/* The status line the SPU keeps current (128 bytes) */
+/* The inbound mailbox word of a job: the load's generation (8 bits), the job's number (22 bits), the
+ * descriptor's index (2 bits). The SPU answers with the same word. */
+static inline vs_u32 vseal_word(vs_u64 seq, unsigned int idx)
+{
+	return (vs_u32)((seq >> 32) & 0xff) << 24 | ((vs_u32)seq & 0x3fffff) << 2 | (idx & 3);
+}
+
+/* The status line the SPU keeps current (128 bytes; the kernel zeroes it before every load) */
 struct vseal_status {
 	vs_u64 progress;		/* pages processed since load: rises while the SPU works */
 	vs_u64 last_seq;		/* the job it is on */
@@ -115,7 +142,11 @@ struct vseal_status {
 #define VSEAL_GOLDEN_CTR	0x0123456789abcdefull
 
 _Static_assert(sizeof(struct vseal_page) == 64, "vseal_page");
-_Static_assert(sizeof(struct vseal_job) == 128 + 64 * VSEAL_PAGES_MAX, "vseal_job");
+_Static_assert(sizeof(struct vseal_result) == 32, "vseal_result");
+_Static_assert(VSEAL_DESC_BYTES == 128 + 64 * VSEAL_PAGES_MAX + 128 + 32 * VSEAL_PAGES_MAX, "vseal_job");
+_Static_assert(sizeof(struct vseal_job) == VSEAL_PAGE, "one descriptor a page");
+_Static_assert(VSEAL_OUT_OFF % 128 == 0 && VSEAL_IN_BYTES % 16 == 0 && VSEAL_OUT_BYTES % 16 == 0, "DMA sizes");
+_Static_assert(VSEAL_JOBS == 4, "vseal_word() has two index bits");
 _Static_assert(sizeof(struct vseal_job) <= 0x2000, "the descriptor fits its LS area");
 _Static_assert(sizeof(struct vseal_job) <= VSEAL_PAGE, "one descriptor per 4 KiB ring page");
 _Static_assert(sizeof(struct vseal_param) <= 0x1000, "vseal_param");

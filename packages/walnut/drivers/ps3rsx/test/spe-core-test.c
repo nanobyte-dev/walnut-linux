@@ -1,7 +1,10 @@
-/* spe-core-test: the SPE client's decisions (src/spe_core.h) on the PC, and the shape of spe.c's wait loop
- * over a fake clock and fake SPEs: one that finishes, one that is slow but progressing, one that hangs,
- * one whose interrupt never comes though its done word is written, one that reports an error. Built with
- * SPE_FIXOFF_NO_CHECK, SPE_FIXOFF_NO_TIMEOUT, SPE_FIXOFF_RESTART_ON_SLOW or SPE_FIXOFF_FREE_UNQUIET it
+/* spe-core-test: the SPE client's decisions (src/spe_core.h) on the PC: the descriptor check (windows,
+ * refused ranges that always win, the per-page RAM predicate, the window list's validation), poll or
+ * interrupt, budgets, spe_on_timeout over a fake clock and fake SPEs (one that finishes, one slow but
+ * progressing, one that hangs, one whose interrupt never comes though its done word is written, one that
+ * reports an error), the restart count, what a reset's result means for the pages, and the DMA targets'
+ * lifetime. (The code acting on these decisions is run by spe-run-test.c.) Built with SPE_FIXOFF_NO_CHECK,
+ * SPE_FIXOFF_NO_REFUSED, SPE_FIXOFF_NO_TIMEOUT, SPE_FIXOFF_RESTART_ON_SLOW or SPE_FIXOFF_FREE_UNQUIET it
  * must fail. */
 #include <stdio.h>
 #include <string.h>
@@ -28,6 +31,27 @@ static const struct spe_window win[] = {
 };
 
 static struct vseal_job J;
+static struct spe_bounds B;
+
+static vs_u64 not_gpu = RAM + (8 << 20);	/* a page the predicate says is mapped for the GPU */
+static int ram_ok(void *arg, vs_u64 ea)
+{
+	return ea != *(vs_u64 *)arg;
+}
+
+static void bounds(void)
+{
+	memset(&B, 0, sizeof(B));
+	memcpy(B.win, win, sizeof(win));
+	B.nwin = 3;
+	/* the ring and the status line (in RAM), a GART chunk (in RAM), the VRAM pool's plaintext-free part */
+	B.refused[0] = (struct spe_window){ RAM + (16 << 20), 4 * 4096, 0 };
+	B.refused[1] = (struct spe_window){ RAM + (16 << 20) + 4 * 4096, 4096, 0 };
+	B.refused[2] = (struct spe_window){ RAM + (32 << 20), 1 << 20, 0 };
+	B.nrefused = 3;
+	B.ram_ok = ram_ok;
+	B.ram_ok_arg = &not_gpu;
+}
 
 static void mk(unsigned int op, unsigned int n)
 {
@@ -41,31 +65,32 @@ static void check_descriptors(void)
 {
 	unsigned int i;
 
+	bounds();
 	mk(VSEAL_OP_SEAL, 2);
 	for (i = 0; i < 2; i++) {
 		J.page[i].src = RAM + i * 4096;
 		J.page[i].dst = VRAM + i * 4096;
 	}
-	check(spe_check_job(&J, win, 3, 0) == 0, "seal RAM -> VRAM accepted");
+	check(spe_check_job(&J, &B, 0) == 0, "seal RAM -> VRAM accepted");
 	J.page[1].dst = RAM + 0x100000;
-	check(spe_check_job(&J, win, 3, 0) == 2, "seal into RAM refused outside test builds");
-	check(spe_check_job(&J, win, 3, 1) == 0, "seal into RAM accepted in a test build");
+	check(spe_check_job(&J, &B, 0) == 2, "seal into RAM refused outside test builds");
+	check(spe_check_job(&J, &B, 1) == 0, "seal into RAM accepted in a test build");
 	J.page[1].dst = BOUNCE;
-	check(spe_check_job(&J, win, 3, 1) == 2, "seal into the bounce refused");
+	check(spe_check_job(&J, &B, 1) == 2, "seal into the bounce refused");
 	J.page[1].dst = VRAM + 4096 + 16;
-	check(spe_check_job(&J, win, 3, 0) == 2, "an unaligned destination refused");
+	check(spe_check_job(&J, &B, 0) == 2, "an unaligned destination refused");
 	J.page[1].dst = VRAM + (96 << 20) - 2048;
-	check(spe_check_job(&J, win, 3, 0) == 2, "a page across a window's end refused");
+	check(spe_check_job(&J, &B, 0) == 2, "a page across a window's end refused");
 	J.page[1].dst = VRAM + (96 << 20);
-	check(spe_check_job(&J, win, 3, 0) == 2, "a page past a window refused");
+	check(spe_check_job(&J, &B, 0) == 2, "a page past a window refused");
 	J.page[1].dst = VRAM + 4096;
 	J.page[0].src = VRAM;
-	check(spe_check_job(&J, win, 3, 0) == 1, "plaintext from VRAM refused");
+	check(spe_check_job(&J, &B, 0) == 1, "plaintext from VRAM refused");
 	J.page[0].src = 0x30000000ull;
-	check(spe_check_job(&J, win, 3, 0) == 1, "an address in no window refused");
+	check(spe_check_job(&J, &B, 0) == 1, "an address in no window refused");
 	J.page[0].src = RAM;
 	J.page[0].dst = RAM;
-	check(spe_check_job(&J, win, 3, 1) == 1, "source = destination refused");
+	check(spe_check_job(&J, &B, 1) == 1, "source = destination refused");
 
 	mk(VSEAL_OP_OPEN, 3);
 	J.page[0].src = VRAM;
@@ -73,35 +98,72 @@ static void check_descriptors(void)
 	J.page[2].src = RAM + 8192;
 	for (i = 0; i < 3; i++)
 		J.page[i].dst = RAM + (1 << 20) + i * 4096;
-	check(spe_check_job(&J, win, 3, 0) == 0, "open from VRAM, the bounce, RAM into RAM accepted");
+	check(spe_check_job(&J, &B, 0) == 0, "open from VRAM, the bounce, RAM into RAM accepted");
 	J.page[2].dst = VRAM + 8192;
-	check(spe_check_job(&J, win, 3, 0) == 3, "plaintext into VRAM refused");
+	check(spe_check_job(&J, &B, 0) == 3, "plaintext into VRAM refused");
 	J.page[2].dst = BOUNCE;
-	check(spe_check_job(&J, win, 3, 0) == 3, "plaintext into the bounce refused");
+	check(spe_check_job(&J, &B, 0) == 3, "plaintext into the bounce refused");
+
+	/* refused ranges win over the RAM window they lie in */
+	mk(VSEAL_OP_OPEN, 1);
+	J.page[0].src = VRAM;
+	J.page[0].dst = RAM + (16 << 20) + 4096;
+	check(spe_check_job(&J, &B, 1) == 1, "an open into the ring refused (inside the RAM window)");
+	J.page[0].dst = RAM + (16 << 20) + 4 * 4096;
+	check(spe_check_job(&J, &B, 1) == 1, "an open into the status line refused");
+	J.page[0].dst = RAM + (32 << 20) + 8192;
+	check(spe_check_job(&J, &B, 0) == 1, "plaintext into a GART-mapped chunk refused");
+	J.page[0].dst = RAM + (32 << 20) - 4096;
+	check(spe_check_job(&J, &B, 0) == 0, "the page just before the chunk accepted");
+	J.page[0].dst = not_gpu;
+	check(spe_check_job(&J, &B, 0) == 1, "plaintext into a page the predicate refuses: refused");
+	mk(VSEAL_OP_SEAL, 1);
+	J.page[0].src = RAM + (32 << 20);
+	J.page[0].dst = VRAM;
+	check(spe_check_job(&J, &B, 0) == 1, "a seal from a GART-mapped chunk refused");
+	B.refused[3] = (struct spe_window){ VRAM, 4096, 0 };
+	B.nrefused = 4;
+	J.page[0].src = RAM;
+	check(spe_check_job(&J, &B, 0) == 1, "a refused VRAM page refused as a destination too");
+	bounds();
+	{
+		struct spe_window w[2] = { { RAM, 4096, SPE_WIN_RAM }, { VRAM, 8192, SPE_WIN_VRAM } };
+
+		check(spe_windows_valid(w, 2) == 0, "a valid window list accepted");
+		w[1].len = 0;
+		check(spe_windows_valid(w, 2) != 0, "a zero-length window refused");
+		w[1].len = 8192 + 16;
+		check(spe_windows_valid(w, 2) != 0, "an unaligned window refused");
+		w[1] = (struct spe_window){ ~0ull - 4095, 8192, SPE_WIN_VRAM };
+		check(spe_windows_valid(w, 2) != 0, "a wrapping window refused");
+		w[1] = (struct spe_window){ VRAM, 8192, 3 };
+		check(spe_windows_valid(w, 2) != 0, "a window of two kinds refused");
+		check(spe_windows_valid(w, SPE_NWIN + 1) != 0, "too many windows refused");
+	}
 
 	mk(VSEAL_OP_SEAL, 0);
-	check(spe_check_job(&J, win, 3, 0) != 0, "0 pages refused");
+	check(spe_check_job(&J, &B, 0) != 0, "0 pages refused");
 	mk(VSEAL_OP_SEAL, VSEAL_PAGES_MAX + 1);
-	check(spe_check_job(&J, win, 3, 0) != 0, "33 pages refused");
+	check(spe_check_job(&J, &B, 0) != 0, "33 pages refused");
 	mk(VSEAL_OP_ECHO, 0);
-	check(spe_check_job(&J, win, 3, 0) == 0, "echo accepted");
+	check(spe_check_job(&J, &B, 0) == 0, "echo accepted");
 	mk(VSEAL_OP_GOLDEN, 1);
-	check(spe_check_job(&J, win, 3, 0) != 0, "golden with pages refused");
+	check(spe_check_job(&J, &B, 0) != 0, "golden with pages refused");
 	mk(VSEAL_OP_TEST_HANG, 0);
-	check(spe_check_job(&J, win, 3, 0) != 0, "a test op refused outside test builds");
-	check(spe_check_job(&J, win, 3, 1) == 0, "a test op accepted in a test build");
+	check(spe_check_job(&J, &B, 0) != 0, "a test op refused outside test builds");
+	check(spe_check_job(&J, &B, 1) == 0, "a test op accepted in a test build");
 	mk(VSEAL_OP_TEST_SLOW, 1);
 	J.page[0].src = RAM;
 	J.page[0].dst = RAM + 4096;
-	check(spe_check_job(&J, win, 3, 0) != 0, "slow refused outside test builds");
+	check(spe_check_job(&J, &B, 0) != 0, "slow refused outside test builds");
 	J.op = VSEAL_OP_TEST_DIFF;
-	check(spe_check_job(&J, win, 3, 0) != 0, "diff refused outside test builds");
-	check(spe_check_job(&J, win, 3, 1) == 0, "diff accepted in a test build");
+	check(spe_check_job(&J, &B, 0) != 0, "diff refused outside test builds");
+	check(spe_check_job(&J, &B, 1) == 0, "diff accepted in a test build");
 	mk(77, 0);
-	check(spe_check_job(&J, win, 3, 1) != 0, "an unknown op refused");
+	check(spe_check_job(&J, &B, 1) != 0, "an unknown op refused");
 	mk(VSEAL_OP_ECHO, 0);
 	J.magic = 0;
-	check(spe_check_job(&J, win, 3, 1) != 0, "a bad magic refused");
+	check(spe_check_job(&J, &B, 1) != 0, "a bad magic refused");
 }
 
 /* --- poll, budget, timeouts --------------------------------------------------------------------- */
@@ -189,8 +251,15 @@ static void check_waits(void)
 	spe_restarted(&h, 1, 0);
 	check(h.gone, "a reset that failed: gone at once");
 	h = (struct spe_health){ 2, 0 };
-	spe_job_succeeded(&h);
-	check(h.noprogress_restarts == 0, "a good job clears the count");
+	spe_job_finished(&h, VSEAL_OP_GOLDEN);
+	spe_job_finished(&h, VSEAL_OP_ECHO);
+	check(h.noprogress_restarts == 2, "the known answer and an echo don't clear the count");
+	spe_job_finished(&h, VSEAL_OP_OPEN);
+	check(h.noprogress_restarts == 0, "a good open clears it");
+
+	check(spe_after_reset(0) == SPE_FREE_OK && spe_after_reset(-5) == SPE_KEEP && spe_after_reset(-16) == SPE_KEEP &&
+	      spe_after_reset(-22) == SPE_RELEASED, "a reset's result: quiet, kept, released");
+	check(spe_ret_after_reset_failed() == SPE_RET_KEEP, "a failed reset's job returns -EHWPOISON");
 
 	/* the DMA targets' lifetime */
 	check(spe_may_free(0, 0), "a quiet release frees the ring and the pages");

@@ -194,7 +194,7 @@ static void ps3rsx_remove(struct platform_device *pdev)
 	struct ps3rsx_device *rsx = platform_get_drvdata(pdev);
 
 	ps3rsx_uw_quiesce(rsx);		/* no recovery work under the teardown below */
-	ps3rsx_spe_fini(rsx);
+	ps3rsx_spe_fini_debugfs(rsx);	/* the SPE's test hook (test builds): before its directory goes */
 	ps3rsx_pd_fini(rsx);
 	drm_dev_unregister(&rsx->drm);
 	drm_atomic_helper_shutdown(&rsx->drm);	/* flips back to ps3fb's frame */
@@ -202,6 +202,7 @@ static void ps3rsx_remove(struct platform_device *pdev)
 	ps3rsx_kms_fini(rsx);
 	ps3rsx_console_fini(rsx);	/* own the GPU again for the drain and release */
 	ps3rsx_vswap_fini(rsx);
+	ps3rsx_spe_fini(rsx);		/* after the swap: nothing submits a job any more */
 	ps3rsx_exec_fini(rsx);
 	ps3rsx_mem_fini(rsx);
 }

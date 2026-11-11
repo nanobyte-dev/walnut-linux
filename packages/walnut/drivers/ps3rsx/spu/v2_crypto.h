@@ -86,7 +86,7 @@ void v2_poly1305_x4(const uint8_t key[32], const uint8_t *m, size_t len, uint8_t
 /* the page's MAC input (AD 16 || ct 4096 || lengths), 16-byte aligned ct */
 void v2_poly1305_x4_page(const uint8_t key[32], const uint8_t ad[16], const uint8_t *ct,
 			 uint8_t tag[V2_TAG_BYTES]);
-/* the page form with the scalar Poly1305 (S0's; the reference the x4 form is checked against) */
+/* the page form with the scalar Poly1305 (the scalar reference the x4 form is checked against) */
 void v2_seal_page_ref(const uint8_t key[V2_KEY_BYTES], const uint8_t nonce[V2_NONCE_BYTES],
 		      const uint8_t ad[V2_AD_BYTES], const uint8_t *pt, uint8_t *ct,
 		      uint8_t tag[V2_TAG_BYTES]);

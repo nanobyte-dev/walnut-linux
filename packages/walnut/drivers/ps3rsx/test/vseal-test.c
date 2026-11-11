@@ -1,17 +1,24 @@
 /* vseal-test: spu/vseal.c, the SPE client's SPU program, run on the PC against vseal-sim.h's MFC model
  * (commands interleaved unit by unit, unfenced ones in any order, old puts starved). Checks:
  *  - the reference (the scalar ChaCha20-Poly1305 of spu/v2_aead.c) against RFC 8439 2.8.2 and A.5;
+ *  - the mailbox word: a job runs only on its own word (generation, number, index); a stale or foreign
+ *    word is dropped with nothing written and no answer; the answer is the same word;
+ *  - the descriptor's inputs are never written, only its result part;
+ *  - the done word is the job's last write (the MFC model records one written while anything is queued);
  *  - ECHO: the done word and the interrupt mailbox value;
  *  - SEAL: every page's ciphertext and tag equal the reference's, under many schedules;
  *  - OPEN: every page's plaintext back; a changed tag or ciphertext byte refuses that page and leaves its
  *    destination untouched; with the source rewritten while the gets read it (a torn or changed copy), every page
  *    is either refused with its destination untouched or opened to exactly its plaintext;
- *  - refused descriptors (bad magic, unknown op, 0 or 33 pages, unaligned or null addresses): status
- *    INVALID, no destination touched, the done word still written;
+ *  - refused descriptors (unknown op, 0 or 33 pages, unaligned or null addresses): status INVALID, no
+ *    destination touched, the done word still written; a bad magic: dropped, no answer;
  *  - GOLDEN: the program's answer equals src/vseal_golden.h and the reference's;
- *  - TEST_SLOW: the status line's progress counter rises by one a page.
- * Built with VSEAL_FIXOFF_PLAIN_GET (a plain get instead of the fenced one) it must fail: that is the
- * reordering model catching an LS buffer refilled before its put has read it. */
+ *  - TEST_SLOW: the status line's progress counter rises by one a page (test image);
+ *  - the release image (no VSEAL_TEST_OPS) refuses every test op as INVALID.
+ * Built with a fix-off it must fail: VSEAL_FIXOFF_PLAIN_GET (a plain get instead of the fenced one: an LS
+ * buffer refilled before its put has read it), VSEAL_FIXOFF_SPLIT_TAGS (the puts on other tag groups than
+ * their buffers' gets: the fence no longer orders them), VSEAL_FIXOFF_PUT_REFUSED (a refused page's buffer
+ * put anyway), VSEAL_FIXOFF_DONE_EARLY (the results and the done word before the data puts finished). */
 #define VSEAL_HOST
 #include "../spu/vseal.c"
 #include "../src/vseal_golden.h"
@@ -50,7 +57,7 @@ static uint8_t pt[NP][VSEAL_PAGE] __attribute__((aligned(4096)));
 static uint8_t ct[NP][VSEAL_PAGE] __attribute__((aligned(4096)));
 static uint8_t out[NP][VSEAL_PAGE] __attribute__((aligned(4096)));
 static uint8_t key[32];
-static uint64_t seqno = 0x500000000ull;
+static uint32_t gen = 5, jobno;
 
 static struct vseal_job *J(int idx)
 {
@@ -81,15 +88,35 @@ static struct vseal_job *job(int idx, uint32_t op, uint32_t npages)
 	j->magic = VSEAL_MAGIC;
 	j->op = op;
 	j->npages = npages;
-	j->seq = ++seqno;
+	j->seq = ((uint64_t)gen << 32) | ++jobno;
 	return j;
+}
+
+static uint8_t in_copy[VSEAL_IN_BYTES];
+static int inputs_changed;
+
+/* the job's word into the mailbox: its inputs must come back unchanged, its done word last */
+static void run_word(int idx, uint32_t word)
+{
+	vs_irq_count = 0;
+	vs_done_watch = (uint8_t *)&J(idx)->done;
+	memcpy(in_copy, J(idx), VSEAL_IN_BYTES);
+	vseal_job(word);
+	vs_drain();
+	vs_done_watch = NULL;
+	inputs_changed |= memcmp(in_copy, J(idx), VSEAL_IN_BYTES) != 0;
 }
 
 static void run(int idx)
 {
-	vs_irq_count = 0;
-	vseal_job(idx);
-	vs_drain();
+	run_word(idx, vseal_word(J(idx)->seq, idx));
+}
+
+static int answered(int idx)
+{
+	struct vseal_job *j = J(idx);
+
+	return j->done == j->seq && vs_irq_count == 1 && vs_irq_value == vseal_word(j->seq, idx);
 }
 
 static void sentinel(uint8_t *p)
@@ -130,11 +157,11 @@ static int seal_all(int idx, int n)
 		v2_ad_make(trnd(), trnd(), 0, j->page[i].ad);
 	}
 	run(idx);
-	ok &= j->done == j->seq && j->status == VSEAL_ST_OK && vs_irq_count == 1 && vs_irq_value == (uint32_t)j->seq;
+	ok &= answered(idx) && j->status == VSEAL_ST_OK;
 	for (i = 0; i < n; i++) {
 		ref_seal(&j->page[i], pt[i], c, tag);
-		ok &= j->page[i].status == VSEAL_ST_OK && !memcmp(c, ct[i], VSEAL_PAGE) &&
-		      !memcmp(tag, j->page[i].tag, 16);
+		ok &= j->res[i].status == VSEAL_ST_OK && !memcmp(c, ct[i], VSEAL_PAGE) &&
+		      !memcmp(tag, j->res[i].tag, 16);
 	}
 	return ok;
 }
@@ -147,9 +174,9 @@ static struct vseal_job *open_all(int idx, int sidx, int n)
 
 	for (i = 0; i < n; i++) {
 		j->page[i] = s->page[i];
+		memcpy(j->page[i].tag, s->res[i].tag, 16);
 		j->page[i].src = (uintptr_t)ct[i];
 		j->page[i].dst = (uintptr_t)out[i];
-		j->page[i].status = 0;
 		sentinel(out[i]);
 	}
 	run(idx);
@@ -192,21 +219,21 @@ int main(void)
 
 		j = open_all((s + 1) % VSEAL_JOBS, s % VSEAL_JOBS, n);
 		for (i = 0; i < n; i++)
-			check(j->page[i].status == VSEAL_ST_OK && !memcmp(out[i], pt[i], VSEAL_PAGE),
+			check(j->res[i].status == VSEAL_ST_OK && !memcmp(out[i], pt[i], VSEAL_PAGE),
 			      "open: plaintext back", s);
-		check(j->done == j->seq, "open: done word", s);
+		check(answered((s + 1) % VSEAL_JOBS), "open: done word and the answer", s);
 
 		/* a changed tag and a changed ciphertext byte: those pages refused, untouched */
-		J(s % VSEAL_JOBS)->page[0].tag[trnd() % 16] ^= 0x40;
+		J(s % VSEAL_JOBS)->res[0].tag[trnd() % 16] ^= 0x40;
 		if (n > 1)
 			ct[n - 1][trnd() % VSEAL_PAGE] ^= 0x08;
 		j = open_all((s + 2) % VSEAL_JOBS, s % VSEAL_JOBS, n);
-		check(j->page[0].status == VSEAL_ST_BADTAG && is_sentinel(out[0]), "open: changed tag refused", s);
+		check(j->res[0].status == VSEAL_ST_BADTAG && is_sentinel(out[0]), "open: changed tag refused", s);
 		if (n > 1)
-			check(j->page[n - 1].status == VSEAL_ST_BADTAG && is_sentinel(out[n - 1]),
+			check(j->res[n - 1].status == VSEAL_ST_BADTAG && is_sentinel(out[n - 1]),
 			      "open: changed ciphertext refused", s);
 		for (i = 1; i < n - 1; i++)
-			check(j->page[i].status == VSEAL_ST_OK && !memcmp(out[i], pt[i], VSEAL_PAGE),
+			check(j->res[i].status == VSEAL_ST_OK && !memcmp(out[i], pt[i], VSEAL_PAGE),
 			      "open: the other pages still open", s);
 
 		/* the source rewritten while it is read: refused and untouched, or exactly right */
@@ -217,8 +244,8 @@ int main(void)
 		vs_sim_hook = NULL;
 		change_n = 0;
 		for (i = 0; i < n; i++)
-			check((j->page[i].status == VSEAL_ST_BADTAG && is_sentinel(out[i])) ||
-			      (j->page[i].status == VSEAL_ST_OK && !memcmp(out[i], pt[i], VSEAL_PAGE)),
+			check((j->res[i].status == VSEAL_ST_BADTAG && is_sentinel(out[i])) ||
+			      (j->res[i].status == VSEAL_ST_OK && !memcmp(out[i], pt[i], VSEAL_PAGE)),
 			      "open under change: refused untouched or exactly the plaintext", s);
 	}
 
@@ -228,7 +255,7 @@ int main(void)
 		static const struct { uint32_t op, n; uint64_t src_off, dst_off; uint32_t magic; } bad[] = {
 			{ VSEAL_OP_SEAL, 0, 0, 0, VSEAL_MAGIC }, { VSEAL_OP_SEAL, 33, 0, 0, VSEAL_MAGIC },
 			{ VSEAL_OP_SEAL, 1, 16, 0, VSEAL_MAGIC }, { VSEAL_OP_OPEN, 1, 0, 2048, VSEAL_MAGIC },
-			{ 99, 1, 0, 0, VSEAL_MAGIC }, { VSEAL_OP_SEAL, 1, 0, 0, 0x12345678 },
+			{ 99, 1, 0, 0, VSEAL_MAGIC }, { VSEAL_OP_TEST_BADADDR, 1, 16, 0, VSEAL_MAGIC },
 		};
 		for (i = 0; i < (int)(sizeof(bad) / sizeof(bad[0])); i++) {
 			struct vseal_job *j = job(0, bad[i].op, bad[i].n);
@@ -248,6 +275,48 @@ int main(void)
 			run(1);
 			check(j->status == VSEAL_ST_INVALID, "a null address refused", 0);
 		}
+		{	/* a bad magic: no answer at all */
+			struct vseal_job *j = job(2, VSEAL_OP_SEAL, 1);
+
+			j->magic = 0x12345678;
+			j->page[0].src = (uintptr_t)pt[0];
+			j->page[0].dst = (uintptr_t)out[0];
+			sentinel(out[0]);
+			run(2);
+			check(j->done == 0 && vs_irq_count == 0 && is_sentinel(out[0]), "a bad magic: dropped, no answer", 0);
+		}
+	}
+
+	/* the mailbox word */
+	load();
+	{
+		static const char *what[] = { "an older generation's word", "a newer generation's word",
+					      "another job number's word", "another index's word" };
+		struct vseal_job *j;
+		int k;
+
+		for (k = 0; k < 4; k++) {
+			struct vseal_job *o = job(2, VSEAL_OP_SEAL, 1);	/* a valid job under another number */
+			uint64_t sq;
+
+			o->page[0].src = (uintptr_t)pt[1];
+			o->page[0].dst = (uintptr_t)out[1];
+			sentinel(out[1]);
+			j = job(1, VSEAL_OP_SEAL, 1);
+			j->page[0].src = (uintptr_t)pt[0];
+			j->page[0].dst = (uintptr_t)out[0];
+			sentinel(out[0]);
+			sq = k == 0 ? j->seq - (1ull << 32) : k == 1 ? j->seq + (1ull << 32) : k == 2 ? j->seq + 1 : j->seq;
+			run_word(1, vseal_word(sq, k == 3 ? 2 : 1));
+			check(j->done == 0 && o->done == 0 && vs_irq_count == 0 && is_sentinel(out[0]) && is_sentinel(out[1]),
+			      what[k], k);
+		}
+		run(1);
+		check(answered(1) && j->res[0].status == VSEAL_ST_OK, "the job's own word then runs it", 0);
+		check(vseal_word(0x1ff00000005ull, 3) == vseal_word(0xff00000005ull, 3) &&
+		      vseal_word(0x100000005ull, 3) != vseal_word(0x200000005ull, 3) &&
+		      vseal_word(0x100000005ull, 2) != vseal_word(0x100000005ull, 3),
+		      "the word: 8 generation bits, the index", 0);
 	}
 
 	/* GOLDEN */
@@ -258,7 +327,7 @@ int main(void)
 		uint32_t x = 7, fnv = 2166136261u;
 
 		run(2);
-		check(j->done == j->seq && !memcmp(j->page[0].tag, vseal_golden_tag, 16) && j->fnv == VSEAL_GOLDEN_FNV,
+		check(answered(2) && !memcmp(j->res[0].tag, vseal_golden_tag, 16) && j->fnv == VSEAL_GOLDEN_FNV,
 		      "golden: the program's answer equals vseal_golden.h", 0);
 		for (i = 0; i < 32; i++)
 			k2[i] = 0x80 + i;
@@ -280,10 +349,10 @@ int main(void)
 	load();
 	{
 		struct vseal_job *j = job(3, VSEAL_OP_ECHO, 0);
-		uint64_t p0;
+		uint64_t p0 __attribute__((unused));
 
 		run(3);
-		check(j->done == j->seq && vs_irq_count == 1 && vs_irq_value == (uint32_t)j->seq, "echo", 0);
+		check(answered(3), "echo", 0);
 		p0 = progress;	/* the program's count since load (the line in RAM may be an older load's) */
 		j = job(3, VSEAL_OP_TEST_SLOW, 5);
 		j->arg = 3000;
@@ -292,8 +361,12 @@ int main(void)
 			j->page[i].dst = (uintptr_t)out[i];
 		}
 		run(3);
+#ifdef VSEAL_TEST_OPS
 		check(j->done == j->seq && status_line.progress == p0 + 5 && status_line.last_seq == j->seq,
 		      "slow: the progress counter rises a page at a time", 0);
+#else
+		check(answered(3) && j->status == VSEAL_ST_INVALID, "release image: slow refused", 0);
+#endif
 		j = job(1, VSEAL_OP_TEST_DIFF, 6);
 		for (i = 0; i < 6; i++) {
 			tfill(pt[i], VSEAL_PAGE);
@@ -309,12 +382,28 @@ int main(void)
 			sentinel(out[i]);
 		}
 		run(1);
+#ifdef VSEAL_TEST_OPS
 		for (i = 0; i < 6; i++)
-			check(j->page[i].status == VSEAL_ST_OK && is_sentinel(out[i]), "diff: vector = scalar, nothing put", i);
+			check(j->res[i].status == VSEAL_ST_OK && is_sentinel(out[i]), "diff: vector = scalar, nothing put", i);
 		j = job(0, VSEAL_OP_TEST_NOIRQ, 0);
 		run(0);
 		check(j->done == j->seq && vs_irq_count == 0, "noirq: done, no interrupt", 0);
+#else
+		check(answered(1) && j->status == VSEAL_ST_INVALID && is_sentinel(out[0]), "release image: diff refused", 0);
+		{
+			static const uint32_t tops[] = { VSEAL_OP_TEST_HANG, VSEAL_OP_TEST_NOIRQ, VSEAL_OP_TEST_BADADDR };
+
+			for (i = 0; i < 3; i++) {
+				j = job(0, tops[i], tops[i] == VSEAL_OP_TEST_BADADDR);
+				j->page[0].src = (uintptr_t)pt[0];
+				run(0);
+				check(answered(0) && j->status == VSEAL_ST_INVALID, "release image: test op refused", i);
+			}
+		}
+#endif
 	}
+	check(!inputs_changed, "no job wrote its descriptor's inputs", 0);
+	check(!vs_done_early, "every done word was its job's last write", 0);
 	check(!vs_overflow, "the MFC model's queue never overflowed", 0);
 	printf("%s: %d checks, %d failed\n", fails ? "FAIL" : "ok", checks, fails);
 	return fails != 0;
