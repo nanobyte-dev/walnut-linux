@@ -136,7 +136,7 @@ diff --git a/arch/powerpc/platforms/cell/spu_base.c b/arch/powerpc/platforms/cel
  #include <asm/spu.h>
  #include <asm/spu_priv1.h>
  #include <asm/spu_csa.h>
-@@ -476,6 +480,512 @@ void spu_init_channels(struct spu *spu)
+@@ -476,6 +480,516 @@ void spu_init_channels(struct spu *spu)
  }
  EXPORT_SYMBOL_GPL(spu_init_channels);
  
@@ -441,7 +441,7 @@ diff --git a/arch/powerpc/platforms/cell/spu_base.c b/arch/powerpc/platforms/cel
 + * running, its outbound mailboxes empty, every interrupt class masked with
 + * its status clear, and @ops installed; none of @ops runs before this
 + * returns.  Or ERR_PTR: -EINVAL (@ops incomplete or of another size),
-+ * -EBUSY (no free SPE),
++ * -EBUSY (no free SPE: a node's last SPE is never taken),
 + * -EIO (the SPE taken didn't reset; it is either back with spufs or, if it
 + * wasn't quiet, kept from it; don't retry), -ESHUTDOWN.  Process context;
 + * it sleeps for the grace period.
@@ -464,6 +464,10 @@ diff --git a/arch/powerpc/platforms/cell/spu_base.c b/arch/powerpc/platforms/cel
 +	for (node = 0; node < MAX_NUMNODES && !spu; node++) {
 +		mutex_lock(&cbe_spu_info[node].list_mutex);
 +		list_for_each_entry(s, &cbe_spu_info[node].spus, cbe_list) {
++			/* never a node's last SPE: spufs's affinity code reads its list's first
++			 * entry without the lock, so the list must never be empty */
++			if (cbe_spu_info[node].n_spus <= 1)
++				break;
 +			if (s->alloc_state != SPU_FREE || s->ctx ||
 +			    s->kernel_state != SPU_KERNEL_NONE ||
 +			    (in_be32(&s->problem->spu_status_R) & SPU_KERNEL_ISOLATED))
@@ -649,7 +653,7 @@ diff --git a/arch/powerpc/platforms/cell/spu_base.c b/arch/powerpc/platforms/cel
  static struct bus_type spu_subsys = {
  	.name = "spu",
  	.dev_name = "spu",
-@@ -791,6 +1301,7 @@ static int __init init_spu_base(void)
+@@ -791,6 +1305,7 @@ static int __init init_spu_base(void)
  	crash_register_spus(&spu_full_list);
  	mutex_unlock(&spu_full_list_mutex);
  	spu_add_dev_attr(&dev_attr_stat);

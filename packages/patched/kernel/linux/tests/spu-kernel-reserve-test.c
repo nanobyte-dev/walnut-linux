@@ -708,20 +708,25 @@ static void t_skip(void)
 	CHECK(cbe_spu_info[0].n_spus == NSPE - 2, "n_spus %d after the refusals", cbe_spu_info[0].n_spus);
 }
 
+/* five of six; the node's last SPE is never taken (spufs's affinity code reads the list's first entry
+ * without its lock, so the list must never be empty) */
 static void t_all_six(void)
 {
-	struct spu *s[NSPE];
+	struct spu *s[NSPE], *last;
 
 	boot();
-	for (int i = 0; i < NSPE; i++) {
+	for (int i = 0; i < NSPE - 1; i++) {
 		s[i] = reserve();
-		CHECK(!IS_ERR(s[i]), "reserve %d of 6 failed", i + 1);
+		CHECK(!IS_ERR(s[i]), "reserve %d of 5 failed", i + 1);
 		for (int j = 0; j < i; j++)
 			CHECK(s[i] != s[j], "the same SPE twice");
 	}
-	CHECK(IS_ERR(reserve()), "a seventh reserve succeeded");
-	CHECK(cbe_spu_info[0].n_spus == 0, "n_spus %d", cbe_spu_info[0].n_spus);
-	for (int i = 0; i < NSPE; i++)
+	last = reserve();
+	CHECK(IS_ERR(last) && PTR_ERR(last) == -EBUSY, "the node's last SPE was reserved");
+	if (!IS_ERR(last))
+		spu_kernel_release(last);
+	CHECK(cbe_spu_info[0].n_spus == 1 && cbe_spu_info[0].spus.next != &cbe_spu_info[0].spus, "n_spus %d", cbe_spu_info[0].n_spus);
+	for (int i = 0; i < NSPE - 1; i++)
 		CHECK(!IS_ERR(s[i]) && spu_kernel_release(s[i]) == 0, "release %d", i);
 	CHECK(cbe_spu_info[0].n_spus == NSPE, "n_spus %d after releasing all", cbe_spu_info[0].n_spus);
 }

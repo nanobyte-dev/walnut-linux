@@ -144,6 +144,8 @@ off take-with-context "spu4, which has a context" \
 	's->alloc_state != SPU_FREE || s->ctx ||' 's->alloc_state != SPU_FREE ||'
 off take-isolated "spu3, isolated" \
 	'(in_be32(&s->problem->spu_status_R) & SPU_KERNEL_ISOLATED))' '0)'
+off take-last "FAIL: the node's last SPE was reserved" \
+	"$T$T${T}if (cbe_spu_info[node].n_spus <= 1)$N$T$T$T${T}break;$N" ''
 # the callbacks
 off callbacks-before-reset "FAIL: a driver callback ran during reserve" \
 	"${T}spu_kernel_mask_all(spu);$N${T}spu_kernel_set_callbacks(spu, NULL);$N${T}ret = __spu_kernel_reset(spu);" \
