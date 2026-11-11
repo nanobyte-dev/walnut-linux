@@ -1085,9 +1085,58 @@ static ssize_t stats_show(struct device *dev, struct device_attribute *attr, cha
 }
 static DEVICE_ATTR_RO(stats);
 
+#ifdef VSX_PLAIN
+/*
+ * Test builds: /sys/block/ps3vswap0/test_seal (root, write only), for the PS3 correctness test of the seals.
+ * "corrupt P": one bit of device page P's slot flipped by a PPE store (what a GPU client's write would do);
+ * "save P": P's slot's ciphertext copied aside; "replay P": the saved ciphertext written into P's slot now
+ * (an older seal, or another page's). The next read of P must fail. Results in the kernel log. Only slots
+ * of the pool, through its own mapping.
+ */
+static ssize_t test_seal_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t len)
+{
+	static u8 saved[PAGE_SIZE] __aligned(8);
+	static bool have_saved;
+	struct ps3rsx_vswap *vs = dev_vswap(dev);
+	char cmd[16];
+	u32 p, e;
+
+	if (sscanf(buf, "%15s %u", cmd, &p) != 2)
+		return -EINVAL;
+	mutex_lock(&vs->lock);
+	e = vs->x.map && p < vs->x.npages ? vs->x.map[p] : 0;
+	if (!vsx_in_vram(e)) {
+		mutex_unlock(&vs->lock);
+		pr_info("ps3vswap: test_seal %s %u: not in VRAM (%#x)\n", cmd, p, e);
+		return -ENOENT;
+	}
+	if (!strcmp(cmd, "corrupt")) {
+		void __iomem *a = slot_io(vs, e - 1) + 64;
+
+		__raw_writeq(__raw_readq(a) ^ 1, a);
+		mb();
+	} else if (!strcmp(cmd, "save")) {
+		from_vram(saved, slot_io(vs, e - 1), PAGE_SIZE);
+		have_saved = true;
+	} else if (!strcmp(cmd, "replay") && have_saved) {
+		to_vram(slot_io(vs, e - 1), saved, PAGE_SIZE);
+	} else {
+		mutex_unlock(&vs->lock);
+		return -EINVAL;
+	}
+	mutex_unlock(&vs->lock);
+	pr_info("ps3vswap: test_seal %s %u: slot %u\n", cmd, p, e - 1);
+	return len;
+}
+static DEVICE_ATTR_WO(test_seal);
+#endif
+
 static struct attribute *vswap_attrs[] = {
 	&dev_attr_backing.attr,
 	&dev_attr_stats.attr,
+#ifdef VSX_PLAIN
+	&dev_attr_test_seal.attr,
+#endif
 	NULL,
 };
 static const struct attribute_group vswap_group = { .attrs = vswap_attrs };

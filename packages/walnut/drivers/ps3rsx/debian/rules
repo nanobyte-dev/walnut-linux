@@ -61,6 +61,9 @@ override_dh_auto_build:
 	if $(call has_parm,b/ps3rsx/ps3rsx.ko,test_vseal); then [ "$(TEST_VSEAL)" = y ]; \
 		else [ "$(TEST_VSEAL)" != y ]; fi || \
 		{ echo "!! test_vseal in the module: $(if $(TEST_VSEAL),missing,not asked for)"; exit 1; }
+	if $(call has_parm,b/ps3rsx/ps3rsx.ko,test_vswap_seal); then [ "$(TEST_VSEAL)" = y ]; \
+		else [ "$(TEST_VSEAL)" != y ]; fi || \
+		{ echo "!! test_vswap_seal in the module: $(if $(TEST_VSEAL),missing,not asked for)"; exit 1; }
 	if $(call has_parm,b/ps3rsx/ps3rsx.ko,vswap_seal); then [ "$(SPU_KERNEL)" = y ]; \
 		else [ "$(SPU_KERNEL)" != y ]; fi || \
 		{ echo "!! the SPE client (vswap_seal): $(if $(SPU_KERNEL),missing though the kernel has SPU_KERNEL_API_VERSION 1,built without SPU_KERNEL_API_VERSION 1)"; exit 1; }
