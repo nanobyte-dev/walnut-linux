@@ -62,10 +62,24 @@ void vsx_set_disk(struct vsx *x, vs_u32 p)
 	x->map[p] = VSX_ON_DISK;
 }
 
+/* a write-back is writing page p to the disk right now: a request's disk I/O of p waits for it */
+static int wb_busy(struct vsx *x, vs_u32 p)
+{
+	unsigned int i;
+
+#ifdef VSX_FIXOFF_NO_DEFER			/* (the fix-off: the two writes unordered) */
+	return 0;
+#endif
+	for (i = 0; i < x->wb_n; i++)
+		if (x->wb_pages[i] == p)
+			return 1;
+	return 0;
+}
+
 static void to_disk(struct vsx *x, struct vsx_piece *pc)
 {
 	vsx_set_disk(x, pc->p);
-	vsx_hw_disk(x->hw, pc, 1);
+	vsx_hw_disk(x->hw, pc, 1, wb_busy(x, pc->p));
 }
 
 /* the page now lives in slot (sealed and complete): the map switches, its old slot goes */
@@ -218,7 +232,7 @@ static void ppe_open(struct vsx *x, struct vsx_open *o)
 			x->st.opens_ppe++;
 			return;
 		}
-#ifndef VSX_FIXOFF_NO_RETRY
+#if !defined(VSX_FIXOFF_NO_RETRY) && !defined(VSX_FIXOFF_PPE_NO_RETRY)
 		if (from_bounce) {
 			from_bounce = 0;
 			x->st.retries++;
@@ -384,6 +398,7 @@ void vsx_open(struct vsx *x, struct vsx_open *o, unsigned int n)
 static void merge(struct vsx *x, struct vsx_piece *pc, vs_u32 e)
 {
 	struct vsx_open o = { e - 1, pc->p, x->scratch, x->scratch_ref, pc->ctx, -1, 0 };
+	void *buf = x->scratch;		/* (a pin during the seal replaces x->scratch; buf keeps the bytes) */
 	int s, ok = 0;
 
 	if (!x->scratch) {
@@ -395,12 +410,12 @@ static void merge(struct vsx *x, struct vsx_piece *pc, vs_u32 e)
 		vsx_hw_fail(x->hw, pc->ctx);
 		return;
 	}
-	memcpy((vs_u8 *)x->scratch + pc->in_page, pc->buf, pc->len);
+	memcpy((vs_u8 *)buf + pc->in_page, pc->buf, pc->len);
 	x->st.merges++;
 	if (can_vram(x) && (s = vsx_hw_slot_alloc(x->hw)) >= 0) {
 		struct vsx_piece m = *pc;
 
-		m.buf = x->scratch;
+		m.buf = buf;
 		m.ref = x->scratch_ref;
 		m.in_page = 0;
 		m.len = VSX_PAGE;
@@ -409,7 +424,7 @@ static void merge(struct vsx *x, struct vsx_piece *pc, vs_u32 e)
 		if (ok)
 			return;
 	}
-	if (vsx_hw_disk_copy(x->hw, pc->ctx, pc->p, x->scratch))
+	if (vsx_hw_disk_copy(x->hw, pc->ctx, pc->p, buf, wb_busy(x, pc->p)))
 		vsx_hw_fail(x->hw, pc->ctx);
 	else
 		vsx_set_disk(x, pc->p);
@@ -452,6 +467,21 @@ void vsx_write(struct vsx *x, struct vsx_piece *pc)
 		merge(x, pc, e);
 		return;
 	}
+#ifndef VSX_FIXOFF_PARTIAL_EMPTY
+	if (!e) {			/* an empty page reads as zeros: written whole, never the piece alone */
+		if (!x->scratch) {
+			vsx_hw_fail(x->hw, pc->ctx);
+			return;
+		}
+		memset(x->scratch, 0, VSX_PAGE);
+		memcpy((vs_u8 *)x->scratch + pc->in_page, pc->buf, pc->len);
+		if (vsx_hw_disk_copy(x->hw, pc->ctx, pc->p, x->scratch, wb_busy(x, pc->p)))
+			vsx_hw_fail(x->hw, pc->ctx);
+		else
+			vsx_set_disk(x, pc->p);
+		return;
+	}
+#endif
 	to_disk(x, pc);
 }
 
@@ -489,7 +519,7 @@ void vsx_read(struct vsx *x, struct vsx_piece *pc)
 		return;
 	}
 	if (e == VSX_ON_DISK) {
-		vsx_hw_disk(x->hw, pc, 0);
+		vsx_hw_disk(x->hw, pc, 0, wb_busy(x, pc->p));
 		return;
 	}
 	if (!e) {

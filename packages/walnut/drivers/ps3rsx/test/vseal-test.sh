@@ -36,7 +36,8 @@ for v in "vseal-test VSEAL_FIXOFF_PLAIN_GET" "vseal-test VSEAL_FIXOFF_SPLIT_TAGS
 	"spe-run-test SPE_FIXOFF_WAKE_IS_TIMEOUT" "spe-run-test SPE_FIXOFF_KEEP_RING" \
 	"spe-run-test SPE_FIXOFF_RELEASED_IS_FAILURE" \
 	"vswap-test VSX_FIXOFF_IGNORE_TAG" "vswap-test VSX_FIXOFF_SAME_CTR" "vswap-test VSX_FIXOFF_AD_NO_PAGE" \
-	"vswap-test VSX_FIXOFF_WB_INTO_BOUNCE" "vswap-test VSX_FIXOFF_NO_RETRY" "vswap-test VSX_FIXOFF_DISCARD_BAD"; do
+	"vswap-test VSX_FIXOFF_WB_INTO_BOUNCE" "vswap-test VSX_FIXOFF_NO_RETRY" "vswap-test VSX_FIXOFF_DISCARD_BAD" \
+	"vswap-test VSX_FIXOFF_NO_DEFER" "vswap-test VSX_FIXOFF_PPE_NO_RETRY" "vswap-test VSX_FIXOFF_PARTIAL_EMPTY"; do
 	set -- $v
 	n_off=$((n_off + 1))
 	if build "fixoff-$2" "$1.c" -w -DVSEAL_TEST_OPS $([ "$1" = vswap-test ] && echo -DV2_SCALAR_ONLY) -D"$2" && ! timeout 300 "$O/fixoff-$2" > "$O/fixoff-$2.log" 2>&1; then
@@ -45,6 +46,12 @@ for v in "vseal-test VSEAL_FIXOFF_PLAIN_GET" "vseal-test VSEAL_FIXOFF_SPLIT_TAGS
 		echo "!! fix-off $2: NOT caught"; bad=1
 	fi
 done
+# vswap.c's request path never waits for mm_lock (it holds vs->lock there): slot_alloc only trylocks it
+if awk '/^static int slot_alloc\(/,/^}/' ../src/vswap.c | grep -q 'mutex_lock(&rsx->mm_lock)'; then
+	echo "!! vswap.c slot_alloc waits for mm_lock"; bad=1
+else
+	echo "vswap.c: slot_alloc only trylocks mm_lock"
+fi
 # the embedded images
 for h in vseal_spu vseal_spu_test; do
 	python3 -I - ../src/$h.h $h <<'PY' || bad=1

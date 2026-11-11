@@ -8,7 +8,8 @@ never schedules, preempts or touches. spu_base.c gets:
 
 - spu_kernel_reserve(ops): under the node's list_mutex, takes an SPE
   that is SPU_FREE with no context (never one find_victim has unbound
-  but kept SPU_USED, nor one in isolated state) off the node's list,
+  but kept SPU_USED, nor one in isolated state, nor the node's last:
+  spufs's affinity code reads the list's first entry unlocked) off the node's list,
   n_spus--, and marks it SPU_USED: spu_get_idle, find_victim and
   do_notify_spus_active walk only that list, and the affinity walk
   through aff_list checks alloc_state. The entry is taken off with

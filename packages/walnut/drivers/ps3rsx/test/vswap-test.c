@@ -1,7 +1,7 @@
 /* vswap-test: the sealed VRAM swap's page logic (src/vswap_core.c) on a model: a pool of 4 chunks of VRAM
  * slots, the GART bounce, the disk, and an SPE that seals and opens with the same core (spu/v2_*.c) and
- * refuses a page whose tag doesn't match without writing it, as spu/vseal.c does. Someone else may write
- * VRAM and the bounce at any time (the GPU's clients); the model tracks what each device page must read.
+ * refuses a page whose tag doesn't match without writing it, as spu/vseal.c does. The slots and the
+ * bounce may change at any time; the model tracks what each device page must read.
  *
  * Checked throughout: no plaintext ever in a VRAM slot or the bounce (every plaintext page carries a marker);
  * no nonce counter used twice; no slot a map entry points at is written; a read returns exactly the page's
@@ -11,9 +11,13 @@
  * (the retry from VRAM), a map entry pointing at another page's slot, the lockout, a restart (-ETIMEDOUT: a
  * resubmission with fresh counters), the SPE gone (-ENODEV: the PPE opens, the drain), kept pages
  * (-EHWPOISON), no SPE at all (nothing in VRAM), the test builds' unsealed slots, write-back into private
- * pages, random sequences.
+ * pages, random sequences under several seeds. The disk completes writes out of order (a write-back's write
+ * and a request's write of one page must still end with the newer one); a kept job's SPE keeps writing its
+ * destinations after the failure; a request's failure stays with its own piece; replays into the same slot and
+ * into another; a changed bounce under the PPE's opens.
  * Built with VSX_FIXOFF_IGNORE_TAG, VSX_FIXOFF_SAME_CTR, VSX_FIXOFF_AD_NO_PAGE, VSX_FIXOFF_WB_INTO_BOUNCE,
- * VSX_FIXOFF_NO_RETRY or VSX_FIXOFF_DISCARD_BAD it must fail. */
+ * VSX_FIXOFF_NO_RETRY, VSX_FIXOFF_DISCARD_BAD, VSX_FIXOFF_NO_DEFER, VSX_FIXOFF_PPE_NO_RETRY or
+ * VSX_FIXOFF_PARTIAL_EMPTY it must fail. */
 #define VSX_PLAIN
 #include <stdio.h>
 #include <stdlib.h>
@@ -43,6 +47,7 @@ static vs_u8 key[32];
 static struct vsx X;
 
 /* the model's knobs */
+static int job_fail_skip;
 static int gpu_ok = 1, job_fail, job_fail_once, corrupt_bounce, have_key = 1, pinned, drains, slot_free_bad;
 static vs_u64 ctr_seen[200000];
 static unsigned int nctr;
@@ -95,22 +100,92 @@ int vsx_hw_gpu_to_bounce(void *hw, const vs_u32 *slots, unsigned int n)
 		memcpy(bounce[i], vram[slots[i]], VSX_PAGE);
 		bounce_plain[i] = !!(meta[slots[i]].flags & VSX_M_PLAIN);	/* (the test builds' off-switch) */
 		if (corrupt_bounce)
-			bounce[i][rnd() % VSX_PAGE] ^= 0x20;	/* a client changes the bounce */
+			bounce[i][rnd() % VSX_PAGE] ^= 0x20;	/* the bounce changes */
 	}
 	return 0;
 }
 vs_u64 vsx_hw_bounce_ea(void *hw, unsigned int i) { return EA(bounce[i]); }
 const void *vsx_hw_bounce_ptr(void *hw, unsigned int i) { return bounce[i]; }
 const vs_u8 *vsx_hw_key(void *hw) { return have_key ? key : NULL; }
-void vsx_hw_pin(void *hw, void *ref) { pinned++; }
-void vsx_hw_disk(void *hw, struct vsx_piece *pc, int write)
+/* a kept job's SPE: its destinations written once more, at the next hardware call (a late put) */
+static struct { vs_u8 *dst; vs_u8 data[VSX_PAGE]; } late[VSEAL_PAGES_MAX];
+static int nlate, late_mode;
+static void *pins[4096];
+static int npins;
+static vs_u8 scratch2[4][VSX_PAGE] __attribute__((aligned(16)));
+static int nscratch;
+static void late_writes(void)
 {
-	if (write)
-		memcpy(disk[pc->p] + pc->in_page, pc->buf, pc->len);
-	else
-		memcpy(pc->buf, disk[pc->p] + pc->in_page, pc->len);
+	for (int i = 0; i < nlate; i++)
+		memcpy(late[i].dst, late[i].data, VSX_PAGE);
+	nlate = 0;
 }
-int vsx_hw_disk_copy(void *hw, void *ctx, vs_u32 p, const void *page) { memcpy(disk[p], page, VSX_PAGE); return 0; }
+void vsx_hw_pin(void *hw, void *ref)
+{
+	pinned++;
+	if (npins < 4096)
+		pins[npins++] = ref;
+	if (ref == X.scratch_ref && nscratch < 4) {	/* as vswap.c: a new private page */
+		X.scratch = X.scratch_ref = scratch2[nscratch++];
+	}
+}
+static int is_pinned(const void *p)
+{
+	for (int i = 0; i < npins; i++)
+		if (pins[i] == p)
+			return 1;
+	return 0;
+}
+
+/* the disk: writes queue up and complete in any order; a deferred one only after the write-back's */
+struct dw { vs_u32 p; vs_u16 in, len; vs_u8 data[VSX_PAGE]; int deferred; };
+static struct dw dq[256];
+static int ndq, async_disk;
+static void disk_complete(int deferred_too)
+{
+	while (ndq) {
+		int k = async_disk ? ndq - 1 : 0;	/* async: the newest first, the worst order */
+
+		if (dq[k].deferred && !deferred_too) {	/* find a non-deferred one */
+			int j;
+
+			for (j = 0; j < ndq && dq[j].deferred; j++)
+				;
+			if (j == ndq)
+				return;
+			k = j;
+		}
+		memcpy(disk[dq[k].p] + dq[k].in, dq[k].data, dq[k].len);
+		dq[k] = dq[--ndq];
+	}
+}
+static void disk_write(vs_u32 p, int in, int len, const void *data, int deferred)
+{
+	if (ndq == 256)
+		disk_complete(1);
+	dq[ndq].p = p;
+	dq[ndq].in = in;
+	dq[ndq].len = len;
+	dq[ndq].deferred = deferred;
+	memcpy(dq[ndq].data, data, len);
+	ndq++;
+	if (!async_disk)
+		disk_complete(1);
+}
+void vsx_hw_disk(void *hw, struct vsx_piece *pc, int write, int defer)
+{
+	if (write) {
+		disk_write(pc->p, pc->in_page, pc->len, pc->buf, defer);
+	} else {
+		disk_complete(1);	/* (a read after every write before it) */
+		memcpy(pc->buf, disk[pc->p] + pc->in_page, pc->len);
+	}
+}
+int vsx_hw_disk_copy(void *hw, void *ctx, vs_u32 p, const void *page, int defer)
+{
+	disk_write(p, 0, VSX_PAGE, page, defer);
+	return 0;
+}
 void vsx_hw_fail(void *hw, void *ctx) { ((struct req *)ctx)->failed = 1; }
 void vsx_hw_zero(void *hw, struct vsx_piece *pc) { memset(pc->buf, 0, pc->len); }
 void vsx_hw_event(void *hw, int what, vs_u32 p, vs_u32 slot) {}
@@ -130,11 +205,19 @@ int vsx_hw_job(void *hw, unsigned int op, unsigned int n, const struct vseal_pag
 {
 	int bad = 0;
 
-	if (job_fail) {
+	late_writes();
+	if (job_fail && job_fail_skip > 0) {
+		job_fail_skip--;
+	} else if (job_fail) {
 		int r = job_fail;
 
 		if (job_fail_once)
 			job_fail = 0;
+		if (r == SPE_RET_KEEP && late_mode)	/* the buried SPE still opens its job, later */
+			for (unsigned int i = 0; i < n && nlate < VSEAL_PAGES_MAX; i++, nlate++) {
+				late[nlate].dst = (vs_u8 *)(unsigned long)pg[i].dst;
+				memset(late[nlate].data, 0x66, VSX_PAGE);
+			}
 		return r;
 	}
 	for (unsigned int i = 0; i < n; i++) {
@@ -289,9 +372,14 @@ static void reset_model(void)
 	job_fail = job_fail_once = corrupt_bounce = 0;
 	have_key = 1;
 	pinned = drains = 0;
+	npins = nscratch = nlate = late_mode = job_fail_skip = 0;
+	ndq = 0;
+	async_disk = 0;
 	for (int i = 0; i < 32; i++)
 		key[i] = rnd();
 }
+
+static void (*wb_hook)(const vs_u32 *pages, int n);
 
 /* write-back of chunk c, as vswap.c's chunk_evict: the GPU copy (or not), opens into private pages,
  * the disk written from those, the map switched for what didn't change */
@@ -322,12 +410,27 @@ static void evict(int c, int gpu)
 			continue;
 		vsx_writeback_open(&X, slots, pages, n, pp, pr, gpu);
 		scan("write-back");
-		for (int i = 0; i < n; i++) {
-			if (X.op[i].status != VSX_O_OK)
-				continue;
-			memcpy(disk[pages[i]], priv[i], VSX_PAGE);
-			if (map[pages[i]] == slots[i] + 1)
-				vsx_set_disk(&X, pages[i]);
+		{
+			vs_u32 wp[VSEAL_PAGES_MAX];
+			int nw = 0;
+
+			for (int i = 0; i < n; i++) {
+				if (X.op[i].status != VSX_O_OK)
+					continue;
+				CHECK(!is_pinned(priv[i]), "write-back: a pinned page reused");
+				wp[nw++] = pages[i];
+				disk_write(pages[i], 0, VSX_PAGE, priv[i], 0);
+			}
+			X.wb_pages = wp;	/* the unlocked window: a request may write these pages */
+			X.wb_n = nw;
+			if (wb_hook)
+				wb_hook(wp, nw);
+			disk_complete(0);	/* the write-back's writes (and others), in any order */
+			X.wb_n = 0;
+			for (int i = 0; i < n; i++)
+				if (X.op[i].status == VSX_O_OK && map[pages[i]] == slots[i] + 1)
+					vsx_set_disk(&X, pages[i]);
+			disk_complete(1);	/* then the held-back ones */
 		}
 		n = 0;
 	}
@@ -339,6 +442,16 @@ static void corrupt(int p, int at)
 {
 	if (vsx_in_vram(map[p]))
 		vram[map[p] - 1][at] ^= 1;
+}
+
+/* during a write-back's unlocked window, a request rewrites one of its pages to the disk */
+static void wb_rewrite(const vs_u32 *pages, int n)
+{
+	int p = pages[0];
+
+	if (!n)
+		return;
+	wr(&p, 1, 0, VSX_PAGE);
 }
 
 static int seq(int a, int n, int *p)
@@ -531,7 +644,109 @@ int main(void)
 	for (i = 0; i < 16; i++)
 		CHECK(map[i] == VSX_ON_DISK && !memcmp(disk[i], truth[i], VSX_PAGE), "mixed write-back: page %d", i);
 
-	/* --- random sequences --- */
+	/* --- a request's failure stays with its piece --- */
+	reset_model();
+	wr(p, seq(0, 8, p), 0, VSX_PAGE);
+	corrupt(3, 50);
+	{
+		struct req rq[8] = { { 0 } };
+
+		memset(bio, 0xee, sizeof(bio));
+		vsx_begin(&X);
+		for (i = 0; i < 8; i++) {
+			struct vsx_piece pc = { bio[i], bio[i], i, 0, 0, 0, VSX_PAGE, 0, -1, &rq[i] };
+
+			vsx_read(&X, &pc);
+		}
+		vsx_finish(&X);
+		for (i = 0; i < 8; i++)
+			CHECK(rq[i].failed == (i == 3) && (i == 3 || !memcmp(bio[i], truth[i], VSX_PAGE)),
+			      "one changed slot fails only its own piece (%d)", i);
+	}
+
+	/* --- replays: an older ciphertext into another slot and into the same slot --- */
+	reset_model();
+	p[0] = 30;
+	wr(p, 1, 0, VSX_PAGE);
+	{
+		vs_u8 old[VSX_PAGE];
+		vs_u32 s0 = map[30] - 1;
+
+		memcpy(old, vram[s0], VSX_PAGE);
+		wr(p, 1, 0, VSX_PAGE);			/* a new seal, a fresh slot */
+		CHECK(map[30] - 1 != s0, "the rewrite went to a fresh slot");
+		memcpy(vram[map[30] - 1], old, VSX_PAGE);	/* the old ciphertext into the new slot */
+		CHECK(rd_check(p, 1, 0, VSX_PAGE, "cross-slot replay") == -1 && map[30] == VSX_BAD,
+		      "an older ciphertext in another slot: refused");
+		vsx_discard(&X, 30);
+		next_free_hint = s0;			/* the same slot again */
+		wr(p, 1, 0, VSX_PAGE);
+		CHECK(map[30] - 1 == s0, "the same slot reused");
+		memcpy(vram[s0], old, VSX_PAGE);
+		CHECK(rd_check(p, 1, 0, VSX_PAGE, "same-slot replay") == -1, "an older ciphertext in the same slot: refused");
+	}
+
+	/* --- a changed bounce under the PPE's opens: retried from VRAM --- */
+	reset_model();
+	wr(p, seq(0, 8, p), 0, VSX_PAGE);
+	job_fail = SPE_RET_NODEV;
+	rd_check(p, 1, 0, VSX_PAGE, "x");
+	CHECK(X.mode == VSX_DRAIN, "drain mode");
+	corrupt_bounce = 1;
+	CHECK(rd_check((seq(1, 7, p), p), 7, 0, VSX_PAGE, "PPE bounce") == 0 && X.bad == 0,
+	      "the PPE: a changed bounce retried from VRAM");
+	corrupt_bounce = 0;
+
+	/* --- a kept job's late writes never reach a page in use --- */
+	reset_model();
+	wr(p, seq(0, 8, p), 0, VSX_PAGE);
+	late_mode = 1;
+	job_fail = SPE_RET_KEEP;
+	job_fail_once = 1;
+	p[0] = 2;
+	wr(p, 1, 512, 1024);			/* a merge whose open is kept */
+	CHECK(pinned >= 1 && X.scratch != scratch, "the private page replaced after a pin");
+	CHECK(!wr(p, seq(40, 4, p), 0, VSX_PAGE), "writes after the pin");
+	CHECK(rd_check(p, 4, 0, VSX_PAGE, "after late writes") == 0, "pages after the late writes read back");
+	for (i = 0; i < NCH; i++)
+		evict(i, 0);
+	CHECK(rd_check(p, 4, 0, VSX_PAGE, "drained after late") == 0, "drained pages after the late writes");
+	reset_model();
+	wr(p, seq(0, 8, p), 0, VSX_PAGE);
+	late_mode = 1;
+	job_fail = SPE_RET_KEEP;
+	job_fail_once = 1;
+	job_fail_skip = 1;			/* the open goes through, the seal is kept */
+	p[0] = 3;
+	wr(p, 1, 0, 512);			/* a merge whose seal is kept: the disk gets the merged page */
+	disk_complete(1);
+	CHECK(map[3] == VSX_ON_DISK ? !memcmp(disk[3], truth[3], VSX_PAGE) : 1, "a kept merge's disk copy is the merged page");
+
+	/* --- a partial write on an empty page: zeros around the piece --- */
+	reset_model();
+	p[0] = 77;
+	memset(disk[77], 0x99, VSX_PAGE);		/* an earlier page's bytes at that place */
+	wr(p, 1, 2560, 512);
+	disk_complete(1);
+	CHECK(rd_check(p, 1, 0, VSX_PAGE, "partial on empty") == 0, "a partial write on an empty page: zeros around it");
+
+	/* --- a write-back and a request writing one page: the newer one stays --- */
+	reset_model();
+	async_disk = 1;
+	wr(p, seq(0, 16, p), 0, VSX_PAGE);
+	X.mode = VSX_OFF;				/* (the request's write goes to the disk) */
+	wb_hook = wb_rewrite;
+	evict(0, 1);
+	wb_hook = NULL;
+	disk_complete(1);
+	CHECK(rd_check((seq(0, 16, p), p), 16, 0, VSX_PAGE, "write-back race") == 0, "the request's newer write stays on the disk");
+	async_disk = 0;
+
+	/* --- random sequences, several seeds --- */
+	static const vs_u32 seeds[] = { 0x13579bdf, 0x31415926, 0x27182818, 0x9e3779b9, 0x0badf00d };
+	for (unsigned int sd = 0; sd < sizeof(seeds) / sizeof(seeds[0]); sd++) {
+	rnd_s = seeds[sd];
+	async_disk = sd & 1;
 	for (int round = 0; round < 40; round++) {
 		reset_model();
 		for (int step = 0; step < 300; step++) {
@@ -565,6 +780,9 @@ int main(void)
 			}
 		}
 		counts("random");
+	}
+	disk_complete(1);
+	async_disk = 0;
 	}
 
 	CHECK(!plain_seen, "plaintext seen in VRAM or the bounce %d times", plain_seen);

@@ -114,6 +114,8 @@ struct vsx {
 	struct vseal_page jp[VSEAL_PAGES_MAX];
 	struct vseal_result jr[VSEAL_PAGES_MAX];
 	vs_u32 bslots[VSX_PIECES];
+	const vs_u32 *wb_pages;		/* the device pages a write-back is writing to the disk now */
+	unsigned int wb_n;
 	void *scratch;			/* a private page: merges, partial reads, the PPE's opens */
 	void *scratch_ref;
 	struct vsx_stats st;
@@ -135,8 +137,10 @@ int vsx_hw_job(void *hw, unsigned int op, unsigned int n, const struct vseal_pag
 	       struct vseal_result *res, enum spe_path path);	/* ps3rsx_spe_job() */
 const vs_u8 *vsx_hw_key(void *hw);			/* the SPE client's key, or NULL */
 void vsx_hw_pin(void *hw, void *ref);			/* keep a page for the boot */
-void vsx_hw_disk(void *hw, struct vsx_piece *pc, int write);	/* a disk piece, submitted after the lock */
-int vsx_hw_disk_copy(void *hw, void *ctx, vs_u32 p, const void *page);	/* a whole page's copy to the disk */
+/* a disk piece, submitted after the lock; defer: held back until the write-back's own disk writes of that page
+ * have completed (vsx->wb_pages), so the two writes to one place can't pass each other */
+void vsx_hw_disk(void *hw, struct vsx_piece *pc, int write, int defer);
+int vsx_hw_disk_copy(void *hw, void *ctx, vs_u32 p, const void *page, int defer);	/* a whole page's copy */
 void vsx_hw_fail(void *hw, void *ctx);			/* the request fails (BLK_STS_IOERR) */
 void vsx_hw_zero(void *hw, struct vsx_piece *pc);	/* an empty page's piece reads zeros */
 void vsx_hw_event(void *hw, int what, vs_u32 p, vs_u32 slot);	/* VSX_EV_*: logs */
