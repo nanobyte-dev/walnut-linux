@@ -53,7 +53,8 @@ has_parm = grep -aq 'parm=$(2):' $(1)
 
 override_dh_auto_build:
 	mkdir -p b/ps3rsx b/probes
-	cp src/* b/ps3rsx/
+	cp -r src/. b/ps3rsx/
+	cp spu/v2_crypto.h spu/v2_chacha20.c spu/v2_poly1305.c spu/v2_aead.c b/ps3rsx/
 	cp probes/* b/probes/
 	$(KMAKE) M=$(CURDIR)/b/ps3rsx PS3RSX_TEST_WEDGE=$(TEST_WEDGE) PS3RSX_TEST_CLEAR=$(TEST_CLEAR) \
 		PS3RSX_PUSH_DUMP=$(TEST_DUMP) PS3RSX_P4_COUNT=$(TEST_P4COUNT) PS3RSX_VSEAL_TEST=$(TEST_VSEAL) modules

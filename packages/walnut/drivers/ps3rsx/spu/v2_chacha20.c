@@ -86,6 +86,7 @@ void v2_chacha20_xor(const uint8_t key[V2_KEY_BYTES], const uint8_t nonce[V2_NON
 
 /* --- four blocks per vector ------------------------------------------------------------------ */
 
+#ifndef V2_SCALAR_ONLY	/* (the kernel's PPE copy: the scalar code only) */
 typedef uint32_t v4u __attribute__((vector_size(16)));
 typedef uint8_t v16u8 __attribute__((vector_size(16)));
 typedef int32_t v4i __attribute__((vector_size(16)));
@@ -172,3 +173,4 @@ void v2_chacha20_xor_x4(const uint8_t key[V2_KEY_BYTES], const uint8_t nonce[V2_
 		in[12] += four;
 	}
 }
+#endif

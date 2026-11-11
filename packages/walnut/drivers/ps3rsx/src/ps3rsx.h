@@ -420,6 +420,7 @@ void ps3rsx_gart_fini(struct ps3rsx_device *rsx);
 int ps3rsx_gart_get(struct ps3rsx_device *rsx, u64 io, u64 size);
 void ps3rsx_gart_put(struct ps3rsx_device *rsx, u64 io, u64 size, u32 seq);
 void *ps3rsx_gart_ptr(struct ps3rsx_device *rsx, u64 io);
+bool ps3rsx_gart_holds(struct ps3rsx_device *rsx, unsigned long ea);
 unsigned long ps3rsx_gart_pfn(struct ps3rsx_device *rsx, u64 io);
 void ps3rsx_gart_read(struct ps3rsx_device *rsx, void *dst, u64 io, size_t len);
 void ps3rsx_gart_clear(struct ps3rsx_device *rsx, u64 io, size_t len);

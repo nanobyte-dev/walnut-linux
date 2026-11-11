@@ -21,7 +21,7 @@
  * for its own pages, and ps3rsx_spe_must_keep() stays true for the boot.
  *
  * The SPE is reserved at load only when the VRAM swap's pool is enabled (vswap_vram_mb > 0) and vswap_seal
- * is on (until vswap.c uses the SPE: test builds only, or vswap_seal=1).
+ * is on (the default). Without an SPE, vswap.c puts nothing in VRAM: the swap device is its disk.
  * The key is drawn here, at load, after wait_for_random_bytes() succeeded; vswap.c's rescue drain reads it
  * through ps3rsx_spe_key() if the SPE is ever given up.
  */
@@ -55,13 +55,10 @@
 #error "ps3rsx's SPE client is written for local/0058's SPU_KERNEL_API_VERSION 1"
 #endif
 
-#ifdef PS3RSX_VSEAL_TEST
 static bool vswap_seal = true;
-#else
-static bool vswap_seal;		/* until vswap.c uses the SPE */
-#endif
 module_param(vswap_seal, bool, 0444);
-MODULE_PARM_DESC(vswap_seal, "Reserve an SPE at load to seal the VRAM swap's pages (default: test builds only)");
+MODULE_PARM_DESC(vswap_seal, "Seal the VRAM swap's pages on an SPE reserved at load (with the pool enabled); "
+		 "off, or without an SPE, the swap keeps nothing in VRAM");
 
 #ifdef PS3RSX_VSEAL_TEST
 static unsigned int test_vseal;

@@ -1,7 +1,8 @@
 #!/bin/bash
 # vseal-test.sh OUTDIR: the SPE client's host tests: spu/vseal.c on a reordering MFC model (the test image's ops
 # and the release image's), spe_core.h's decisions, spe_run.c's running code against a fake SPE that runs the
-# real program; each rule switched off once (its build must fail); and the embedded images (src/vseal_spu.h,
+# real program, the sealed swap's page logic (vswap_core.c) on a model pool, bounce, disk and SPE; each rule
+# switched off once (its build must fail); and the embedded images (src/vseal_spu.h,
 # src/vseal_spu_test.h): their SHA-256 as stated, and, when the spu-elf toolchain is there (SPU_TC, default
 # build/spu/install/opt/spu/bin), rebuilt from spu/ to the same bytes. Exits 0 only if everything held.
 set -u
@@ -23,6 +24,7 @@ build vseal-test-release vseal-test.c $SAN && { "$O/vseal-test-release" | sed 's
 build vseal-test-checked vseal-test.c $SAN -DVSEAL_TEST_OPS -DV2_CHECKED && { "$O/vseal-test-checked" | tail -1; [ "${PIPESTATUS[0]}" = 0 ] || bad=1; }
 build spe-core-test spe-core-test.c $SAN && { "$O/spe-core-test" || bad=1; }
 build spe-run-test spe-run-test.c $SAN && { "$O/spe-run-test" || bad=1; }
+build vswap-test vswap-test.c $SAN -DV2_SCALAR_ONLY && { "$O/vswap-test" || bad=1; }
 # the fix-offs: each must fail
 n_off=0
 for v in "vseal-test VSEAL_FIXOFF_PLAIN_GET" "vseal-test VSEAL_FIXOFF_SPLIT_TAGS" "vseal-test VSEAL_FIXOFF_PUT_REFUSED" \
@@ -32,10 +34,12 @@ for v in "vseal-test VSEAL_FIXOFF_PLAIN_GET" "vseal-test VSEAL_FIXOFF_SPLIT_TAGS
 	"spe-core-test SPE_FIXOFF_RAM_WITHOUT_CHECK" \
 	"spe-run-test SPE_FIXOFF_GOLDEN_COUNTS" "spe-run-test SPE_FIXOFF_RESET_FAIL_NODEV" \
 	"spe-run-test SPE_FIXOFF_WAKE_IS_TIMEOUT" "spe-run-test SPE_FIXOFF_KEEP_RING" \
-	"spe-run-test SPE_FIXOFF_RELEASED_IS_FAILURE"; do
+	"spe-run-test SPE_FIXOFF_RELEASED_IS_FAILURE" \
+	"vswap-test VSX_FIXOFF_IGNORE_TAG" "vswap-test VSX_FIXOFF_SAME_CTR" "vswap-test VSX_FIXOFF_AD_NO_PAGE" \
+	"vswap-test VSX_FIXOFF_WB_INTO_BOUNCE" "vswap-test VSX_FIXOFF_NO_RETRY" "vswap-test VSX_FIXOFF_DISCARD_BAD"; do
 	set -- $v
 	n_off=$((n_off + 1))
-	if build "fixoff-$2" "$1.c" -w -DVSEAL_TEST_OPS -D"$2" && ! timeout 300 "$O/fixoff-$2" > "$O/fixoff-$2.log" 2>&1; then
+	if build "fixoff-$2" "$1.c" -w -DVSEAL_TEST_OPS $([ "$1" = vswap-test ] && echo -DV2_SCALAR_ONLY) -D"$2" && ! timeout 300 "$O/fixoff-$2" > "$O/fixoff-$2.log" 2>&1; then
 		echo "fix-off $2: caught ($(tail -1 "$O/fixoff-$2.log"))"
 	else
 		echo "!! fix-off $2: NOT caught"; bad=1

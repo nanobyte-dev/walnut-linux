@@ -70,6 +70,7 @@ int v2_aead_open(const uint8_t key[V2_KEY_BYTES], const uint8_t nonce[V2_NONCE_B
 	return 0;
 }
 
+#ifndef V2_SCALAR_ONLY	/* (the kernel's PPE copy: the scalar code only) */
 /* the one-time key: block 0 of the nonce's keystream, from one four-block run (blocks 0-3) */
 static void otk_x4(const uint8_t key[32], const uint8_t nonce[12], uint8_t otk[32])
 {
@@ -118,6 +119,8 @@ int v2_open_page(const uint8_t key[V2_KEY_BYTES], const uint8_t nonce[V2_NONCE_B
 	v2_chacha20_xor_x4(key, nonce, 1, pt, ct, V2_PAGE_BYTES);
 	return 0;
 }
+
+#endif
 
 void v2_nonce_from_counter(uint64_t ctr, uint8_t nonce[V2_NONCE_BYTES])
 {

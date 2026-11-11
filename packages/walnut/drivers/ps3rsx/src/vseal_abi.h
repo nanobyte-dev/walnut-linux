@@ -29,12 +29,16 @@
 #include <linux/stddef.h>
 #include <linux/types.h>
 typedef u8 vs_u8;
+typedef u16 vs_u16;
+typedef s16 vs_s16;
 typedef u32 vs_u32;
 typedef u64 vs_u64;
 #else
 #include <stddef.h>
 #include <stdint.h>
 typedef uint8_t vs_u8;
+typedef uint16_t vs_u16;
+typedef int16_t vs_s16;
 typedef uint32_t vs_u32;
 typedef uint64_t vs_u64;
 #endif
