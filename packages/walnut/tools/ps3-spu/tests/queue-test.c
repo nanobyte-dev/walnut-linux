@@ -291,6 +291,24 @@ int main(int argc, char **argv)
 			fclose(f);
 		}
 		check(spq_count_spes(dir, &n) == 0 && n == 6, "given back: 6");
+		/* an attribute that can't be read (here a directory, which fgets refuses even as root): counted */
+		snprintf(path, sizeof(path), "%s/spu2/reserved", dir);
+		unlink(path);
+		check(mkdir(path, 0755) == 0 && spq_count_spes(dir, &n) == 0 && n == 6,
+		      "an unreadable attribute: counted (6)");
+		rmdir(path);
+		/* every SPE reserved: nothing for spufs */
+		for (k = 0; k < 6; k++) {
+			snprintf(path, sizeof(path), "%s/spu%u/reserved", dir, k);
+			f = fopen(path, "w");
+			if (f) {
+				fputs("1\n", f);
+				fclose(f);
+			}
+		}
+		check(spq_count_spes(dir, &n) == -EBUSY, "all six reserved: spq_count_spes -EBUSY");
+		check(speq_open(&q, "bench.spu", 0, 0) == -EBUSY && !q, "all six reserved: speq_open -EBUSY");
+		check(speq_open(&q, "bench.spu", 0, SPEQ_OPEN_BULK) == -EBUSY && !q, "... a bulk queue too");
 		for (k = 0; k < 6; k++) {
 			snprintf(path, sizeof(path), "%s/spu%u/reserved", dir, k);
 			unlink(path);
