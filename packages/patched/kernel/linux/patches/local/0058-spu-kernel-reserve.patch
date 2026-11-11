@@ -1,0 +1,531 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Wed, 11 Nov 2026 19:47:54 +0200
+Subject: powerpc/cell: let a kernel driver reserve an SPE
+
+A kernel driver that runs its own SPU program needs an SPE that spufs
+never schedules, preempts or touches. spu_base.c gets:
+
+- spu_kernel_reserve(ops): under the node's list_mutex, takes an SPE
+  that is SPU_FREE with no context (never one find_victim has unbound
+  but kept SPU_USED, nor one in isolated state) off the node's list,
+  n_spus--, and marks it SPU_USED: spu_get_idle, find_victim and
+  do_notify_spus_active walk only that list, and the affinity walk
+  through aff_list checks alloc_state. spu_full_list keeps it. Then all
+  three interrupt classes are masked and their status cleared, the
+  driver's callbacks installed under register_lock (the handlers call
+  them without a NULL test), and the SPE reset from nothing: stopped,
+  its MFC queue suspended, purged and empty, SR1 written as 0x33 (only
+  the problem-state and LS-decode bits change, as PS3's mfc_sr1_set
+  requires; anything else is refused), TCLASS as spufs sets it, flags
+  and mm cleared, SLBs invalidated, LSLR, privileged control and the
+  channels reset, the LS cleared, the queue resumed. Every class is
+  still masked when the driver gets the SPE.
+- spu_kernel_reset(spu): the same reset for the driver's restart path;
+  no allocation and no firmware load.
+- spu_kernel_ls_decode(spu, on): SR1 0x32 or 0x33, so the LS isn't
+  reachable through an effective address while the program runs.
+- spu_kernel_release(spu): only an SPE seen stopped with its queue
+  suspended, purged and empty goes back (classes masked, stub callbacks
+  that live in spu_base.c, the LS cleared). One that isn't is kept from
+  spufs until reboot, masked, with the stubs. The callbacks are never
+  left NULL or pointing into the driver: lv1 can deliver an SPE
+  interrupt after the SPU was seen stopped and after synchronize_irq(),
+  and the class 0 handler calls stop_callback even with nothing
+  pending, so the stubs live in spu_base.c (built in) and stay valid
+  for the life of the kernel.
+- /sys/devices/system/spu/spuN/reserved: 1 for an SPE spufs doesn't
+  have, so user space can count the ones it can use.
+- a reboot notifier that stops every reserved SPE and clears its LS.
+
+Each quiesce step is bounded (20 ms). Only the priv1 operations spufs
+already uses (interrupt masks and status, SR1, TCLASS) and the
+problem-state and priv2 registers: no new hypervisor call. Exported GPL,
+as the rest of the SPU API. Nothing in spufs changes.
+
+Forwarded: no
+---
+diff --git a/arch/powerpc/include/asm/spu.h b/arch/powerpc/include/asm/spu.h
+--- a/arch/powerpc/include/asm/spu.h
++++ b/arch/powerpc/include/asm/spu.h
+@@ -105,6 +105,24 @@ enum spu_utilization_state {
+ 	SPU_UTIL_MAX
+ };
+ 
++/* --- SPEs reserved for a kernel driver (spu_base.c) --- */
++/* spu->kernel_state */
++enum spu_kernel_state {
++	SPU_KERNEL_NONE,	/* spufs's, on its node's list */
++	SPU_KERNEL_RESERVED,	/* a kernel driver's (spu_kernel_reserve) */
++	SPU_KERNEL_DEAD,	/* given up not proven quiet: nobody's until reboot */
++};
++
++/* The interrupt callbacks a driver runs its SPE with: all four are required */
++struct spu;
++struct spu_kernel_ops {
++	void (*stop_callback)(struct spu *spu, int irq);
++	void (*ibox_callback)(struct spu *spu);
++	void (*wbox_callback)(struct spu *spu);
++	void (*mfc_callback)(struct spu *spu);
++};
++/* --- end of SPEs reserved for a kernel driver --- */
++
+ struct spu {
+ 	const char *name;
+ 	unsigned long local_store_phys;
+@@ -115,6 +133,7 @@ struct spu {
+ 	struct list_head cbe_list;
+ 	struct list_head full_list;
+ 	enum { SPU_FREE, SPU_USED } alloc_state;
++	enum spu_kernel_state kernel_state;
+ 	int number;
+ 	unsigned int irqs[3];
+ 	u32 node;
+@@ -196,6 +215,11 @@ void spu_setup_kernel_slbs(struct spu *spu, struct spu_lscsa *lscsa,
+ 		void *code, int code_size);
+ 
+ extern void spu_invalidate_slbs(struct spu *spu);
++
++struct spu *spu_kernel_reserve(const struct spu_kernel_ops *ops);
++int spu_kernel_reset(struct spu *spu);
++int spu_kernel_ls_decode(struct spu *spu, bool on);
++int spu_kernel_release(struct spu *spu);
+ extern void spu_associate_mm(struct spu *spu, struct mm_struct *mm);
+ int spu_64k_pages_available(void);
+ 
+diff --git a/arch/powerpc/platforms/cell/spu_base.c b/arch/powerpc/platforms/cell/spu_base.c
+--- a/arch/powerpc/platforms/cell/spu_base.c
++++ b/arch/powerpc/platforms/cell/spu_base.c
+@@ -21,6 +21,10 @@
+ #include <linux/mutex.h>
+ #include <linux/linux_logo.h>
+ #include <linux/syscore_ops.h>
++#include <linux/reboot.h>
++#include <linux/delay.h>
++#include <linux/ktime.h>
++#include <linux/err.h>
+ #include <asm/spu.h>
+ #include <asm/spu_priv1.h>
+ #include <asm/spu_csa.h>
+@@ -476,6 +480,413 @@ void spu_init_channels(struct spu *spu)
+ }
+ EXPORT_SYMBOL_GPL(spu_init_channels);
+ 
++/* --- SPEs reserved for a kernel driver --- */
++/*
++ * spu_kernel_reserve() takes one free SPE away from spufs for a kernel
++ * driver that runs its own SPU program on it, through the problem-state and
++ * priv2 areas and the priv1 operations below.
++ *
++ * - The SPE leaves its node's list, which is the only place spufs looks for
++ *   an SPE to schedule, preempt or notify (spu_get_idle, find_victim,
++ *   do_notify_spus_active), and stays SPU_USED, which is all the affinity
++ *   walk through aff_list checks.  Only an SPE that is SPU_FREE with no
++ *   context is taken, never one find_victim has unbound but kept SPU_USED.
++ *   spu_full_list keeps it (sysfs, xmon, shutdown); its sysfs attribute
++ *   "reserved" reads 1, so user space can count the SPEs spufs has.
++ * - spu_base's interrupt handlers call the callbacks without a NULL test.
++ *   All three classes are masked and their status cleared before the
++ *   driver's callbacks go in, and the SPE is handed over with every class
++ *   still masked: the driver unmasks what it needs once its program is
++ *   loaded.  On release, and when an SPE is given up, the callbacks point
++ *   at the stubs below, never at NULL and never back into the driver.
++ *   The hypervisor can deliver an SPE interrupt after the SPU was seen
++ *   stopped and after synchronize_irq() returned (the class 0 handler
++ *   calls stop_callback even with nothing pending), so a late interrupt
++ *   must find a callback that is valid for the life of the kernel: the
++ *   stubs live in spu_base.c, which is built in.
++ * - The state is set from nothing, never assumed: an SPE spufs has used
++ *   may have the problem-state bit in SR1 and its last save's SLB entries.
++ *   SR1 is written as 0x33 (privileged, relocation on, LS decode on), the
++ *   SLBs invalidated, the MFC purged.
++ * - spu_kernel_release() gives back only an SPE that is seen stopped with
++ *   its MFC queue suspended, purged and empty.  Otherwise it stays off the
++ *   list for good, its classes masked, and the driver keeps whatever its
++ *   DMA may still reach.
++ * - spu_kernel_reset() is the driver's restart path, which may run where
++ *   memory can't be allocated: nothing here allocates or loads firmware.
++ * - Only the priv1 operations spufs itself uses (interrupt masks and status,
++ *   SR1, TCLASS) and the problem-state and priv2 registers; no hypervisor
++ *   call that the SPU code doesn't already make.
++ *
++ * At reboot the reserved SPEs are stopped and their local store cleared.
++ */
++#define SPU_KERNEL_QUIET_US	20000	/* the bound of each quiesce step */
++#define SPU_KERNEL_SR1		(MFC_STATE1_MASTER_RUN_CONTROL_MASK | MFC_STATE1_RELOCATE_MASK | \
++				 MFC_STATE1_BUS_TLBIE_MASK | MFC_STATE1_LOCAL_STORAGE_DECODE_MASK)
++#define SPU_KERNEL_ISOLATED	(SPU_STATUS_ISOLATED_STATE | SPU_STATUS_ISOLATED_LOAD_STATUS | \
++				 SPU_STATUS_ISOLATED_EXIT_STATUS)
++
++/* Serializes reserve, reset, LS decode, release and the reboot notifier */
++static DEFINE_MUTEX(spu_kernel_mutex);
++static bool spu_kernel_down;	/* the reboot notifier ran: nothing new */
++
++static void spu_kernel_stub_stop(struct spu *spu, int irq)
++{
++}
++
++static void spu_kernel_stub_box(struct spu *spu)
++{
++}
++
++static void spu_kernel_set_callbacks(struct spu *spu, const struct spu_kernel_ops *ops)
++{
++	unsigned long flags;
++
++	spin_lock_irqsave(&spu->register_lock, flags);
++	if (ops) {
++		spu->stop_callback = ops->stop_callback;
++		spu->ibox_callback = ops->ibox_callback;
++		spu->wbox_callback = ops->wbox_callback;
++		spu->mfc_callback = ops->mfc_callback;
++	} else {
++		spu->stop_callback = spu_kernel_stub_stop;
++		spu->ibox_callback = spu_kernel_stub_box;
++		spu->wbox_callback = spu_kernel_stub_box;
++		spu->mfc_callback = spu_kernel_stub_box;
++	}
++	spin_unlock_irqrestore(&spu->register_lock, flags);
++}
++
++/* All classes masked, their status cleared, and a handler already running elsewhere finished */
++static void spu_kernel_mask_all(struct spu *spu)
++{
++	static const u64 stat[3] = { CLASS0_INTR_MASK, CLASS1_INTR_MASK, CLASS2_INTR_MASK };
++	unsigned long flags;
++	int c;
++
++	spin_lock_irqsave(&spu->register_lock, flags);
++	for (c = 0; c < 3; c++) {
++		spu_int_mask_set(spu, c, 0);
++		spu_int_stat_clear(spu, c, stat[c]);
++	}
++	spin_unlock_irqrestore(&spu->register_lock, flags);
++	for (c = 0; c < 3; c++)
++		if (spu->irqs[c])
++			synchronize_irq(spu->irqs[c]);
++}
++
++static bool spu_kernel_poll(u64 __iomem *reg, u64 mask, u64 want)
++{
++	ktime_t end = ktime_add_us(ktime_get(), SPU_KERNEL_QUIET_US);
++
++	while ((in_be64(reg) & mask) != want) {
++		if (ktime_after(ktime_get(), end))
++			return (in_be64(reg) & mask) == want;
++		udelay(2);
++	}
++	return true;
++}
++
++/* Stop the SPU and empty its MFC queue: true only when every step was seen to finish */
++static bool spu_kernel_quiesce(struct spu *spu)
++{
++	struct spu_problem __iomem *prob = spu->problem;
++	struct spu_priv2 __iomem *priv2 = spu->priv2;
++	ktime_t end = ktime_add_us(ktime_get(), SPU_KERNEL_QUIET_US);
++
++	out_be32(&prob->spu_runcntl_RW, SPU_RUNCNTL_STOP);
++	eieio();
++	while (in_be32(&prob->spu_status_R) & SPU_STATUS_RUNNING) {
++		if (ktime_after(ktime_get(), end))
++			return false;
++		udelay(2);
++	}
++	if (in_be32(&prob->spu_status_R) & SPU_KERNEL_ISOLATED)
++		return false;
++	if ((in_be64(&priv2->mfc_control_RW) & MFC_CNTL_SUSPEND_DMA_STATUS_MASK) ==
++	    MFC_CNTL_NORMAL_DMA_QUEUE_OPERATION) {
++		out_be64(&priv2->mfc_control_RW, MFC_CNTL_SUSPEND_DMA_QUEUE);
++		eieio();
++	}
++	if (!spu_kernel_poll(&priv2->mfc_control_RW, MFC_CNTL_SUSPEND_DMA_STATUS_MASK,
++			     MFC_CNTL_SUSPEND_COMPLETE))
++		return false;
++	out_be64(&priv2->mfc_control_RW, MFC_CNTL_PURGE_DMA_REQUEST | MFC_CNTL_SUSPEND_MASK);
++	eieio();
++	if (!spu_kernel_poll(&priv2->mfc_control_RW, MFC_CNTL_PURGE_DMA_STATUS_MASK,
++			     MFC_CNTL_PURGE_DMA_COMPLETE))
++		return false;
++	return in_be64(&priv2->mfc_control_RW) & MFC_CNTL_DMA_QUEUES_EMPTY;
++}
++
++/*
++ * SR1 with the problem-state bit off and LS decode as asked.  PS3's
++ * mfc_sr1_set BUG()s when any other bit changes, so only those two are
++ * touched, and anything that wouldn't give 0x33 (0x32) is refused.
++ */
++static int spu_kernel_sr1(struct spu *spu, bool ls_decode)
++{
++	u64 want = SPU_KERNEL_SR1 & ~(ls_decode ? 0 : MFC_STATE1_LOCAL_STORAGE_DECODE_MASK);
++	u64 sr1 = (spu_mfc_sr1_get(spu) & ~(MFC_STATE1_PROBLEM_STATE_MASK |
++					     MFC_STATE1_LOCAL_STORAGE_DECODE_MASK)) |
++		  (want & MFC_STATE1_LOCAL_STORAGE_DECODE_MASK);
++	unsigned long flags;
++
++	if (sr1 != want)
++		return -EIO;
++	spin_lock_irqsave(&spu->register_lock, flags);
++	spu_mfc_sr1_set(spu, sr1);
++	spin_unlock_irqrestore(&spu->register_lock, flags);
++	return 0;
++}
++
++static void spu_kernel_clear_ls(struct spu *spu)
++{
++	memset_io((void __iomem *)spu->local_store, 0, LS_SIZE);
++	out_be32(&spu->problem->spu_npc_RW, 0);
++}
++
++/* The LS cleared if it can be decoded: LS decode turned on if SR1 allows it */
++static void spu_kernel_wipe_ls(struct spu *spu)
++{
++	if (!spu_kernel_sr1(spu, true) ||
++	    (spu_mfc_sr1_get(spu) & MFC_STATE1_LOCAL_STORAGE_DECODE_MASK))
++		spu_kernel_clear_ls(spu);
++}
++
++/* Given up: stopped as far as it goes, masked, the stubs in, the LS cleared if it can be */
++static void spu_kernel_bury(struct spu *spu, const char *why)
++{
++	spu_kernel_mask_all(spu);
++	spu_kernel_set_callbacks(spu, NULL);
++	out_be32(&spu->problem->spu_runcntl_RW, SPU_RUNCNTL_STOP);
++	eieio();
++	spu_kernel_wipe_ls(spu);
++	WRITE_ONCE(spu->kernel_state, SPU_KERNEL_DEAD);
++	pr_err("spu%d: %s; kept from spufs until reboot\n", spu->number, why);
++}
++
++/* The known state, from nothing; classes stay masked.  Called with spu_kernel_mutex held */
++static int __spu_kernel_reset(struct spu *spu)
++{
++	struct spu_priv2 __iomem *priv2 = spu->priv2;
++	unsigned long flags;
++
++	spu_kernel_mask_all(spu);
++	if (!spu_kernel_quiesce(spu)) {
++		spu_kernel_bury(spu, "not quiet at reset");
++		return -EIO;
++	}
++	if (spu_kernel_sr1(spu, true)) {
++		spu_kernel_bury(spu, "unexpected SR1");
++		return -EIO;
++	}
++	spu_mfc_tclass_id_set(spu, 0x10000000);
++	spin_lock_irqsave(&spu->register_lock, flags);
++	spu->flags = 0;
++	spu->slb_replace = 0;
++	spu->pid = 0;
++	spu->tgid = 0;
++	spin_unlock_irqrestore(&spu->register_lock, flags);
++	spu_associate_mm(spu, NULL);
++	spu_invalidate_slbs(spu);
++	out_be64(&priv2->spu_lslr_RW, LS_ADDR_MASK);
++	out_be64(&priv2->spu_privcntl_RW, SPU_PRIVCNTL_MODE_NORMAL);
++	eieio();
++	spu_init_channels(spu);
++	spu_kernel_clear_ls(spu);
++	out_be64(&priv2->mfc_control_RW, MFC_CNTL_RESUME_DMA_QUEUE);
++	eieio();
++	return 0;
++}
++
++/**
++ * spu_kernel_reserve - take a free SPE from spufs for a kernel driver
++ * @ops: the driver's interrupt callbacks (all four)
++ *
++ * Returns the SPE stopped, its LS cleared, SR1 0x33, its MFC empty and
++ * running, every interrupt class masked and @ops installed; or ERR_PTR:
++ * -EINVAL (@ops incomplete), -EBUSY (no free SPE), -EIO (the SPE taken
++ * didn't reset; it is kept from spufs), -ESHUTDOWN.  Process context.
++ */
++struct spu *spu_kernel_reserve(const struct spu_kernel_ops *ops)
++{
++	struct spu *spu = NULL, *s;
++	int node, ret;
++
++	if (!ops || !ops->stop_callback || !ops->ibox_callback || !ops->wbox_callback ||
++	    !ops->mfc_callback)
++		return ERR_PTR(-EINVAL);
++	might_sleep();
++	mutex_lock(&spu_kernel_mutex);
++	ret = -ESHUTDOWN;
++	if (spu_kernel_down)
++		goto out;
++	for (node = 0; node < MAX_NUMNODES && !spu; node++) {
++		mutex_lock(&cbe_spu_info[node].list_mutex);
++		list_for_each_entry(s, &cbe_spu_info[node].spus, cbe_list) {
++			if (s->alloc_state != SPU_FREE || s->ctx ||
++			    s->kernel_state != SPU_KERNEL_NONE ||
++			    (in_be32(&s->problem->spu_status_R) & SPU_KERNEL_ISOLATED))
++				continue;
++			list_del_init(&s->cbe_list);
++			cbe_spu_info[node].n_spus--;
++			s->alloc_state = SPU_USED;
++			WRITE_ONCE(s->kernel_state, SPU_KERNEL_RESERVED);
++			spu = s;
++			break;
++		}
++		mutex_unlock(&cbe_spu_info[node].list_mutex);
++	}
++	ret = -EBUSY;
++	if (!spu)
++		goto out;
++	spu_kernel_mask_all(spu);
++	spu_kernel_set_callbacks(spu, ops);
++	ret = __spu_kernel_reset(spu);
++	if (ret)
++		goto out;
++	mutex_unlock(&spu_kernel_mutex);
++	pr_info("spu%d: reserved for a kernel driver\n", spu->number);
++	return spu;
++out:
++	mutex_unlock(&spu_kernel_mutex);
++	return ERR_PTR(ret);
++}
++EXPORT_SYMBOL_GPL(spu_kernel_reserve);
++
++/**
++ * spu_kernel_reset - bring a reserved SPE back to the state reserve gives
++ * @spu: an SPE from spu_kernel_reserve
++ *
++ * For the driver's restart: no allocation, no firmware.  The driver's
++ * callbacks stay; every class is masked again.  0, or -EIO when the SPE
++ * didn't stop and empty its queue (it is then given up: masked, the stubs
++ * in, kept from spufs; the driver must keep what its DMA may reach),
++ * -ESHUTDOWN, -EINVAL (not reserved).  Process context, and not under a
++ * lock the driver's callbacks take (it waits for running handlers).
++ */
++int spu_kernel_reset(struct spu *spu)
++{
++	int ret;
++
++	might_sleep();
++	mutex_lock(&spu_kernel_mutex);
++	if (spu->kernel_state != SPU_KERNEL_RESERVED)
++		ret = spu->kernel_state == SPU_KERNEL_DEAD ? -EIO : -EINVAL;
++	else if (spu_kernel_down)
++		ret = -ESHUTDOWN;
++	else
++		ret = __spu_kernel_reset(spu);
++	mutex_unlock(&spu_kernel_mutex);
++	return ret;
++}
++EXPORT_SYMBOL_GPL(spu_kernel_reset);
++
++/**
++ * spu_kernel_ls_decode - turn the reserved SPE's LS decode on or off
++ * @spu: an SPE from spu_kernel_reserve
++ * @on: false once the program is loaded: the local store is then not
++ *	reachable through any effective address (SR1 0x32) until it is
++ *	turned back on (0x33) or the SPE is reset or released
++ */
++int spu_kernel_ls_decode(struct spu *spu, bool on)
++{
++	int ret = -EINVAL;
++
++	mutex_lock(&spu_kernel_mutex);
++	if (spu->kernel_state == SPU_KERNEL_RESERVED && !spu_kernel_down)
++		ret = spu_kernel_sr1(spu, on);
++	mutex_unlock(&spu_kernel_mutex);
++	return ret;
++}
++EXPORT_SYMBOL_GPL(spu_kernel_ls_decode);
++
++/**
++ * spu_kernel_release - give a reserved SPE back to spufs
++ * @spu: an SPE from spu_kernel_reserve
++ *
++ * Only when it is seen stopped with its MFC queue suspended, purged and
++ * empty: then its classes are masked, the stubs installed, its LS cleared,
++ * and it is spufs's again (0).  Otherwise -EBUSY: it is given up, kept from
++ * spufs until reboot, and the driver must keep whatever its DMA may still
++ * reach.  -EINVAL if it isn't reserved.  Either way the callbacks are the
++ * stubs when this returns, and the driver's are never called again.
++ */
++int spu_kernel_release(struct spu *spu)
++{
++	int ret = 0;
++
++	might_sleep();
++	mutex_lock(&spu_kernel_mutex);
++	if (spu->kernel_state != SPU_KERNEL_RESERVED) {
++		ret = spu->kernel_state == SPU_KERNEL_DEAD ? -EBUSY : -EINVAL;
++		goto out;
++	}
++	spu_kernel_mask_all(spu);
++	if (!spu_kernel_quiesce(spu) || spu_kernel_sr1(spu, true)) {
++		spu_kernel_bury(spu, "not quiet at release");
++		ret = -EBUSY;
++		goto out;
++	}
++	spu_kernel_set_callbacks(spu, NULL);
++	spu_kernel_clear_ls(spu);
++	mutex_lock(&cbe_spu_info[spu->node].list_mutex);
++	WRITE_ONCE(spu->kernel_state, SPU_KERNEL_NONE);
++	spu->alloc_state = SPU_FREE;
++	list_add(&spu->cbe_list, &cbe_spu_info[spu->node].spus);
++	cbe_spu_info[spu->node].n_spus++;
++	mutex_unlock(&cbe_spu_info[spu->node].list_mutex);
++	pr_info("spu%d: given back to spufs\n", spu->number);
++out:
++	mutex_unlock(&spu_kernel_mutex);
++	return ret;
++}
++EXPORT_SYMBOL_GPL(spu_kernel_release);
++
++/* Shutdown: every reserved SPE stopped and its LS cleared, after the drivers' own notifiers */
++static int spu_kernel_reboot(struct notifier_block *nb, unsigned long code, void *unused)
++{
++	struct spu *spu;
++
++	mutex_lock(&spu_kernel_mutex);
++	spu_kernel_down = true;
++	mutex_lock(&spu_full_list_mutex);
++	list_for_each_entry(spu, &spu_full_list, full_list) {
++		if (spu->kernel_state != SPU_KERNEL_RESERVED)
++			continue;
++		spu_kernel_mask_all(spu);
++		spu_kernel_quiesce(spu);
++		spu_kernel_set_callbacks(spu, NULL);
++		spu_kernel_wipe_ls(spu);
++		WRITE_ONCE(spu->kernel_state, SPU_KERNEL_DEAD);
++	}
++	mutex_unlock(&spu_full_list_mutex);
++	mutex_unlock(&spu_kernel_mutex);
++	return NOTIFY_DONE;
++}
++
++static struct notifier_block spu_kernel_reboot_nb = {
++	.notifier_call = spu_kernel_reboot,
++	.priority = -1,		/* after the default priority (0) */
++};
++
++static ssize_t spu_reserved_show(struct device *dev, struct device_attribute *attr, char *buf)
++{
++	struct spu *spu = container_of(dev, struct spu, dev);
++
++	return sysfs_emit(buf, "%d\n", READ_ONCE(spu->kernel_state) != SPU_KERNEL_NONE);
++}
++
++static DEVICE_ATTR(reserved, 0444, spu_reserved_show, NULL);
++
++static void __init spu_kernel_init(void)
++{
++	spu_add_dev_attr(&dev_attr_reserved);
++	register_reboot_notifier(&spu_kernel_reboot_nb);
++}
++/* --- end of SPEs reserved for a kernel driver --- */
++
+ static struct bus_type spu_subsys = {
+ 	.name = "spu",
+ 	.dev_name = "spu",
+@@ -791,6 +1202,7 @@ static int __init init_spu_base(void)
+ 	crash_register_spus(&spu_full_list);
+ 	mutex_unlock(&spu_full_list_mutex);
+ 	spu_add_dev_attr(&dev_attr_stat);
++	spu_kernel_init();
+ 	register_syscore(&spu_syscore);
+ 
+ 	spu_init_affinity();

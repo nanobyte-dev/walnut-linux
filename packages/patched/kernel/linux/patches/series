@@ -37,6 +37,11 @@
 # local/0055: ps3fb's direct GPU interface from ps3/0030 (PS3GPU_IOCTL_INFO/ENTER/EXIT, /dev/ps3gpu_*) is root only and takes
 #   its arguments through get_user; the attribute and cursor ioctls are removed (nothing used them); a direct session
 #   ends by itself when its process is gone. ps3rsx is unaffected.
+# local/0058: a kernel driver can reserve an SPE (spu_kernel_reserve/reset/ls_decode/release in spu_base.c): it leaves spufs's
+#   node list, stays SPU_USED, is reset from nothing (SR1 0x33, SLBs invalidated, MFC purged), handed over with every class
+#   masked; given back only when proven quiet, else kept until reboot; stub callbacks in spu_base.c after release;
+#   /sys/devices/system/spu/spuN/reserved; a reboot notifier stops it and clears its LS. No new lv1 call. Host test:
+#   linux/tests/spu-kernel-reserve.sh.
 # Round 3 (2026-11-04): local/0007 parses ps3rsx_gart= and ps3rsx_cma= with a ceiling (a larger number, or one
 #   memparse wrapped, is clamped with a warning; a fixed reservation memblock can't give turns the GART off instead of
 #   panicking) and the parameters are __ro_after_init; local/0049's re-probe is cancelled in remove and shutdown;
@@ -112,3 +117,4 @@ local/0054-ps3fb-fullscreen-default.patch
 local/0055-ps3fb-restrict-gpu-ioctls.patch
 local/0056-ps3fb-gpu-recovery.patch
 local/0057-ps3fb-gpu-released-busy.patch
+local/0058-spu-kernel-reserve.patch
