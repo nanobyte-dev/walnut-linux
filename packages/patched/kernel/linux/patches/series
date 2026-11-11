@@ -38,8 +38,9 @@
 #   its arguments through get_user; the attribute and cursor ioctls are removed (nothing used them); a direct session
 #   ends by itself when its process is gone. ps3rsx is unaffected.
 # local/0058: a kernel driver can reserve an SPE (spu_kernel_reserve/reset/ls_decode/release in spu_base.c): it leaves spufs's
-#   node list, stays SPU_USED, is reset from nothing (SR1 0x33, SLBs invalidated, MFC purged), handed over with every class
-#   masked; given back only when proven quiet, else kept until reboot; stub callbacks in spu_base.c after release;
+#   node list (list_del_rcu: spusched_thread's parked cursor), stays SPU_USED, is reset from nothing (SR1 0x33, SLBs
+#   invalidated, MFC purged, mailboxes drained, status cleared), handed over with every class masked after a 50 ms grace
+#   period; given back only when proven quiet, else kept until reboot with the driver's module pinned; stub callbacks;
 #   /sys/devices/system/spu/spuN/reserved; a reboot notifier stops it and clears its LS. No new lv1 call. Host test:
 #   linux/tests/spu-kernel-reserve.sh.
 # Round 3 (2026-11-04): local/0007 parses ps3rsx_gart= and ps3rsx_cma= with a ceiling (a larger number, or one

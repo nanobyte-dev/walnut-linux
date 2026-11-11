@@ -446,7 +446,7 @@ run = ["bash", "packages/walnut/drivers/ps3rsx/test/vseal-test.sh", "build/tmp/p
 
 [[suite]]
 name = "kernel-spu-reserve"
-what = "local/0058's SPE reserve for kernel drivers: the patch adds no lv1 call and nothing that allocates, SPUISO_FS/SPULDR_FS stay unset, the reserve/reset/release/reboot code on a model of six SPEs and spufs's list walks (late interrupts, stuck quiesce steps, PS3's SR1 rule), 22 fix-offs"
+what = "local/0058's SPE reserve for kernel drivers: the patch adds no lv1 call and nothing that allocates, SPUISO_FS/SPULDR_FS stay unset, the reserve/reset/release/reboot code on a model of six SPEs and spufs's list walks (late interrupts, latched status and mailboxes, stuck quiesce steps, spusched_thread's parked walk, PS3's SR1 rule), 34 fix-offs"
 run = ["packages/patched/kernel/linux/tests/spu-kernel-reserve.sh"]
 
 [[suite]]

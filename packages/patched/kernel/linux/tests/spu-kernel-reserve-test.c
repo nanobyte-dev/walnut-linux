@@ -12,8 +12,11 @@
  *    next register access outside register_lock (as the other hardware thread would), and a
  *    "late" interrupt runs a handler with nothing pending, which for class 0 still calls
  *    stop_callback (spu_base.c's spu_irq_class_0);
- *  - spufs's walks of the node list: spu_get_idle, find_victim, do_notify_spus_active, and the
- *    affinity path's alloc_state test.
+ *  - spufs's walks of the node list: spu_get_idle, find_victim, do_notify_spus_active,
+ *    spusched_thread's walk that drops list_mutex with its cursor parked on an SPE, and the
+ *    affinity path (ctx_location over aff_list, then spu_get_idle's alloc_state test);
+ *  - the outbound mailboxes and status that latches while a class is masked (a stop, a mailbox
+ *    write), and late class 0 deliveries during each grace period.
  *
  * packages/patched/kernel/linux/tests/spu-kernel-reserve.sh extracts the block and the header
  * part from the patch, builds this, and runs the fix-offs (each must fail). */
@@ -27,7 +30,7 @@
 #include <string.h>
 #include <sys/types.h>
 
-typedef uint64_t u64;
+typedef unsigned long long u64;	/* as the kernel's (int-ll64) */
 typedef uint32_t u32;
 typedef uint8_t u8;
 typedef long long ktime_t;
@@ -59,6 +62,11 @@ static void list_del_init(struct list_head *e)
 {
 	e->prev->next = e->next; e->next->prev = e->prev; INIT_LIST_HEAD(e);
 }
+static struct list_head poison2;
+static void list_del_rcu(struct list_head *e)	/* ->next kept, ->prev poisoned (LIST_POISON2) */
+{
+	e->prev->next = e->next; e->next->prev = e->prev; e->prev = &poison2;
+}
 #define list_for_each_entry(p, h, m) \
 	for (p = container_of((h)->next, __typeof__(*p), m); &p->m != (h); \
 	     p = container_of(p->m.next, __typeof__(*p), m))
@@ -80,6 +88,8 @@ static void mutex_unlock(struct mutex *m)
 
 typedef struct { int held; } spinlock_t;
 static void deliver_pending(void);
+struct spu;
+static void late_irq(struct spu *spu, int c);
 #define spin_lock_irqsave(l, f) do { (f) = 0; CHECK(!(l)->held, "register_lock taken twice"); (l)->held = 1; } while (0)
 #define spin_unlock_irqrestore(l, f) do { (void)(f); (l)->held = 0; deliver_pending(); } while (0)
 
@@ -88,6 +98,11 @@ static ktime_t ktime_get(void) { return ++now_us; }
 static ktime_t ktime_add_us(ktime_t t, long us) { return t + us; }
 static bool ktime_after(ktime_t a, ktime_t b) { return a > b; }
 static void udelay(unsigned long us) { now_us += us; }
+static int msleep_ms;		/* the grace periods slept, in total */
+static void late_in_grace(void);
+static void msleep(unsigned int ms) { now_us += 1000LL * ms; msleep_ms += ms; late_in_grace(); }
+struct module { int refs; };
+static void __module_get(struct module *m) { m->refs++; }
 
 static int allocs;	/* nothing on the reserve, reset or release path may allocate */
 #define GFP_KERNEL 0
@@ -100,6 +115,7 @@ static int allocs;	/* nothing on the reserve, reset or release path may allocate
 static char log_buf[256];
 #define pr_info(...) snprintf(log_buf, sizeof(log_buf), __VA_ARGS__)
 #define pr_err(...) snprintf(log_buf, sizeof(log_buf), __VA_ARGS__)
+#define pr_warn(...) snprintf(log_buf, sizeof(log_buf), __VA_ARGS__)
 
 #define IS_ERR(p) ((unsigned long)(p) >= (unsigned long)-4095)
 #define PTR_ERR(p) ((long)(p))
@@ -146,8 +162,8 @@ static char log_buf[256];
 /* the header part of the patch: enum spu_kernel_state, struct spu_kernel_ops */
 #include "spu-h.h"
 
-struct spu_problem { u32 spu_runcntl_RW, spu_status_R, spu_npc_RW; };
-struct spu_priv2 { u64 mfc_control_RW, slb_invalidate_all_W, spu_lslr_RW, spu_privcntl_RW; };
+struct spu_problem { u32 spu_runcntl_RW, spu_status_R, spu_npc_RW, mb_stat_R, pu_mb_R; };
+struct spu_priv2 { u64 mfc_control_RW, slb_invalidate_all_W, spu_lslr_RW, spu_privcntl_RW, puint_mb_R; };
 struct device { int id; };
 struct mm_struct { int x; };
 struct spu_context { int x; };
@@ -160,6 +176,7 @@ struct spu {
 	struct list_head full_list;
 	enum { SPU_FREE, SPU_USED } alloc_state;
 	enum spu_kernel_state kernel_state;
+	struct module *kernel_owner;
 	int number;
 	unsigned int irqs[3];
 	u32 node;
@@ -193,8 +210,10 @@ static struct hw {
 	int queued;		/* DMA commands in the queue */
 	u64 sr1, tclass, masks[3], stat[3], level[3];
 	bool slb_valid, bug;
-	int sr1_writes, slb_invalidates, channel_inits, sync_irqs;
+	int sr1_writes, slb_invalidates, channel_inits, sync_irqs, suspend_writes, purge_writes;
+	int pu_mb, puint_mb;	/* entries in the outbound mailboxes (one deep each) */
 	bool resumed_after_purge;
+	bool program;		/* a program that stops with a stop-and-signal when STOP comes */
 } hw[NSPE];
 
 static struct hw *hw_of_ptr(const void *p)
@@ -211,17 +230,27 @@ static struct hw *hw_of(struct spu *spu) { return container_of(spu, struct hw, s
 /* the driver's callbacks and their bookkeeping */
 static int drv_calls, drv_calls_bad;
 static bool drv_gone;		/* released or given up: never called again */
-static bool in_reserve;		/* not the driver's yet */
+static bool in_reserve;		/* a reserve is running */
+static bool handed[NSPE];	/* reserve returned this SPE to the driver */
 static int null_calls;
 static void drv_stop(struct spu *spu, int irq)
 {
-	(void)spu; (void)irq;
+	(void)irq;
 	drv_calls++;
-	if (drv_gone || in_reserve)
+	if (drv_gone || !handed[spu->number])
 		drv_calls_bad++;
 }
 static void drv_box(struct spu *spu) { drv_stop(spu, 2); }
-static const struct spu_kernel_ops drv_ops = { drv_stop, drv_box, drv_box, drv_box };
+static struct module drv_module;
+static const struct spu_kernel_ops drv_ops = { drv_stop, drv_box, drv_box, drv_box, &drv_module };
+
+/* lv1 delivers a class 0 late, with nothing pending, while an SPE changes owner */
+static void late_in_grace(void)
+{
+	for (int i = 0; i < NSPE; i++)
+		if (hw[i].spu.kernel_state != SPU_KERNEL_NONE || in_reserve)
+			late_irq(&hw[i].spu, 0);
+}
 static int spufs_calls;		/* spufs's leftovers in the "used" start state */
 static void spufs_stop(struct spu *spu, int irq) { (void)spu; (void)irq; spufs_calls++; }
 static void spufs_box(struct spu *spu) { (void)spu; spufs_calls++; }
@@ -291,6 +320,13 @@ static u32 in_be32(const volatile u32 *p)
 	if (p == &h->prob.spu_status_R)
 		return (h->running ? SPU_STATUS_RUNNING : SPU_STATUS_STOPPED_BY_STOP) |
 		       (h->isolated ? SPU_STATUS_ISOLATED_STATE : 0);
+	if (p == &h->prob.mb_stat_R)
+		return (u32)h->pu_mb | (u32)h->puint_mb << 16;
+	if (p == &h->prob.pu_mb_R) {
+		if (h->pu_mb)
+			h->pu_mb--;
+		return 0x1234;
+	}
 	return *p;
 }
 static void out_be32(volatile u32 *p, u32 v)
@@ -299,8 +335,11 @@ static void out_be32(volatile u32 *p, u32 v)
 
 	*p = v;
 	if (p == &h->prob.spu_runcntl_RW) {
-		if (v == SPU_RUNCNTL_STOP && !h->stuck_run)
+		if (v == SPU_RUNCNTL_STOP && !h->stuck_run) {
+			if (h->running && h->program)	/* its stop-and-signal latches, masked or not */
+				h->stat[2] |= CLASS2_SPU_STOP_INTR;
 			h->running = false;
+		}
 		if (v == SPU_RUNCNTL_RUNNABLE)
 			h->running = true;
 	}
@@ -314,6 +353,11 @@ static u64 in_be64(const volatile u64 *p)
 	if (p == &h->priv2.mfc_control_RW)
 		return ((u64)h->suspend << 8) | (h->queued ? 0 : MFC_CNTL_DMA_QUEUES_EMPTY) |
 		       ((u64)h->purge << 24);
+	if (p == &h->priv2.puint_mb_R) {
+		if (h->puint_mb)
+			h->puint_mb--;
+		return 0x5678;
+	}
 	return *p;
 }
 static void out_be64(volatile u64 *p, u64 v)
@@ -324,6 +368,8 @@ static void out_be64(volatile u64 *p, u64 v)
 	if (p == &h->priv2.mfc_control_RW) {
 		if (!(v & MFC_CNTL_SUSPEND_MASK)) {
 			if (v & MFC_CNTL_SUSPEND_DMA_QUEUE)
+				h->suspend_writes++;
+			if (v & MFC_CNTL_SUSPEND_DMA_QUEUE)
 				h->suspend = h->stuck_suspend ? 1 : 3;
 			else {
 				if (h->purge == 3)
@@ -333,6 +379,7 @@ static void out_be64(volatile u64 *p, u64 v)
 			}
 		}
 		if (v & MFC_CNTL_PURGE_DMA_REQUEST) {
+			h->purge_writes++;
 			h->purge = h->stuck_purge ? 1 : 3;
 			if (!h->stuck_purge && !h->stuck_queue)
 				h->queued = 0;
@@ -420,6 +467,43 @@ static bool spufs_notify_ok(void)		/* do_notify_spus_active: ctx of every non-fr
 	return true;
 }
 
+/* spusched_thread (sched.c): it drops list_mutex with its cursor parked on an SPE that has a
+ * context, runs spusched_tick, re-takes the mutex and goes on from that SPE's ->next. IN_GAP runs
+ * in that gap. Returns the steps the walk took, or -1 when it doesn't end (a hang on the PS3). */
+static int ticks_on_kernel_spe;
+static int spusched_walk(struct spu *park_on, void (*in_gap)(struct spu *))
+{
+	struct list_head *head = &cbe_spu_info[0].spus;
+	struct spu *spu;
+	int steps = 0;
+
+	for (spu = container_of(head->next, struct spu, cbe_list); &spu->cbe_list != head;
+	     spu = container_of(spu->cbe_list.next, struct spu, cbe_list)) {
+		if (++steps > 4 * NSPE)
+			return -1;
+		if (!spu->ctx)
+			continue;
+		if (spu->kernel_state != SPU_KERNEL_NONE)
+			ticks_on_kernel_spe++;
+		if (spu == park_on && in_gap)
+			in_gap(spu);
+	}
+	return steps;
+}
+
+/* the affinity path: ctx_location walks aff_list (every SPE, reserved or not) to the OFFSET-th
+ * schedulable one, then spu_get_idle takes it only if it is SPU_FREE */
+static struct spu *spufs_affinity_take(int ref, int offset)
+{
+	for (int i = 0; i < NSPE; i++) {
+		struct spu *spu = &hw[(ref + i) % NSPE].spu;
+
+		if (offset-- == 0)
+			return spu->alloc_state == SPU_FREE ? spu : NULL;
+	}
+	return NULL;
+}
+
 /* --- setup ------------------------------------------------------------------------------------ */
 static struct spu_context ctx_a;
 static struct mm_struct mm_a;
@@ -463,8 +547,10 @@ static void boot(void)
 	}
 	spu_kernel_down = false;
 	spu_kernel_mutex.held = 0;
-	drv_calls = drv_calls_bad = null_calls = spufs_calls = allocs = 0;
+	drv_calls = drv_calls_bad = null_calls = spufs_calls = allocs = msleep_ms = 0;
+	drv_module.refs = 0;
 	drv_gone = in_reserve = false;
+	memset(handed, 0, sizeof(handed));
 	spu_kernel_init();
 }
 
@@ -475,6 +561,8 @@ static struct spu *reserve(void)
 	in_reserve = true;
 	s = spu_kernel_reserve(&drv_ops);
 	in_reserve = false;
+	if (!IS_ERR(s))
+		handed[s->number] = true;
 	return s;
 }
 
@@ -521,6 +609,9 @@ static void t_reserve(void)
 	hw[5].masks[2] = CLASS2_SPU_STOP_INTR;
 	hw[5].level[2] = CLASS2_SPU_STOP_INTR;
 	hw[5].running = true;
+	hw[5].program = true;		/* its stop-and-signal latches while masked */
+	hw[5].pu_mb = 1;		/* and it left both outbound mailboxes full */
+	hw[5].puint_mb = 1;
 	hw[5].queued = 3;
 	before = hw[5].sr1_writes;
 	s = reserve();
@@ -531,11 +622,18 @@ static void t_reserve(void)
 	CHECK(s == &hw[5].spu, "reserve took spu%d, not the first on the list (spu5)", s->number);
 	CHECK(!spufs_sees(s), "the reserved SPE is still on the node list");
 	CHECK(cbe_spu_info[0].n_spus == NSPE - 1, "n_spus %d, expected %d", cbe_spu_info[0].n_spus, NSPE - 1);
-	CHECK(s->alloc_state == SPU_USED, "the reserved SPE is not SPU_USED (the affinity walk takes it)");
+	for (int ref = 0; ref < NSPE; ref++)
+		for (int off = 0; off < NSPE; off++)
+			CHECK(spufs_affinity_take(ref, off) != s,
+			      "the affinity path (ctx_location, then the alloc_state test) takes the reserved SPE");
 	CHECK(s->kernel_state == SPU_KERNEL_RESERVED, "kernel_state %d", s->kernel_state);
 	CHECK(!strcmp(sysfs(s), "1\n"), "sysfs reserved reads %s", sysfs(s));
 	CHECK(!strcmp(sysfs(&hw[0].spu), "0\n"), "an unreserved SPE reads %s", sysfs(&hw[0].spu));
-	CHECK(drv_calls_bad == 0, "a driver callback ran during reserve, before the masks were cleared");
+	CHECK(drv_calls_bad == 0, "a driver callback ran during reserve, before it got the SPE");
+	CHECK(msleep_ms >= 50, "reserve: no grace period before the driver's callbacks (%d ms)", msleep_ms);
+	CHECK(!h->stat[0] && !h->stat[1] && !h->stat[2], "reserve left interrupt status %llx %llx %llx",
+	      (unsigned long long)h->stat[0], (unsigned long long)h->stat[1], (unsigned long long)h->stat[2]);
+	CHECK(!h->pu_mb && !h->puint_mb, "reserve left the outbound mailboxes full (%d, %d)", h->pu_mb, h->puint_mb);
 	CHECK(null_calls == 0, "a NULL callback was called");
 	CHECK(s->stop_callback == drv_stop && s->ibox_callback == drv_box && s->wbox_callback == drv_box &&
 	      s->mfc_callback == drv_box, "the driver's callbacks are not installed");
@@ -640,14 +738,17 @@ static void t_release(void)
 	h->queued = 2;
 	h->masks[0] = CLASS0_INTR_MASK;
 	h->masks[2] = CLASS2_MAILBOX_INTR | CLASS2_SPU_STOP_INTR;
+	msleep_ms = 0;
 	CHECK(spu_kernel_release(s) == 0, "release of a quiet SPE failed");
 	drv_gone = true;
+	CHECK(msleep_ms >= 50, "release: no grace period before spufs gets the SPE (%d ms)", msleep_ms);
+	CHECK(drv_module.refs == 0, "release of a quiet SPE pinned the driver's module");
 	CHECK(!h->bug, "release: an SR1 write ps3/spu.c BUG()s on");
 	CHECK(h->sr1 == 0x33, "SR1 %#llx after release", (unsigned long long)h->sr1);
 	CHECK(ls_clear(h), "the LS was not cleared at release");
 	CHECK(!h->masks[0] && !h->masks[1] && !h->masks[2], "release left a class unmasked");
 	CHECK(stubs_in(s), "release left a callback that isn't spu_base's stub (NULL or the driver's)");
-	/* lv1 delivers interrupts late (T1): a stop after the SPU was seen stopped, class 0 with nothing pending */
+	/* lv1 can deliver an interrupt late: a stop after the SPU was seen stopped, class 0 with nothing pending */
 	h->stat[2] = CLASS2_SPU_STOP_INTR;
 	late_all(s);
 	CHECK(null_calls == 0, "a late interrupt after release called a NULL callback");
@@ -662,7 +763,7 @@ static void t_release(void)
 	CHECK(allocs == 0, "release allocated");
 }
 
-/* H1: an SPE not proven quiet is never given back */
+/* an SPE not proven quiet is never given back */
 static void t_not_quiet(void)
 {
 	static const char *what[] = { "the SPU doesn't stop", "the MFC doesn't suspend",
@@ -685,8 +786,19 @@ static void t_not_quiet(void)
 		h->stuck_suspend = k == 1;
 		h->stuck_purge = k == 2;
 		h->stuck_queue = k == 3;
-		CHECK(spu_kernel_release(s) == -EBUSY, "%s: release gave the SPE back", what[k]);
-		drv_gone = true;
+		h->slb_valid = true;
+		{
+			int sus = h->suspend_writes, pur = h->purge_writes;
+
+			msleep_ms = 0;
+			CHECK(spu_kernel_release(s) == -EBUSY, "%s: release gave the SPE back", what[k]);
+			drv_gone = true;
+			CHECK(h->suspend_writes > sus && h->purge_writes > pur,
+			      "%s: no last suspend and purge when given up", what[k]);
+		}
+		CHECK(!h->slb_valid, "%s: the SLBs still valid when given up", what[k]);
+		CHECK(msleep_ms >= 50, "%s: no grace period when given up", what[k]);
+		CHECK(drv_module.refs == 1, "%s: the driver's module not pinned (%d)", what[k], drv_module.refs);
 		CHECK(!spufs_sees(s) && s->alloc_state == SPU_USED, "%s: the SPE is spufs's again", what[k]);
 		CHECK(s->kernel_state == SPU_KERNEL_DEAD, "%s: not marked dead", what[k]);
 		CHECK(cbe_spu_info[0].n_spus == NSPE - 1, "%s: n_spus %d", what[k], cbe_spu_info[0].n_spus);
@@ -700,6 +812,15 @@ static void t_not_quiet(void)
 		      null_calls ? "a NULL callback" : "the driver");
 		CHECK(spu_kernel_release(s) == -EBUSY, "%s: a second release not -EBUSY", what[k]);
 		CHECK(spu_kernel_reset(s) == -EIO, "%s: reset of a dead SPE not -EIO", what[k]);
+		/* the notifier handles a given-up SPE too, and says when it won't stop */
+		memset(h->ls, 0x77, 4096);
+		h->running = k == 0;
+		log_buf[0] = 0;
+		reboot_nb->notifier_call(reboot_nb, 0, NULL);
+		CHECK(ls_clear(h), "%s: the reboot notifier skipped the given-up SPE", what[k]);
+		CHECK(strstr(log_buf, "not quiet at shutdown") != NULL, "%s: the notifier didn't log the failed quiesce",
+		      what[k]);
+		spu_kernel_down = false;
 		h->stuck_run = h->stuck_suspend = h->stuck_purge = h->stuck_queue = false;
 		CHECK(spu_kernel_release(s) == -EBUSY, "%s: a dead SPE came back once quiet", what[k]);
 		CHECK(!spufs_sees(s), "%s: on the list", what[k]);
@@ -725,8 +846,14 @@ static void t_reset(void)
 	h->masks[1] = CLASS1_INTR_MASK;
 	h->slb_valid = true;
 	h->priv2.spu_lslr_RW = 0;
+	h->program = true;
+	h->pu_mb = h->puint_mb = 1;
+	h->stat[0] = CLASS0_INTR_MASK;
 	allocs = 0;
 	CHECK(spu_kernel_reset(s) == 0, "reset of a busy but stoppable SPE failed");
+	CHECK(!h->stat[0] && !h->stat[1] && !h->stat[2], "reset left interrupt status %llx %llx %llx",
+	      (unsigned long long)h->stat[0], (unsigned long long)h->stat[1], (unsigned long long)h->stat[2]);
+	CHECK(!h->pu_mb && !h->puint_mb, "reset left the outbound mailboxes full");
 	CHECK(allocs == 0, "allocated on the reset path");
 	CHECK(h->sr1 == 0x33 && !h->bug, "SR1 %#llx after reset", (unsigned long long)h->sr1);
 	CHECK(ls_clear(h), "the LS was not cleared at reset");
@@ -741,6 +868,7 @@ static void t_reset(void)
 	h->queued = 1;
 	CHECK(spu_kernel_reset(s) == -EIO, "reset of an SPE that won't suspend: not -EIO");
 	CHECK(s->kernel_state == SPU_KERNEL_DEAD && stubs_in(s) && !spufs_sees(s), "the failed reset didn't bury it");
+	CHECK(drv_module.refs == 1, "the failed reset didn't pin the driver's module");
 	CHECK(allocs == 0, "allocated on the failed reset path");
 }
 
@@ -754,10 +882,14 @@ static void t_sr1(void)
 	s = reserve();
 	CHECK(IS_ERR(s) && PTR_ERR(s) == -EIO, "reserve with SR1 0x13: expected -EIO");
 	CHECK(!hw[5].bug, "SR1 0x13: an SR1 write ps3/spu.c BUG()s on");
-	CHECK(hw[5].spu.kernel_state == SPU_KERNEL_DEAD && !spufs_sees(&hw[5].spu),
-	      "SR1 0x13: the SPE isn't kept from spufs");
+	CHECK(hw[5].spu.kernel_state == SPU_KERNEL_NONE && spufs_sees(&hw[5].spu) &&
+	      hw[5].spu.alloc_state == SPU_FREE && cbe_spu_info[0].n_spus == NSPE,
+	      "SR1 0x13, quiet: the SPE isn't given back to spufs");
 	CHECK(stubs_in(&hw[5].spu), "SR1 0x13: not the stubs");
-	CHECK(ls_clear(&hw[5]), "SR1 0x13 (LS decode on): the LS was not cleared");
+	CHECK(drv_module.refs == 0, "SR1 0x13, quiet: the driver's module pinned");
+	hw[5].sr1 = 0x3b;
+	s = reserve();
+	CHECK(!IS_ERR(s) && s == &hw[5].spu, "the SPE given back can be reserved again");
 	s = reserve();
 	CHECK(!IS_ERR(s) && s == &hw[4].spu, "the next reserve doesn't take the next SPE");
 	if (IS_ERR(s))
@@ -799,8 +931,60 @@ static void t_reboot(void)
 	      reboot_nb->priority);
 }
 
+/* spusched_thread parked on an SPE that is reserved in the gap: its walk must end, and it never
+ * ticks a reserved SPE */
+static struct spu *gap_second;
+static void gap_close_reserve(struct spu *spu)
+{
+	struct spu *got;
+
+	spu->ctx = NULL;			/* the context closes: spu_unschedule */
+	spu->alloc_state = SPU_FREE;
+	got = reserve();
+	CHECK(got == spu, "park: reserve didn't take the parked SPE");
+	if (gap_second) {			/* its successor goes the same way */
+		gap_second->ctx = NULL;
+		gap_second->alloc_state = SPU_FREE;
+		got = reserve();
+		CHECK(got == gap_second, "park: reserve didn't take the parked SPE's successor");
+	}
+}
+static void gap_reserve_release(struct spu *spu)
+{
+	gap_close_reserve(spu);
+	CHECK(spu_kernel_release(spu) == 0, "park: release");
+}
+static void t_park(void)
+{
+	static const struct { const char *what; void (*gap)(struct spu *); int second; } c[] = {
+		{ "the parked SPE reserved", gap_close_reserve, 0 },
+		{ "the parked SPE and its successor reserved", gap_close_reserve, 1 },
+		{ "the parked SPE reserved and given back", gap_reserve_release, 0 },
+	};
+
+	for (unsigned k = 0; k < sizeof(c) / sizeof(c[0]); k++)
+		for (int at = 0; at < NSPE - c[k].second; at++) {
+			struct spu *park;
+			int steps;
+
+			boot();
+			for (int i = 0; i < NSPE; i++) {
+				hw[i].spu.ctx = &ctx_a;
+				hw[i].spu.alloc_state = SPU_USED;
+			}
+			/* the list runs spu5 .. spu0 */
+			park = &hw[NSPE - 1 - at].spu;
+			gap_second = c[k].second ? &hw[NSPE - 2 - at].spu : NULL;
+			ticks_on_kernel_spe = 0;
+			steps = spusched_walk(park, c[k].gap);
+			CHECK(steps >= 0, "park: %s (at %d): spusched_thread's walk doesn't end", c[k].what, at);
+			CHECK(ticks_on_kernel_spe == 0, "park: %s: spusched_tick on a reserved SPE", c[k].what);
+		}
+}
+
 int main(void)
 {
+	setvbuf(stdout, NULL, _IOLBF, 0);	/* a fix-off may crash the model: keep what it printed */
 	t_reserve();
 	t_skip();
 	t_all_six();
@@ -809,10 +993,11 @@ int main(void)
 	t_reset();
 	t_sr1();
 	t_reboot();
+	t_park();
 	if (failures) {
 		printf("%d failed\n", failures);
 		return 1;
 	}
-	printf("ok: spu_kernel_reserve, reset, ls_decode, release, reboot (8 cases)\n");
+	printf("ok: spu_kernel_reserve, reset, ls_decode, release, reboot (9 cases)\n");
 	return 0;
 }
