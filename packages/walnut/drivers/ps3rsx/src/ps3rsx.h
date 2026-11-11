@@ -180,6 +180,7 @@ struct ps3rsx_device {
 	u64 gart_backed;		/* bytes of the GART backed by memory now */
 	struct delayed_work gart_reclaim;
 	struct ps3rsx_vswap *vswap;	/* swap in spare VRAM (vswap.c), or NULL */
+	struct ps3rsx_spe *spe;		/* the SPE that seals the swap's pages (spe.c), or NULL */
 	struct ps3rsx_vclear vc;	/* freed VRAM cleared before reuse (vclear.c) */
 	struct ps3rsx_keep keep;	/* and kept for its owner instead (vkeep.c) */
 
