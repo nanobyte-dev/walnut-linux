@@ -182,6 +182,9 @@ static void check_descriptors(void)
 	J.op = VSEAL_OP_TEST_DIFF;
 	check(spe_check_job(&J, &B, 0) != 0, "diff refused outside test builds");
 	check(spe_check_job(&J, &B, 1) == 0, "diff accepted in a test build");
+	J.op = VSEAL_OP_TEST_COPY;
+	check(spe_check_job(&J, &B, 0) != 0, "copy refused outside test builds");
+	check(spe_check_job(&J, &B, 1) == 0, "copy accepted in a test build");
 	mk(77, 0);
 	check(spe_check_job(&J, &B, 1) != 0, "an unknown op refused");
 	mk(VSEAL_OP_ECHO, 0);

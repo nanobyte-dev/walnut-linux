@@ -26,6 +26,8 @@ void vsx_ad(vs_u32 p, vs_u32 slot, vs_u8 fmt, vs_u8 ad[16])
 static int can_vram(struct vsx *x)
 {
 #ifdef VSX_PLAIN
+	if (x->plain == 2)
+		return x->mode == VSX_SEAL;	/* the SPE's copy */
 	if (x->plain)
 		return x->mode != VSX_DRAIN;
 #endif
@@ -105,7 +107,7 @@ static void seal_pieces(struct vsx *x, struct vsx_piece *pc, unsigned int n, int
 	int ret = 0;
 
 #ifdef VSX_PLAIN
-	if (x->plain) {
+	if (x->plain == 1) {
 		for (i = 0; i < n; i++) {
 			struct vsx_meta *m = vsx_hw_meta(x->hw, pc[i].slot);
 
@@ -124,6 +126,14 @@ static void seal_pieces(struct vsx *x, struct vsx_piece *pc, unsigned int n, int
 			struct vseal_page *jp = &x->jp[i];
 
 			memset(jp, 0, sizeof(*jp));
+#ifdef VSX_PLAIN
+			if (x->plain == 2) {	/* the same job, without the cipher */
+				jp->src = EA(pc[i].buf);
+				jp->dst = vsx_hw_slot_ea(x->hw, pc[i].slot);
+				vsx_hw_touch(x->hw, pc[i].slot);
+				continue;
+			}
+#endif
 			jp->src = EA(pc[i].buf);
 			jp->dst = vsx_hw_slot_ea(x->hw, pc[i].slot);
 #ifdef VSX_FIXOFF_SAME_CTR			/* (the fix-off: the counter not bumped) */
@@ -134,6 +144,11 @@ static void seal_pieces(struct vsx *x, struct vsx_piece *pc, unsigned int n, int
 			vsx_ad(pc[i].p, pc[i].slot, VSX_FMT_RAW, jp->ad);
 			vsx_hw_touch(x->hw, pc[i].slot);
 		}
+#ifdef VSX_PLAIN
+		if (x->plain == 2)
+			ret = vsx_hw_job(x->hw, VSEAL_OP_TEST_COPY, n, x->jp, x->jr, SPE_PATH_RAM);
+		else
+#endif
 		ret = vsx_hw_job(x->hw, VSEAL_OP_SEAL, n, x->jp, x->jr, SPE_PATH_RAM);
 		x->st.seal_jobs++;
 		if (ret == SPE_RET_TIMEDOUT && attempt == 0) {
@@ -149,6 +164,10 @@ static void seal_pieces(struct vsx *x, struct vsx_piece *pc, unsigned int n, int
 			m->ctr = x->jp[i].ctr;
 			memcpy(m->tag, x->jr[i].tag, 16);
 			m->flags = VSX_M_SEALED;
+#ifdef VSX_PLAIN
+			if (x->plain == 2)
+				m->flags = VSX_M_COPY;
+#endif
 			install(x, pc[i].p, pc[i].slot);
 			ok[i] = 1;
 			x->st.seals++;
@@ -319,17 +338,72 @@ static void open_failed(struct vsx *x, struct vsx_open *o, const unsigned int *i
 	}
 }
 
+#ifdef VSX_PLAIN
+/* test builds: the slots the SPE copied unsealed are copied back the same way (from the bounce or from VRAM);
+ * without the SPE, by the PPE. Status 0 for every other slot. */
+static void open_copies(struct vsx *x, struct vsx_open *o, unsigned int n)
+{
+	unsigned int i, k = 0, idx[VSEAL_PAGES_MAX];
+	int ret = -1;
+
+	for (i = 0; i < n; i++) {
+		o[i].status = 0;
+#ifdef VSX_FIXOFF_MODE_BY_SWITCH
+		if (x->plain == 2)
+#else
+		if (vsx_hw_meta(x->hw, o[i].slot)->flags & VSX_M_COPY)
+#endif
+			idx[k++] = i;
+	}
+	if (!k)
+		return;
+	if (x->mode == VSX_SEAL) {
+		for (i = 0; i < k; i++) {
+			struct vsx_open *t = &o[idx[i]];
+
+			memset(&x->jp[i], 0, sizeof(x->jp[i]));
+			x->jp[i].src = t->bidx >= 0 ? vsx_hw_bounce_ea(x->hw, t->bidx) : vsx_hw_slot_ea(x->hw, t->slot);
+			x->jp[i].dst = EA(t->dst);
+		}
+		ret = vsx_hw_job(x->hw, VSEAL_OP_TEST_COPY, k, x->jp, x->jr, SPE_PATH_RAM);
+	}
+	for (i = 0; i < k; i++) {
+		struct vsx_open *t = &o[idx[i]];
+
+		if (ret) {
+			if (t->bidx >= 0)
+				memcpy(t->dst, vsx_hw_bounce_ptr(x->hw, t->bidx), VSX_PAGE);
+			else
+				vsx_hw_read_slot(x->hw, t->slot, t->dst);
+		}
+		t->status = VSX_O_OK;
+		x->st.plain_reads++;
+	}
+}
+#endif
+
 void vsx_open(struct vsx *x, struct vsx_open *o, unsigned int n)
 {
 	unsigned int i, k, idx[VSEAL_PAGES_MAX];
 	int tagfail, ret;
 
+#ifdef VSX_PLAIN
+	open_copies(x, o, n);
+#else
+	for (i = 0; i < n; i++)
+		o[i].status = 0;
+#endif
 	for (i = 0; i < n; i++) {
 		struct vsx_meta *m = vsx_hw_meta(x->hw, o[i].slot);
 
-		o[i].status = 0;
+		if (o[i].status)
+			continue;
 #ifdef VSX_PLAIN
+#ifdef VSX_FIXOFF_MODE_BY_SWITCH		/* (the fix-off: read by the switch, not by how the slot was written) */
+		if (x->plain == 1) {
+#else
 		if (m->flags & VSX_M_PLAIN) {
+#endif
 			if (o[i].bidx >= 0)
 				memcpy(o[i].dst, vsx_hw_bounce_ptr(x->hw, o[i].bidx), VSX_PAGE);
 			else

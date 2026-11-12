@@ -388,14 +388,26 @@ int main(void)
 		j = job(0, VSEAL_OP_TEST_NOIRQ, 0);
 		run(0);
 		check(j->done == j->seq && vs_irq_count == 0, "noirq: done, no interrupt", 0);
+		j = job(2, VSEAL_OP_TEST_COPY, 3);
+		for (i = 0; i < 3; i++) {
+			tfill(pt[i], VSEAL_PAGE);
+			j->page[i].src = (uintptr_t)pt[i];
+			j->page[i].dst = (uintptr_t)out[i];
+		}
+		run(2);
+		for (i = 0; i < 3; i++)
+			check(answered(2) && j->res[i].status == VSEAL_ST_OK && !memcmp(out[i], pt[i], VSEAL_PAGE),
+			      "copy: the page as it is (test image)", i);
 #else
 		check(answered(1) && j->status == VSEAL_ST_INVALID && is_sentinel(out[0]), "release image: diff refused", 0);
 		{
-			static const uint32_t tops[] = { VSEAL_OP_TEST_HANG, VSEAL_OP_TEST_NOIRQ, VSEAL_OP_TEST_BADADDR };
+			static const uint32_t tops[] = { VSEAL_OP_TEST_HANG, VSEAL_OP_TEST_NOIRQ, VSEAL_OP_TEST_BADADDR,
+							 VSEAL_OP_TEST_COPY };
 
-			for (i = 0; i < 3; i++) {
-				j = job(0, tops[i], tops[i] == VSEAL_OP_TEST_BADADDR);
+			for (i = 0; i < 4; i++) {
+				j = job(0, tops[i], tops[i] == VSEAL_OP_TEST_BADADDR || tops[i] == VSEAL_OP_TEST_COPY);
 				j->page[0].src = (uintptr_t)pt[0];
+				j->page[0].dst = (uintptr_t)out[0];
 				run(0);
 				check(answered(0) && j->status == VSEAL_ST_INVALID, "release image: test op refused", i);
 			}

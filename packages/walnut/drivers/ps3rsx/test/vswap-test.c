@@ -47,7 +47,7 @@ static vs_u8 key[32];
 static struct vsx X;
 
 /* the model's knobs */
-static int job_fail_skip;
+static int job_fail_skip, copies;
 static int gpu_ok = 1, job_fail, job_fail_once, corrupt_bounce, have_key = 1, pinned, drains, slot_free_bad;
 static vs_u64 ctr_seen[200000];
 static unsigned int nctr;
@@ -98,7 +98,7 @@ int vsx_hw_gpu_to_bounce(void *hw, const vs_u32 *slots, unsigned int n)
 		return -1;
 	for (unsigned int i = 0; i < n; i++) {
 		memcpy(bounce[i], vram[slots[i]], VSX_PAGE);
-		bounce_plain[i] = !!(meta[slots[i]].flags & VSX_M_PLAIN);	/* (the test builds' off-switch) */
+		bounce_plain[i] = !!(meta[slots[i]].flags & (VSX_M_PLAIN | VSX_M_COPY));	/* (the test builds' off-switches) */
 		if (corrupt_bounce)
 			bounce[i][rnd() % VSX_PAGE] ^= 0x20;	/* the bounce changes */
 	}
@@ -227,6 +227,12 @@ int vsx_hw_job(void *hw, unsigned int op, unsigned int n, const struct vseal_pag
 
 		v2_nonce_from_counter(pg[i].ctr, nonce);
 		memcpy(buf, src, VSX_PAGE);		/* one copy */
+		if (op == VSEAL_OP_TEST_COPY) {	/* the test image's copy: no cipher */
+			memcpy(dst, buf, VSX_PAGE);
+			res[i].status = VSEAL_ST_OK;
+			copies++;
+			continue;
+		}
 		if (op == VSEAL_OP_SEAL) {
 			int dup = 0;
 
@@ -269,7 +275,7 @@ static void fill(int p)
 static void scan(const char *when)
 {
 	for (int s = 0; s < NSL; s++)
-		if (!(meta[s].flags & VSX_M_PLAIN) && !memcmp(vram[s], &(vs_u64){ MARK }, 8))
+		if (!(meta[s].flags & (VSX_M_PLAIN | VSX_M_COPY)) && !memcmp(vram[s], &(vs_u64){ MARK }, 8))
 			plain_seen++;
 	for (int i = 0; i < (int)VSX_SLOTS; i++)
 		if (!bounce_plain[i] && !memcmp(bounce[i], &(vs_u64){ MARK }, 8))
@@ -392,7 +398,7 @@ static void evict(int c, int gpu)
 	if (gpu)
 		for (int s = 0; s < (int)VSX_SLOTS; s++) {
 			memcpy(bounce[s], vram[c * VSX_SLOTS + s], VSX_PAGE);
-			bounce_plain[s] = !!(meta[c * VSX_SLOTS + s].flags & VSX_M_PLAIN);
+			bounce_plain[s] = !!(meta[c * VSX_SLOTS + s].flags & (VSX_M_PLAIN | VSX_M_COPY));
 		}
 	for (int s = 0; s <= (int)VSX_SLOTS; s++) {
 		int slot = c * VSX_SLOTS + s;
@@ -742,6 +748,29 @@ int main(void)
 	CHECK(rd_check((seq(0, 16, p), p), 16, 0, VSX_PAGE, "write-back race") == 0, "the request's newer write stays on the disk");
 	async_disk = 0;
 
+	/* --- the cipher's cost measured: the SPE copies unsealed (2), mixed with sealed (0) and PPE (1) slots, the
+	 * switch changed at run time: each slot read back as it was written --- */
+	reset_model();
+	X.plain = 2;
+	wr(p, seq(0, 8, p), 0, VSX_PAGE);
+	CHECK(copies == 8 && X.in_vram == 8, "seal 2: the SPE copied the pages into their slots");
+	X.plain = 0;
+	wr(p, seq(8, 8, p), 0, VSX_PAGE);
+	X.plain = 1;
+	wr(p, seq(16, 8, p), 0, VSX_PAGE);
+	for (int sw = 0; sw < 3; sw++) {
+		X.plain = sw;
+		gpu_ok = sw != 1;
+		CHECK(rd_check((seq(0, 24, p), p), 24, 0, VSX_PAGE, "mixed modes") == 0 && X.bad == 0,
+		      "switch %d: copied, sealed and PPE slots each read back as written", sw);
+	}
+	gpu_ok = 1;
+	X.plain = 2;
+	evict(0, 1);
+	for (i = 0; i < 24; i++)
+		CHECK(map[i] == VSX_ON_DISK && !memcmp(disk[i], truth[i], VSX_PAGE), "mixed-mode write-back: page %d", i);
+	X.plain = 0;
+
 	/* --- random sequences, several seeds --- */
 	static const vs_u32 seeds[] = { 0x13579bdf, 0x31415926, 0x27182818, 0x9e3779b9, 0x0badf00d };
 	for (unsigned int sd = 0; sd < sizeof(seeds) / sizeof(seeds[0]); sd++) {
@@ -753,6 +782,8 @@ int main(void)
 			int k = rnd() % 10, n = 1 + rnd() % 8, a = rnd() % (NPG - 8);
 
 			gpu_ok = rnd() % 4 != 0;
+			if (step % 50 == 0)
+				X.plain = round % 4 == 0 ? (int)(rnd() % 3) : 0;	/* the switch, at run time */
 			if (k < 4) {
 				wr(p, seq(a, n, p), 0, VSX_PAGE);
 			} else if (k < 7) {
@@ -771,7 +802,7 @@ int main(void)
 				if (map[a] != VSX_BAD)
 					wr(p, 1, in, 512);
 			} else {
-				corrupt_bounce = 1;
+				corrupt_bounce = round % 4 != 0;	/* (unsealed slots have no check to catch it) */
 				r = rd_check((seq(a, n, p), p), n, 0, VSX_PAGE, "random bounce");
 				corrupt_bounce = 0;
 				CHECK(r != -2, "round %d: a read through a changed bounce came back wrong", round);

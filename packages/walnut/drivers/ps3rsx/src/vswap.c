@@ -24,7 +24,7 @@
  * page, else the SPE gets the slot from VRAM itself; a write-back opens into private pages before the
  * disk writes. Without the SPE (none reserved, or vswap_seal=0), nothing goes into VRAM: the device is
  * its disk. If the SPE is lost later, the PPE opens the slots with the same cipher and a drain moves them
- * all to the disk. Test builds keep the unsealed path behind test_vswap_seal=0, for measurements.
+ * all to the disk. Test builds keep test_vswap_seal: 0 unsealed by the PPE, 2 unsealed by the SPE, for measurements.
  *
  * Locking: vs->lock covers the map and the pool, never across disk I/O (disk pieces of a request
  * complete it asynchronously; write-back copies under the lock and writes without it). The I/O
@@ -74,9 +74,10 @@ static unsigned int vswap_seal_lockout = VSX_LOCKOUT;
 module_param(vswap_seal_lockout, uint, 0444);
 MODULE_PARM_DESC(vswap_seal_lockout, "Pages failing their check in a load after which no new page goes to VRAM");
 #ifdef VSX_PLAIN
-static bool test_vswap_seal = true;
-module_param(test_vswap_seal, bool, 0644);
-MODULE_PARM_DESC(test_vswap_seal, "TEST BUILD: seal new pages in VRAM (0: store them unsealed, as before, for measurements)");
+static unsigned int test_vswap_seal = 1;
+module_param(test_vswap_seal, uint, 0644);
+MODULE_PARM_DESC(test_vswap_seal, "TEST BUILD: new pages in VRAM 1 sealed; 0 unsealed by PPE stores, as before; "
+		 "2 unsealed by the SPE through the seal's paths (the cipher's own cost)");
 #endif
 
 struct vchunk {
@@ -604,7 +605,16 @@ static void vswap_do_rq(struct ps3rsx_vswap *vs, struct request *rq)
 		goto out;
 	}
 #ifdef VSX_PLAIN
-	vs->x.plain = !READ_ONCE(test_vswap_seal);
+	switch (READ_ONCE(test_vswap_seal)) {
+	case 0:
+		vs->x.plain = 1;	/* PPE stores */
+		break;
+	case 2:
+		vs->x.plain = 2;	/* the SPE's copy */
+		break;
+	default:
+		vs->x.plain = 0;	/* sealed */
+	}
 #endif
 	vsx_begin(&vs->x);
 	switch (req_op(rq)) {

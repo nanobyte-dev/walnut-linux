@@ -102,7 +102,7 @@ static int page_op(uint32_t op)
 	if (op == VSEAL_OP_SEAL || op == VSEAL_OP_OPEN)
 		return 1;
 #ifdef VSEAL_TEST_OPS
-	if (op == VSEAL_OP_TEST_SLOW || op == VSEAL_OP_TEST_DIFF)
+	if (op == VSEAL_OP_TEST_SLOW || op == VSEAL_OP_TEST_DIFF || op == VSEAL_OP_TEST_COPY)
 		return 1;
 #endif
 	return 0;
@@ -209,6 +209,11 @@ static void pages(uint32_t op, uint64_t seq)
 #ifdef VSEAL_TEST_OPS
 		if (op == VSEAL_OP_TEST_SLOW)
 			wait_ticks(JOB->arg);
+#endif
+#ifdef VSEAL_TEST_OPS
+		if (op == VSEAL_OP_TEST_COPY)		/* no cipher: the page as it is */
+			JOB->res[i].status = VSEAL_ST_OK;
+		else
 #endif
 		process(op == VSEAL_OP_OPEN ? VSEAL_OP_OPEN : VSEAL_OP_SEAL, i, BUF(b));
 #ifndef VSEAL_FIXOFF_PUT_REFUSED

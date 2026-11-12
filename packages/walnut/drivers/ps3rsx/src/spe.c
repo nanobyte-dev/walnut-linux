@@ -300,8 +300,15 @@ int ps3rsx_spe_job(struct ps3rsx_device *rsx, unsigned int op, unsigned int npag
 
 	if (!spe)
 		return SPE_RET_NODEV;
+#ifdef PS3RSX_VSEAL_TEST
+	if (op == VSEAL_OP_TEST_COPY && npages && npages <= VSEAL_PAGES_MAX)
+		goto ok;			/* test builds: test_vswap_seal=2, the paths without the cipher */
+#endif
 	if ((op != VSEAL_OP_SEAL && op != VSEAL_OP_OPEN) || !npages || npages > VSEAL_PAGES_MAX)
 		return SPE_RET_INVAL;
+#ifdef PS3RSX_VSEAL_TEST
+ok:
+#endif
 	mutex_lock(&spe->lock);
 	idx = spe->ctl.n % VSEAL_JOBS;
 	j = &spe->ctl.ring[idx];
@@ -309,7 +316,13 @@ int ps3rsx_spe_job(struct ps3rsx_device *rsx, unsigned int op, unsigned int npag
 	j->op = op;
 	j->npages = npages;
 	memcpy(j->page, pages, npages * sizeof(*pages));
+#ifdef PS3RSX_VSEAL_TEST
+	spe->ctl.test = op == VSEAL_OP_TEST_COPY;
+#endif
 	ret = spe_run_job(&spe->ctl, idx, path);
+#ifdef PS3RSX_VSEAL_TEST
+	spe->ctl.test = 0;
+#endif
 	if (ret == 0 || ret == SPE_RET_BADMSG)		/* only the results, never the ring's inputs */
 		memcpy(res, j->res, npages * sizeof(*res));
 #ifdef PS3RSX_VSEAL_TEST

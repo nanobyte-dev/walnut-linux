@@ -74,6 +74,8 @@ typedef uint64_t vs_u64;
 					 * page's ad || tag, so the kernel can pick r at its clamp maximum) and the
 					 * four-block ChaCha20 against the scalar one (nonce from ctr); status OK when
 					 * both agree, BADTAG when not; nothing is put */
+#define VSEAL_OP_TEST_COPY	21	/* as SEAL's pages, without the cipher: src copied to dst as it is (the
+					 * measurement of the cipher's own cost; test image and test module only) */
 #define VSEAL_OP_TEST_BADADDR	20	/* one get from page[0].src, an address the kernel picked to have no
 					 * translation (a vmalloc guard page): the MFC faults, the job never ends */
 

@@ -35,8 +35,9 @@
  * one before the drain got to it is opened the same way. After -EHWPOISON, every page the failed job named
  * is pinned for the boot and its slots stay out of use; a read piece of such a job fails.
  *
- * Test builds (VSX_PLAIN): with `plain` set, new pages are stored unsealed, by PPE stores, as before the
- * seal (the measurement's off-switch); each slot records how it was written.
+ * Test builds (VSX_PLAIN): with `plain` 1, new pages are stored unsealed by PPE stores, as before the seal;
+ * with 2, the SPE copies them through the same paths as the seal, without the cipher (the cipher's own cost).
+ * Each slot records how it was written, and is read back that way whatever the switch says now.
  *
  * Locking: the caller holds vs->lock around every vsx_*() call; the SPE client takes its own lock inside.
  */
@@ -63,7 +64,8 @@ struct vsx_meta {
 	vs_u8 pad[7];
 };
 #define VSX_M_SEALED	1
-#define VSX_M_PLAIN	2		/* test builds: written unsealed */
+#define VSX_M_PLAIN	2		/* test builds: written unsealed by the PPE */
+#define VSX_M_COPY	4		/* test builds: copied unsealed by the SPE (the cipher's cost measured) */
 
 /* one piece of a request: within one device page */
 struct vsx_piece {
@@ -102,7 +104,7 @@ struct vsx {
 	vs_u32 npages;
 	vs_u64 next_ctr;		/* the next seal's counter: never reused under the key */
 	enum vsx_mode mode;
-	int plain;			/* test builds: store new pages unsealed */
+	int plain;			/* test builds: new pages unsealed, 1 by PPE stores, 2 by the SPE's copy */
 	int locked;			/* the lockout: nothing new into VRAM */
 	vs_u32 fails, lockout;
 	vs_u32 in_vram, on_disk, bad;

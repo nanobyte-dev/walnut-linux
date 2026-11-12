@@ -169,6 +169,12 @@ static inline int spe_check_job(const struct vseal_job *j, const struct spe_boun
 		sk = SPE_WIN_RAM;
 		dk = SPE_WIN_RAM;
 		break;
+	case VSEAL_OP_TEST_COPY:		/* test builds' measurement: the swap's paths without the cipher */
+		if (!test)
+			return VSEAL_PAGES_MAX + 2;
+		sk = SPE_WIN_RAM | SPE_WIN_VRAM | SPE_WIN_BOUNCE;
+		dk = SPE_WIN_RAM | SPE_WIN_VRAM;
+		break;
 	case VSEAL_OP_OPEN:
 		sk = SPE_WIN_VRAM | SPE_WIN_BOUNCE | SPE_WIN_RAM;
 		dk = SPE_WIN_RAM;

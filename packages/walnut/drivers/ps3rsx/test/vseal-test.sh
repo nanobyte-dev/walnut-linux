@@ -37,7 +37,8 @@ for v in "vseal-test VSEAL_FIXOFF_PLAIN_GET" "vseal-test VSEAL_FIXOFF_SPLIT_TAGS
 	"spe-run-test SPE_FIXOFF_RELEASED_IS_FAILURE" \
 	"vswap-test VSX_FIXOFF_IGNORE_TAG" "vswap-test VSX_FIXOFF_SAME_CTR" "vswap-test VSX_FIXOFF_AD_NO_PAGE" \
 	"vswap-test VSX_FIXOFF_WB_INTO_BOUNCE" "vswap-test VSX_FIXOFF_NO_RETRY" "vswap-test VSX_FIXOFF_DISCARD_BAD" \
-	"vswap-test VSX_FIXOFF_NO_DEFER" "vswap-test VSX_FIXOFF_PPE_NO_RETRY" "vswap-test VSX_FIXOFF_PARTIAL_EMPTY"; do
+	"vswap-test VSX_FIXOFF_NO_DEFER" "vswap-test VSX_FIXOFF_PPE_NO_RETRY" "vswap-test VSX_FIXOFF_PARTIAL_EMPTY" \
+	"vswap-test VSX_FIXOFF_MODE_BY_SWITCH"; do
 	set -- $v
 	n_off=$((n_off + 1))
 	if build "fixoff-$2" "$1.c" -w -DVSEAL_TEST_OPS $([ "$1" = vswap-test ] && echo -DV2_SCALAR_ONLY) -D"$2" && ! timeout 300 "$O/fixoff-$2" > "$O/fixoff-$2.log" 2>&1; then
