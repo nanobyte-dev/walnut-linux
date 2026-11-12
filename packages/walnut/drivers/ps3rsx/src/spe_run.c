@@ -7,10 +7,10 @@
  * word goes into the SPU's inbound mailbox. The SPU answers by writing the result part, the done word
  * last, then the same word into its outbound interrupt mailbox.
  *
- * The wait. A short job (spe_poll()) is polled on the done word, for a bounded time; after it the
- * interrupt-mailbox entry is drained (popping until the job's own word, SPE_DRAIN_US at most) and the
- * class-2 mailbox status cleared, so nothing latched is left for the next job. A longer job, or a polled
- * one that didn't finish, arms the interrupt (status cleared first, then unmasked) and re-reads the done
+ * The wait. A short job (spe_poll()) is polled on the done word, for a bounded time, and goes without the
+ * interrupt (its flag clear): no mailbox entry, no status to clear, no lv1 call. If the poll runs out, the
+ * PPE sets the job's flag, a full barrier, and reads the done word again after arming (the SPU reads the flag
+ * after its done word and a sync). A longer job, or a polled one that didn't finish, arms the interrupt (status cleared first, then unmasked) and re-reads the done
  * word after arming, so a finish just before the arm isn't missed. It then sleeps to an absolute
  * deadline: a wake before it (an interrupt for an older word, a spurious class-0 call) goes back to sleep
  * for the rest; an error the handler saw counts only if SPU_Status or the MFC confirm it. At the
@@ -142,6 +142,7 @@ int spe_run_job(struct spe_ctl *c, unsigned int idx, enum spe_path path)
 	struct spe_wait w;
 	vs_u64 seq, p0, now, deadline;
 	vs_u32 word;
+	int polled;
 
 	if (c->keep_pages)		/* once kept, every job says so */
 		return SPE_RET_KEEP;
@@ -158,6 +159,8 @@ int spe_run_job(struct spe_ctl *c, unsigned int idx, enum spe_path path)
 	seq = spe_seq(c->gen, ++c->n);
 	word = vseal_word(seq, idx);
 	j->seq = seq;
+	polled = spe_poll(op, n, path, c->poll_us);
+	j->flags = polled ? 0 : VSEAL_JF_IRQ;	/* a polled job finishes without the interrupt */
 	memset((unsigned char *)j + VSEAL_OUT_OFF, 0, VSEAL_OUT_BYTES);
 	p0 = SPE_RD(c->status->progress);
 	SPE_WR(c->got, 0);
@@ -171,17 +174,22 @@ int spe_run_job(struct spe_ctl *c, unsigned int idx, enum spe_path path)
 	c->jobs++;
 	spe_wait_start(&w, seq, spe_budget_us(op, n, path), p0);
 
-	if (spe_poll(op, n, path)) {
+	if (polled) {
 		vs_u64 end = spe_hw_now_us(c->hw) + spe_poll_spin_us(op, n, path);
 
 		while (SPE_RD(j->done) != seq && spe_hw_now_us(c->hw) <= end)
 			spe_hw_relax(c->hw);
-		if (SPE_RD(j->done) == seq) {
+		if (SPE_RD(j->done) == seq) {	/* no mailbox entry to drain, no status to clear */
 			spe_hw_rmb(c->hw);
-			drain(c, word);
 			c->polled++;
 			return finished(c, j, op);
 		}
+#ifndef SPE_FIXOFF_NO_WANT_IRQ
+		/* now the interrupt: the flag, a full barrier, then the done word again (below, after the arm);
+		 * the SPU reads the flag after its done word and a sync, so one of the two sees the other */
+		SPE_WR(j->flags, VSEAL_JF_IRQ);
+		spe_hw_mb(c->hw);
+#endif
 	}
 	spe_hw_ibox_arm(c->hw);		/* status cleared, then unmasked */
 	deadline = spe_hw_now_us(c->hw) + w.budget_us;

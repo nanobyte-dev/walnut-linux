@@ -148,7 +148,7 @@ static void t_seal(struct ps3rsx_spe *spe, unsigned int n)
 	for (i = 0; i < n; i++)
 		bad += j->res[i].status != VSEAL_ST_OK || memcmp(tpage(spe, 0, i), tpage(spe, 2, i), VSEAL_PAGE);
 	say(spe, "seal x%u: %lld ns (%lld a page, %s), open %lld ns (%lld a page), %u pages wrong: %s\n", n, ts,
-	    ts / n, spe_poll(VSEAL_OP_SEAL, n, SPE_PATH_RAM) ? "polled" : "interrupt", to, to / n, bad,
+	    ts / n, spe_poll(VSEAL_OP_SEAL, n, SPE_PATH_RAM, spe->ctl.poll_us) ? "polled" : "interrupt", to, to / n, bad,
 	    ret || bad ? "FAIL" : "ok");
 	/* page 0's tag changed: refused, untouched; the rest open */
 	j = tjob(spe, VSEAL_OP_OPEN, n, &idx);

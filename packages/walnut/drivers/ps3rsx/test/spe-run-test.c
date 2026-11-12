@@ -58,7 +58,7 @@ static struct fake {
 	vs_u64 lat;
 	long stop2_after, c0_after, c0err_after, stale_err_after, fault_at;
 	vs_u32 stale_err_word;
-	int resets, loads, gave_up, gave_up_quiet;
+	int resets, loads, gave_up, gave_up_quiet, clears, arms;
 	vs_u64 next_tick;
 } F;
 
@@ -232,6 +232,7 @@ vs_u32 spe_hw_ibox_pop(void *hw)
 }
 void spe_hw_ibox_arm(void *hw)
 {
+	F.arms++;
 	if (F.finish_on_arm && F.busy) {
 		F.finish_on_arm = 0;
 		finish();			/* the job ends just before the arm's clear */
@@ -241,7 +242,7 @@ void spe_hw_ibox_arm(void *hw)
 	deliver();
 }
 void spe_hw_ibox_rearm_irq(void *hw) { F.masked = 0; }
-void spe_hw_ibox_clear(void *hw) { F.stat = 0; }
+void spe_hw_ibox_clear(void *hw) { F.stat = 0; F.clears++; }
 void spe_hw_sleep_prepare(void *hw) { F.wakes = 0; }
 int spe_hw_sleep(void *hw, vs_u64 us)
 {
@@ -346,10 +347,17 @@ int main(void)
 	ret = run(VSEAL_OP_SEAL, 1, SPE_PATH_RAM);
 	check(ret == 0 && C.polled == 2 && memcmp(A.pg[0], A.pg2[0], VSEAL_PAGE), "a one-page seal is polled");
 	check(!F.ibox_full && !F.stat && !F.ibox_blocked, "after a polled job: no mailbox entry, no latched status");
+	check(F.clears == 0 && F.arms == 0, "a polled job: no interrupt asked for, nothing to clear or arm");
+	/* a one-page job that finishes just after its poll: the flag set after the poll brings its interrupt */
+	F.lat = spe_poll_spin_us(VSEAL_OP_SEAL, 1, SPE_PATH_RAM) + 40;
+	t0 = F.now;
+	ret = run(VSEAL_OP_SEAL, 1, SPE_PATH_RAM);
+	check(ret == 0 && F.now - t0 < 1000 && !F.ibox_full, "finished after its poll: woken by the interrupt it then asked for");
+	F.lat = 5;
 	F.lat = 300;
 	t0 = F.now;
 	ret = run(VSEAL_OP_SEAL, 8, SPE_PATH_RAM);
-	check(ret == 0 && C.interrupted == 1 && F.now - t0 < 1000, "an eight-page seal ends on its interrupt");
+	check(ret == 0 && C.interrupted == 2 && F.now - t0 < 1000, "an eight-page seal ends on its interrupt");
 	check(C.ring[(C.n - 1) % VSEAL_JOBS].magic == 0, "a finished descriptor is cleared");
 	t0 = F.now;
 	ret = run(VSEAL_OP_TEST_NOIRQ, 0, SPE_PATH_VRAM);

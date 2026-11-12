@@ -89,6 +89,7 @@ static struct vseal_job *job(int idx, uint32_t op, uint32_t npages)
 	j->op = op;
 	j->npages = npages;
 	j->seq = ((uint64_t)gen << 32) | ++jobno;
+	j->flags = VSEAL_JF_IRQ;
 	return j;
 }
 
@@ -388,6 +389,10 @@ int main(void)
 		j = job(0, VSEAL_OP_TEST_NOIRQ, 0);
 		run(0);
 		check(j->done == j->seq && vs_irq_count == 0, "noirq: done, no interrupt", 0);
+		j = job(0, VSEAL_OP_ECHO, 0);
+		j->flags = 0;
+		run(0);
+		check(j->done == j->seq && vs_irq_count == 0, "a job without the flag: done, no interrupt", 0);
 		j = job(2, VSEAL_OP_TEST_COPY, 3);
 		for (i = 0; i < 3; i++) {
 			tfill(pt[i], VSEAL_PAGE);

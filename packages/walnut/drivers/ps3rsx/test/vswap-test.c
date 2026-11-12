@@ -670,6 +670,39 @@ int main(void)
 			      "one changed slot fails only its own piece (%d)", i);
 	}
 
+	/* --- a batch of requests (io_work's): one job; the same page written twice keeps the later write --- */
+	reset_model();
+	{
+		struct req rq[3] = { { 0 } };
+		vs_u8 first[VSX_PAGE];
+		vs_u64 j0 = X.st.seal_jobs;
+
+		vsx_begin(&X);
+		for (i = 0; i < 3; i++) {
+			struct vsx_piece pc = { bio[i], bio[i], 60, 0, 0, 0, VSX_PAGE, 0, -1, &rq[i] };
+
+			fill(60);
+			if (!i)
+				memcpy(first, truth[60], VSX_PAGE);
+			memcpy(bio[i], truth[60], VSX_PAGE);
+			if (i == 2) {
+				pc.p = 61;
+				fill(61);
+				memcpy(bio[i], truth[61], VSX_PAGE);
+				fill(60);	/* (truth[60] back to request 1's bytes) */
+				memcpy(truth[60], bio[1], VSX_PAGE);
+			}
+			vsx_write(&X, &pc);
+		}
+		vsx_finish(&X);
+		CHECK(X.st.seal_jobs == j0 + 1 && X.in_vram == 2, "three requests sealed in one job");
+		p[0] = 60;
+		p[1] = 61;
+		CHECK(rd_check(p, 2, 0, VSX_PAGE, "batched writes") == 0 && memcmp(first, truth[60], VSX_PAGE),
+		      "the same page twice in a batch: the later write reads back");
+		counts("batch");
+	}
+
 	/* --- replays: an older ciphertext into another slot and into the same slot --- */
 	reset_model();
 	p[0] = 30;

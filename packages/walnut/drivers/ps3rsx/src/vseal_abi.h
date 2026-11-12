@@ -44,7 +44,7 @@ typedef uint64_t vs_u64;
 #endif
 
 #define VSEAL_MAGIC		0x7653414cu	/* "vSAL" */
-#define VSEAL_ABI		2		/* 2: inputs and results apart, the mailbox word */
+#define VSEAL_ABI		3		/* 3: the interrupt only when the job's flag asks for it */
 
 /* LS layout (offsets); every buffer 128-byte aligned, the program below VSEAL_LS_PROG_MAX */
 #define VSEAL_LS_SIZE		0x40000
@@ -115,7 +115,8 @@ struct vseal_result {
 struct vseal_job {
 	vs_u32 magic, op, npages, arg;
 	vs_u64 seq;			/* the generation (upper 32) and the job's number (lower 32) */
-	vs_u32 pad[26];
+	vs_u32 flags;			/* VSEAL_JF_*: read again by the SPU after its done word */
+	vs_u32 pad[25];		/* (room for more inputs: e.g. a compressed op's lengths) */
 	struct vseal_page page[VSEAL_PAGES_MAX];
 	/* results */
 	vs_u64 done;			/* written last by the SPU: seq when finished */
@@ -129,6 +130,11 @@ struct vseal_job {
 #define VSEAL_OUT_OFF		offsetof(struct vseal_job, done)
 #define VSEAL_DESC_BYTES	(offsetof(struct vseal_job, res) + VSEAL_PAGES_MAX * sizeof(struct vseal_result))
 #define VSEAL_OUT_BYTES		(VSEAL_DESC_BYTES - VSEAL_OUT_OFF)
+
+/* VSEAL_JF_IRQ: answer through the interrupt mailbox. A polled job goes without; if the poll runs out, the PPE
+ * sets the flag in the ring, a full barrier, then reads the done word again, while the SPU, after its done word
+ * and a sync, reads the flag: one of the two always sees the other's write. */
+#define VSEAL_JF_IRQ		1
 
 /* The inbound mailbox word of a job: the load's generation (8 bits), the job's number (22 bits), the
  * descriptor's index (2 bits). The SPU answers with the same word. */
@@ -151,6 +157,7 @@ _Static_assert(sizeof(struct vseal_page) == 64, "vseal_page");
 _Static_assert(sizeof(struct vseal_result) == 32, "vseal_result");
 _Static_assert(VSEAL_DESC_BYTES == 128 + 64 * VSEAL_PAGES_MAX + 128 + 32 * VSEAL_PAGES_MAX, "vseal_job");
 _Static_assert(sizeof(struct vseal_job) == VSEAL_PAGE, "one descriptor a page");
+_Static_assert(offsetof(struct vseal_job, flags) == 24, "seq and flags in one quadword");
 _Static_assert(VSEAL_OUT_OFF % 128 == 0 && VSEAL_IN_BYTES % 16 == 0 && VSEAL_OUT_BYTES % 16 == 0, "DMA sizes");
 _Static_assert(VSEAL_JOBS == 4, "vseal_word() has two index bits");
 _Static_assert(sizeof(struct vseal_job) <= 0x2000, "the descriptor fits its LS area");

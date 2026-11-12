@@ -31,6 +31,7 @@ struct spe_ctl {
 	int keep_pages;			/* given up unquiet: nothing a descriptor named may be freed */
 	int released;			/* the client gave the SPE back (spu_kernel_release) */
 	int test;			/* test ops and RAM-to-RAM seals allowed (test builds' hook) */
+	unsigned int poll_us;		/* poll jobs expected to finish within this (0: SPE_POLL_US) */
 	struct spe_health health;
 	struct spe_bounds bounds;
 	/* shared with the interrupt handlers */

@@ -195,10 +195,10 @@ static void check_descriptors(void)
 /* --- poll, budget, timeouts --------------------------------------------------------------------- */
 static void check_modes(void)
 {
-	check(spe_poll(VSEAL_OP_OPEN, 1, SPE_PATH_RAM), "a one-page open from RAM or the bounce is polled");
-	check(spe_poll(VSEAL_OP_SEAL, 3, SPE_PATH_RAM), "a three-page seal is polled");
-	check(!spe_poll(VSEAL_OP_SEAL, 4, SPE_PATH_RAM), "a four-page seal waits for the interrupt");
-	check(!spe_poll(VSEAL_OP_OPEN, 1, SPE_PATH_VRAM), "an open whose pages the SPE reads from VRAM: interrupt");
+	check(spe_poll(VSEAL_OP_OPEN, 1, SPE_PATH_RAM, 0), "a one-page open from RAM or the bounce is polled");
+	check(!spe_poll(VSEAL_OP_SEAL, 2, SPE_PATH_RAM, 0), "a two-page seal waits for the interrupt (the PPE is free)");
+	check(spe_poll(VSEAL_OP_SEAL, 3, SPE_PATH_RAM, 50), "with a 50 us threshold, three pages are polled");
+	check(!spe_poll(VSEAL_OP_OPEN, 1, SPE_PATH_VRAM, 0), "an open whose pages the SPE reads from VRAM: interrupt");
 	check(spe_poll_spin_us(VSEAL_OP_SEAL, 1, SPE_PATH_RAM) < 100, "a poll spins briefly");
 	check(spe_budget_us(VSEAL_OP_OPEN, 32, SPE_PATH_VRAM) >= 20000 + 32 * 1000,
 	      "a 32-page VRAM-read budget covers its reads");

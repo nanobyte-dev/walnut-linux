@@ -33,7 +33,7 @@
 
 #include "vseal_abi.h"
 
-#define SPE_POLL_US		50	/* poll only jobs expected to take less */
+#define SPE_POLL_US		20	/* poll only jobs expected to take less (one page): the PPE spins meanwhile */
 #define SPE_POLL_MARGIN_US	30	/* a poll spins at most expected + this, then waits for the interrupt */
 #define SPE_DRAIN_US		20	/* how long a drain waits for the job's interrupt-mailbox entry */
 #define SPE_BUDGET_FLOOR_US	20000
@@ -202,10 +202,10 @@ static inline unsigned int spe_expected_us(unsigned int op, unsigned int npages,
 	return npages * (path == SPE_PATH_VRAM ? SPE_PAGE_US_VRAM : SPE_PAGE_US_SEAL);
 }
 
-/* poll (1) or wait for the interrupt (0) */
-static inline int spe_poll(unsigned int op, unsigned int npages, enum spe_path path)
+/* poll (1) or wait for the interrupt (0); poll_us 0: SPE_POLL_US */
+static inline int spe_poll(unsigned int op, unsigned int npages, enum spe_path path, unsigned int poll_us)
 {
-	return path != SPE_PATH_VRAM && spe_expected_us(op, npages, path) < SPE_POLL_US;
+	return path != SPE_PATH_VRAM && spe_expected_us(op, npages, path) < (poll_us ? poll_us : SPE_POLL_US);
 }
 
 static inline unsigned int spe_poll_spin_us(unsigned int op, unsigned int npages, enum spe_path path)

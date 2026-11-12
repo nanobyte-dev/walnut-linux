@@ -34,7 +34,7 @@ for v in "vseal-test VSEAL_FIXOFF_PLAIN_GET" "vseal-test VSEAL_FIXOFF_SPLIT_TAGS
 	"spe-core-test SPE_FIXOFF_RAM_WITHOUT_CHECK" \
 	"spe-run-test SPE_FIXOFF_GOLDEN_COUNTS" "spe-run-test SPE_FIXOFF_RESET_FAIL_NODEV" \
 	"spe-run-test SPE_FIXOFF_WAKE_IS_TIMEOUT" "spe-run-test SPE_FIXOFF_KEEP_RING" \
-	"spe-run-test SPE_FIXOFF_RELEASED_IS_FAILURE" \
+	"spe-run-test SPE_FIXOFF_RELEASED_IS_FAILURE" "spe-run-test SPE_FIXOFF_NO_WANT_IRQ" \
 	"vswap-test VSX_FIXOFF_IGNORE_TAG" "vswap-test VSX_FIXOFF_SAME_CTR" "vswap-test VSX_FIXOFF_AD_NO_PAGE" \
 	"vswap-test VSX_FIXOFF_WB_INTO_BOUNCE" "vswap-test VSX_FIXOFF_NO_RETRY" "vswap-test VSX_FIXOFF_DISCARD_BAD" \
 	"vswap-test VSX_FIXOFF_NO_DEFER" "vswap-test VSX_FIXOFF_PPE_NO_RETRY" "vswap-test VSX_FIXOFF_PARTIAL_EMPTY" \

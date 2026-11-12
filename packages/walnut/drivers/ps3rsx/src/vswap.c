@@ -131,6 +131,7 @@ struct ps3rsx_vswap {
 	u32 bounce_seq;
 	struct kcopy_run runs[2 * MAX_RQ_PAGES];
 	u64 gpu_reads, gpu_evicts, gpu_fallbacks;
+	u64 batches, batched;		/* io_work's batches and the requests in them */
 	/* statistics (pages) */
 	u64 disk_writes, disk_reads, evicted;
 };
@@ -583,40 +584,25 @@ static void do_discard(struct ps3rsx_vswap *vs, sector_t sector, unsigned int by
 		vsx_discard(&vs->x, p);
 }
 
-/* Serve one request (io_work, on its own stack) */
-static void vswap_do_rq(struct ps3rsx_vswap *vs, struct request *rq)
+/* One request's pieces into vswap_core (vs->lock held); its seals and opens wait for the batch's vsx_finish */
+static void rq_pieces(struct ps3rsx_vswap *vs, struct request *rq, struct vreq *r)
 {
 	struct vswap_cmd *cmd = blk_mq_rq_to_pdu(rq);
 	u64 pos = (u64)blk_rq_pos(rq) << 9;
-	struct vreq r = { vs, rq };
 	struct bvec_iter iter;
-	unsigned int noio, k = 0;
+	unsigned int k = 0;
 	struct bio_vec bv;
-	struct bio *bio, *rb;
+	struct bio *rb;
 
 	atomic_set(&cmd->pending, 1);
 	cmd->status = BLK_STS_OK;
 	memset(cmd->st, 0, sizeof(cmd->st));
-	bio_list_init(&r.bios);
-	noio = memalloc_noio_save();
-	mutex_lock(&vs->lock);
+	*r = (struct vreq){ vs, rq };
+	bio_list_init(&r->bios);
 	if (!vs->x.map) {
 		cmd->status = BLK_STS_IOERR;
-		goto out;
+		return;
 	}
-#ifdef VSX_PLAIN
-	switch (READ_ONCE(test_vswap_seal)) {
-	case 0:
-		vs->x.plain = 1;	/* PPE stores */
-		break;
-	case 2:
-		vs->x.plain = 2;	/* the SPE's copy */
-		break;
-	default:
-		vs->x.plain = 0;	/* sealed */
-	}
-#endif
-	vsx_begin(&vs->x);
 	switch (req_op(rq)) {
 	case REQ_OP_FLUSH:
 		break;
@@ -629,7 +615,7 @@ static void vswap_do_rq(struct ps3rsx_vswap *vs, struct request *rq)
 		__rq_for_each_bio(rb, rq) {
 			struct vbio *b = &cmd->b[min(k, (unsigned int)RQ_BIOS - 1)];
 
-			*b = (struct vbio){ rq, &r, min(k, (unsigned int)RQ_BIOS - 1) };
+			*b = (struct vbio){ rq, r, min(k, (unsigned int)RQ_BIOS - 1) };
 			k++;
 			bio_for_each_segment(bv, rb, iter) {
 				unsigned int done = 0;
@@ -649,7 +635,7 @@ static void vswap_do_rq(struct ps3rsx_vswap *vs, struct request *rq)
 					pc.buf = page_address(bv.bv_page) + pc.off;	/* (no highmem on ppc64) */
 					if (pc.p >= vs->x.npages) {
 						cmd->status = BLK_STS_IOERR;
-						goto out;
+						return;
 					}
 					if (op_is_write(req_op(rq)))
 						vsx_write(&vs->x, &pc);
@@ -664,29 +650,87 @@ static void vswap_do_rq(struct ps3rsx_vswap *vs, struct request *rq)
 	default:
 		cmd->status = BLK_STS_NOTSUPP;
 	}
-out:
-	vsx_finish(&vs->x);		/* the seals and the opens of the request */
+}
+
+/*
+ * Serve a batch of requests (io_work, on its own stack): reads only or writes only, at most
+ * VSEAL_PAGES_MAX pages in all, so their seals or their opens go to the SPE as one job (and one GPU
+ * copy). A request's pieces are in the order of the queue; a read never waits behind a write of the
+ * batch (the two never share one).
+ */
+#define BATCH_RQS	VSEAL_PAGES_MAX
+static void vswap_do_batch(struct ps3rsx_vswap *vs, struct request **rqs, unsigned int n)
+{
+	struct vreq r[BATCH_RQS];
+	unsigned int i, noio;
+	struct bio *bio;
+
+	noio = memalloc_noio_save();
+	mutex_lock(&vs->lock);
+#ifdef VSX_PLAIN
+	switch (READ_ONCE(test_vswap_seal)) {
+	case 0:
+		vs->x.plain = 1;	/* PPE stores */
+		break;
+	case 2:
+		vs->x.plain = 2;	/* the SPE's copy */
+		break;
+	default:
+		vs->x.plain = 0;	/* sealed */
+	}
+#endif
+	vsx_begin(&vs->x);
+	for (i = 0; i < n; i++)
+		rq_pieces(vs, rqs[i], &r[i]);
+	vsx_finish(&vs->x);		/* the batch's seals and opens */
+	vs->batches++;
+	vs->batched += n;
 	mutex_unlock(&vs->lock);
-	while ((bio = bio_list_pop(&r.bios)))
-		submit_bio(bio);
+	for (i = 0; i < n; i++)
+		while ((bio = bio_list_pop(&r[i].bios)))
+			submit_bio(bio);
 	memalloc_noio_restore(noio);
-	cmd_put(rq);
+	for (i = 0; i < n; i++)
+		cmd_put(rqs[i]);
+}
+
+/* the request's pages if it can join a batch (a read or a write of whole pages), else 0 */
+static unsigned int batch_pages(struct request *rq)
+{
+	if (req_op(rq) != REQ_OP_READ && req_op(rq) != REQ_OP_WRITE)
+		return 0;
+	return DIV_ROUND_UP(blk_rq_bytes(rq), PAGE_SIZE);
 }
 
 static void vswap_io_work(struct work_struct *work)
 {
 	struct ps3rsx_vswap *vs = container_of(work, struct ps3rsx_vswap, io_work);
+	struct request *rqs[BATCH_RQS];
 	struct vswap_cmd *cmd;
 
 	for (;;) {
+		unsigned int n = 0, pages = 0;
+		enum req_op op = REQ_OP_READ;
+
 		spin_lock_irq(&vs->pending_lock);
-		cmd = list_first_entry_or_null(&vs->pending, struct vswap_cmd, node);
-		if (cmd)
+		while ((cmd = list_first_entry_or_null(&vs->pending, struct vswap_cmd, node))) {
+			struct request *rq = blk_mq_rq_from_pdu(cmd);
+			unsigned int np = batch_pages(rq);
+
+			/* a batch: the same direction, at most one job's pages; anything else alone */
+			if (n && (!np || req_op(rq) != op || pages + np > VSEAL_PAGES_MAX || n == BATCH_RQS))
+				break;
 			list_del(&cmd->node);
+			rqs[n++] = rq;
+			op = req_op(rq);
+			pages += np;
+			if (!np)
+				break;
+		}
 		spin_unlock_irq(&vs->pending_lock);
-		if (!cmd)
+		if (!n)
 			break;
-		vswap_do_rq(vs, blk_mq_rq_from_pdu(cmd));
+		vswap_do_batch(vs, rqs, n);
 	}
 }
 
@@ -1145,14 +1189,14 @@ static ssize_t stats_show(struct device *dev, struct device_attribute *attr, cha
 		       "pages in VRAM %u on disk %u failed %u, VRAM chunks %u (MiB)\n"
 		       "writes VRAM %llu disk %llu, reads VRAM %llu disk %llu, written back %llu "
 		       "(demoted %llu)\n"
-		       "GPU copies: reads %llu, chunk write-backs %llu, fallbacks %llu\n"
+		       "GPU copies: reads %llu, chunk write-backs %llu, fallbacks %llu; batches %llu (requests %llu)\n"
 		       "seals %s: pages %llu (jobs %llu, failed %llu), opens from the bounce %llu, from VRAM %llu, "
 		       "by the PPE %llu, retries %llu, resubmits %llu, check failures %llu (BAD %llu)%s, kept %llu, "
 		       "merges %llu, unsealed writes %llu reads %llu, to disk without an SPE %llu\n",
 		       vs->x.in_vram, vs->x.on_disk, vs->x.bad, chunks, vs->x.st.seals + vs->x.st.plain_writes,
 		       vs->disk_writes, vs->x.st.opens_bounce + vs->x.st.opens_vram + vs->x.st.opens_ppe +
 		       vs->x.st.plain_reads, vs->disk_reads, vs->evicted, vs->demoted, vs->gpu_reads,
-		       vs->gpu_evicts, vs->gpu_fallbacks,
+		       vs->gpu_evicts, vs->gpu_fallbacks, vs->batches, vs->batched,
 		       vs->x.mode == VSX_SEAL ? "on" : vs->x.mode == VSX_DRAIN ? "GONE (drain)" : "off (no SPE)",
 		       vs->x.st.seals, vs->x.st.seal_jobs, vs->x.st.seal_fails, vs->x.st.opens_bounce,
 		       vs->x.st.opens_vram, vs->x.st.opens_ppe, vs->x.st.retries, vs->x.st.resubmits,

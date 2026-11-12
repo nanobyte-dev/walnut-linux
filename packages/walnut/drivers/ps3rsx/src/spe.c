@@ -59,6 +59,9 @@ static bool vswap_seal = true;
 module_param(vswap_seal, bool, 0444);
 MODULE_PARM_DESC(vswap_seal, "Seal the VRAM swap's pages on an SPE reserved at load (with the pool enabled); "
 		 "off, or without an SPE, the swap keeps nothing in VRAM");
+static unsigned int vswap_seal_poll_us = SPE_POLL_US;
+module_param(vswap_seal_poll_us, uint, 0644);
+MODULE_PARM_DESC(vswap_seal_poll_us, "Spin for SPE jobs expected to take less (us); longer ones sleep until the interrupt");
 
 #ifdef PS3RSX_VSEAL_TEST
 static unsigned int test_vseal;
@@ -316,6 +319,7 @@ ok:
 	j->op = op;
 	j->npages = npages;
 	memcpy(j->page, pages, npages * sizeof(*pages));
+	spe->ctl.poll_us = READ_ONCE(vswap_seal_poll_us) ?: 1;
 #ifdef PS3RSX_VSEAL_TEST
 	spe->ctl.test = op == VSEAL_OP_TEST_COPY;
 #endif

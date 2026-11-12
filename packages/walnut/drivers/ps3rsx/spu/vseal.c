@@ -306,7 +306,13 @@ void vseal_job(uint32_t word)
 	if (op == VSEAL_OP_TEST_NOIRQ)
 		return;
 #endif
-	MBOX_IRQ_WRITE(word);
+	/* the interrupt only if the PPE asks for it (now): the done word is out (synced), then its flag */
+	DMA_SYNC(TAG_SYNC);
+	DMA_WAIT(1u << TAG_SYNC);
+	DMA_GET((uint8_t *)JOB + offsetof(struct vseal_job, seq), ea + offsetof(struct vseal_job, seq), 16, TAG_DESC);
+	DMA_WAIT(1u << TAG_DESC);
+	if (JOB->flags & VSEAL_JF_IRQ)
+		MBOX_IRQ_WRITE(word);
 }
 
 #ifndef VSEAL_HOST
