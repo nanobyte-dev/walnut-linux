@@ -180,6 +180,7 @@ struct ps3rsx_device {
 	u64 gart_backed;		/* bytes of the GART backed by memory now */
 	struct delayed_work gart_reclaim;
 	struct ps3rsx_vswap *vswap;	/* swap in spare VRAM (vswap.c), or NULL */
+	struct ps3rsx_spe *spe;		/* the SPE that seals the swap's pages (spe.c), or NULL */
 	struct ps3rsx_vclear vc;	/* freed VRAM cleared before reuse (vclear.c) */
 	struct ps3rsx_keep keep;	/* and kept for its owner instead (vkeep.c) */
 
@@ -412,12 +413,14 @@ int ps3rsx_vswap_init(struct ps3rsx_device *rsx);
 void ps3rsx_vswap_fini(struct ps3rsx_device *rsx);
 bool ps3rsx_vswap_shrink(struct ps3rsx_device *rsx, u64 bytes);
 void ps3rsx_vswap_show(struct seq_file *m, struct ps3rsx_device *rsx);
+bool ps3rsx_vswap_pool_enabled(void);
 /* gart.c */
 int ps3rsx_gart_init(struct ps3rsx_device *rsx);
 void ps3rsx_gart_fini(struct ps3rsx_device *rsx);
 int ps3rsx_gart_get(struct ps3rsx_device *rsx, u64 io, u64 size);
 void ps3rsx_gart_put(struct ps3rsx_device *rsx, u64 io, u64 size, u32 seq);
 void *ps3rsx_gart_ptr(struct ps3rsx_device *rsx, u64 io);
+bool ps3rsx_gart_holds(struct ps3rsx_device *rsx, unsigned long ea);
 unsigned long ps3rsx_gart_pfn(struct ps3rsx_device *rsx, u64 io);
 void ps3rsx_gart_read(struct ps3rsx_device *rsx, void *dst, u64 io, size_t len);
 void ps3rsx_gart_clear(struct ps3rsx_device *rsx, u64 io, size_t len);

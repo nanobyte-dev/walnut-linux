@@ -29,10 +29,18 @@ ifneq ($(if $(findstring p4count,$(DEB_VERSION)),y),$(TEST_P4COUNT))
 $(error the version ($(DEB_VERSION)) and DEB_BUILD_OPTIONS disagree about ps3rsx-p4count)
 endif
 # the dump build counts the address checks itself (Kbuild), without the switch p4count has
+TEST_VSEAL := $(if $(filter ps3rsx-vseal,$(DEB_BUILD_OPTIONS)),y)
+ifneq ($(if $(findstring vseal,$(DEB_VERSION)),y),$(TEST_VSEAL))
+$(error the version ($(DEB_VERSION)) and DEB_BUILD_OPTIONS disagree about ps3rsx-vseal)
+endif
+# the SPE client is built when the target kernel's own headers have local/0058's interface
+# (SPU_KERNEL_API_VERSION 1, as src/Kbuild checks); no other installed headers count
+SPU_KERNEL := $(shell grep -qsE '^.define[[:space:]]+SPU_KERNEL_API_VERSION[[:space:]]+1$$' $(KOBJ)/arch/powerpc/include/asm/spu.h \
+	$(KOBJ)/../linux-headers-$(KREL:-debug%=)-common/arch/powerpc/include/asm/spu.h && echo y)
 ifeq ($(TEST_DUMP)$(TEST_P4COUNT),yy)
 $(error ps3rsx-pushdump and ps3rsx-p4count are separate test builds)
 endif
-ifneq ($(TEST_CLEAR)$(TEST_DUMP)$(TEST_P4COUNT),)
+ifneq ($(TEST_CLEAR)$(TEST_DUMP)$(TEST_P4COUNT)$(TEST_VSEAL),)
 ifeq ($(findstring ~dev,$(DEB_VERSION)),)
 $(error a test build ($(DEB_BUILD_OPTIONS)) needs ~dev in its version ($(DEB_VERSION)))
 endif
@@ -45,10 +53,20 @@ has_parm = grep -aq 'parm=$(2):' $(1)
 
 override_dh_auto_build:
 	mkdir -p b/ps3rsx b/probes
-	cp src/* b/ps3rsx/
+	cp -r src/. b/ps3rsx/
+	cp spu/v2_crypto.h spu/v2_chacha20.c spu/v2_poly1305.c spu/v2_aead.c b/ps3rsx/
 	cp probes/* b/probes/
 	$(KMAKE) M=$(CURDIR)/b/ps3rsx PS3RSX_TEST_WEDGE=$(TEST_WEDGE) PS3RSX_TEST_CLEAR=$(TEST_CLEAR) \
-		PS3RSX_PUSH_DUMP=$(TEST_DUMP) PS3RSX_P4_COUNT=$(TEST_P4COUNT) modules
+		PS3RSX_PUSH_DUMP=$(TEST_DUMP) PS3RSX_P4_COUNT=$(TEST_P4COUNT) PS3RSX_VSEAL_TEST=$(TEST_VSEAL) modules
+	if $(call has_parm,b/ps3rsx/ps3rsx.ko,test_vseal); then [ "$(TEST_VSEAL)" = y ]; \
+		else [ "$(TEST_VSEAL)" != y ]; fi || \
+		{ echo "!! test_vseal in the module: $(if $(TEST_VSEAL),missing,not asked for)"; exit 1; }
+	if $(call has_parm,b/ps3rsx/ps3rsx.ko,test_vswap_seal); then [ "$(TEST_VSEAL)" = y ]; \
+		else [ "$(TEST_VSEAL)" != y ]; fi || \
+		{ echo "!! test_vswap_seal in the module: $(if $(TEST_VSEAL),missing,not asked for)"; exit 1; }
+	if $(call has_parm,b/ps3rsx/ps3rsx.ko,vswap_seal); then [ "$(SPU_KERNEL)" = y ]; \
+		else [ "$(SPU_KERNEL)" != y ]; fi || \
+		{ echo "!! the SPE client (vswap_seal): $(if $(SPU_KERNEL),missing though the kernel has SPU_KERNEL_API_VERSION 1,built without SPU_KERNEL_API_VERSION 1)"; exit 1; }
 	if $(call has_parm,b/ps3rsx/ps3rsx.ko,test_clear_off); then [ "$(TEST_CLEAR)" = y ]; \
 		else [ "$(TEST_CLEAR)" != y ]; fi || \
 		{ echo "!! test_clear_off in the module: $(if $(TEST_CLEAR),missing,not asked for)"; exit 1; }

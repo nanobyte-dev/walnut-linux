@@ -179,6 +179,25 @@ void ps3rsx_gart_unpin(struct ps3rsx_device *rsx, struct drm_mm_node *node)
 }
 
 /* Kernel address of GART IO address io; valid up to the end of its 1 MiB chunk */
+/* Whether the kernel page at ea is GART memory (the GPU can reach it): the ring's, the scratch chunk's or a
+ * chunk's. No lock: a page under I/O can't become a chunk meanwhile (CMA can't move it) */
+bool ps3rsx_gart_holds(struct ps3rsx_device *rsx, unsigned long ea)
+{
+	unsigned long pfn = virt_to_pfn((void *)ea), n = CHUNK >> PAGE_SHIFT;
+	struct page *page;
+	unsigned int i;
+
+	page = READ_ONCE(rsx->gart_scratch);
+	if (page && pfn - page_to_pfn(page) < n)
+		return true;
+	for (i = 0; i < rsx->gart_nchunks; i++) {
+		page = READ_ONCE(rsx->gart_chunks[i].page);
+		if (page && pfn - page_to_pfn(page) < n)
+			return true;
+	}
+	return false;
+}
+
 void *ps3rsx_gart_ptr(struct ps3rsx_device *rsx, u64 io)
 {
 	return page_address(rsx->gart_chunks[io / CHUNK].page) + io % CHUNK;
