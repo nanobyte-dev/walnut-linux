@@ -36,7 +36,7 @@ endif
 # the SPE client is built when the target kernel's own headers have local/0058's interface
 # (SPU_KERNEL_API_VERSION 1, as src/Kbuild checks); no other installed headers count
 SPU_KERNEL := $(shell grep -qsE '^.define[[:space:]]+SPU_KERNEL_API_VERSION[[:space:]]+1$$' $(KOBJ)/arch/powerpc/include/asm/spu.h \
-	$(KOBJ)/../linux-headers-$(KREL:-debug%=)-common/arch/powerpc/include/asm/spu.h && echo y)
+	$(KOBJ)/../linux-headers-$(firstword $(subst -debug, ,$(KREL)))-common/arch/powerpc/include/asm/spu.h && echo y)
 ifeq ($(TEST_DUMP)$(TEST_P4COUNT),yy)
 $(error ps3rsx-pushdump and ps3rsx-p4count are separate test builds)
 endif
