@@ -14,10 +14,12 @@
  * pages, random sequences under several seeds. The disk completes writes out of order (a write-back's write
  * and a request's write of one page must still end with the newer one); a kept job's SPE keeps writing its
  * destinations after the failure; a request's failure stays with its own piece; replays into the same slot and
- * into another; a changed bounce under the PPE's opens.
+ * into another; a changed bounce under the PPE's opens; batches of requests (one page written twice, the second
+ * write going to the disk); an open from the bounce failing as a whole, retried from VRAM.
  * Built with VSX_FIXOFF_IGNORE_TAG, VSX_FIXOFF_SAME_CTR, VSX_FIXOFF_AD_NO_PAGE, VSX_FIXOFF_WB_INTO_BOUNCE,
- * VSX_FIXOFF_NO_RETRY, VSX_FIXOFF_DISCARD_BAD, VSX_FIXOFF_NO_DEFER, VSX_FIXOFF_PPE_NO_RETRY or
- * VSX_FIXOFF_PARTIAL_EMPTY it must fail. */
+ * VSX_FIXOFF_NO_RETRY, VSX_FIXOFF_DISCARD_BAD, VSX_FIXOFF_NO_DEFER, VSX_FIXOFF_PPE_NO_RETRY,
+ * VSX_FIXOFF_PARTIAL_EMPTY, VSX_FIXOFF_MODE_BY_SWITCH, VSX_FIXOFF_BATCH_REORDER or VSX_FIXOFF_R1_FINAL it
+ * must fail. */
 #define VSX_PLAIN
 #include <stdio.h>
 #include <stdlib.h>
@@ -597,6 +599,18 @@ int main(void)
 	job_fail_once = 1;
 	CHECK(rd_check(p, 8, 0, VSX_PAGE, "restart open") == 0, "an open resubmitted after a restart");
 
+	/* --- an open from the bounce that fails as a whole (-EIO): the slots are opened from VRAM --- */
+	reset_model();
+	CHECK(!wr(p, seq(0, 8, p), 0, VSX_PAGE), "8 pages into VRAM");
+	job_fail = SPE_RET_IO;
+	job_fail_once = 1;
+	{
+		vs_u64 v0 = X.st.opens_vram;
+
+		CHECK(rd_check(p, 8, 0, VSX_PAGE, "R1 failed whole") == 0 && X.st.opens_vram == v0 + 8 && X.bad == 0,
+		      "an R1 job failed as a whole: the reads come from VRAM");
+	}
+
 	/* --- the SPE gone: the PPE opens, the drain moves everything to the disk --- */
 	job_fail = SPE_RET_NODEV;
 	CHECK(rd_check(p, 8, 0, VSX_PAGE, "gone") == 0 && X.mode == VSX_DRAIN && drains == 1 && X.st.opens_ppe == 8,
@@ -695,12 +709,54 @@ int main(void)
 			vsx_write(&X, &pc);
 		}
 		vsx_finish(&X);
-		CHECK(X.st.seal_jobs == j0 + 1 && X.in_vram == 2, "three requests sealed in one job");
+		/* (the second write of page 60 seals the queued first one before it is queued itself) */
+		CHECK(X.st.seal_jobs == j0 + 2 && X.in_vram == 2, "three requests, one page twice: two jobs");
 		p[0] = 60;
 		p[1] = 61;
 		CHECK(rd_check(p, 2, 0, VSX_PAGE, "batched writes") == 0 && memcmp(first, truth[60], VSX_PAGE),
 		      "the same page twice in a batch: the later write reads back");
 		counts("batch");
+	}
+	reset_model();
+	{
+		struct req rq[3] = { { 0 } };
+		vs_u64 j0 = X.st.seal_jobs;
+
+		vsx_begin(&X);
+		for (i = 0; i < 3; i++) {
+			struct vsx_piece pc = { bio[i], bio[i], 70 + i, 0, 0, 0, VSX_PAGE, 0, -1, &rq[i] };
+
+			fill(70 + i);
+			memcpy(bio[i], truth[70 + i], VSX_PAGE);
+			vsx_write(&X, &pc);
+		}
+		vsx_finish(&X);
+		CHECK(X.st.seal_jobs == j0 + 1 && X.in_vram == 3, "three requests sealed in one job");
+		CHECK(rd_check((seq(70, 3, p), p), 3, 0, VSX_PAGE, "batch of three") == 0, "and read back");
+	}
+	/* the same page twice in a batch, the second to the disk (the lockout trips between them): the disk's
+	 * newer write stays, the queued older one is never installed over it */
+	reset_model();
+	{
+		struct req rq[2] = { { 0 } };
+
+		vsx_begin(&X);
+		for (i = 0; i < 2; i++) {
+			struct vsx_piece pc = { bio[i], bio[i], 80, 0, 0, 0, VSX_PAGE, 0, -1, &rq[i] };
+
+			fill(80);
+			memcpy(bio[i], truth[80], VSX_PAGE);
+			if (i == 1)
+				X.locked = 1;
+			vsx_write(&X, &pc);
+		}
+		vsx_finish(&X);
+		disk_complete(1);
+		p[0] = 80;
+		CHECK(map[80] == VSX_ON_DISK && X.in_vram == 0, "the newer write on the disk, no slot left installed (map %#x)",
+		      map[80]);
+		CHECK(rd_check(p, 1, 0, VSX_PAGE, "batch to the disk") == 0, "the same page twice, the second to the disk: it reads back");
+		counts("batch to the disk");
 	}
 
 	/* --- replays: an older ciphertext into another slot and into the same slot --- */

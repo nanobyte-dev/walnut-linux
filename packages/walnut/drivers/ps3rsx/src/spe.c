@@ -361,6 +361,20 @@ int ps3rsx_spe_set_bounds(struct ps3rsx_device *rsx, const struct spe_window *w,
 	return 0;
 }
 
+/* the swap's bounds out (before its pool and pages go): with none, every job is refused */
+void ps3rsx_spe_clear_bounds(struct ps3rsx_device *rsx)
+{
+	struct ps3rsx_spe *spe = rsx->spe;
+
+	if (!spe)
+		return;
+	mutex_lock(&spe->lock);
+	spe->ctl.bounds.nwin = 0;
+	spe->ctl.bounds.page_ok = NULL;
+	spe->ctl.bounds.page_ok_arg = NULL;
+	mutex_unlock(&spe->lock);
+}
+
 const u8 *ps3rsx_spe_key(struct ps3rsx_device *rsx)
 {
 	return rsx->spe ? rsx->spe->key : NULL;

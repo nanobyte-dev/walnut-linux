@@ -429,6 +429,17 @@ void vsx_open(struct vsx *x, struct vsx_open *o, unsigned int n)
 	if (k) {
 		tagfail = 0;
 		ret = open_job(x, o, idx, k, 1, &tagfail);
+#ifndef VSX_FIXOFF_R1_FINAL			/* (the fix-off: a whole-job failure from the bounce is final) */
+		if (ret && ret != SPE_RET_NODEV && ret != SPE_RET_KEEP) {
+			/* failed as a whole (twice timed out, -EIO, -EINVAL), the slots untried: R2 opens them */
+			for (i = 0; i < k; i++)
+				if (!o[idx[i]].status) {
+					o[idx[i]].bidx = -1;
+					x->st.retries++;
+				}
+			ret = 0;
+		}
+#endif
 		if (ret) {
 			open_failed(x, o, idx, k, ret);
 			if (x->mode == VSX_DRAIN) {	/* the rest by the PPE too */
@@ -510,10 +521,27 @@ void vsx_begin(struct vsx *x)
 	x->nrd = 0;
 }
 
+/* whether page p has a write queued for the batch's seal */
+static int queued(struct vsx *x, vs_u32 p)
+{
+	unsigned int i;
+
+	for (i = 0; i < x->nwr; i++)
+		if (x->wr[i].p == p)
+			return 1;
+	return 0;
+}
+
 void vsx_write(struct vsx *x, struct vsx_piece *pc)
 {
-	vs_u32 e = x->map[pc->p];
+	vs_u32 e;
 	int s;
+
+#ifndef VSX_FIXOFF_BATCH_REORDER		/* (the fix-off: a queued older write installed over this one) */
+	if (queued(x, pc->p))
+		flush_writes(x);		/* the older write first: the map then holds the newer one */
+#endif
+	e = x->map[pc->p];
 
 	if (pc->len == VSX_PAGE) {
 		if (e == VSX_BAD) {		/* a full write replaces it */

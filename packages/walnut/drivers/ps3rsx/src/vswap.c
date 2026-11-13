@@ -1272,8 +1272,9 @@ bool ps3rsx_vswap_pool_enabled(void)
 	return vswap_vram_mb != 0;
 }
 
-/* the SPE may name: the bounce (ciphertext only), a slot of the pool (VRAM), kernel RAM that no GPU mapping
- * holds; the bounce's window first, so its pages are never taken as RAM */
+/* the SPE may name: the bounce (ciphertext only), a slot of the pool (VRAM), kernel RAM in no ps3rsx GART
+ * chunk (ps3fb's own pages in the shared IO context aren't looked up: they are never a bio's, the scratch or
+ * a private page); the bounce's window first, so its pages are never taken as RAM */
 static int vswap_page_ok(void *arg, u64 ea, unsigned int kind)
 {
 	struct ps3rsx_vswap *vs = arg;
@@ -1325,6 +1326,7 @@ static void vswap_seal_fini(struct ps3rsx_vswap *vs)
 {
 	unsigned int k;
 
+	ps3rsx_spe_clear_bounds(vs->rsx);	/* (again: the callers cleared them before the bounce went) */
 	if (vs->scratch)
 		__free_page(vs->scratch);	/* (a pinned one keeps its extra reference) */
 	for (k = 0; k < WB_RESERVE; k++)
@@ -1423,6 +1425,7 @@ err:
 		destroy_workqueue(vs->io_wq);
 	if (vs->demote_wq)
 		destroy_workqueue(vs->demote_wq);
+	ps3rsx_spe_clear_bounds(rsx);		/* before the bounce and the pages go */
 	if (vs->bounce_ok)
 		ps3rsx_gart_unpin(rsx, &vs->bounce_node);
 	vswap_seal_fini(vs);
@@ -1445,6 +1448,24 @@ void ps3rsx_vswap_fini(struct ps3rsx_device *rsx)
 	cancel_work_sync(&vs->drain_work);
 	destroy_workqueue(vs->demote_wq);
 	destroy_workqueue(vs->io_wq);
+	ps3rsx_spe_clear_bounds(rsx);		/* nothing submits now: no job may name vs's pool or pages */
+	if (ps3rsx_spe_must_keep(rsx)) {	/* a given-up SPE may still write slots it was given */
+		u64 lo = U64_MAX, hi = 0;
+		unsigned int n = 0;
+
+		for (i = 0; i < vs->nchunks; i++) {
+			struct drm_mm_node *nd = &vs->chunks[i].node;
+
+			if (!drm_mm_node_allocated(nd))
+				continue;
+			n++;
+			lo = min(lo, nd->start);
+			hi = max(hi, nd->start + nd->size);
+		}
+		if (n)
+			pr_err("ps3vswap: %u MiB of VRAM in %#llx-%#llx go back to the heap though the SPE wasn't seen "
+			       "stopped: reboot before ps3rsx is bound or loaded again\n", n, lo, hi);
+	}
 	if (vs->bounce_ok) {
 		if (vs->bounce_late)		/* a timed-out copy may still write it */
 			ps3rsx_kcopy_wait(rsx, vs->bounce_seq, 2000000);

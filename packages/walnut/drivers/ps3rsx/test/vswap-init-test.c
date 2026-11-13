@@ -189,6 +189,7 @@ static int vswap_seal_init(struct ps3rsx_vswap *vs)
 	live_allocs++;
 	return 0;
 }
+static void ps3rsx_spe_clear_bounds(struct ps3rsx_device *rsx) { (void)rsx; }
 static void vswap_seal_fini(struct ps3rsx_vswap *vs)
 {
 	if (vs->sealed)

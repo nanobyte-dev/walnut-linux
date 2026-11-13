@@ -9,8 +9,10 @@
  *    job's pages may lie in (kernel RAM for plaintext; the VRAM pool, the bounce or kernel RAM for
  *    ciphertext; a window found first wins, so the bounce goes before RAM), the ranges no job may ever name
  *    (the ring and the status line are added by spe.c), and the per-page predicate every RAM or VRAM
- *    window needs (RAM: not mapped for the GPU; VRAM: a slot of the pool). Refused ranges win over
+ *    window needs (RAM: in no ps3rsx GART chunk; VRAM: a slot of the pool). Refused ranges win over
  *    windows. Without the swap's bounds, the test hook sets its own over its pages.
+ *  - ps3rsx_spe_clear_bounds() when the swap goes (its fini and its init's error path), before its pool
+ *    and pages are freed: no job is accepted after it.
  *  - ps3rsx_spe_job(): returns
  *      0             every page done, res[] holds the tags and statuses;
  *      -EBADMSG      done, but some pages were refused (an open's tag mismatch): see res[i].status; nothing
@@ -45,6 +47,7 @@ void ps3rsx_spe_fini(struct ps3rsx_device *rsx);
 int ps3rsx_spe_set_bounds(struct ps3rsx_device *rsx, const struct spe_window *w, unsigned int nw,
 			  const struct spe_window *refused, unsigned int nr,
 			  int (*page_ok)(void *arg, u64 ea, unsigned int kind), void *arg);
+void ps3rsx_spe_clear_bounds(struct ps3rsx_device *rsx);
 int ps3rsx_spe_job(struct ps3rsx_device *rsx, unsigned int op, unsigned int npages,
 		   const struct vseal_page *pages, struct vseal_result *res, enum spe_path path);
 bool ps3rsx_spe_ready(struct ps3rsx_device *rsx);
@@ -55,6 +58,7 @@ static inline void ps3rsx_spe_init(struct ps3rsx_device *rsx) {}
 static inline void ps3rsx_spe_init_debugfs(struct ps3rsx_device *rsx) {}
 static inline void ps3rsx_spe_fini_debugfs(struct ps3rsx_device *rsx) {}
 static inline void ps3rsx_spe_fini(struct ps3rsx_device *rsx) {}
+static inline void ps3rsx_spe_clear_bounds(struct ps3rsx_device *rsx) {}
 static inline bool ps3rsx_spe_ready(struct ps3rsx_device *rsx) { return false; }
 static inline bool ps3rsx_spe_must_keep(struct ps3rsx_device *rsx) { return false; }
 static inline const u8 *ps3rsx_spe_key(struct ps3rsx_device *rsx) { return NULL; }

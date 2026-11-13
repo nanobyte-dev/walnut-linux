@@ -5,6 +5,8 @@
  * spe.c. Its pages are kernel RAM, which the VRAM swap's bounds accept (its RAM window and predicate); without
  * the swap's bounds (no backing partition yet) the hook sets its own: one RAM window over its pages, with a
  * predicate that accepts only them. The hook's commands run under spe->lock, between the swap's jobs.
+ * Its seals use the load's key (the swap's) with random 64-bit counters, and their ciphertext stays in the
+ * hook's own pages: never aim a hook seal at a pool slot, where the swap's counters run from 1.
  *
  * debugfs dri/ps3rsx/ps3rsx_vseal (root, 0600). Write one command, read the report:
  *   golden            the known-answer job
