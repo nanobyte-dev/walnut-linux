@@ -63,6 +63,7 @@ static void *pinned_node;
 #define STRIDE 256
 #define META_PAGES 2
 #define META_PER_PAGE 128
+#define SLOTS 256		/* pages per 1 MiB chunk */
 struct vsx_meta { char b[32]; };
 
 struct drm_mm_node { u64 start, size; void *mm; };
