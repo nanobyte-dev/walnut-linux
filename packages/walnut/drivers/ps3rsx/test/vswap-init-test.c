@@ -6,7 +6,7 @@
  * (ps3rsx_gart_pin without its unpin leaves the bounce node in rsx->gart's lists while kfree(vs)
  * frees it: ps3rsx_mm's walk then reads freed memory, the 2026-11-13 oops), and every allocation
  * freed. A successful init must leave rsx->vswap set. The same stand-ins cover main's init and
- * r3-v2's (the sealed swap: vswap_seal_init, more fields).
+ * the sealed swap's (vswap_seal_init, more fields).
  *   vswap-init-test.sh OUTDIR [VSWAP_C]
  */
 #include <errno.h>
@@ -57,7 +57,7 @@ static void *pinned_node;
 #define set_capacity(d, n) ((void)(d))
 #define drm_warn(d, ...) ((void)(d))
 
-/* r3-v2's constants (the sealed swap's chunk metadata) */
+/* the sealed swap's constants (its chunk metadata) */
 #define VSX_CLASSES 8
 #define VSX_ON_DISK 0xfffffff0u
 #define STRIDE 256
@@ -104,7 +104,7 @@ struct ps3rsx_vswap {
 	u32 bounce_io;
 	void *bounce;
 	bool bounce_ok;
-	bool sealed;		/* r3-v2: vswap_seal_init ran */
+	bool sealed;		/* the sealed swap: vswap_seal_init ran */
 };
 struct ps3rsx_device {
 	struct { void *dev; } drm;

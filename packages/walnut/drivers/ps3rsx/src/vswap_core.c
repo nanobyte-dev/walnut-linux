@@ -651,7 +651,7 @@ void vsx_discard(struct vsx *x, vs_u32 p)
 
 	if (e == VSX_ON_DISK)
 		x->on_disk--;
-#ifdef VSX_FIXOFF_DISCARD_BAD			/* (the fix-off: BAD taken as a slot, as before H2) */
+#ifdef VSX_FIXOFF_DISCARD_BAD			/* (the fix-off: BAD taken as a slot, as an earlier draft did) */
 	else if (e) {
 		vsx_hw_slot_free(x->hw, e - 1);
 		x->in_vram--;
