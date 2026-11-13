@@ -83,7 +83,7 @@ run = ["bash", "tools/rsx-ab/test_rsx_ab.sh"]
 
 [[suite]]
 name = "ps3rsx-shadow"
-what = "and ps3rsx's clear_dcbz zeroing, the validator's vertex format checks, blame-test: the recovery's choice of the trapping commit, pushbuf-test: GEM_PUSHBUF's offset and length checks, vclear-test: freed VRAM cleared before reuse, on a model heap and GPU, pushdump-test: the push dump's scanner and records, p4-test and p4-fuzz: the address checks"
+what = "and ps3rsx's clear_dcbz zeroing, the validator's vertex format checks, blame-test: the recovery's choice of the trapping commit, pushbuf-test: GEM_PUSHBUF's offset and length checks, vclear-test: freed VRAM cleared before reuse, on a model heap and GPU, vswap-init-test: the VRAM swap init unwinds every failure, pushdump-test: the push dump's scanner and records, p4-test and p4-fuzz: the address checks"
 run = ["bash", "tools/suites/ps3rsx-shadow.sh"]
 ci_skip = { "ps3rsx-shadow:ppc64" = "needs the ppc64 cross compiler, qemu-ppc64-static and build/mesa/sysroot" }
 

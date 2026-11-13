@@ -1,6 +1,6 @@
 #!/bin/bash
 # Suite ps3rsx-shadow: ps3rsx's host tests (packages/walnut/drivers/ps3rsx/test): the shadow state, clear_dcbz zeroing,
-# the validator, blame, pushbuf, vclear, the push dump and the address checks, then each rule switched off in a copy.
+# the validator, blame, pushbuf, vclear, the VRAM swap init's unwind, the push dump and the address checks, then each rule switched off in a copy.
 set -u
 cd "$(dirname "$0")/../.."
 . tools/suites/lib.sh
@@ -17,6 +17,8 @@ make -C $T O="$O" "$O/shadow-equiv" "$O/shadow-equiv-fast" "$O/zero-test" "$O/va
 "$O/blame-test" || exit 1
 "$O/pushbuf-test" || exit 1
 "$O/vclear-test" || exit 1
+# the VRAM swap's init unwinds every failure (the GART bounce out of rsx->gart before vs is freed), and its fix-off
+bash $T/vswap-init-test.sh "$O/vswap-init" || exit 1
 # the address checks: their rules (as released, and in the count-only build), the fuzz
 "$O/p4-test" || exit 1
 "$O/p4-test-count" || exit 1

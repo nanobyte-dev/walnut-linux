@@ -977,6 +977,9 @@ err:
 		destroy_workqueue(vs->io_wq);
 	if (vs->demote_wq)
 		destroy_workqueue(vs->demote_wq);
+	/* the bounce's node lives in vs: out of rsx->gart before vs goes (ps3rsx_mm walks it) */
+	if (vs->bounce_ok)
+		ps3rsx_gart_unpin(rsx, &vs->bounce_node);
 	bioset_exit(&vs->bios);
 	kvfree(vs->chunks);
 	kfree(vs);
