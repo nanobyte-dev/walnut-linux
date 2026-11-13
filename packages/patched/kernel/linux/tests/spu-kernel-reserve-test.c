@@ -430,6 +430,10 @@ struct notifier_block { int (*notifier_call)(struct notifier_block *, unsigned l
 static struct notifier_block *reboot_nb;
 static int register_reboot_notifier(struct notifier_block *nb) { reboot_nb = nb; return 0; }
 
+/* spu_base.enum_shared (spu_base.c, above the block) */
+static int enum_shared;
+static int spu_enum_shared(void) { return enum_shared; }
+
 /* the code under test */
 #include "block.c"
 
@@ -731,6 +735,25 @@ static void t_all_six(void)
 	CHECK(cbe_spu_info[0].n_spus == NSPE, "n_spus %d after releasing all", cbe_spu_info[0].n_spus);
 }
 
+/* enum_shared=1: one of the SPEs is lv1's shared one, which lv1 may preempt: nothing is reserved */
+static void t_shared(void)
+{
+	struct spu *s;
+
+	boot();
+	enum_shared = 1;
+	s = reserve();
+	CHECK(IS_ERR(s) && PTR_ERR(s) == -EBUSY, "an SPE was reserved with enum_shared=1");
+	if (!IS_ERR(s))
+		spu_kernel_release(s);
+	CHECK(cbe_spu_info[0].n_spus == NSPE, "n_spus %d with enum_shared=1", cbe_spu_info[0].n_spus);
+	enum_shared = 0;
+	s = reserve();
+	CHECK(!IS_ERR(s), "no SPE reserved with enum_shared=0");
+	if (!IS_ERR(s))
+		CHECK(spu_kernel_release(s) == 0, "release after enum_shared=0");
+}
+
 static void t_release(void)
 {
 	struct spu *s;
@@ -998,6 +1021,7 @@ int main(void)
 	t_reserve();
 	t_skip();
 	t_all_six();
+	t_shared();
 	t_release();
 	t_not_quiet();
 	t_reset();
@@ -1008,6 +1032,6 @@ int main(void)
 		printf("%d failed\n", failures);
 		return 1;
 	}
-	printf("ok: spu_kernel_reserve, reset, ls_decode, release, reboot (9 cases)\n");
+	printf("ok: spu_kernel_reserve, reset, ls_decode, release, reboot (10 cases)\n");
 	return 0;
 }

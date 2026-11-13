@@ -62,7 +62,7 @@ if grep -nE '_callback = NULL' "$O/block.c"; then bad "a callback set to NULL"
 else ok "no callback is ever set to NULL"; fi
 # the spu_* calls the block makes outside itself: only these (the priv1 operations spufs uses, and
 # spu_base.c's own helpers); a new one must be added here on purpose
-allowed=" spu_add_dev_attr spu_associate_mm spu_init_channels spu_int_mask_set spu_int_stat_clear spu_invalidate_slbs spu_mfc_sr1_get spu_mfc_sr1_set spu_mfc_tclass_id_set "
+allowed=" spu_add_dev_attr spu_associate_mm spu_enum_shared spu_init_channels spu_int_mask_set spu_int_stat_clear spu_invalidate_slbs spu_mfc_sr1_get spu_mfc_sr1_set spu_mfc_tclass_id_set "
 defined=$(sed -nE 's/^(static )?[a-z_ ]+[ *]+(spu_[a-z0-9_]+)\(.*/\2/p' "$O/block.c" | sort -u | tr '\n' ' ')
 other=
 for f in $(grep -oE '\bspu_[a-z0-9_]+\(' "$O/block.c" | tr -d '(' | sort -u); do
@@ -146,6 +146,8 @@ off take-isolated "spu3, isolated" \
 	'(in_be32(&s->problem->spu_status_R) & SPU_KERNEL_ISOLATED))' '0)'
 off take-last "FAIL: the node's last SPE was reserved" \
 	"$T$T${T}if (cbe_spu_info[node].n_spus <= 1)$N$T$T$T${T}break;$N" ''
+off take-shared "FAIL: an SPE was reserved with enum_shared=1" \
+	"${T}if (spu_enum_shared())$N$T${T}goto out;$N" ''
 # the callbacks
 off callbacks-before-reset "FAIL: a driver callback ran during reserve" \
 	"${T}spu_kernel_mask_all(spu);$N${T}spu_kernel_set_callbacks(spu, NULL);$N${T}ret = __spu_kernel_reset(spu);" \

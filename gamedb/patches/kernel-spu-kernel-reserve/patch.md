@@ -16,7 +16,8 @@ A kernel driver that runs its own SPU program needs an SPE that spufs never sche
 touches. `spu_base.c` gets four calls, exported GPL like the rest of the SPU API:
 
 - `spu_kernel_reserve(ops)` takes an SPE that is `SPU_FREE` with no context, never the node's last one (spufs's
-  affinity code reads the list's first entry without the lock), off its node's list (the only
+  affinity code reads the list's first entry without the lock), and none at all on a boot with
+  `spu_base.enum_shared=1` (lv1 may preempt its shared SPE and save the local store itself), off its node's list (the only
   list spufs schedules, preempts and notifies from) and keeps it `SPU_USED` (all the affinity walk checks).
   The entry goes with `list_del_rcu()`, which keeps `->next`: spusched_thread drops the list's mutex with
   its cursor parked on an SPE and goes on from there. It masks every interrupt class and resets the SPE
@@ -52,4 +53,5 @@ Host test `kernel-spu-reserve` (`packages/patched/kernel/linux/tests/spu-kernel-
 the patch adds it, on a model of six SPEs, PS3's priv1 operations (SR1's allowed bits), spu_base's
 interrupt handlers (late interrupts included), status and mailboxes that latch while masked, and spufs's
 list walks (spusched_thread's parked cursor, the affinity path); each quiesce step stuck in turn; five of six reserved and the
-sixth refused; 36 fix-offs. Not yet run on the PS3.
+sixth refused; nothing reserved with enum_shared=1; 37 fix-offs. On the PS3: reserve, reset, release and the
+reboot notifier with the VRAM swap's SPE client (six SPEs, enum_shared=0).
