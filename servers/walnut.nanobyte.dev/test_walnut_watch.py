@@ -1175,24 +1175,8 @@ class Conf(unittest.TestCase):
 
 
 class SnapshotCache(unittest.TestCase):
-	"""V9, log-only: the snapshot cache's allowlist (repo.conf) flags other suites and architectures, and
-	walnut-watch says when the cache volume is over its cap; nothing is refused or removed"""
-	def flagged(self, uri):
-		conf = slurp(os.path.join(os.path.dirname(WATCH), "repo.conf"))
-		rules = re.findall(r"^\s+~(\S+) 1;$", conf, re.M)
-		self.assertEqual(len(rules), 2)
-		return any(re.search(r, uri) for r in rules)
-
-	def test_allowlist(self):
-		base = "/debian-snapshot/archive/debian-ports/20261013T000000Z/"
-		for ok in ("dists/unstable/InRelease", "dists/unstable/main/binary-ppc64/Packages.xz",
-		           "dists/sid/main/binary-all/Packages.xz", "dists/unstable/main/Contents-ppc64.gz",
-		           "dists/unstable/main/source/Sources.xz", "pool-ppc64/main/b/busybox/busybox_1_ppc64.deb",
-		           "pool/testing/main/b/busybox/busybox_1_all.deb", "dists/unstable/main/i18n/Translation-en.xz"):
-			self.assertFalse(self.flagged(base + ok), ok)
-		for odd in ("dists/bookworm/InRelease", "dists/experimental/main/binary-ppc64/Packages.xz",
-		            "dists/unstable/main/binary-arm64/Packages.xz", "dists/unstable/main/Contents-s390x.gz"):
-			self.assertTrue(self.flagged(base + odd), odd)
+	"""V9, log-only: walnut-watch says when the snapshot cache volume is over its cap; nothing is refused or removed"""
+	# the allowlist itself (repo.conf's per-archive map) is checked by test_snapshot_allowlist.py
 
 	def test_cap_is_log_only(self):
 		with tempfile.TemporaryDirectory() as root:
