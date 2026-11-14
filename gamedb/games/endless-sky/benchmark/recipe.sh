@@ -39,7 +39,7 @@ ES_CHEAP=1
 ES_BLUR=1
 ES_ARGS=()
 DATA_DIRS=(/usr/share/games/endless-sky)
-DURATION=${SMOKE_SECS:-360}
+DURATION=${SMOKE_SECS:-420}
 setup() {
 	[ -e /usr/share/games/endless-sky/shaders-gl2/sprite.frag ] || echo "WARNING: no shaders-gl2: this is not our endless-sky (+ps3): apt install endless-sky"
 	rm -rf "$ES_DIR"
@@ -58,9 +58,12 @@ during() {
 	# "Lost 1" dialog stayed up and the Up key went nowhere)
 	smoke_xkeys "Endless Sky" "$ES_LOAD_WAIT" e +6 d +10 Return +15 Return +15 Return +3
 	XKEYS_HOLD=5 smoke_xkeys "Endless Sky" 0 Up
+	# flying away from the planet opens the "Lost 1" help dialog some seconds after the thrust (2026-11-14: the flight's
+	# shot showed it over the HUD twice, with one Return 3 s after Up too early); Return closes it, and does nothing in flight
+	smoke_xkeys "Endless Sky" 3 Return +6 Return +6 Return +6 Return
 	shot_mark	# the screenshots count from the flight's start (SHOT_FROM=mark)
 }
-SHOT_FROM=mark; SHOT_POINTS="20 50"	# the flight starts about 300 s into a PS3 run (DURATION 360)
+SHOT_FROM=mark; SHOT_POINTS="30 60"	# the flight starts about 330 s into a PS3 run (DURATION 420 needs BENCH_TIMEOUT=480 or more: run.sh smoke caps at 360 s)
 variant_menu() { ES_KEYS=0; SHOT_STATIC=1; }
 variant_fullout() { ES_CHEAP=0; }   # the full outline filter: nv40 runs out of fragment temps ("out of temps!!" x36), the flight showed no HUD
 variant_noblur() { ES_BLUR=0; }
