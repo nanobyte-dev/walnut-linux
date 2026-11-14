@@ -8,3 +8,12 @@ source = "TESTS.md Next (smoke re-runs)"
 text = """\
 Smoke re-run: it stops in its menu without keys (the user may nudge); ssdroot5's run was nudged, so \
 it doesn't count."""
+
+[[item]]
+kind = "benchmark"
+added = 2026-11-14
+source = "s1114b (gamedb:batch/2026-11-14-s1114b-smoke)"
+text = """\
+Needs the Tyrian 2.1 data (game-data-packager's tyrian-data, or our licensed `tyrian-data` from the \
+`licensed` suite) installed on the PS3 before the smoke can show a picture: both 2026-11-14 runs stopped with \
+\"The Tyrian data files were not found\"."""

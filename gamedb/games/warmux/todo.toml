@@ -9,3 +9,12 @@ text = """\
 Speed: 17.5 fps at 1920x1080 with libsdl3 0003 and sdl12-compat 0001 (7 before), the same at 1280x720 \
 (technical.md): the next step is a profile of this state (BENCH_PERF=1 on variant play) to see what \
 remains, then a played session."""
+
+[[item]]
+kind = "benchmark"
+added = 2026-11-14
+source = "s1114b (gamedb:batch/2026-11-14-s1114b-smoke)"
+text = """\
+The `play` smoke on kernel .1529 gave 7 fps steady and 70.5 s of stalls (17.5 fps on 2026-10-29): run it \
+again with `NOVSWAP=0` (the smoke default is the swap off) and see whether libsdl3 0003 and sdl12-compat 0001 \
+still apply."""

@@ -1,0 +1,17 @@
+# quakespasm's numbers in batch 2026-11-14-s1114b-mesa-debug (gamedb/benchmarks/README.md)
+batch = "2026-11-14-s1114b-mesa-debug"
+
+[variant."base@mesa_debug1"]
+fps = 85.9
+cpu = 126.7
+underruns = 13
+ram_free = 37.7
+vram = 49.8
+fps_steady = 92.3
+low1 = 54.9
+stalls = 10
+longest_ms = 320.1
+stalls_play = 10
+stall_play_s = 2.8
+low1_play = 54.9
+longest_play_ms = 320.1

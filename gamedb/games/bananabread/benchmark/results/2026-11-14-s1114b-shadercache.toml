@@ -1,0 +1,47 @@
+# bananabread's numbers in batch 2026-11-14-s1114b-shadercache (gamedb/benchmarks/README.md)
+batch = "2026-11-14-s1114b-shadercache"
+
+[variant."base@sccold"]
+fps = 34.9
+cpu = 240.6
+underruns = 130.5
+ram_free = 23.4
+vram = 119.7
+fps_steady = 37.8
+low1 = 24.6
+stalls = 1.0
+longest_ms = 131.3
+stalls_play = 1.0
+stall_play_s = 0.1
+low1_play = 24.6
+longest_play_ms = 131.3
+
+[variant."base@scprime"]
+fps = 35.0
+cpu = 240.0
+underruns = 112
+ram_free = 21.2
+vram = 116.3
+fps_steady = 38.0
+low1 = 25.5
+stalls = 2
+longest_ms = 135.4
+stalls_play = 2
+stall_play_s = 0.3
+low1_play = 25.5
+longest_play_ms = 135.4
+
+[variant."base@scwarm"]
+fps = 35.7
+cpu = 236.2
+underruns = 108
+ram_free = 23.3
+vram = 123.3
+fps_steady = 37.9
+low1 = 25.3
+stalls = 1
+longest_ms = 128.0
+stalls_play = 1
+stall_play_s = 0.1
+low1_play = 25.3
+longest_play_ms = 128.0

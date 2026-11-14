@@ -1,0 +1,17 @@
+# neverball's numbers in batch 2026-11-14-s1114b-mesa-debug (gamedb/benchmarks/README.md)
+batch = "2026-11-14-s1114b-mesa-debug"
+
+[variant."base@mesa_debug1"]
+fps = 82.5
+cpu = 94.6
+underruns = 94
+ram_free = 61.7
+vram = 34.1
+fps_steady = 82.7
+low1 = 58.2
+stalls = 9
+longest_ms = 196.4
+stalls_play = 0
+stall_play_s = 0.0
+low1_play = 58.9
+longest_play_ms = 24.4

@@ -1,0 +1,17 @@
+# bananabread's numbers in batch 2026-11-14-s1114b-mesa-debug (gamedb/benchmarks/README.md)
+batch = "2026-11-14-s1114b-mesa-debug"
+
+[variant."base@mesa_debug1"]
+fps = 35.9
+cpu = 235.6
+underruns = 107
+ram_free = 23.2
+vram = 120.7
+fps_steady = 38.3
+low1 = 25.5
+stalls = 0
+longest_ms = 80.3
+stalls_play = 0
+stall_play_s = 0.0
+low1_play = 25.5
+longest_play_ms = 80.3

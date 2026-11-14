@@ -73,7 +73,7 @@ are in each game's technical.md):
 | [Loom](../../games/loom/technical.md) | Spanish EGA | 2026-10-29 `loom` | the difficulty choice, right |
 | Full Throttle | Spanish CD | 2026-10-29 `ft` | the alley after the SMUSH intro, right (no entry yet) |
 | The Dig | Spanish CD | 2026-10-29 `dig` | at the shuttle after the intro, right (no entry yet) |
-| [Beneath a Steel Sky](../../games/beneath-a-steel-sky/technical.md) | Debian's | 2026-10-19 `base` | the intro with sound; Escape didn't reach the window then |
+| [Beneath a Steel Sky](../../games/beneath-a-steel-sky/technical.md) | Debian's | 2026-10-19 `base` | the intro with sound; Escape didn't reach the window then; on 2026-11-14 (kernel .1529, `beneath-a-steel-sky` installed after a first run found no data) the first scene is drawn right, 12 fps steady, gamedb:batch/2026-11-14-s1114b-smoke |
 | [Flight of the Amazon Queen](../../games/flight-of-the-amazon-queen/technical.md) | Debian's | 2026-10-20 `queen` | "Running Flight of the Amazon Queen (CD/DOS/English)" |
 | [Lure of the Temptress](../../games/lure-of-the-temptress/technical.md) | Debian's | 2026-10-20 `lure` | "Running Lure of the Temptress (VGA/DOS/English)" |
 | [Drascula](../../games/drascula/technical.md) | Debian's | 2026-10-20 `drascula` | "Couldn't identify game 'drascula'" (ScummVM 2026.1.0); on the PC with `drascula` 1.0+ds4-4 it runs |

@@ -1,0 +1,12 @@
+# DDNet: the backlog (gamedb/README.md, "games/<id>/todo.toml"): [[item]] with kind, text, added, source;
+# a session item's order is its place in the played-session queue (docs/TESTS.md's generated block).
+
+[[item]]
+kind = "fix"
+added = 2026-11-14
+source = "s1114b (gamedb:batch/2026-11-14-s1114b-smoke)"
+text = """\
+VRAM pressure: the client takes 184 MB of VRAM, 26 `ps3rsx: out of VRAM` lines (buffers up to 10.9 MB), a 25.7 s \
+longest frame and 35.9 s of stalls in the window, and a white rectangle in the sky (probably a texture whose \
+allocation failed). Find which allocations are the 10.9 MB ones (the map's textures?) and whether the smoke \
+runs with the VRAM swap off (the default) are OOM-killed because of them (384 MB disk swap full at 58 s)."""

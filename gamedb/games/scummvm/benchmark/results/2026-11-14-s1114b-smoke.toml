@@ -1,0 +1,22 @@
+# scummvm's numbers in batch 2026-11-14-s1114b-smoke (gamedb/benchmarks/README.md)
+batch = "2026-11-14-s1114b-smoke"
+
+[variant.base]
+cpu = 8.2
+underruns = 0
+ram_free = 57.2
+
+[variant."base@shot"]
+fps = 12
+cpu = 45.0
+underruns = 18
+ram_free = 49.7
+vram = 25.0
+fps_steady = 12
+low1 = 11.2
+stalls = 2
+longest_ms = 296.1
+stalls_play = 2
+stall_play_s = 0.4
+low1_play = 11.2
+longest_play_ms = 296.1

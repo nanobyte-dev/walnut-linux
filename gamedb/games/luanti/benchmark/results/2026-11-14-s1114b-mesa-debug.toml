@@ -1,0 +1,17 @@
+# luanti's numbers in batch 2026-11-14-s1114b-mesa-debug (gamedb/benchmarks/README.md)
+batch = "2026-11-14-s1114b-mesa-debug"
+
+[variant."view120@mesa_debug1"]
+fps = 37
+cpu = 326.3
+underruns = 0
+ram_free = 20.9
+vram = 71.5
+fps_steady = 36
+low1 = 11.3
+stalls = 38
+longest_ms = 517.9
+stalls_play = 38
+stall_play_s = 5.9
+low1_play = 11.3
+longest_play_ms = 517.9

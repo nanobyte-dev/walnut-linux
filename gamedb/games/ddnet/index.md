@@ -3,5 +3,5 @@ id = "ddnet"
 title = "DDNet"
 draft = true
 status = "tried"
-status_note = "Smoke run on the PS3 on 2026-10-19 (batch ssdroot4): runs with sound; its log has 95 'out of VRAM' lines (docs/TESTS.md); no played session yet."
+status_note = "Plays on the PS3 with the VRAM swap on (2026-11-14): 83 fps steady, but 35.9 s of stalls in 120 s, a white rectangle in the sky and 26 out-of-VRAM lines; with the swap off the kernel OOM-killed it (technical.md); no played session yet."
 +++

@@ -20,3 +20,5 @@ with speech, all its languages in `sky.dsk`; the launcher plays the English one.
 - **Settings**: the initial config [sky.ini](desktop/files/usr/share/ps3-games/scummvm/sky.ini); the
   player's settings then live in `~/.config/scummvm/walnut/sky.ini`, the saves in
   `~/.local/share/scummvm/saves/SKY-VM.*` (set aside by a played session: [rating/test.toml](rating/test.toml)).
+
+On 2026-11-14 (kernel .1529, ps3rsx 0.1534, Mesa ps3.1508, gamedb:batch/2026-11-14-s1114b-smoke) the smoke run, with `beneath-a-steel-sky` installed (the first run, 18:25Z, found no data), drew the game's first scene right; 12 fps steady and 49 MB free.

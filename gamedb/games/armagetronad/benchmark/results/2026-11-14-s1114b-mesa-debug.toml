@@ -1,0 +1,17 @@
+# armagetronad's numbers in batch 2026-11-14-s1114b-mesa-debug (gamedb/benchmarks/README.md)
+batch = "2026-11-14-s1114b-mesa-debug"
+
+[variant."base@mesa_debug1"]
+fps = 86
+cpu = 135.7
+underruns = 54
+ram_free = 55.2
+vram = 27.2
+fps_steady = 86
+low1 = 53.1
+stalls = 0
+longest_ms = 71.9
+stalls_play = 0
+stall_play_s = 0.0
+low1_play = 53.1
+longest_play_ms = 71.9

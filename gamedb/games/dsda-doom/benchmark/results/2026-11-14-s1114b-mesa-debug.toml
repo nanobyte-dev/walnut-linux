@@ -1,0 +1,17 @@
+# dsda-doom's numbers in batch 2026-11-14-s1114b-mesa-debug (gamedb/benchmarks/README.md)
+batch = "2026-11-14-s1114b-mesa-debug"
+
+[variant."base@mesa_debug1"]
+fps = 39.6
+cpu = 278.3
+underruns = 4154
+ram_free = 42.8
+vram = 17.9
+fps_steady = 40.5
+low1 = 21.4
+stalls = 0
+longest_ms = 80.4
+stalls_play = 0
+stall_play_s = 0.0
+low1_play = 21.8
+longest_play_ms = 72.7

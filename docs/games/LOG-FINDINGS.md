@@ -30,9 +30,9 @@ and a few more) is at the top of the file with a reason for each; `selftest.py` 
 made-up runs.
 
 What the logs cannot show: nothing in them reports a Mesa nv30 shader compile or link failure, an "out
-of temps", a TGSI fallback or the draw module. Mesa prints those only with `NV30_DEBUG` or
-`MESA_DEBUG`, which no recipe sets, so "no such lines" means "not looked for". Item 6 proposes one run
-per game with the debug output on.
+of temps", a TGSI fallback or the draw module. nv30 prints its own `NOUVEAU_ERR` lines ("out of temps") always; core Mesa prints GL
+errors only with `MESA_DEBUG=1` (there is no `NV30_DEBUG`), which the harness passes into the game as an ENVS
+token. Item 6 says what the 2026-11-14 runs with it found.
 
 ## Catching failures
 
@@ -222,7 +222,7 @@ measured for dsda-doom and OpenTTD ([SPU-AUDIO.md](../SPU-AUDIO.md), gamedb:dsda
 gamedb:openttd/savegame-blitters). BananaBread's 60-181 a run is a small number for a game the microphone found silent; the log has no sound error for it since 10-17 (the
 nine early runs that said `failed to load sample` were missing data files, fixed).
 
-Effect: audible chopping, strongest in dsda-doom and OpenTTD music. Nothing new since ps3.544.
+Effect: audible chopping, strongest in dsda-doom and OpenTTD music. Nothing new since ps3.544. `no memory to back the GART` (once in 13 OpenTTD runs with the staging pool before) did not appear in the 12 runs of 2026-11-14 (gamedb:batch/2026-11-14-s1114b-openttd-pool).
 
 Fix: already on the list ([backlog spu.md](../backlog/spu.md), games.md rank 32, memory.md "Sound
 straight to ALSA"). The one thing logscan adds is a way to compare: `logscan.py -c audio --by-message`.
@@ -240,9 +240,9 @@ Cause: DDNet asks for 4 MB buffers while VRAM is already held by other clients a
 ([memory.md](../MEMORY.md), VRAM swap). The line is the fall-back being taken, not a failure by itself;
 it turns into item 2 when GART is full too.
 
-Effect: possible stalls while pages move; not measured for DDNet (one smoke run, no stalls recorder).
+Effect: stalls. Measured on 2026-11-14 with the stalls recorder and the VRAM swap on: 26 lines (buffers up to 10.9 MB), 35.9 s of stalls in the window, a 25.7 s longest frame and a white rectangle in the sky (a texture that found no memory?); with the swap off the kernel OOM-killed the game at 58 s (gamedb:batch/2026-11-14-s1114b-smoke).
 
-Fix: put DDNet in the next VRAM-pressure batch (TESTS Next: stalls recorder on, NV30 force-DXT).
+Fix: find which allocations the big buffers are (the DDNet todo list (gamedb/games/ddnet/todo.toml)).
 
 ### 5. Input lag messages from libinput, and a few harness things
 
@@ -265,9 +265,13 @@ Fix: put DDNet in the next VRAM-pressure batch (TESTS Next: stalls recorder on, 
 
 ### 6. Not in the logs, worth adding
 
-Mesa nv30 shader and fallback messages (see "The tool"): run each light game once with `NV30_DEBUG` for
-compile failures and the draw-module fallbacks, the log into game.log, then `logscan.py -c nouveau,gl`
-(backlog "Mesa nv30 messages in the logs", S, PS3).
+Mesa's GL errors need `MESA_DEBUG=1` (there is no `NV30_DEBUG`; nv30's `NOUVEAU_ERR` lines such as "out of
+temps" print without it). One run each of twelve games on 2026-11-14 (gamedb:batch/2026-11-14-s1114b-mesa-debug)
+found: `GL_INVALID_ENUM in glGetIntegerv(GL_MAJOR_VERSION)` in ETR and SuperTuxKart (a GL3 query on a 2.1
+context, harmless), `glDisable(GL_FRAMEBUFFER_SRGB)` in SuperTuxKart, `glGetIntegerv(GL_NUM_EXTENSIONS)` in
+Luanti, and `GL_STACK_OVERFLOW in glPushMatrix(GL_MODELVIEW)` twice in Trigger Rally (a todo item of the
+game). Neverball, X-Moto, Armagetron, ClassiCube, dsda-doom, OpenArena, QuakeSpasm and BananaBread were
+silent: no shader compile failure or fallback was reported. `GALLIUM_DEBUG` was not tried.
 
 ### 7. Old, not seen since (kept so a return is recognised)
 

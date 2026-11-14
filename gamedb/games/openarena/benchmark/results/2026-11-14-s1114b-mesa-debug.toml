@@ -1,0 +1,17 @@
+# openarena's numbers in batch 2026-11-14-s1114b-mesa-debug (gamedb/benchmarks/README.md)
+batch = "2026-11-14-s1114b-mesa-debug"
+
+[variant."gl2min@mesa_debug1"]
+fps = 41.9
+cpu = 221.8
+underruns = 0
+ram_free = 17.7
+vram = 113.4
+fps_steady = 66.4
+low1 = 7.1
+stalls = 75
+longest_ms = 3297.0
+stalls_play = 0
+stall_play_s = 0.0
+low1_play = 30.2
+longest_play_ms = 65.0

@@ -12,3 +12,11 @@ the many small sprite draws), the Lua scenario, the swap; then the levers (Widel
 animations, the minimap, texture quality). The profiled run exists (`ps3-bench-20261029T004009Z`): the \
 stalls are the main thread's own work (74% of the stall time) and the swap, no worker thread to renice \
 (technical.md "Threads in the stall frames")."""
+
+[[item]]
+kind = "benchmark"
+added = 2026-11-14
+source = "s1114b (gamedb:batch/2026-11-14-s1114b-smoke)"
+text = """\
+Not installed on the PS3 on 2026-11-14 (712 MB with its data, the root had 1.4 GB free): the smoke was \
+skipped. Install it once the root has room, then `run.sh smoke widelands`."""

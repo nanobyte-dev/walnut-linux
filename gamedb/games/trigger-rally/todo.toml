@@ -47,3 +47,12 @@ both joystick blocks with enable="no" (upstream). Console default: a pad scheme 
 (technical.md "The gamepad"). Fix: our package's patch 0001, a built-in scheme through SDL's game controllers \
 (0.6.6.1-4+ps3.931~dev). Test on the PS3: "Game controller: PS3 Controller" in the log, the menus by d-pad and \
 Cross/Circle, a race with R2/L2 at rest doing nothing, steering, handbrake, Start pausing with the scheme shown."""
+
+[[item]]
+kind = "fix"
+added = 2026-11-14
+source = "s1114b MESA_DEBUG=1 run (gamedb:batch/2026-11-14-s1114b-mesa-debug)"
+text = """\
+Mesa reports `GL_STACK_OVERFLOW in glPushMatrix(GL_MODELVIEW)` twice in a race: a matrix push without its pop \
+in the game's own drawing (the HUD or the menu thumbnails?). Find it in the source (`glPushMatrix` calls \
+against their pops), see whether it loses a draw, and fix it in our package if so."""

@@ -3,5 +3,5 @@ id = "freeciv"
 title = "Freeciv"
 draft = true
 status = "tried"
-status_note = "Smoke runs on the PS3: on 2026-11-14 the server and five AIs played 32 turns with the GTK3 client connected as an observer, 19 MB free at the lowest; no screenshot yet (fixed in the recipe), so the map is still to be seen (technical.md)."
+status_note = "Works unattended on the PS3 (2026-11-14, gamedb:batch/2026-11-14-s1114b-smoke): the server and five AIs play, the GTK3 client shows the map, cities and units; 14 MB free at the lowest; no played session yet (technical.md)."
 +++

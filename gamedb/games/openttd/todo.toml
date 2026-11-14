@@ -11,6 +11,16 @@ source = "TESTS.md played sessions"
 text = "The music chopped in the benchmarks."
 
 [[item]]
+kind = "package"
+added = 2026-11-14
+source = "s1114b (gamedb:batch/2026-11-14-s1114b-openttd-pool)"
+text = """\
+Make `NV30_STAGING_POOL_MB=24` OpenTTD's default (the user's call): on 2026-11-14 it gave 56 against 45 fps \
+steady and a 1% low of 21.5 against 15.6 in a same-boot ABBAAB, every pool run above every default run, with no \
+`no memory to back the GART` line in 12 runs (gamedb:batch/2026-11-14-s1114b-openttd-pool); ssdroot4 had 52 \
+against 34. The switch would go into the game's launcher environment."""
+
+[[item]]
 kind = "benchmark"
 added = 2026-10-20
 source = "TESTS.md Next"

@@ -10,9 +10,9 @@ pregame chat and the game never started: the server refused `start` (`minplayers
 skill` is not an option (it is `skilllevel`); both are fixed in the recipe ([benchmark/recipe.sh](benchmark/recipe.sh)),
 and it started in gamedb:batch/2026-10-19-ssdroot5-smoke. The sound card ran with 87 underruns although the
 effects are off (the source is not known). The server with five AIs and a 1080p GTK3 client left 15 MB free
-(94 MB peak RSS): about the limit of the console's RAM. The map itself is still to be seen; not played yet.
+(94 MB peak RSS): about the limit of the console's RAM. Not played yet.
 
-Again on 2026-11-14 (kernel .1529, ps3rsx 0.1534, Mesa ps3.1508, gamedb:batch/2026-11-14-s1114-smoke): the fixed script worked, the server and five AIs played 32 turns with the client connected as an observer, and the client disconnected cleanly at the end; 19 MB free at the lowest. No picture though: the shots waited for a load end that the GTK client never marks, so both were skipped (the recipe now counts them from the start, `SHOT_FROM=start`). The map is still to be seen.
+On kernel .1529, ps3rsx 0.1534, Mesa ps3.1508 it works unattended (gamedb:batch/2026-11-14-s1114b-smoke): a client that connects to a running game takes no player (it sits on the main menu "connected to no player"), so the recipe has the client join in pregame and the server read its console from a fifo; once the client is connected `during()` sends `aitoggle smoke` and `start`, and the client follows its AI player's map. The 19:09Z run draws the map, cities (Wien, Roma), units and the turn timer; 14 MB free at the lowest. The earlier run on the same stack (gamedb:batch/2026-11-14-s1114-smoke) played 32 turns with the observer but only showed the pregame list. The shots count from the start (`SHOT_FROM=start`), as the GTK client marks no load end.
 
 ## Research
 

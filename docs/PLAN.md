@@ -232,7 +232,7 @@ backlog, the played-session queue's place included, is its todo.toml. The full l
 | [Neverball](../gamedb/games/neverball/todo.toml) | 2 | 1 benchmark, 1 session | 3.10 |
 | [Nexuiz Classic](../gamedb/games/nexuiz/todo.toml) | 1 | 1 benchmark | 1.12 |
 | [OpenArena](../gamedb/games/openarena/todo.toml) | 5 | 1 benchmark, 2 fix, 1 package, 1 session | 3.7 |
-| [OpenTTD](../gamedb/games/openttd/todo.toml) | 5 | 2 benchmark, 1 fix, 1 research, 1 session | 2.8, 3.1 |
+| [OpenTTD](../gamedb/games/openttd/todo.toml) | 6 | 2 benchmark, 1 fix, 1 package, 1 research, 1 session | 2.8, 3.1 |
 | [Red Eclipse](../gamedb/games/redeclipse/todo.toml) | 1 | 1 fix | 3.8 |
 | [SuperTuxKart](../gamedb/games/supertuxkart/todo.toml) | 5 | 2 fix, 1 package, 1 research, 1 session | 2.1, 3.1 |
 | [ioquake3 (engine)](../gamedb/engines/ioquake3/todo.toml) | 1 | 1 fix | 3.9 |

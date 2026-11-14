@@ -1,0 +1,17 @@
+# supertuxkart's numbers in batch 2026-11-14-s1114b-mesa-debug (gamedb/benchmarks/README.md)
+batch = "2026-11-14-s1114b-mesa-debug"
+
+[variant."base@mesa_debug1"]
+fps = 15
+cpu = 377.6
+underruns = 0
+ram_free = 19.4
+vram = 125.2
+fps_steady = 16
+low1 = 9.5
+stalls = 53
+longest_ms = 148.2
+stalls_play = 53
+stall_play_s = 5.6
+low1_play = 9.5
+longest_play_ms = 148.2

@@ -1,0 +1,17 @@
+# xmoto's numbers in batch 2026-11-14-s1114b-mesa-debug (gamedb/benchmarks/README.md)
+batch = "2026-11-14-s1114b-mesa-debug"
+
+[variant."base@mesa_debug1"]
+fps = 161.5
+cpu = 299.0
+underruns = 24
+ram_free = 61.9
+vram = 37.3
+fps_steady = 162.2
+low1 = 115.5
+stalls = 1
+longest_ms = 238.0
+stalls_play = 0
+stall_play_s = 0.0
+low1_play = 121.2
+longest_play_ms = 24.1

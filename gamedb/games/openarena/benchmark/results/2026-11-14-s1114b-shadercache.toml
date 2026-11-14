@@ -1,0 +1,47 @@
+# openarena's numbers in batch 2026-11-14-s1114b-shadercache (gamedb/benchmarks/README.md)
+batch = "2026-11-14-s1114b-shadercache"
+
+[variant."gl2min@sccold"]
+fps = 47.8
+cpu = 208.8
+underruns = 0.0
+ram_free = 21.0
+vram = 113.3
+fps_steady = 63.3
+low1 = 7.6
+stalls = 67.5
+longest_ms = 3156.5
+stalls_play = 0.0
+stall_play_s = 0.0
+low1_play = 29.6
+longest_play_ms = 62.7
+
+[variant."gl2min@scprime"]
+fps = 49.0
+cpu = 223.9
+underruns = 0
+ram_free = 13.7
+vram = 113.9
+fps_steady = 61.7
+low1 = 8.5
+stalls = 58
+longest_ms = 3347.0
+stalls_play = 0
+stall_play_s = 0.0
+low1_play = 27.5
+longest_play_ms = 88.0
+
+[variant."gl2min@scwarm"]
+fps = 48.0
+cpu = 249.8
+underruns = 0.0
+ram_free = 18.4
+vram = 113.8
+fps_steady = 64.1
+low1 = 7.5
+stalls = 74.5
+longest_ms = 3421.0
+stalls_play = 0.5
+stall_play_s = 0.1
+low1_play = 28.9
+longest_play_ms = 123.0

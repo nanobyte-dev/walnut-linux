@@ -24,6 +24,7 @@ they came from.
 | [ClassiCube](../../gamedb/games/classicube/todo.toml) | 4 | 1 fix, 2 package, 1 research | 3.12 |
 | [Colobot: Gold Edition](../../gamedb/games/colobot/todo.toml) | 1 | 1 session |  |
 | [Day of the Tentacle](../../gamedb/games/day-of-the-tentacle/todo.toml) | 1 | 1 session |  |
+| [DDNet](../../gamedb/games/ddnet/todo.toml) | 1 | 1 fix |  |
 | [Diablo (DevilutionX)](../../gamedb/games/diablo/todo.toml) | 1 | 1 fix |  |
 | [Dink Smallwood (GNU FreeDink)](../../gamedb/games/dink-smallwood/todo.toml) | 1 | 1 benchmark |  |
 | [dsda-doom](../../gamedb/games/dsda-doom/todo.toml) | 2 | 1 research, 1 session | 2.8 |
@@ -44,8 +45,8 @@ they came from.
 | [Nexuiz Classic](../../gamedb/games/nexuiz/todo.toml) | 1 | 1 benchmark | 1.12 |
 | [OpenArena](../../gamedb/games/openarena/todo.toml) | 5 | 1 benchmark, 2 fix, 1 package, 1 session | 3.7 |
 | [OpenRCT2](../../gamedb/games/openrct2/todo.toml) | 1 | 1 benchmark |  |
-| [OpenTTD](../../gamedb/games/openttd/todo.toml) | 5 | 2 benchmark, 1 fix, 1 research, 1 session | 2.8, 3.1 |
-| [OpenTyrian](../../gamedb/games/opentyrian/todo.toml) | 1 | 1 benchmark |  |
+| [OpenTTD](../../gamedb/games/openttd/todo.toml) | 6 | 2 benchmark, 1 fix, 1 package, 1 research, 1 session | 2.8, 3.1 |
+| [OpenTyrian](../../gamedb/games/opentyrian/todo.toml) | 2 | 2 benchmark |  |
 | [QuakeSpasm](../../gamedb/games/quakespasm/todo.toml) | 2 | 1 package, 1 session |  |
 | [Red Eclipse](../../gamedb/games/redeclipse/todo.toml) | 1 | 1 fix | 3.8 |
 | [Return to Castle Wolfenstein (iortcw)](../../gamedb/games/return-to-castle-wolfenstein/todo.toml) | 1 | 1 benchmark |  |
@@ -54,13 +55,13 @@ they came from.
 | [SimCity (Micropolis)](../../gamedb/games/simcity/todo.toml) | 1 | 1 package |  |
 | [SuperTuxKart](../../gamedb/games/supertuxkart/todo.toml) | 5 | 2 fix, 1 package, 1 research, 1 session | 2.1, 3.1 |
 | [TORCS](../../gamedb/games/torcs/todo.toml) | 1 | 1 fix |  |
-| [Trigger Rally](../../gamedb/games/trigger-rally/todo.toml) | 4 | 3 fix, 1 session |  |
+| [Trigger Rally](../../gamedb/games/trigger-rally/todo.toml) | 5 | 4 fix, 1 session |  |
 | [UFO: Alien Invasion](../../gamedb/games/ufoai/todo.toml) | 1 | 1 benchmark |  |
 | [Ultima VII (Exult)](../../gamedb/games/ultima-7/todo.toml) | 1 | 1 benchmark |  |
 | [VVVVVV](../../gamedb/games/vvvvvv/todo.toml) | 1 | 1 benchmark |  |
-| [Warmux](../../gamedb/games/warmux/todo.toml) | 1 | 1 fix |  |
+| [Warmux](../../gamedb/games/warmux/todo.toml) | 2 | 1 benchmark, 1 fix |  |
 | [Warzone 2100](../../gamedb/games/warzone2100/todo.toml) | 1 | 1 session |  |
-| [Widelands](../../gamedb/games/widelands/todo.toml) | 1 | 1 fix |  |
+| [Widelands](../../gamedb/games/widelands/todo.toml) | 2 | 1 benchmark, 1 fix |  |
 | [Wolfenstein: Enemy Territory (ET: Legacy)](../../gamedb/games/wolfenstein-enemy-territory/todo.toml) | 1 | 1 benchmark |  |
 | [X-COM: UFO Defense (OpenXcom)](../../gamedb/games/x-com-ufo-defense/todo.toml) | 1 | 1 benchmark |  |
 | [X-Moto](../../gamedb/games/xmoto/todo.toml) | 2 | 1 package, 1 session |  |
@@ -100,7 +101,7 @@ wedged run.
 Rank 74. Nothing in 602 runs reports a shader compile failure or a fallback, because Mesa is silent.
 
 **Why.** [LOG-FINDINGS.md, "The tool"](../games/LOG-FINDINGS.md#the-tool): an "out of temps", TGSI or
-draw-module fallback would cost fps without leaving a line. One run per game with `NV30_DEBUG` (or `MESA_DEBUG=1`, `GALLIUM_DEBUG`) into
+draw-module fallback would cost fps without leaving a line. One run per game with `MESA_DEBUG=1` (there is no `NV30_DEBUG`; ran on 2026-11-14, LOG-FINDINGS.md item 6; `GALLIUM_DEBUG` not yet) into
 game.log, then `logscan.py -c nouveau,gl`.
 
 - **Payoff:** finds fallbacks we cannot see; upstream material. **Effort:** S. **Risk:** none.

@@ -2151,6 +2151,77 @@ Two runs a game (Endless Sky one), stall recorder on, a screenshot at 30 s, one 
 source = "bench/analysis/matrix.py"
 
 [[batch]]
+name = "2026-11-14-s1114b-smoke"
+order = 120
+kind = "run"
+title = "Kernel .1529, ps3rsx 0.1534 (V2 sealed swap), Mesa ps3.1508: unattended smoke runs, second round"
+date = 2026-11-14
+runs = 12
+tested = "Smoke re-runs of the games whose recipes were fixed or whose packages were installed during the night (Freeciv, ScummVM, OpenTyrian, Endless Sky, DDNet, Widelands), and first smokes of Warmux's play variant, to see the picture on kernel .1529 with the V2 sealed VRAM swap (`run.sh smoke` runs with the swap off unless NOVSWAP=0; DDNet's last run had it on)."
+conclusion = "Freeciv, ScummVM's Beneath a Steel Sky and Endless Sky's flight now give a right picture unattended. DDNet plays but fills the VRAM (26 `out of VRAM` lines, a 25.7 s frame, a white rectangle in the sky) and was OOM-killed with the swap off; Warmux runs at 7 fps. OpenTyrian needs the game's data files and Widelands is not installed. No decision recorded."
+observations = """
+One run each unless noted, screenshots at 30 and 90 s, fullscreen 1920x1080, process check clean. Runs that were disturbed or never reached the game are said so.
+- Freeciv: the first run (18:22Z, the client started 25 s late) logged in as `smoke` but sat on the main menu "connected to no player"; the user nudged the mouse in it (12 buttons, 10 wheel steps), so it does not count. The recipe was fixed (the client joins in pregame, the server gets `aitoggle smoke` and `start` through a console fifo). The 19:09Z run draws the map with Wien and Roma, units and the turn timer: it works unattended. 14 MB free at the lowest.
+- Widelands: not installed (712 MB with its data, the root had 1.4 GB free), skipped.
+- ScummVM base (Beneath a Steel Sky): the 18:25Z run failed for want of game data; with beneath-a-steel-sky installed the 19:14Z run draws the game's first scene right. 12 fps in the intro scene, 49 MB free.
+- OpenTyrian: our package was installed, but "The Tyrian data files were not found" (the data comes from game-data-packager's Tyrian 2.1): no picture, in both runs.
+- Warmux (play): a game in progress with the map and teams drawn, but 7 fps steady (HUD 9), 1% low 0.4, 70.5 s of stalls in the 120 s window and a 10 s longest frame; 10.6 MB free.
+- Endless Sky: the first two runs (18:37Z, 19:17Z) were killed at the 360 s cap of `run.sh smoke` (counted as disturbed, left out) and the "Lost 1" help dialog covered the flight's shot. The recipe now returns four times after the thrust and runs 420 s (it needs BENCH_TIMEOUT 480 or more, since `run.sh smoke` caps a run at 360 s). The 20:15Z run shows the flight with the full HUD and no dialog: 31 fps, 1% low 8.7, 9.3 s of stalls, longest frame 1.9 s, 81 MB RSS, 131 MB VRAM, and "out of VRAM" lines in dmesg.
+- DDNet: 20:11Z not installed (rc 127); with ddnet installed the 20:22Z client sat on "Connecting to 127.0.0.1:8303" (no ddnet-server); with ddnet-server installed the 20:48Z run (VRAM swap off, the smoke default) filled the 384 MB disk swap and the kernel OOM-killed DDNet at 58 s. The 21:14Z run with NOVSWAP=0 plays (timer, HUD, the player on the map) at 83 fps steady, but with 35.9 s of stalls, a 25.7 s longest frame and 26 `ps3rsx: out of VRAM` lines (buffers up to 10.9 MB), and a white rectangle in the sky (probably a texture whose allocation failed). 121 MB RSS, 184 MB VRAM, 16 MB free at the lowest. Only the 21:14Z run is in the numbers.
+"""
+source = "bench/analysis/matrix.py"
+
+[[batch]]
+name = "2026-11-14-s1114b-openttd-pool"
+order = 121
+kind = "run"
+title = "Kernel .1529, ps3rsx 0.1534 (V2 sealed swap), Mesa ps3.1508: OpenTTD blit8 with a 24 MB staging pool"
+date = 2026-11-14
+runs = 12
+tested = "OpenTTD `blit8` with `NV30_STAGING_POOL_MB=24` against the default pool, to see whether the pool's gain of ssdroot4 (34 to 52 fps) holds on the current stack and whether `no memory to back the GART` shows in dmesg: six runs with the pool, then an ABBAAB round, default pool (A) against 24 MB (B)."
+conclusion = "The pool is a real gain, again: 56 against 45 fps steady and a 1% low of 21.5 against 15.6, every B run above every A run, and no `no memory to back the GART` line in any run. Whether to make `NV30_STAGING_POOL_MB=24` OpenTTD's default is the user's call; it is a todo item of the game. No decision recorded."
+observations = """
+12 runs in one boot, fullscreen 1920x1080, screenshots at 30 s, no interference. The numbers file medians both groups together; these are by group.
+- Six runs with the pool (18:43-19:02Z): 55 fps steady, 1% low 21.0, no stalls, longest frame 86 ms.
+- ABBAAB (19:40-19:59Z): A 45 fps steady (44-45), 1% low 15.6, no stalls; B 56 fps (54-57), 1% low 21.5; ALSA underruns 2098 against 1322 (A against B).
+- dmesg of every run: no `no memory to back the GART`.
+"""
+source = "bench/analysis/matrix.py"
+
+[[batch]]
+name = "2026-11-14-s1114b-mesa-debug"
+order = 122
+kind = "run"
+title = "Kernel .1529, ps3rsx 0.1534 (V2 sealed swap), Mesa ps3.1508: one run per game with MESA_DEBUG=1"
+date = 2026-11-14
+runs = 12
+tested = "One run each of twelve games with `MESA_DEBUG=1` (the harness now passes it into the game like the NV30_* switches), to read the GL errors Mesa prints into game.log. nv30's own NOUVEAU_ERR lines (\"out of temps\") print without it: there is no `NV30_DEBUG`."
+conclusion = "Mesa reports almost nothing: two harmless queries and one fixed-function stack overflow. Trigger Rally's `GL_STACK_OVERFLOW in glPushMatrix(GL_MODELVIEW)` is worth a look (a todo item for the game). The runs double as a ladder: the numbers are those of the earlier batches. No decision recorded."
+observations = """
+One run each, MESA_DEBUG=1, fullscreen 1920x1080, no interference. Steady fps and 1% low:
+- Neverball 82.7 / 58.2, X-Moto 162.2 / 115.5, Armagetron 86 / 53.1, ETR 59 / 29.3, ClassiCube 47.2 / 35.5, dsda-doom 40.5 / 21.4, OpenArena gl2min 66.4 / 7.1 (the map reload stalls as always), QuakeSpasm 92.4 / 54.9, SuperTuxKart 16 / 9.5, Trigger Rally full 60 / 36.0, BananaBread 38.3 / 25.5, Luanti view120 36 / 11.3.
+- Messages: ETR and SuperTuxKart `GL_INVALID_ENUM in glGetIntegerv(GL_MAJOR_VERSION)` (a GL3 query on a 2.1 context, harmless); SuperTuxKart also `glDisable(GL_FRAMEBUFFER_SRGB)`; Luanti `glGetIntegerv(GL_NUM_EXTENSIONS)`; Trigger Rally `GL_STACK_OVERFLOW in glPushMatrix(GL_MODELVIEW)` twice. The other eight are silent.
+"""
+source = "bench/analysis/matrix.py"
+
+[[batch]]
+name = "2026-11-14-s1114b-shadercache"
+order = 123
+kind = "run"
+title = "Kernel .1529, ps3rsx 0.1534 (V2 sealed swap), Mesa ps3.1508: Mesa's disk shader cache cold, primed and warm"
+date = 2026-11-14
+runs = 9
+tested = "Mesa's disk shader cache (Mesa 0039, the SHADERCACHE token: `cold` empties the cache, `prime` fills it, `warm` uses it) on OpenArena gl2min and BananaBread, for the level load time."
+conclusion = "No gain on OpenArena: the load ends at 13.4-14.7 s warm against 14.2-15.0 s cold. BananaBread loads about 1.3 s faster warm (7.2 against 8.3-8.8 s), from one warm run. Steady fps and stalls are unchanged. No decision recorded."
+observations = """
+One boot, fullscreen 1920x1080, no interference. Load end (the HUD's mark):
+- OpenArena gl2min: cold 14.98 and 14.23 s, prime 14.66, warm 13.35 and 14.73 (five runs: cold, prime, warm, cold, warm). Steady fps 62-64 in all three variants, 1% low 7.5-8.5 (the map reload).
+- BananaBread: cold 8.75 and 8.27 s, prime 8.37, warm 7.21 (one warm run). Steady fps 37.8-38.0, 1% low 24.6-25.5.
+- The cache directory held 2480 KB (OpenArena) and 3004 KB (BananaBread) after a primed run, 4 KB when cold.
+"""
+source = "bench/analysis/matrix.py"
+
+[[batch]]
 name = "suite-summary-2026-10"
 kind = "summary"
 title = "The suite's numbers, 2026-10: the rules-1 calibration"

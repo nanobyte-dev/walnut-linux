@@ -1,0 +1,17 @@
+# warmux's numbers in batch 2026-11-14-s1114b-smoke (gamedb/benchmarks/README.md)
+batch = "2026-11-14-s1114b-smoke"
+
+[variant."play@shot"]
+fps = 9
+cpu = 114.4
+underruns = 279
+ram_free = 10.6
+vram = 23.8
+fps_steady = 7
+low1 = 0.4
+stalls = 257
+longest_ms = 10073.0
+stalls_play = 257
+stall_play_s = 70.5
+low1_play = 0.4
+longest_play_ms = 10073.0
