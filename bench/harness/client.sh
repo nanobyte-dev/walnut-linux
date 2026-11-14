@@ -395,9 +395,10 @@ fi
 # Mesa driver switches for this run (docs/HOTPATHS.md): every BENCH_NV30_* in the environment
 # (run.sh's ENVS token NV30_X=1 becomes BENCH_NV30_X=1) goes to the game without the BENCH_ prefix,
 # after the recipe and its variant. bench.txt gets genv=<NAME=VALUE ...>; report.py shows it after the
-# variant (base@translate_lut1).
+# variant (base@translate_lut1). BENCH_MESA_DEBUG (the token MESA_DEBUG=1) goes the same way: core Mesa then
+# prints each GL error to stderr (game.log); nv30's own NOUVEAU_ERR lines ("out of temps!!") print without it.
 GENV=()
-for v in $(compgen -v BENCH_NV30_); do GENV+=("${v#BENCH_}=${!v}"); done
+for v in $(compgen -v BENCH_NV30_) ${BENCH_MESA_DEBUG+BENCH_MESA_DEBUG}; do GENV+=("${v#BENCH_}=${!v}"); done
 [ ${#GENV[@]} -gt 0 ] && ENV+=("${GENV[@]}")
 # Library switches for this run (docs/SPU-AUDIO.md, docs/PROFILING.md "Load-time decoders and
 # linking"), run.sh ENVS tokens that become BENCH_<NAME>, added after the recipe and its variant:

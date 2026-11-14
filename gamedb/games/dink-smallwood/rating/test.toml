@@ -1,0 +1,5 @@
+# Dink Smallwood (FreeDink): the played test (gamedb/README.md "games/<id>/rating/"). Data, never run: the session
+# harness reads it through bench/harness/playdef.py.
+process = 'freedink'
+# its settings and data, set aside for a session on fresh defaults: FreeDink keeps its saves in ~/.dink
+home = ['.dink']
