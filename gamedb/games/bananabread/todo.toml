@@ -13,16 +13,14 @@ Played 2026-10-24: Scrap (20 fps, 22 s of stutter a minute, 64 s to load). Debia
 BananaBread, not Sauerbraten; the real Sauerbraten is its own bundle (gamedb:sauerbraten)."""
 
 [[item]]
-kind = "benchmark"
-added = 2026-10-19
-source = "PLAN 2.6"
+kind = "package"
+added = 2026-11-14
+source = "gamedb:batch/2026-11-14-s1114-bananabread-oq"
 text = """\
-`oqlag` repeated x3 (cube2 0010 `oqwaterlag 1`: this frame's water query counts only once its result \
-is in): one run gave 39.4 steady / 43.5 smooth fps against base 25.0 / 30.3 (row 64). It matters \
-most of the repeats: the water query wait was 10.3% of the CPU, and Mesa's own fix (0035 \
-`NV30_QUERY_WAIT`) gave no fps in its repeat (row 65). `run.sh bench bananabread \"base oqlag \
-oqnowait\" 3` with `STALLS=1` (`oqnowait` is the stock engine's `oqwait 0`); it changes pixels in \
-one case (the first frame water shows again keeps its old reflection)."""
+`oqwaterlag 1` (cube2 0010, recipe variant `oqlag`) as the shipped default: 43.8 against 37.7 fps steady \
+(+16%), 1% low 26.2 against 24.9, three interleaved rounds on kernel .1529 and Mesa ps3.1508, the same \
+picture in the screenshots. The cost: the first frame water shows again keeps last frame's reflection. \
+The user's call."""
 
 [[item]]
 kind = "benchmark"
@@ -32,16 +30,6 @@ text = """\
 A first-person baseline with the translate LUT re-A/B'd: the LUT's +53% (25.9 to 39.6) was on the \
 earlier spectator demo, and the first-person demo swings 23-38 fps by itself, so three rounds or \
 more."""
-
-[[item]]
-kind = "benchmark"
-added = 2026-10-19
-source = "PLAN 3.1"
-text = """\
-cube2 0007-0009 (`gluniformcache`, `glbatchtmu`, `glpartvbo`, on by default since 33148f2) have \
-never been A/B'd on the PS3: `run.sh bench bananabread \"base allbatchoff\" 3`. The HOTPATHS profile \
-had 72% of its CPU in Mesa, 44.9 points of it the vertex conversion that Mesa 0033 and cube2 0011 \
-have cut since."""
 
 [[item]]
 kind = "benchmark"

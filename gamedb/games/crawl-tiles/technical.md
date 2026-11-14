@@ -10,6 +10,8 @@ window at 60 s, with 67 s of CPU in the 120 s: the load takes longer than 120 s 
 is the harness. A 300 s run, then the fullscreen check, are next; not played yet
 ([benchmark/recipe.sh](benchmark/recipe.sh)).
 
+Again on 2026-11-14 (kernel .1529, ps3rsx 0.1534, Mesa ps3.1508, gamedb:batch/2026-11-14-s1114-smoke): the 300 s base run reaches the title with "Loading complete, press any key to start" fullscreen 1920x1080 at 30 s and still there at 90 s (base presses no key: variant `explore` does). 29 MB free at the lowest.
+
 ## The first start: "Loading maps..." for minutes
 
 On a fresh home Crawl compiles its 143 vault files (`dat/des/*.des`, Lua inside) and its text database

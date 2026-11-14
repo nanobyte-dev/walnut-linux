@@ -43,6 +43,7 @@ the wall clock, the work per frame is the same. fps from the Gallium HUD (60 s w
 | 32bpp-anim with Mesa 0040 `NV30_STAGING_POOL_MB=24` | 20 (11 off) | 9.4 | 4.3 s (43 off) | gamedb:batch/2026-10-19-ssdroot4-staging-pool |
 | 8bpp with Mesa 0040 | 52 (34 off) | 18.4 | 0.1 s | gamedb:batch/2026-10-19-ssdroot4-staging-pool |
 | 8bpp with Mesa 0040, `zoomout` / `scroll` | 23 / 31 (7 / 7-8 without the pool) | 11.1 / 14.3 | | gamedb:batch/2026-10-19-ssdroot5-openttd-views |
+| 8bpp against 32bpp-anim, 3 rounds interleaved (kernel .1529, Mesa ps3.1508, the pool as shipped), the same picture | 44 against 10 | 15.3 against 5.5 | 0.2 against 49 s | gamedb:batch/2026-11-14-s1114-openttd-blit |
 
 - **The blitter is the big lever** (frame rate x3, the 1% low from 5.7 to 13-15) and **the staging pool the
   second**: each frame's upload of the screen (8.3 + 2.1 MB) had taken new GART staging buffers, zeroed,

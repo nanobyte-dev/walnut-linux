@@ -1,0 +1,17 @@
+# crispy-doom's numbers in batch 2026-11-14-s1114-smoke (gamedb/benchmarks/README.md)
+batch = "2026-11-14-s1114-smoke"
+
+[variant."base@shot"]
+fps = 34
+cpu = 83.0
+underruns = 1486
+ram_free = 36.9
+vram = 27.0
+fps_steady = 35
+low1 = 26.7
+stalls = 2
+longest_ms = 160.3
+stalls_play = 2
+stall_play_s = 0.3
+low1_play = 26.7
+longest_play_ms = 160.3

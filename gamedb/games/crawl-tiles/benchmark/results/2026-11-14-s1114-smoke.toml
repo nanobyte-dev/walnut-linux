@@ -1,0 +1,8 @@
+# crawl-tiles's numbers in batch 2026-11-14-s1114-smoke (gamedb/benchmarks/README.md)
+batch = "2026-11-14-s1114-smoke"
+
+[variant."base@shot"]
+cpu = 28.0
+underruns = 0
+ram_free = 29.3
+vram = 75.6

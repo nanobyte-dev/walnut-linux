@@ -1,0 +1,17 @@
+# teeworlds's numbers in batch 2026-11-14-s1114-smoke (gamedb/benchmarks/README.md)
+batch = "2026-11-14-s1114-smoke"
+
+[variant."base@shot"]
+fps = 175
+cpu = 129.5
+underruns = 1446
+ram_free = 15.0
+vram = 50.0
+fps_steady = 172
+low1 = 72.9
+stalls = 10
+longest_ms = 7124.0
+stalls_play = 10
+stall_play_s = 15.0
+low1_play = 72.9
+longest_play_ms = 7124.0

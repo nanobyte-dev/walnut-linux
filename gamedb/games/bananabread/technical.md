@@ -135,7 +135,7 @@ The recipe was called `sauerbraten` before 2026-10-26; old runs keep that name.
 | CPU skinning through libspeq | `ppeskin` best, the SPU path adds hitches ([the investigation](../../engines/cube2/investigations/2026-10-17-spu-skinning.md)) | plain CPU skinning stays the default |
 | RGB DXT1 on the SPEs (libspeq 0.394) | `rgbspu` 39.1 against `rgbppe` 39.4: the demo uploads no RGB DXT1, only a few DXT5 (gamedb:batch/2026-10-18-ioquake3-396) | not exercised here |
 | `MALLOC=mmap`, `MALLOC=trim` | the rounds disagreed with each other (gamedb:batch/2026-10-18-batch8) | noise, not shipped |
-| Mesa 0035 `NV30_QUERY_WAIT=200`, cube2 0010 `oqwaterlag` | [the water query wait](../../engines/cube2/investigations/2026-10-18-water-query-wait.md) | no fps gain from 0035; 0010 promising, to repeat |
+| Mesa 0035 `NV30_QUERY_WAIT=200`, cube2 0010 `oqwaterlag` | [the water query wait](../../engines/cube2/investigations/2026-10-18-water-query-wait.md); repeated x3 on kernel .1529 and Mesa ps3.1508: 43.8 against 37.7 fps steady, 1% low 26.2 against 24.9, the stock `oqwait 0` 24.5 (gamedb:batch/2026-11-14-s1114-bananabread-oq) | no fps gain from 0035; 0010 +16%, off by default: a default is the user's call (todo.toml) |
 | cube2 0011 `vanormalshort` | 38.8 to 45.1 (+17%), stalls equal, VRAM +4 MB (gamedb:batch/2026-10-18-batch17) | default still 0 (pixels), decision open |
 | Game prefetch (`GAMEPREFETCH=fetch`) | load 18.1-18.6 s against 15.2-18.8 (gamedb:batch/2026-10-18-batch16) | no gain, default off |
 | SSD game data, SSD swap spill | 39.3 / 38.5 against 38.5; load -3 to -6%, inside the spread (gamedb:batch/2026-10-18-ssd1) | no proven gain: the binary, libraries and shader cache stayed on USB |
@@ -147,7 +147,10 @@ The recipe was called `sauerbraten` before 2026-10-26; old runs keep that name.
 | libpng16 +ps3.560, libvorbis +ps3.549, zlib-ng | loads unchanged within the spread (gamedb:batch/2026-10-19-ssdroot6-libpng, gamedb:batch/2026-10-19-ssdroot5-load-libraries) | too small a part of this load |
 | Mesa 0043 `NV30_VTX_SNORM8=1` | an RSX graph exception (cause 0x106) one run after a clean run without it (2026-10-19) | stopped; [the engine's investigation](../../engines/cube2/investigations/2026-10-18-byte-normals.md) |
 
-Built, not measured yet: cube2 0007-0009; `texreduce 1` (variant `tex1`, an estimated 45-60 MB of the
+cube2 0007-0009 (`gluniformcache`, `glbatchtmu`, `glpartvbo`) measured off together x3: 37.3 against 37.7
+fps, 1% low 24.8 against 24.9 (gamedb:batch/2026-11-14-s1114-bananabread-oq): about 1% now, kept on.
+
+Built, not measured yet: `texreduce 1` (variant `tex1`, an estimated 45-60 MB of the
 117 MB VRAM); Mesa 0037's sysmem statistics with `shortnormals`.
 
 ## Investigations

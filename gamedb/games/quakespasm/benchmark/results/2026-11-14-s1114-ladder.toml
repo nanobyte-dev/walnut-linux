@@ -1,0 +1,22 @@
+# quakespasm's numbers in batch 2026-11-14-s1114-ladder (gamedb/benchmarks/README.md)
+batch = "2026-11-14-s1114-ladder"
+
+[variant."base@rec10"]
+fps = 85.9
+cpu = 121.3
+underruns = 13.0
+ram_free = 40.2
+vram = 47.6
+fps_steady = 88.1
+low1 = 54.0
+stalls = 9.0
+longest_ms = 489.6
+stall_disk_s = 0.0
+stall_swap_s = 0.0
+stall_reclaim_s = 0.2
+stall_gpu_s = 0.0
+stall_cpu_s = 2.4
+stalls_play = 9.0
+stall_play_s = 2.6
+low1_play = 54.0
+longest_play_ms = 489.6

@@ -11,6 +11,8 @@ the Gallium HUD (the game's own counter 6.6), 1% low 0.3, frames up to 6.1 s, 84
 Runs, far too slow to play: a profile first (plib's immediate-mode drawing, five cars' simulation on the PPE).
 The recipe: [benchmark/recipe.sh](benchmark/recipe.sh) (variants `notc`, `window`, `single`, `menu`).
 
+Again on 2026-11-14 (kernel .1529, ps3rsx 0.1534, Mesa ps3.1508, gamedb:batch/2026-11-14-s1114-smoke): the same: the race at the start line drawn right, 7 fps, 1% low 0.3, frames up to 7 s.
+
 ## Threads in the stall frames
 
 Checked on 2026-10-29 after gamedb:luanti's stalls turned out to be its render thread waiting for the CPU its own worker threads had (luanti 0010 puts them at nice 10). From the stall record (stalls.py's `stall_main_pct` and `stall_rest_pct`: the CPU of the main thread and of the game's other threads in the stall frames, in % of their time, 100 being one PPE thread; Luanti before its fix: 22 and 83) and the profile (`bench/analysis/stallperf.py`). Run `ps3-bench-20261028T232756Z-smoke-torcs-base` (STALLS=1 PERF=1): main thread 84%, other threads 9% (OpenAL's mixer, SCHED_RR), kswapd0 2%. One thread does the drawing (Mesa 41% of the samples) and the robots and physics (simuv2, lliaw, tita, berniw, olethros): the stalls are its own work, nothing waits on a worker, so renicing has nothing to act on. The fix is in that thread's frame (todo.toml).

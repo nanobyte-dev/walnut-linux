@@ -2061,6 +2061,96 @@ One profiled run per game, VRAM swap on, every run fullscreen 1920x1080, process
 source = "bench/analysis/matrix.py"
 
 [[batch]]
+name = "2026-11-14-s1114-bananabread-oq"
+order = 115
+kind = "run"
+title = "Kernel .1529, ps3rsx 0.1534 (V2 sealed swap), Mesa ps3.1508: cube2's occlusion-query and batching switches"
+date = 2026-11-14
+runs = 12
+tested = "Two queued BananaBread A/Bs on the current stack: cube2 0010's `oqwaterlag 1` (the water's occlusion query counts only once its result is in) and the stock engine's `oqwait 0` against the shipped default, and cube2 0007-0009 (uniform cache, texture-unit batching, particle VBO) switched off together, three interleaved rounds."
+conclusion = "`oqlag` is a real gain: 43.8 against 37.7 fps steady (+16%), 1% low 26.2 against 24.9, in all three rounds, with the same picture. `oqnowait` costs a third (24.5 fps). With 0007-0009 off the game runs 37.3 fps, within 1% of base: they no longer buy anything measurable since Mesa 0033 and cube2 0011. No decision recorded: making `oqwaterlag 1` the default is the user's call (it can keep last frame's reflection for one frame)."
+observations = """
+3 rounds, the variants interleaved, one boot, stall recorder on, the screenshot at 30 s in the warm-up, every run fullscreen 1920x1080, no interference, process check clean.
+- base: 37.7 fps steady (37.3-37.7), 1% low 24.9, no stalls, longest frame 77-191 ms, load 7.3 s.
+- oqlag: 43.8 fps (43.8-43.9), 1% low 26.2, one 130 ms frame, longest 82-133 ms.
+- oqnowait: 24.5 fps (24.4-24.6), 1% low 16.3.
+- allbatchoff: 37.3 fps (37.1-37.3), 1% low 24.8, longest 91-97 ms.
+- The 30 s screenshots of all four show the same corridor, lit and textured as in earlier batches; the water at its end draws in every variant."""
+source = "bench/analysis/matrix.py"
+
+[[batch]]
+name = "2026-11-14-s1114-smoke"
+order = 116
+kind = "run"
+title = "Kernel .1529, ps3rsx 0.1534 (V2 sealed swap), Mesa ps3.1508: smoke runs of games without a current run"
+date = 2026-11-14
+runs = 16
+tested = "One smoke run each of the installed games that had no run on the current stack (or never a valid one), and of Dink Smallwood (GNU FreeDink, new on the PS3), to see that they still start and draw on kernel .1529 with the V2 sealed VRAM swap."
+conclusion = "Every game started and drew its picture except Freeciv's client, which stays on its pregame screen while the server plays (the observer never gets the map). Dink Smallwood's title screen is right on both renderers. No kernel report, no swap failure, no game crash; TORCS is still unplayably slow (7 fps) and Simutrans slow (18 fps)."
+observations = """
+One run each, 120 s (Crawl and OpenRCT2 300 s), screenshots at 30 and 90 s, every game fullscreen 1920x1080 by itself, no interference except Woof's first run (an SSH session that started the batch: left out, run again).
+- Dink Smallwood (freedink 109.6, new on the PS3): the title and its Start/Continue/Quit menu, the same as the PC reference, on the default GL display and on SDL's software renderer (`sw`). The pointer is the player's: no unattended way into a game.
+- Woof, Chocolate Doom, Crispy Doom (Freedoom 2 MAP01): right picture, 35 fps (the cap); Chocolate and Crispy log 3061 and 1486 ALSA underruns in 120 s, the sound not heard.
+- Simutrans: the credits dialog closed by Escape, the pak64 map drawn; 18 fps HUD, 57 frames over 100 ms with nothing built.
+- Freeciv: the server and five AIs played 32 turns with the client connected; first run without shots (no load mark), the second (shots from the start) shows the pregame player list at 30 and 90 s: the observer connection doesn't follow the started game.
+- Teeworlds: dm1, 172 fps steady; four frames of 1.3-7.1 s in the first 26 s after the map loaded.
+- Crawl: \"Loading complete, press any key\" at 30 s (base presses no key).
+- Pingus 40 fps (the level's start screen), Frozen Bubble level 1 at 90 s after a load with four 10-13 s frames, SuperTux 67 fps in level 1, BomberClone's main menu (3-4 redraws a second), OpenRCT2 Electric Fields 22 fps, TORCS at the start line 7 fps with frames up to 7 s.
+"""
+source = "bench/analysis/matrix.py"
+
+[[batch]]
+name = "2026-11-14-s1114-openttd-blit"
+order = 117
+kind = "run"
+title = "Kernel .1529, ps3rsx 0.1534 (V2 sealed swap), Mesa ps3.1508: OpenTTD 8bpp-optimized against 32bpp-anim"
+date = 2026-11-14
+runs = 6
+tested = "OpenTTD's 8bpp-optimized blitter against 32bpp-anim on the 1962 save, three interleaved rounds, with the picture checked (a queued A/B: earlier batches ran 8bpp against base, zoomout and scroll only)."
+conclusion = "8bpp-optimized is 4.4 times faster: 44 against 10 fps steady, 1% low 15.3 against 5.5, 2 against 375 frames over 100 ms (0.2 against 49 s of stalls in the window). The same picture at 30 s. 32bpp-anim is not playable here."
+observations = """
+3 rounds alternating, one boot, screenshots at 30 s, fullscreen 1920x1080, no interference.
+- blit8: 44 fps (43-45), 1% low 15.3, longest frame 91-370 ms, 42 MB free at the lowest.
+- blit32anim: 10 fps in every run, 1% low 5.3-5.7, 369-384 frames over 100 ms, 17-24 MB free at the lowest.
+- Both shots show the same view of Taningville with its stations, trains and labels.
+"""
+source = "bench/analysis/matrix.py"
+
+[[batch]]
+name = "2026-11-14-s1114-openarena-mippowf"
+order = 118
+kind = "run"
+title = "Kernel .1529, ps3rsx 0.1534 (V2 sealed swap), Mesa ps3.1508: OpenArena gl2min with r_mipMapPowf"
+date = 2026-11-14
+runs = 4
+tested = "`gl2min_mippowf` (`r_mipMapPowf 1`, ioquake3 0028 off) repeated against gl2min: batch 17's single run had the lowest stalls, though 0028 should change only the load's CPU."
+conclusion = "No gain: 62.9 against 62.2 fps steady, the gameplay stall-free in both, but the per-pass map reload is slower with it (load 8.6 against 7.0 s; whole-window 1% low 4.8 against 6.8, longest 3.7-5.5 s against 3.25 s). Batch 17's low-stall run was noise."
+observations = """
+2 rounds alternating, one boot, stall recorder on, screenshots at 30 s (the map's loading screen in both), no interference.
+- gl2min: 61.3 and 63.3 fps steady, 37-38 s of stalls in the window (all in the reloads), load 7.0 s.
+- gl2min_mippowf: 62.7 and 63.1 fps, 45-51 s of stalls, load 8.6-8.7 s, longest 3.7 and 5.5 s.
+"""
+source = "bench/analysis/matrix.py"
+
+[[batch]]
+name = "2026-11-14-s1114-ladder"
+order = 119
+kind = "run"
+title = "Kernel .1529, ps3rsx 0.1534 (V2 sealed swap), Mesa ps3.1508: the game ladder's current baseline"
+date = 2026-11-14
+runs = 20
+tested = "A current baseline of the game ladder on the shipped stack after the V2 sealed swap (kernel .1529, ps3rsx 0.1534 with vswap_seal, Mesa ps3.1508, libspeq 0.1516), two runs a game with a screenshot, plus Endless Sky's flight with the memory snapshots (MEM=1)."
+conclusion = "No game is worse than in the 11-12 ABBA on the previous stack (sealed test build 0.1519 arms): the same frame rates within 1-5%. Every picture right. Endless Sky's flight logged two ps3rsx `out of VRAM` lines and the swap's first GPU-copy fallback (the SPE read the slot from VRAM instead), with every check counter at 0."
+observations = """
+Two runs a game (Endless Sky one), stall recorder on, a screenshot at 30 s, one boot, fullscreen 1920x1080; one dsda-doom run left out (nm-dispatcher ran during it).
+- Neverball 86.4 fps steady (1% low 59.1), X-Moto 161.8 (111.2), QuakeSpasm 88.1 (54.0), Armagetron 90.0 (54.1), ETR 59.0 (28.4), ClassiCube 47.2 (35.2, the 47 fps mode both runs), dsda-doom 39.1 (18.3), Trigger Rally full 60.5 (34.0, the 2.2 s stage-load frame as before), Luanti view 120 37.0 (13.5, 5.2 s of stalls), SuperTuxKart 13.5 (8.9, 5-15 s of stalls).
+- The 11-12 ABBA's medians on the sealed test arms, for comparison: Neverball 84.7, X-Moto 161.8, QuakeSpasm 85.3, Armagetron 85.5, ETR 59.0, Luanti 38.0, SuperTuxKart 14.5, Trigger Rally 60.0.
+- Endless Sky (smoke recipe, 90 s window, MEM=1): 31 fps, 1% low 8.8, 10.1 s of stalls (CPU 52%, VRAM swap-ins 21%), 114 MB RSS, 128 MB of VRAM, 22 MB free at the lowest; the 30 s shot is the flight with a help dialog. Two `ps3rsx: out of VRAM` lines (2 and 8 MB buffers) and one GPU-copy fallback in the swap's stats.
+- Screenshots: every game in play; Luanti's 30 s shot is grey (the flight path in blocks not generated yet, as in earlier batches).
+"""
+source = "bench/analysis/matrix.py"
+
+[[batch]]
 name = "suite-summary-2026-10"
 kind = "summary"
 title = "The suite's numbers, 2026-10: the rules-1 calibration"

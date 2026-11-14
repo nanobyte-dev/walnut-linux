@@ -39,6 +39,7 @@ setup() {
 		"sound_enable_music=FALSE" > "$FC_RC"
 }
 CMD=(/usr/games/freeciv-gtk3.22 -a -s localhost -p "$FC_PORT" -n smoke)
+SHOT_FROM=start	# the GTK client draws through cairo, so the HUD marks no load end: the shots count from the start (2026-11-14: both were skipped)
 during() {
 	/usr/games/freeciv-server -p "$FC_PORT" -r "$FC_SCRIPT" -q 600 > "${BENCH_DIR:-$D}/fc-server.log" 2>&1 &
 	local s=$!

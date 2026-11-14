@@ -11,11 +11,3 @@ source = "TESTS.md played sessions"
 text = """\
 Played 2026-10-25 with our package (fullscreen default, pad scheme) and the sdl2-compat close fix; \
 it quit cleanly."""
-
-[[item]]
-kind = "benchmark"
-added = 2026-10-19
-source = "PLAN 2.6"
-text = """\
-The live AI rounds repeated: one run gave 83 fps with one 127 ms frame in 2 minutes \
-(gamedb:batch/2026-10-18-armagetron-live-ai)."""

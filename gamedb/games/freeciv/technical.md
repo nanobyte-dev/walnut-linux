@@ -12,6 +12,8 @@ and it started in gamedb:batch/2026-10-19-ssdroot5-smoke. The sound card ran wit
 effects are off (the source is not known). The server with five AIs and a 1080p GTK3 client left 15 MB free
 (94 MB peak RSS): about the limit of the console's RAM. The map itself is still to be seen; not played yet.
 
+Again on 2026-11-14 (kernel .1529, ps3rsx 0.1534, Mesa ps3.1508, gamedb:batch/2026-11-14-s1114-smoke): the fixed script worked, the server and five AIs played 32 turns with the client connected as an observer, and the client disconnected cleanly at the end; 19 MB free at the lowest. No picture though: the shots waited for a load end that the GTK client never marks, so both were skipped (the recipe now counts them from the start, `SHOT_FROM=start`). The map is still to be seen.
+
 ## Research
 
 What the surveys and plans said about it, newest first; each line names its source, the section and the date.

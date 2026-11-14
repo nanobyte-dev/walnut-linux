@@ -12,3 +12,5 @@ with no timeout (`LevelIntro::update` leaves only on Jump, Action, Menu-select, 
 keyboard's Returns (why is not known), so `during()` presses the keys through XTEST (`smoke_xkeys`: the
 window focused, keys held 0.25 s): Return, then Space and Return 8 s apart. Tux then stands still until
 played. Variants `worldmap`, `menu`, `card`, `sdl`, `nomusic`.
+
+Again on 2026-11-14 (kernel .1529, ps3rsx 0.1534, Mesa ps3.1508, gamedb:batch/2026-11-14-s1114-smoke): in "Welcome to Antarctica" with the title card passed, fullscreen 1920x1080, 67 fps steady, 1% low 49, longest frame 352 ms; only the 30 s shot was taken.

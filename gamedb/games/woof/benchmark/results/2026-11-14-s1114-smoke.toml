@@ -1,0 +1,17 @@
+# woof's numbers in batch 2026-11-14-s1114-smoke (gamedb/benchmarks/README.md)
+batch = "2026-11-14-s1114-smoke"
+
+[variant."base@shot"]
+fps = 34
+cpu = 82.6
+underruns = 0
+ram_free = 30.9
+vram = 24.1
+fps_steady = 35
+low1 = 24.9
+stalls = 4
+longest_ms = 143.8
+stalls_play = 4
+stall_play_s = 0.5
+low1_play = 24.9
+longest_play_ms = 143.8

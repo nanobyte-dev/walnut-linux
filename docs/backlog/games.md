@@ -16,8 +16,8 @@ they came from.
 <!-- gamedb:todo-summary ../../gamedb -->
 | Game | Open items | Kinds | From the plan |
 |---|---|---|---|
-| [Armagetron Advanced](../../gamedb/games/armagetronad/todo.toml) | 2 | 1 benchmark, 1 session | 2.6 |
-| [BananaBread](../../gamedb/games/bananabread/todo.toml) | 6 | 4 benchmark, 1 package, 1 session | 2.6, 3.1 |
+| [Armagetron Advanced](../../gamedb/games/armagetronad/todo.toml) | 1 | 1 session |  |
+| [BananaBread](../../gamedb/games/bananabread/todo.toml) | 5 | 2 benchmark, 2 package, 1 session | 2.6 |
 | [Battle for Wesnoth](../../gamedb/games/wesnoth/todo.toml) | 1 | 1 benchmark |  |
 | [BZFlag](../../gamedb/games/bzflag/todo.toml) | 3 | 2 package, 1 session |  |
 | [Chromium B.S.U.](../../gamedb/games/chromium-bsu/todo.toml) | 1 | 1 benchmark |  |
@@ -25,11 +25,12 @@ they came from.
 | [Colobot: Gold Edition](../../gamedb/games/colobot/todo.toml) | 1 | 1 session |  |
 | [Day of the Tentacle](../../gamedb/games/day-of-the-tentacle/todo.toml) | 1 | 1 session |  |
 | [Diablo (DevilutionX)](../../gamedb/games/diablo/todo.toml) | 1 | 1 fix |  |
+| [Dink Smallwood (GNU FreeDink)](../../gamedb/games/dink-smallwood/todo.toml) | 1 | 1 benchmark |  |
 | [dsda-doom](../../gamedb/games/dsda-doom/todo.toml) | 2 | 1 research, 1 session | 2.8 |
 | [Duke Nukem 3D](../../gamedb/games/duke-nukem-3d/todo.toml) | 1 | 1 benchmark |  |
 | [Dungeon Crawl Stone Soup](../../gamedb/games/crawl-tiles/todo.toml) | 1 | 1 session |  |
 | [Endless Sky](../../gamedb/games/endless-sky/todo.toml) | 1 | 1 fix |  |
-| [Extreme Tux Racer](../../gamedb/games/etr/todo.toml) | 3 | 1 benchmark, 1 research, 1 session | 2.6 |
+| [Extreme Tux Racer](../../gamedb/games/etr/todo.toml) | 2 | 1 research, 1 session |  |
 | [Flare](../../gamedb/games/flare/todo.toml) | 1 | 1 benchmark |  |
 | [Freeciv](../../gamedb/games/freeciv/todo.toml) | 1 | 1 benchmark |  |
 | [FreeOrion](../../gamedb/games/freeorion/todo.toml) | 1 | 1 fix |  |
@@ -41,7 +42,7 @@ they came from.
 | [Mr.Boom](../../gamedb/games/mrboom/todo.toml) | 1 | 1 session |  |
 | [Neverball](../../gamedb/games/neverball/todo.toml) | 2 | 1 benchmark, 1 session | 3.10 |
 | [Nexuiz Classic](../../gamedb/games/nexuiz/todo.toml) | 1 | 1 benchmark | 1.12 |
-| [OpenArena](../../gamedb/games/openarena/todo.toml) | 6 | 2 benchmark, 2 fix, 1 package, 1 session | 3.7 |
+| [OpenArena](../../gamedb/games/openarena/todo.toml) | 5 | 1 benchmark, 2 fix, 1 package, 1 session | 3.7 |
 | [OpenRCT2](../../gamedb/games/openrct2/todo.toml) | 1 | 1 benchmark |  |
 | [OpenTTD](../../gamedb/games/openttd/todo.toml) | 5 | 2 benchmark, 1 fix, 1 research, 1 session | 2.8, 3.1 |
 | [OpenTyrian](../../gamedb/games/opentyrian/todo.toml) | 1 | 1 benchmark |  |
@@ -51,9 +52,7 @@ they came from.
 | [Sauerbraten](../../gamedb/games/sauerbraten/todo.toml) | 2 | 1 package, 1 session |  |
 | [Scorched3D](../../gamedb/games/scorched3d/todo.toml) | 2 | 2 fix |  |
 | [SimCity (Micropolis)](../../gamedb/games/simcity/todo.toml) | 1 | 1 package |  |
-| [Simutrans](../../gamedb/games/simutrans/todo.toml) | 1 | 1 benchmark |  |
 | [SuperTuxKart](../../gamedb/games/supertuxkart/todo.toml) | 5 | 2 fix, 1 package, 1 research, 1 session | 2.1, 3.1 |
-| [Teeworlds](../../gamedb/games/teeworlds/todo.toml) | 1 | 1 benchmark | 2.6 |
 | [TORCS](../../gamedb/games/torcs/todo.toml) | 1 | 1 fix |  |
 | [Trigger Rally](../../gamedb/games/trigger-rally/todo.toml) | 4 | 3 fix, 1 session |  |
 | [UFO: Alien Invasion](../../gamedb/games/ufoai/todo.toml) | 1 | 1 benchmark |  |

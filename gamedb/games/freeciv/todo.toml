@@ -6,5 +6,6 @@ kind = "benchmark"
 added = 2026-10-19
 source = "TESTS.md Next (smoke re-runs)"
 text = """\
-Smoke re-run with the start script fixed (`minplayers`, `skilllevel`): `run.sh smoke freeciv`, the \
-observer should show the map."""
+Smoke re-run for the picture: `run.sh smoke freeciv`, the shots now from the client's start \
+(`SHOT_FROM=start`; on 2026-11-14 the game ran 32 turns with the observer connected, but both shots were \
+skipped); the observer should show the map."""

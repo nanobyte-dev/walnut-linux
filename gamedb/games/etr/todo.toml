@@ -11,14 +11,6 @@ source = "TESTS.md played sessions"
 text = "A played session in the round."
 
 [[item]]
-kind = "benchmark"
-added = 2026-10-19
-source = "PLAN 2.6"
-text = """\
-The steady-state row with stalls: batch 17 has one uncapped run (59 fps, 2.9 s of gameplay stalls, \
-longest frame 483 ms, 1% low 27.3)."""
-
-[[item]]
 kind = "research"
 added = 2026-10-19
 source = "backlog/games.md rank 29"

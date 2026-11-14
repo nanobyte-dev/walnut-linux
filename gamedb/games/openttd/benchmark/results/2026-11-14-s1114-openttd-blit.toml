@@ -1,0 +1,32 @@
+# openttd's numbers in batch 2026-11-14-s1114-openttd-blit (gamedb/benchmarks/README.md)
+batch = "2026-11-14-s1114-openttd-blit"
+
+[variant.blit32anim]
+fps = 10
+cpu = 280.1
+underruns = 2494
+ram_free = 19.8
+vram = 15.9
+fps_steady = 10
+low1 = 5.5
+stalls = 375
+longest_ms = 224.1
+stalls_play = 375
+stall_play_s = 49.2
+low1_play = 5.5
+longest_play_ms = 224.1
+
+[variant.blit8]
+fps = 44
+cpu = 263.9
+underruns = 2170
+ram_free = 42.2
+vram = 17.9
+fps_steady = 44
+low1 = 15.3
+stalls = 2
+longest_ms = 104.4
+stalls_play = 2
+stall_play_s = 0.2
+low1_play = 15.3
+longest_play_ms = 104.4

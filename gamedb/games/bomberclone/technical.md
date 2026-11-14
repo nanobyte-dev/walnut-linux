@@ -5,6 +5,9 @@ is Debian's 0.11.9-9 with two patches of ours. Its played session (2026-10-26, a
 had a 50 fps median, no crash, the picture right (4:3 with bars at the sides) and the sound effects and music
 heard; the gamepad works in matches but not in the menus.
 
+
+Smoke on 2026-11-14 (kernel .1529, ps3rsx 0.1534, Mesa ps3.1508, gamedb:batch/2026-11-14-s1114-smoke): base (no keys) shows the main menu right, fullscreen 1920x1080, at 30 and 90 s; the menu redraws only 3-4 times a second, so its HUD numbers say nothing about play.
+
 ## Packages and patches
 
 `bomberclone`, `bomberclone-data` (`0.11.9-9+ps3.N`, [packages/bomberclone](packages/bomberclone/)),

@@ -1,0 +1,17 @@
+# chocolate-doom's numbers in batch 2026-11-14-s1114-smoke (gamedb/benchmarks/README.md)
+batch = "2026-11-14-s1114-smoke"
+
+[variant."base@shot"]
+fps = 34
+cpu = 92.9
+underruns = 3061
+ram_free = 34.9
+vram = 27.0
+fps_steady = 35
+low1 = 28.2
+stalls = 2
+longest_ms = 669.2
+stalls_play = 2
+stall_play_s = 0.8
+low1_play = 28.2
+longest_play_ms = 669.2

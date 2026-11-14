@@ -1,0 +1,12 @@
+# Dink Smallwood (GNU FreeDink): the backlog (gamedb/README.md, "games/<id>/todo.toml"): [[item]] with kind, text, added, source;
+# a session item's order is its place in the played-session queue (docs/TESTS.md's generated block).
+
+[[item]]
+kind = "benchmark"
+added = 2026-11-14
+source = "gamedb:batch/2026-11-14-s1114-smoke"
+text = """\
+A first played moment: Start from the title with the mouse (or the DualShock 3 through FreeDink's joystick \
+support, `-j` turns it off), the intro, Dink's house and a walk outside; the music (MIDI through freepats) and \
+the effects by ear. The title's pointer did not follow XTEST input on the PC, so this needs the user or a \
+virtual mouse (evemu, relative motion)."""

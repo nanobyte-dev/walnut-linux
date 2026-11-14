@@ -1,0 +1,22 @@
+# luanti's numbers in batch 2026-11-14-s1114-ladder (gamedb/benchmarks/README.md)
+batch = "2026-11-14-s1114-ladder"
+
+[variant."view120@rec10"]
+fps = 39.0
+cpu = 318.8
+underruns = 0.0
+ram_free = 17.5
+vram = 70.2
+fps_steady = 37.0
+low1 = 13.5
+stalls = 27.0
+longest_ms = 429.6
+stall_disk_s = 0.2
+stall_swap_s = 0.9
+stall_reclaim_s = 2.6
+stall_gpu_s = 0.0
+stall_cpu_s = 1.4
+stalls_play = 27.0
+stall_play_s = 5.2
+low1_play = 13.5
+longest_play_ms = 429.6

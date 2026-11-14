@@ -15,10 +15,9 @@ kind = "benchmark"
 added = 2026-10-20
 source = "TESTS.md Next"
 text = """\
-`blit8` against `blit32anim` with the picture checked (ssdroot3, 4 and 5 ran `blit8` against `base`, \
-`zoomout` and `scroll` with 8bpp): `run.sh bench openttd \"blit8 blit32anim\" 3`; then the new \
-openttd package (8bpp-optimized by default, patch 0003; `make deploy PKGS=openttd` only with the \
-user's OK) as `base`."""
+The new openttd package (8bpp-optimized by default, patch 0003; `make deploy PKGS=openttd` only with the \
+user's OK) as `base` against `blit8`. `blit8` against `blit32anim` ran on 2026-11-14: 44 against 10 fps steady, \
+1% low 15.3 against 5.5, the same picture (gamedb:batch/2026-11-14-s1114-openttd-blit)."""
 
 [[item]]
 kind = "benchmark"

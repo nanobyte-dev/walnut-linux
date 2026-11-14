@@ -62,6 +62,8 @@ Mountain) with the console's RAM nearly gone.
   decodes the window through them. Fullscreen captures are right. Not the data, not the build:
   [2026-10-27](investigations/2026-10-27-colours-and-console-defaults.md).
 
+Smoke again on 2026-11-14 (kernel .1529, ps3rsx 0.1534, Mesa ps3.1508, gamedb:batch/2026-11-14-s1114-smoke): Electric Fields with its objective window, fullscreen 1920x1080, 22 fps steady, 1% low 4.6, four frames of 1-8.4 s while the park loaded; 13 MB free at the lowest.
+
 ## On the PS3 (batch ssdroot8)
 
 First runs (gamedb:batch/2026-10-19-ssdroot8-openrct2): kernel .472, SSD root, Mesa ps3.545~dev, openrct2

@@ -1,0 +1,17 @@
+# pingus's numbers in batch 2026-11-14-s1114-smoke (gamedb/benchmarks/README.md)
+batch = "2026-11-14-s1114-smoke"
+
+[variant."base@shot"]
+fps = 39
+cpu = 58.6
+underruns = 8
+ram_free = 49.2
+vram = 40.7
+fps_steady = 40
+low1 = 31.0
+stalls = 2
+longest_ms = 265.4
+stalls_play = 2
+stall_play_s = 0.5
+low1_play = 31.0
+longest_play_ms = 265.4

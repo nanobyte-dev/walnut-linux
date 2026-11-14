@@ -225,19 +225,16 @@ backlog, the played-session queue's place included, is its todo.toml. The full l
 <!-- gamedb:todo-summary ../gamedb plan -->
 | Game | Open items | Kinds | From the plan |
 |---|---|---|---|
-| [Armagetron Advanced](../gamedb/games/armagetronad/todo.toml) | 2 | 1 benchmark, 1 session | 2.6 |
-| [BananaBread](../gamedb/games/bananabread/todo.toml) | 6 | 4 benchmark, 1 package, 1 session | 2.6, 3.1 |
+| [BananaBread](../gamedb/games/bananabread/todo.toml) | 5 | 2 benchmark, 2 package, 1 session | 2.6 |
 | [ClassiCube](../gamedb/games/classicube/todo.toml) | 4 | 1 fix, 2 package, 1 research | 3.12 |
 | [dsda-doom](../gamedb/games/dsda-doom/todo.toml) | 2 | 1 research, 1 session | 2.8 |
-| [Extreme Tux Racer](../gamedb/games/etr/todo.toml) | 3 | 1 benchmark, 1 research, 1 session | 2.6 |
 | [Luanti](../gamedb/games/luanti/todo.toml) | 9 | 2 benchmark, 1 package, 5 research, 1 session | 2.6, 2.9, 3.12 |
 | [Neverball](../gamedb/games/neverball/todo.toml) | 2 | 1 benchmark, 1 session | 3.10 |
 | [Nexuiz Classic](../gamedb/games/nexuiz/todo.toml) | 1 | 1 benchmark | 1.12 |
-| [OpenArena](../gamedb/games/openarena/todo.toml) | 6 | 2 benchmark, 2 fix, 1 package, 1 session | 3.7 |
+| [OpenArena](../gamedb/games/openarena/todo.toml) | 5 | 1 benchmark, 2 fix, 1 package, 1 session | 3.7 |
 | [OpenTTD](../gamedb/games/openttd/todo.toml) | 5 | 2 benchmark, 1 fix, 1 research, 1 session | 2.8, 3.1 |
 | [Red Eclipse](../gamedb/games/redeclipse/todo.toml) | 1 | 1 fix | 3.8 |
 | [SuperTuxKart](../gamedb/games/supertuxkart/todo.toml) | 5 | 2 fix, 1 package, 1 research, 1 session | 2.1, 3.1 |
-| [Teeworlds](../gamedb/games/teeworlds/todo.toml) | 1 | 1 benchmark | 2.6 |
 | [ioquake3 (engine)](../gamedb/engines/ioquake3/todo.toml) | 1 | 1 fix | 3.9 |
 <!-- /gamedb:todo-summary -->
 

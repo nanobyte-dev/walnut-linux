@@ -1,0 +1,22 @@
+# neverball's numbers in batch 2026-11-14-s1114-ladder (gamedb/benchmarks/README.md)
+batch = "2026-11-14-s1114-ladder"
+
+[variant."base@rec10"]
+fps = 85.8
+cpu = 100.9
+underruns = 105.5
+ram_free = 52.8
+vram = 34.1
+fps_steady = 86.4
+low1 = 59.1
+stalls = 9.0
+longest_ms = 208.1
+stall_disk_s = 0.1
+stall_swap_s = 0.0
+stall_reclaim_s = 0.1
+stall_gpu_s = 0.1
+stall_cpu_s = 1.4
+stalls_play = 0.0
+stall_play_s = 0.0
+low1_play = 60.0
+longest_play_ms = 37.9

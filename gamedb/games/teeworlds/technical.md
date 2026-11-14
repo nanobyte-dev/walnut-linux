@@ -22,6 +22,8 @@ and no bots, so the player runs around alone. Variants `notc`, `menu`, `window`,
 `gfx_texture_compression 1` makes the client upload `GL_COMPRESSED_RGBA`, which Mesa turns into DXT5, and the
 tile maps go up as one 3D texture. No IPv6 in the kernel: it prints socket errors for it, harmless.
 
+Again on 2026-11-14 (kernel .1529, ps3rsx 0.1534, Mesa ps3.1508, gamedb:batch/2026-11-14-s1114-smoke): dm1 in warm-up, fullscreen 1920x1080, 172 fps steady, 1% low 73, the picture right at 30 and 90 s; four frames of 1.3-7.1 s in the first 26 s after the map loaded (15 s of stalls, the map's start), none after; 1446 underruns, 15 MB free at the lowest.
+
 ## Investigations
 
 - [2026-10-18 the sockets stayed blocking](investigations/2026-10-18-fionbio-blocking-sockets.md) (0001).

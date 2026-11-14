@@ -1,0 +1,82 @@
+# bananabread's numbers in batch 2026-11-14-s1114-bananabread-oq (gamedb/benchmarks/README.md)
+batch = "2026-11-14-s1114-bananabread-oq"
+
+[variant."allbatchoff@rec10"]
+fps = 34.0
+cpu = 238.3
+underruns = 135
+ram_free = 22.4
+vram = 123.3
+fps_steady = 37.3
+low1 = 24.8
+stalls = 0
+longest_ms = 94.0
+stall_disk_s = 0
+stall_swap_s = 0
+stall_reclaim_s = 0
+stall_gpu_s = 0
+stall_cpu_s = 0
+stalls_play = 0
+stall_play_s = 0.0
+low1_play = 24.8
+longest_play_ms = 94.0
+
+[variant."base@rec10"]
+fps = 34.4
+cpu = 237.2
+underruns = 154
+ram_free = 21.8
+vram = 116.3
+fps_steady = 37.7
+low1 = 24.9
+stalls = 0
+longest_ms = 95.2
+stall_disk_s = 0
+stall_swap_s = 0
+stall_reclaim_s = 0
+stall_gpu_s = 0
+stall_cpu_s = 0
+stalls_play = 0
+stall_play_s = 0.0
+low1_play = 24.9
+longest_play_ms = 95.2
+
+[variant."oqlag@rec10"]
+fps = 40.7
+cpu = 237.3
+underruns = 129
+ram_free = 24.3
+vram = 123.3
+fps_steady = 43.8
+low1 = 26.2
+stalls = 1
+longest_ms = 130.5
+stall_disk_s = 0
+stall_swap_s = 0
+stall_reclaim_s = 0
+stall_gpu_s = 0
+stall_cpu_s = 0.1
+stalls_play = 1
+stall_play_s = 0.1
+low1_play = 26.2
+longest_play_ms = 130.5
+
+[variant."oqnowait@rec10"]
+fps = 22.3
+cpu = 237.2
+underruns = 111
+ram_free = 23.6
+vram = 116.5
+fps_steady = 24.5
+low1 = 16.3
+stalls = 1
+longest_ms = 131.3
+stall_disk_s = 0
+stall_swap_s = 0
+stall_reclaim_s = 0
+stall_gpu_s = 0
+stall_cpu_s = 0.1
+stalls_play = 1
+stall_play_s = 0.1
+low1_play = 16.3
+longest_play_ms = 131.3
