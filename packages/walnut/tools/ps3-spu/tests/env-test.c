@@ -34,7 +34,8 @@ int main(void)
 		{ "-4294967295", 7, 0, 100, 7 },				/* a wrapped unsigned would be 1 */
 	};
 
-	freopen("/dev/null", "w", stderr);
+	if (!freopen("/dev/null", "w", stderr))
+		return 1;
 	for (unsigned i = 0; i < sizeof(t) / sizeof(t[0]); i++) {
 		long got = get(t[i].v, t[i].def, t[i].min, t[i].max);
 		CHECK(got == t[i].want, "\"%s\" in %ld..%ld (default %ld): %ld, want %ld", t[i].v ? t[i].v : "(unset)", t[i].min,
