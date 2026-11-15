@@ -87,11 +87,16 @@ off ring-count-slow "FAIL: ring: a count past the push (slow) took 10 words afte
 off ring-count-fast "FAIL: ring: a count past the push (fast) took 10 words after it" "${SH[@]}" \
 	$'\t\t\tu32 h = READ_ONCE(w[i]), n = min((h >> 18) & 0x7ff, nwords - i - 1);' \
 	$'\t\t\tu32 h = READ_ONCE(w[i]), n = (h >> 18) & 0x7ff;'
+# (the tail's init gone and K_NONE no longer 0, as before the H3 review's L1)
 off ring-kind-tail "out of bounds for type" -S "${SH[@]}" \
-	$'\tfor (m = 0x2000; m < 4 * KIND3D_N; m += 4)\n\t\tkind3d[m / 4] = K_NONE;' ''
+	$'\tfor (m = 0x2000; m < 4 * KIND3D_N; m += 4)\n\t\tkind3d[m / 4] = K_NONE;' '' \
+	'enum { K_NONE, K_STATE,' 'enum { K_STATE, K_NONE,' \
+	$'\tBUILD_BUG_ON(K_NONE != 0);\n' ''
 off ring-kind-size "out of bounds for type" -S "${SH[@]}" \
 	'#define KIND3D_N	(NREG + 0x800)' '#define KIND3D_N	NREG' \
 	$'\tBUILD_BUG_ON((0x1ffc + 4 * (0x7ff - 1)) / 4 >= KIND3D_N);\n' ''
+off kind-none-zero "FAIL: kind3d[0] before the init is 0, not K_NONE" -T shadow-equiv.c "${SH[@]}" \
+	'enum { K_NONE, K_STATE,' 'enum { K_STATE, K_NONE,' $'\tBUILD_BUG_ON(K_NONE != 0);\n' ''
 off ring-burst-method "out of bounds for type" -S "${SH[@]}" 'if (mthd > 0x1ffc || n > 0x7ff)' 'if (n > 0x7ff)'
 off ring-burst-count "out of bounds for type" -S "${SH[@]}" 'if (mthd > 0x1ffc || n > 0x7ff)' 'if (mthd > 0x1ffc)'
 off ring-write-method "out of bounds for type" -S "${SH[@]}" 'else if (m < 0x2000)' 'else'
@@ -142,10 +147,28 @@ off p4-clear-round "FAIL: clear: an offset the hardware rounds down to A refused
 	'lo = off & ~63u, len, rb;' 'lo = off, len, rb;'
 off p4-clear-aa "FAIL: clear: a 4x surface one row past A accepted" "${P4[@]}" \
 	'u64 xs = aa ? 2 : 1, ys = aa == 4 || aa == 5 ? 2 : 1,' 'u64 xs = 1, ys = 1,'
-off p4-clear-window "FAIL: clear: a window offset past A accepted" "${P4[@]}" \
-	'rows = max_t(u64, LO16(v) + HI16(v), HI16(wo) + HI16(vs->f[P4F_WIN_V]) + 1);' 'rows = LO16(v) + HI16(v);'
+off p4-clear-window "FAIL: clear: window clip rows past A accepted" "${P4[@]}" \
+	'max_t(u64, LO16(v) + HI16(v), HI16(vs->f[P4F_WIN_V]) + 1);' '(u64)(LO16(v) + HI16(v));'
 off p4-clear-coord "FAIL: clear: a coordinate height past A accepted" "${P4[@]}" \
-	'rows = max_t(u64, rows, vs->f[P4F_COORD] & 0xfff);' ''
+	'*rowsp = max_t(u64, rows, HI16(wo) + flip_h);' '*rowsp = rows;'
+# the extent's orders (surface clip before the window offset, the flip before it, rows past an
+# inverted flip) and the render target pitches
+off p4-fb-winoff "FAIL: clear: a surface clip past A with the window offset added accepted" "${P4[@]}" \
+	$'\t\tsx += LO16(wo);\n' ''
+off p4-fb-winoff-rows "FAIL: clear: surface clip rows past A with the window offset added accepted" "${P4[@]}" \
+	'rows = HI16(wo) + max_t(' 'rows = max_t('
+off p4-fb-winoff-swz "FAIL: clear: Mesa's 16x2 swizzled block at a window offset refused" "${P4[@]}" \
+	$'\tif (((vs->f[P4F_RT_FORMAT] >> 8) & 0xf) != 2)\n\t\tsx += LO16(wo);' $'\tsx += LO16(wo);'
+off p4-fb-flip "FAIL: clear: clip rows past an inverted flip's height accepted" "${P4[@]}" \
+	'if ((coord & 0xf000) && rows > flip_h)' 'if (0)'
+off p4-fb-flip-origin "FAIL: clear: origin value 8 not taken as inverted" "${P4[@]}" \
+	'if ((coord & 0xf000) && rows > flip_h)' 'if ((coord & 0x1000) && rows > flip_h)'
+off p4-fb-flip-offset "FAIL: clear: a flip before the window's y offset past A accepted" "${P4[@]}" \
+	'*rowsp = max_t(u64, rows, HI16(wo) + flip_h);' '*rowsp = max_t(u64, rows, flip_h);'
+off p4-pitch "FAIL: clear: pitch 0x10040 accepted" "${P4[@]}" \
+	'if (pitch > 0x10000 || pitch % 64) {' 'if (pitch % 64) {'
+off p4-pitch-64 "FAIL: clear: pitch 2080 accepted" "${P4[@]}" \
+	'if (pitch > 0x10000 || pitch % 64) {' 'if (pitch > 0x10000) {'
 off p4-clear-rt1 "FAIL: clear: target 1 enabled with no offset accepted" "${P4[@]}" \
 	'en = (vs->f[P4F_RT_ENABLE] & 0xf) | 1;' 'en = 1;'
 off p4-clear-swz "FAIL: clear: a 1024x512 swizzled block past A accepted" "${P4[@]}" \
@@ -179,6 +202,8 @@ off p4-draw-continued "FAIL: draw: a continued primitive after its buffer left t
 	'if (vs->prim_open && !draw_checked(vs)) {' 'if (0) {'
 off p4-draw-lost "FAIL: draw: a draw after a lost channel accepted" "${P4[@]}" \
 	$'memset(vs->valid, 0, sizeof(vs->valid));\n\tvs->fb_ok = false;' 'memset(vs->valid, 0, sizeof(vs->valid));'
+off p4-draw-lost-prim "FAIL: draw: a lost channel's primitive still open" "${P4[@]}" \
+	$'\tvs->fb_ok = false;\n\tvs->prim_open = false;' $'\tvs->fb_ok = false;'
 off p4-set-find "FAIL: set: range across two BOs found" "${P4[@]}" -E p4.h P4_H \
 	'return lo < hi && i >= 0 && hi <= d->e[i].hi;' 'return lo < hi && i >= 0;'
 off p4-set-overlap "FAIL: set: overlap at the end" "${P4[@]}" -E p4.h P4_H \
@@ -200,8 +225,17 @@ off fuzz-m2mf-dst ": M2MF destination" "${F[@]}" \
 	'if (!in_set(vs, vs->f[P4F_M_OUT_DMA], vs->f[P4F_M_OFF_OUT], out)) {' 'if (0) {'
 off fuzz-sifm-src ": scaled image source" "${F[@]}" \
 	'!in_set(vs, vs->f[P4F_F_DMA], vs->f[P4F_F_OFF], len)) {' '0) {'
-off fuzz-clear-window " colour target" "${F[@]}" \
-	'rows = max_t(u64, LO16(v) + HI16(v), HI16(wo) + HI16(vs->f[P4F_WIN_V]) + 1);' 'rows = LO16(v) + HI16(v);'
+# (with the window's rows gone, the flip's rows check misses them too: either shows first)
+off fuzz-clear-window "FAIL: accepted stream" "${F[@]}" \
+	'max_t(u64, LO16(v) + HI16(v), HI16(vs->f[P4F_WIN_V]) + 1);' '(u64)(LO16(v) + HI16(v));'
+off fuzz-fb-winoff " colour target" "${F[@]}" \
+	$'\t\tsx += LO16(wo);\n' ''
+off fuzz-fb-flip "rows past an inverted y flip's height" "${F[@]}" \
+	'if ((coord & 0xf000) && rows > flip_h)' 'if (0)'
+off fuzz-fb-flip-offset " colour target" "${F[@]}" \
+	'*rowsp = max_t(u64, rows, HI16(wo) + flip_h);' '*rowsp = max_t(u64, rows, flip_h);'
+off fuzz-pitch "with a pitch the RSX's behaviour isn't known for" "${F[@]}" \
+	'if (pitch > 0x10000 || pitch % 64) {' 'if (0) {'
 off fuzz-draw ": draw colour target" "${F[@]}" \
 	'rule = draw_check(vs, &bad);' '(void)0;'
 off fuzz-draw-midprim ": draw " "${F[@]}" \

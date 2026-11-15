@@ -133,9 +133,10 @@ static bool side_effect_3d_slow(u32 m)
  * 0x1ffc every entry is K_NONE, up to where the longest burst from the last method ends: the
  * words come back from the ring, which the GPU can write after the validator checked them, so an
  * incrementing burst (method at most 0x1ffc, count at most 0x7ff) may run past 0x1ffc, and its
- * words there do nothing, without a check per burst.
+ * words there do nothing, without a check per burst. K_NONE is 0, so an entry the init leaves
+ * as the static table holds it does nothing too.
  */
-enum { K_STATE, K_NONE, K_VP_PTR, K_VP, K_CST_PTR, K_CST };
+enum { K_NONE, K_STATE, K_VP_PTR, K_VP, K_CST_PTR, K_CST };
 #define KIND3D_N	(NREG + 0x800)
 static u8 kind3d[KIND3D_N];
 /* For the fast replay: kind << 12 | how many methods from this one on have the same kind */
@@ -148,6 +149,7 @@ void ps3rsx_shadow_init(void)
 	u32 m;
 
 	BUILD_BUG_ON((0x1ffc + 4 * (0x7ff - 1)) / 4 >= KIND3D_N);
+	BUILD_BUG_ON(K_NONE != 0);
 	for (m = 0x2000; m < 4 * KIND3D_N; m += 4)
 		kind3d[m / 4] = K_NONE;		/* past the methods: nothing (see kind3d) */
 	for (m = 0; m < 0x2000; m += 4) {

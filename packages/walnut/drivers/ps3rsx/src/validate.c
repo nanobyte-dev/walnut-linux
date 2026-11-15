@@ -252,11 +252,13 @@ static __always_inline void fset(struct ps3rsx_vstate *vs, int f, u32 v)
 	vs->valid[f / 64] |= 1ULL << (f % 64);
 }
 
-/* The channel's fields are no longer what the GPU holds (a recovery under it): none counts */
+/* The channel's fields are no longer what the GPU holds (a recovery under it): none counts, and
+ * the GPU holds no primitive of it after the reset (prim_owner is cleared with it) */
 void ps3rsx_vstate_forget(struct ps3rsx_vstate *vs)
 {
 	memset(vs->valid, 0, sizeof(vs->valid));
 	vs->fb_ok = false;
+	vs->prim_open = false;
 }
 
 /* Are all these fields set? */
@@ -424,6 +426,12 @@ static bool rt_ok(const struct ps3rsx_vstate *vs, u32 handle, u32 off, u32 pitch
 			*why = "render target pitch 0";
 			return false;
 		}
+		/* Mesa's pitches are multiples of 64 up to 4096 RGBA32F pixels: past that, which of
+		 * the pitch's bits the RSX uses is unknown (removed, not reasoned about) */
+		if (pitch > 0x10000 || pitch % 64) {
+			*why = "render target pitch above 0x10000 or not a multiple of 64";
+			return false;
+		}
 		if (check_mul_overflow(cols * xs, (u64)bpp, &rb) ||
 		    !ext2(pitch, rows * ys, rb, &len)) {
 			*why = "render target extent overflows";
@@ -437,17 +445,36 @@ static bool rt_ok(const struct ps3rsx_vstate *vs, u32 handle, u32 off, u32 pitch
 	return true;
 }
 
-/* The surface's extent in pixels, for clears and draws: the union of the surface clip, the
- * window rectangle and the y flip's height */
-static void fb_extent(const struct ps3rsx_vstate *vs, u64 *colsp, u64 *rowsp)
+/*
+ * The surface's extent in pixels, for clears and draws: the union of the surface clip, the
+ * window rectangle and the y flip's height, each with the window offset added (whether the RSX
+ * applies the surface clip before or after the offset, and the flip before or after it, is
+ * unprobed: the larger of the two in each case). This bounds the writes only if the surface clip
+ * or the window clip bounds them (docs/DRIVER.md, the validator; unprobed too). With the origin
+ * at the bottom (COORD bits 12-15 not 0), a row at or past the flip's height would flip to a row
+ * before the target: clip and window rows past it are refused. NULL, or why not.
+ *
+ * Except a swizzled surface's columns: there the surface clip is taken without the window's x
+ * offset. Mesa draws a small level at an offset that isn't 64-byte aligned as a 16x2 block from
+ * the rounded-down offset with the remainder as the window's x offset and the surface clip the
+ * block's width (nv30_validate_fb, 0060), which the offset added would refuse. If the surface
+ * clip came before the offset, such a surface's writes would reach columns up to twice the
+ * block's width, at addresses unknown (the design note's probe covers this case too).
+ */
+static const char *fb_extent(const struct ps3rsx_vstate *vs, u64 *colsp, u64 *rowsp)
 {
 	u32 h = vs->f[P4F_RT_HORIZ], v = vs->f[P4F_RT_VERT], wo = vs->f[P4F_WIN_OFF];
-	u64 rows;
+	u32 coord = vs->f[P4F_COORD], flip_h = coord & 0xfff;
+	u64 sx = LO16(h) + HI16(h), wx = LO16(wo) + HI16(vs->f[P4F_WIN_H]) + 1, rows;
 
-	*colsp = max_t(u64, LO16(h) + HI16(h), LO16(wo) + HI16(vs->f[P4F_WIN_H]) + 1);
-	rows = max_t(u64, LO16(v) + HI16(v), HI16(wo) + HI16(vs->f[P4F_WIN_V]) + 1);
-	rows = max_t(u64, rows, vs->f[P4F_COORD] & 0xfff);
-	*rowsp = rows;
+	if (((vs->f[P4F_RT_FORMAT] >> 8) & 0xf) != 2)
+		sx += LO16(wo);
+	*colsp = max_t(u64, sx, wx);
+	rows = HI16(wo) + max_t(u64, LO16(v) + HI16(v), HI16(vs->f[P4F_WIN_V]) + 1);
+	if ((coord & 0xf000) && rows > flip_h)
+		return "clip or window rows past the y flip's height";
+	*rowsp = max_t(u64, rows, HI16(wo) + flip_h);
+	return NULL;
 }
 
 /* The colour targets 0-3 and zeta (4): offset, pitch and context DMA slot */
@@ -471,10 +498,15 @@ static int fb_targets(const struct ps3rsx_vstate *vs, bool colour, bool zeta, in
 		      const char **why)
 {
 	u32 fmt = vs->f[P4F_RT_FORMAT];
+	const char *bad;
 	u64 cols, rows;
 	int i;
 
-	fb_extent(vs, &cols, &rows);
+	bad = fb_extent(vs, &cols, &rows);
+	if (bad) {
+		*why = bad;
+		return rule;
+	}
 	if (colour) {
 		u32 en;
 

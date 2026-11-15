@@ -256,6 +256,11 @@ static void rt(u32 slot, u32 off, u32 pitch, u32 bpp, u64 cols, u64 rows, const 
 		}
 		access(G(M3D, slot), lo, (1ULL << lw << lh) * bpp, what);
 	} else if (type == 1) {
+		/* the pitches whose use by the RSX is known: Mesa's, multiples of 64 up to 0x10000 */
+		if (pitch > 0x10000 || pitch % 64) {
+			violation_op("with a pitch the RSX's behaviour isn't known for");
+			return;
+		}
 		access(G(M3D, slot), lo, pitch * (rows * ys - 1) + cols * xs * bpp, what);
 	} else {
 		violation_op("of an unknown surface type");
@@ -289,14 +294,21 @@ static void fb_write(u32 bits, const char *what_op)
 		violation_op("with a surface value this channel never wrote");
 		return;
 	}
-	cols = (hz & 0xffff) + (hz >> 16);
+	/* the surface clip before or after the window offset (a swizzled surface's columns: after,
+	 * as Mesa's 16x2 block takes it), the y flip before or after it: the furthest of each */
+	cols = (hz & 0xffff) + (hz >> 16) + (((f >> 8) & 0xf) == 2 ? 0 : wo & 0xffff);
 	if ((wo & 0xffff) + (G(M3D, 0x2c0) >> 16) + 1 > cols)
 		cols = (wo & 0xffff) + (G(M3D, 0x2c0) >> 16) + 1;
-	rows = (vt & 0xffff) + (vt >> 16);
+	rows = (wo >> 16) + (vt & 0xffff) + (vt >> 16);
 	if ((wo >> 16) + (G(M3D, 0x2c4) >> 16) + 1 > rows)
 		rows = (wo >> 16) + (G(M3D, 0x2c4) >> 16) + 1;
-	if ((G(M3D, 0x1d88) & 0xfff) > rows)
-		rows = G(M3D, 0x1d88) & 0xfff;
+	/* origin at the bottom: a row at or past the flip's height lands before the target */
+	if ((G(M3D, 0x1d88) & 0xf000) && rows > (G(M3D, 0x1d88) & 0xfff)) {
+		violation_op("with rows past an inverted y flip's height");
+		return;
+	}
+	if ((wo >> 16) + (G(M3D, 0x1d88) & 0xfff) > rows)
+		rows = (wo >> 16) + (G(M3D, 0x1d88) & 0xfff);
 	if (bits & 0xf0) {
 		static const u16 off[4] = { 0x210, 0x218, 0x288, 0x28c };
 		static const u16 pit[4] = { 0x20c, 0x21c, 0x280, 0x284 };
@@ -539,12 +551,13 @@ static void gen_sifm(void)
 
 static void gen_surface(void)
 {
-	u32 w = small(512), h = small(512), pitch = rn(4) ? w * 4 : small(0x4000), slot = handle();
+	u32 w = small(512), h = small(512), slot = handle();
+	u32 pitch = rn(4) ? w * 4 : rn(4) ? small(0x4000) : 0x10000 + 64 * rn(3);
 	u32 fmt = (rn(6) ? 0x148 : rnd() & 0xffff) | (rn(4) ? 0 : (rnd() & 0x7) << 12);
 	u32 surf[3] = { (rn(8) ? 0 : rn(16)) | w << 16, (rn(8) ? 0 : rn(16)) | h << 16, fmt };
 	u32 win[4] = { rn(4) ? 0 : rn(8) ? rn(4) << 16 | rn(4) : rnd() & 0x00ff00ff, 0,
-		       ((w ? w : 1) - 1) << 16,
-		       ((h ? h : 1) - 1) << 16 };
+		       ((w ? w : 1) - 1 + (rn(4) ? 0 : rn(2) ? -rn(w ? w : 1) : rn(64))) << 16,
+		       ((h ? h : 1) - 1 + (rn(4) ? 0 : rn(2) ? -rn(h ? h : 1) : rn(64))) << 16 };
 	u32 c[3] = { pitch, offset(slot, (u64)pitch * h), offset(slot, (u64)pitch * h) };
 
 	if (rn(4))
@@ -562,7 +575,7 @@ static void gen_surface(void)
 	if (rn(4))
 		put1(M3D, 0x220, rn(4) ? 1 : rn(32));
 	if (rn(4))
-		put1(M3D, 0x1d88, rn(4) ? h : rnd() & 0x1fff);
+		put1(M3D, 0x1d88, rn(4) ? (rn(3) ? h : 0x1000 | h) : rnd() & 0x1fff);
 }
 
 static void gen_clear(void)
@@ -572,7 +585,11 @@ static void gen_clear(void)
 }
 
 /* A surface as Mesa sets one, A8R8G8B8 and Z24S8, its colour target at the start of one of the
- * file's buffers and as high as it holds (now and then a row more), zeta at another's start */
+ * file's buffers and as high as it holds (now and then a row more), zeta at another's start;
+ * now and then a window offset d with the window clip d narrower than the surface clip (the
+ * offset added to the surface clip reaches past the buffer), or d rows down with the clips
+ * d rows lower and the y flip the buffer's height (the flip before the offset reaches past it),
+ * or a window clip d rows taller than the surface clip */
 static void gen_good_surface(void)
 {
 	int i = rn(NBO), j = rn(NBO);
@@ -588,6 +605,24 @@ static void gen_good_surface(void)
 		u32 surf[3] = { w << 16, h << 16, 0x148 };
 		u32 win[4] = { 0, 0, (w - 1) << 16, (h - 1) << 16 };
 		u32 c[3] = { pitch, (u32)bo[i].lo, (u32)bo[j].lo };
+		u32 d = 1 + rn(3);
+
+		switch (rn(4)) {
+		case 0:
+			win[0] = d;
+			win[2] = (w - d - 1) << 16;
+			break;
+		case 1:
+			if (h > d) {
+				win[0] = d << 16;
+				surf[1] = (h - d) << 16;
+				win[3] = (h - d - 1) << 16;
+			}
+			break;
+		case 2:
+			win[3] = (h + d - 1) << 16;
+			break;
+		}
 
 		put(M3D, 0x194, a, 1);
 		put(M3D, 0x198, b, 1);
@@ -596,7 +631,7 @@ static void gen_good_surface(void)
 		put1(M3D, 0x22c, pitch);
 		put(M3D, 0x20c, c, 3);
 		put1(M3D, 0x220, 1);
-		put1(M3D, 0x1d88, h);
+		put1(M3D, 0x1d88, rn(2) ? h : 0x1000 | h);	/* origin at the top or the bottom */
 	}
 }
 

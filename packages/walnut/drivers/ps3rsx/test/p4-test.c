@@ -599,8 +599,13 @@ static int clear(u32 n, u32 bits)
 
 #define LIN	0x148		/* linear, Z24S8, A8R8G8B8 */
 
+static void fb_order_cases(const char *what, int (*trigger)(u32 n));
+static int clear_bits(u32 n);
+
 static void test_clear(void)
 {
+	u32 n;
+
 	/* 512 x 512 x 4 bytes, pitch 2048: exactly A's 1 MiB; zeta in C */
 	CHECK(clear(surface(512, 512, LIN, 2048, A_LO, C_LO, 1, 512, 0), 0xf3) == 0,
 	      "clear: a 512x512 surface refused");
@@ -628,6 +633,10 @@ static void test_clear(void)
 	      "clear: a window offset past A accepted");
 	CHECK(clear(surface(512, 400, LIN, 2048, A_LO, C_LO, 1, 600, 0), 0xf0) != 0,
 	      "clear: a coordinate height past A accepted");
+	n = surface(512, 512, LIN, 2048, A_LO, C_LO, 1, 512, 0);
+	cw[14] = 512 << 16;
+	CHECK(clear(n, 0xf0) != 0, "clear: window clip rows past A accepted");
+	fb_order_cases("clear", clear_bits);
 	/* RT_ENABLE: target 1 enabled without its offset and pitch (P19's question) */
 	CHECK(clear(surface(512, 512, LIN, 2048, A_LO, C_LO, 0x13, 512, 0), 0xf0) != 0,
 	      "clear: target 1 enabled with no offset accepted");
@@ -660,6 +669,77 @@ static void test_clear(void)
 }
 
 /* --- draws: render targets and zeta (slice b) ------------------------------------------------ */
+
+/*
+ * The orders of the surface clip, the window offset and the y flip the RSX may take (unprobed):
+ * the surface clip applied before the offset (the window clip narrower than it, so only the
+ * offset added to the surface clip reaches past A), the origin at the bottom with clip or
+ * window rows past the flip's height (rows that would flip to before the target), the flip
+ * before the window's y offset; the pitches past what Mesa uses; Mesa's 16x2 swizzled block at
+ * a window offset (0060's window clip) passes. cw's words: 11 the window offset, 13 and 14 the
+ * window clip, 16 zeta's pitch, 18 colour 0's.
+ */
+static void fb_order_cases(const char *what, int (*trigger)(u32 n))
+{
+	u32 n;
+
+	n = surface(512, 512, LIN, 2048, A_LO, C_LO, 1, 512, 0);
+	cw[13] = 447 << 16;
+	CHECK(trigger(n) == 0, "%s: a window clip narrower than the surface refused", what);
+	n = surface(512, 512, LIN, 2048, A_LO, C_LO, 1, 512, XY(64, 0));
+	cw[13] = 447 << 16;
+	CHECK(trigger(n) != 0 && strstr(last_warn, "render target outside"),
+	      "%s: a surface clip past A with the window offset added accepted", what);
+	n = surface(512, 512, LIN, 2048, A_LO, C_LO, 1, 504, XY(0, 8));
+	cw[14] = 503 << 16;
+	CHECK(trigger(n) != 0 && strstr(last_warn, "render target outside"),
+	      "%s: surface clip rows past A with the window offset added accepted", what);
+	/* the origin at the bottom (COORD 0x1000, any value in bits 12-15) */
+	CHECK(trigger(surface(512, 512, LIN, 2048, A_LO, C_LO, 1, 0x1000 | 512, 0)) == 0,
+	      "%s: a flipped 512x512 surface refused", what);
+	CHECK(trigger(surface(512, 512, LIN, 2048, A_LO, C_LO, 1, 0x1000 | 500, 0)) != 0 &&
+	      strstr(last_warn, "past the y flip's height"),
+	      "%s: clip rows past an inverted flip's height accepted", what);
+	CHECK(trigger(surface(512, 512, LIN, 2048, A_LO, C_LO, 1, 0x8000 | 500, 0)) != 0 &&
+	      strstr(last_warn, "past the y flip's height"),
+	      "%s: origin value 8 not taken as inverted", what);
+	n = surface(512, 500, LIN, 2048, A_LO, C_LO, 1, 0x1000 | 500, 0);
+	cw[14] = 509 << 16;
+	CHECK(trigger(n) != 0 && strstr(last_warn, "past the y flip's height"),
+	      "%s: window rows past an inverted flip's height accepted", what);
+	CHECK(trigger(surface(512, 500, LIN, 2048, A_LO, C_LO, 1, 500, 0)) == 0,
+	      "%s: a 500-row surface with its origin at the top refused", what);
+	n = surface(512, 504, LIN, 2048, A_LO, C_LO, 1, 0x1000 | 512, XY(0, 8));
+	CHECK(trigger(n) != 0 && strstr(last_warn, "render target outside"),
+	      "%s: a flip before the window's y offset past A accepted", what);
+	/* pitches: multiples of 64 up to 0x10000, colour and zeta; a swizzled surface's is unused */
+	CHECK(trigger(surface(16, 16, LIN, 0x10000, A_LO, C_LO, 1, 16, 0)) == 0,
+	      "%s: pitch 0x10000 refused", what);
+	CHECK(trigger(surface(16, 8, LIN, 0x10040, A_LO, C_LO, 1, 8, 0)) != 0 &&
+	      strstr(last_warn, "pitch above 0x10000"), "%s: pitch 0x10040 accepted", what);
+	CHECK(trigger(surface(512, 512, LIN, 2048 + 32, A_LO, C_LO, 1, 256, 0)) != 0 &&
+	      strstr(last_warn, "not a multiple of 64"), "%s: pitch 2080 accepted", what);
+	n = surface(16, 16, LIN, 2048, A_LO, C_LO, 1, 16, 0);
+	cw[16] = 2048 + 4;
+	CHECK(trigger(n) != 0 && strstr(last_warn, "not a multiple of 64"),
+	      "%s: zeta pitch 2052 accepted", what);
+	CHECK(trigger(surface(512, 512, 0x09090248, 100, A_LO, C_LO, 1, 512, 0)) == 0,
+	      "%s: a swizzled surface's unused pitch refused", what);
+	/* Mesa's small level at an unaligned offset: a 16x2 R5G6B5 block from the rounded-down
+	 * offset, the remainder as the window's x offset, the window clip what is left of the
+	 * block (0060); with the window clip the block's whole width it stays refused */
+	n = surface(16, 2, 0x01040222, 4096, A_LO, A_LO, 1, 2, XY(8, 0));
+	cw[13] = 7 << 16;
+	CHECK(trigger(n) == 0, "%s: Mesa's 16x2 swizzled block at a window offset refused", what);
+	CHECK(trigger(surface(16, 2, 0x01040222, 4096, A_LO, A_LO, 1, 2, XY(8, 0))) != 0 &&
+	      strstr(last_warn, "outside a swizzled surface"),
+	      "%s: a 16x2 block with a window past it accepted", what);
+}
+
+static int clear_bits(u32 n)
+{
+	return clear(n, 0xf3);
+}
 
 /* A draw after the surface in cw[0, n): BEGIN, a vertex batch, END */
 static u32 draw_words(u32 n)
@@ -709,6 +789,7 @@ static void test_draw(void)
 	      "draw: a window offset past A accepted");
 	CHECK(draw(surface(512, 400, LIN, 2048, A_LO, C_LO, 1, 600, 0)) != 0,
 	      "draw: a coordinate height past A accepted");
+	fb_order_cases("draw", draw);
 	CHECK(draw(surface(512, 512, 0x0a090248, 2048, A_LO, C_LO, 1, 512, 0)) != 0,
 	      "draw: a 1024x512 swizzled block past A accepted");
 	/* the kernel's GART: a target or zeta over the ring or the zero area */
@@ -812,6 +893,16 @@ static void test_draw(void)
 	last_warn[0] = 0;
 	CHECK(ps3rsx_validate(&vs, cw + n, draw_words(n) - n) != 0,
 	      "draw: a draw after a lost channel accepted");
+	/* lost with a primitive open: the reset ended it, so the channel's state sent again draws
+	 * (the primitive still taken as open refused every push from then on) */
+	vs_init(&vs, 2);
+	CHECK(ps3rsx_validate(&vs, cw, n) == 0 && ps3rsx_validate(&vs, w, 4) == 0 && vs.prim_open,
+	      "draw: the lost primitive's BEGIN refused");
+	ps3rsx_vstate_forget(&vs);
+	CHECK(!vs.prim_open, "draw: a lost channel's primitive still open");
+	last_warn[0] = 0;
+	CHECK(ps3rsx_validate(&vs, cw, draw_words(n)) == 0,
+	      "draw: a lost channel's state sent again and drawn refused");
 	set_init();
 }
 

@@ -594,6 +594,13 @@ int main(int argc, char **argv)
 {
 	u64 bursts = 4000000, submits = 400000;
 
+	/* the kind table as it is before the init: all K_NONE (0), so an entry the init leaves
+	 * unset (the tail past 0x1ffc, a table grown without it) does nothing */
+	for (u32 i = 0; i < KIND3D_N; i++)
+		if (kind3d[i] != K_NONE) {
+			printf("FAIL: kind3d[%#x] before the init is %u, not K_NONE\n", i, kind3d[i]);
+			return 1;
+		}
 	ps3rsx_shadow_init();
 	if (argc > 3 && !strcmp(argv[1], "rcount")) {
 		rng_state = 1;
