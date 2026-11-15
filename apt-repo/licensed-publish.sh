@@ -65,10 +65,12 @@ export WALNUT_APT_AUTH_FILE=$tmp/auth
 if [ -n "${WALNUT_SIGN_KEY_FPR:-}" ]; then
 	fpr=$WALNUT_SIGN_KEY_FPR
 else
+	# pass decrypts with the caller's own keyring: the throwaway one is set only for the import and after
+	mkdir -m 700 "$tmp/gnupg"
+	pass show Projects/Walnut/ArchiveKey | GNUPGHOME=$tmp/gnupg gpg --batch --quiet --import
 	export GNUPGHOME=$tmp/gnupg
-	mkdir -m 700 "$GNUPGHOME"
-	pass show Projects/Walnut/ArchiveKey | gpg --batch --quiet --import
 	fpr=$(gpg --with-colons --list-secret-keys | awk -F: '$1=="fpr" {print $10; exit}')
+	[ -n "$fpr" ] || { echo "!! pass Projects/Walnut/ArchiveKey gave no secret key" >&2; exit 1; }
 fi
 # the archive key has a passphrase (a keyring of yours: WALNUT_SIGN_PASSPHRASE_FILE if its key has one)
 if [ -z "${WALNUT_SIGN_PASSPHRASE_FILE:-}" ] && [ -z "${WALNUT_SIGN_KEY_FPR:-}" ]; then
