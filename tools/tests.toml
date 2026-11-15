@@ -36,6 +36,12 @@ what = "ps3-bench.sh's x mode under the console-only X wrapper: vt1's tty as the
 run = ["bash", "packages/walnut/tools/ps3-gpu-tools/tests/xwrap-stdin-check.sh"]
 
 [[suite]]
+name = "clip-probe"
+what = "rsx-clip-probe's cases through ps3rsx's shipping validator (each accepted, moved past its BO refused, the left-out variants refused), their predictions distinct and inside the BOs, the readback on a simulated GPU, big-endian under qemu and the probe's ppc64 build (packages/walnut/tools/ps3-gpu-tools/tests/clip-probe-check.sh)"
+run = ["bash", "packages/walnut/tools/ps3-gpu-tools/tests/clip-probe-check.sh"]
+ci_skip = { "clip-probe:ppc64" = "needs the ppc64 cross compiler, qemu-ppc64-static and build/mesa/sysroot" }
+
+[[suite]]
 name = "gpu-recovered"
 what = "ps3-desktop's recovery dialog: its stamp only after the window maps on a live X, a failed recovery's dialog only on the new X"
 run = ["python3", "-I", "packages/walnut/system/ps3-desktop/tests/gpu-recovered-test.py"]
