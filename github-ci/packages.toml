@@ -319,7 +319,7 @@ dir = "packages/walnut/drivers/ps3rsx"
 source = "ps3rsx"
 tier = "trusted"
 binaries = ["ps3rsx-modules-@RELEASE@", "ps3rsx-modules-@RELEASE@-debug@STAMP@", "ps3rsx-modules-ps3", "ps3rsx-modules-ps3-debug"]
-relations = ["ps3rsx-@RELEASE@", "ps3rsx-@RELEASE@-debug@STAMP@", "ps3rsx-modules"]
+relations = ["mesa-libgallium", "ps3rsx-@RELEASE@", "ps3rsx-@RELEASE@-debug@STAMP@", "ps3rsx-modules"]
 
 [package.sauerbraten-data]
 dir = "gamedb/games/sauerbraten/licensed/sauerbraten-data"
