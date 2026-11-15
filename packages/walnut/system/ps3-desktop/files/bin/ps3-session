@@ -59,6 +59,13 @@ d() { systemd-run --user --scope --slice=ps3-desktop.slice -q "$@" & }
 # black default there on the first start. The user's own settings win from then on.
 c=${XDG_CONFIG_HOME:-$HOME/.config}/pcmanfm/default/desktop-items-0.conf
 [ -e "$c" ] || install -D -m 644 /etc/xdg/ps3/pcmanfm/default/desktop-items-0.conf "$c"
+# Reboot and Shut down at the top of jgmenu's menu, not inside System: jgmenu's apps module reads
+# its extra entries only from ~/.config/jgmenu/append.csv. Ours is written again at each login while
+# its first line is still our "# walnut:" marker (a copy the user took over is left alone)
+c=${XDG_CONFIG_HOME:-$HOME/.config}/jgmenu/append.csv
+if [ -r /etc/xdg/ps3/jgmenu/append.csv ] && { [ ! -e "$c" ] || head -n 1 "$c" | grep -q '^# walnut:'; }; then
+	install -D -m 644 /etc/xdg/ps3/jgmenu/append.csv "$c"
+fi
 # The startup chime, through the default device at the user's volume (PS3_STARTUP_CHIME=off: none).
 # It also gives the volume applet something to set: snd_ps3 has no volume control, and alsa-lib's
 # softvol makes "PCM" only when the device is first opened (ps3-system's ps3-sound-volume opens it

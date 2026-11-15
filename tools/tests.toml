@@ -26,6 +26,11 @@ what = "ps3-game-menu's choice of entries (packages/walnut/system/ps3-desktop/te
 run = ["sh", "packages/walnut/system/ps3-desktop/tests/game-menu-check.sh"]
 
 [[suite]]
+name = "power-menu"
+what = "Reboot and Shut down at jgmenu's top level and ps3-session's login copy of append.csv (packages/walnut/system/ps3-desktop/tests/power-menu-check.sh)"
+run = ["sh", "packages/walnut/system/ps3-desktop/tests/power-menu-check.sh"]
+
+[[suite]]
 name = "gpu-recovered"
 what = "ps3-desktop's recovery dialog: its stamp only after the window maps on a live X, a failed recovery's dialog only on the new X"
 run = ["python3", "-I", "packages/walnut/system/ps3-desktop/tests/gpu-recovered-test.py"]

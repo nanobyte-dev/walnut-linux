@@ -1,0 +1,4 @@
+# walnut: Reboot and Shut down at the menu's top level. ps3-session writes this file again at each login while this line is first; remove the line to keep your own.
+^sep()
+Reboot,ps3-power reboot,system-reboot
+Shut down,ps3-power poweroff,system-shutdown

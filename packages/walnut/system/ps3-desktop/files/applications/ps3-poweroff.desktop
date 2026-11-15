@@ -5,3 +5,4 @@ Comment=Power off the PS3
 Exec=ps3-power poweroff
 Icon=system-shutdown
 Categories=System;
+NoDisplay=true
