@@ -390,6 +390,12 @@ tier = "trusted"
 binaries = ["trigger-rally", "trigger-rally-data"]
 relations = ["trigger-really-data"]
 
+[package.tyrian-data]
+dir = "gamedb/games/opentyrian/licensed/tyrian-data"
+source = "tyrian-data"
+tier = "licensed"
+binaries = ["tyrian-data"]
+
 [package.uqm]
 dir = "gamedb/games/uqm/packages/uqm"
 source = "uqm"

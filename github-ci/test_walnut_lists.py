@@ -50,7 +50,7 @@ class Real(unittest.TestCase):
 		self.assertEqual(ext, {"badwolf", "tk-html3", "tkinterweb", "zlib-ng", "classicube", "devilutionx",
 		                       "openrct2", "warzone2100", "darkplaces-gl2"})
 		self.assertEqual({n for n, e in self.lists.entries.items() if e.tier == "licensed"},
-		                 {"classicube-data", "sauerbraten-data", "sauerbraten-nonfree-data"})
+		                 {"classicube-data", "sauerbraten-data", "sauerbraten-nonfree-data", "tyrian-data"})
 
 	def test_relation_rules(self):
 		L, P = self.lists, self.protected
