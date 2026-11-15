@@ -40,7 +40,7 @@ The rest of this file predates the 0.1.0 release and gets a refresh alongside P2
 
 ## Where we are (2026-10-19)
 
-The whole stack is built and packaged: the kernel (6.12 LTS with our PS3 patches), the ps3rsx
+The whole stack is built and packaged: the kernel (6.12 LTS with the OtherOS++ patches and ours), the ps3rsx
 driver, Mesa nv30, the SPU toolchain and libspeq, the desktop with game mode, the splash, our apt
 repository. The release kernel `6.12.111+ps3.472` with ps3rsx 0.443 and Mesa `.476` is the
 default of the 2026-10-18 release build ([archive/RELEASE-CANDIDATES-2026-10-19.md](archive/RELEASE-CANDIDATES-2026-10-19.md)). Releases
