@@ -39,9 +39,9 @@
  * with 2, the SPE copies them through the same paths as the seal, without the cipher (the cipher's own cost).
  * Each slot records how it was written, and is read back that way whatever the switch says now.
  *
- * Frees. The swap layer tells the device when a swap entry is free (swap_slot_free_notify, for every freed
- * offset: 6.12 discards only whole free 256-page clusters, so without it the pool kept dead pages until a
- * write-back moved them to the disk). The notify runs under the swap layer's spinlock and may not sleep, so
+ * Frees (slot reuse: *x->reuse, vswap.c's vswap_reuse, off by default). The swap layer tells the device when a
+ * swap entry is free (swap_slot_free_notify, for every freed offset: 6.12 discards only whole free 256-page
+ * clusters, so without it the pool keeps dead pages until a write-back moves them to the disk). The notify runs under the swap layer's spinlock and may not sleep, so
  * vsx_free_mark() only sets the page's bit in an atomic bitmap (and its group's bit in a summary) and counts
  * it; it wakes nothing. The marks are applied under vs->lock by vsx_apply_frees() only where room is needed:
  * a write that finds the pool short (no free slot and no chunk to grow by: fresh_slot() applies them and asks
@@ -58,7 +58,11 @@
  * takes the mark away first (applied right there), so a free that is applied late never undoes a newer
  * write; a read of a marked page before the next apply returns the old bytes (the swap layer reads no free
  * entry). Counters come from next_ctr and nothing a free touches, so a freed slot's next seal still has a
- * fresh one.
+ * fresh one. With slot reuse off, vsx_free_mark() returns before it marks anything and a short pool applies
+ * nothing, so a freed page holds its slot as before the notify; marks left from a time it was on are still
+ * taken by a write or a discard and applied by the demotion, the shrink and the write-back (everything that
+ * consumes a mark runs whatever the switch says), so it can change at any time: no mark is lost, the count
+ * stays exact, and nothing is freed that a job still names (no mark, no apply).
  *
  * Locking: the caller holds vs->lock around every vsx_*() call except vsx_free_mark() (none); the SPE client
  * takes its own lock inside.
@@ -71,6 +75,7 @@
 #include <linux/atomic.h>
 typedef atomic_long_t vsx_count;
 #else
+#include <stdbool.h>
 typedef long vsx_count;
 #endif
 
@@ -144,6 +149,7 @@ struct vsx {
 	unsigned long *freed_sum;	/* a bit per VSX_FREE_GROUP pages that may have a mark */
 	vsx_count pending;		/* the marks not applied yet: +1 a new mark, -1 a mark taken (at rest exact;
 					 * for a moment off by the marks being set or taken) */
+	const bool *reuse;		/* slot reuse on (vswap_reuse), read at each use; set with x->freed */
 	struct vsx_piece wr[VSX_PIECES];
 	unsigned int nwr;
 	struct vsx_piece rd[VSX_PIECES];
@@ -208,7 +214,7 @@ static inline unsigned long vsx_free_sum_words(vs_u32 npages)
 }
 
 /* swap_slot_free_notify: page p's swap entry is free. Any context, no lock, wakes nothing: only marks it.
- * Returns 1 for a new mark, 0 if p was marked already or is out of range. */
+ * Returns 1 for a new mark, 0 if p was marked already, is out of range, or slot reuse is off (no mark). */
 int vsx_free_mark(struct vsx *x, unsigned long p);
 /* whether marks wait to be applied (the count: O(1), no lock) */
 int vsx_frees_pending(struct vsx *x);

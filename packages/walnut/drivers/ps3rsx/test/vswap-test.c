@@ -27,13 +27,16 @@
  * burst of marks during a batch's job or with the lock held never waits. A write-back with its own pages, the
  * lock dropped between its batches: pages opened before a gap rewritten to the disk there (whole, partly, after a free; the pool
  * full or the SPE gone), freed or discarded there, also under the random runs: the newer bytes stay on the disk,
- * a page freed before its write starts never reaches it.
+ * a page freed before its write starts never reaches it. Slot reuse off (vswap_reuse): no mark, no short-pool
+ * apply; marks left from a time it was on taken by a rewrite and a discard and applied by the write-back, the
+ * count exact; the switch flipped at random in the random runs (the count equal to the bits at the end).
  * Built with VSX_FIXOFF_IGNORE_TAG, VSX_FIXOFF_SAME_CTR, VSX_FIXOFF_AD_NO_PAGE, VSX_FIXOFF_WB_INTO_BOUNCE,
  * VSX_FIXOFF_NO_RETRY, VSX_FIXOFF_DISCARD_BAD, VSX_FIXOFF_NO_DEFER, VSX_FIXOFF_PPE_NO_RETRY,
  * VSX_FIXOFF_PARTIAL_EMPTY, VSX_FIXOFF_MODE_BY_SWITCH, VSX_FIXOFF_BATCH_REORDER, VSX_FIXOFF_R1_FINAL,
  * VSX_FIXOFF_NO_FREE, VSX_FIXOFF_FREE_KEEPS_MARK, VSX_FIXOFF_FREE_NOW, VSX_FIXOFF_WB_KEEP_ALL,
  * VSX_FIXOFF_SHORT_NO_APPLY, VSX_FIXOFF_EAGER_APPLY, VSX_FIXOFF_PEND_UNCOUNTED, VSX_FIXOFF_DISCARD_KEEPS_MARK,
- * VSX_FIXOFF_SHORT_COUNT_ANY or VSX_FIXOFF_KEEP_NO_APPLY it must fail. */
+ * VSX_FIXOFF_SHORT_COUNT_ANY, VSX_FIXOFF_KEEP_NO_APPLY, VSX_FIXOFF_OFF_MARKS or VSX_FIXOFF_OFF_SHORT_APPLY it must
+ * fail. */
 #define VSX_PLAIN
 #include <pthread.h>
 #include <sched.h>
@@ -83,6 +86,7 @@ static int fails_last, fails_first;	/* failed allocations: the last word (a demo
 static void (*job_hook)(void);		/* runs when a job or a GPU copy starts (a notify meanwhile) */
 static int evicting = -1;		/* the chunk being written back: none of its slots handed out (slot_alloc) */
 static void (*gap_hook)(const vs_u32 *pages, int n);	/* own pages: between two batches, the lock dropped */
+static bool reuse_on = true;		/* vswap_reuse (X.reuse points here) */
 
 struct req { int failed; };
 
@@ -326,10 +330,12 @@ static void fill(int p)
 	dead[p] = 0;
 }
 
-/* the swap layer frees page p: marked; until an apply or a rewrite it may still read its old bytes */
+/* the swap layer frees page p: marked; until an apply or a rewrite it may still read its old bytes. With slot reuse
+ * off nothing is marked, and the device keeps the page as it is (as before the notify) */
 static void free_page(int p)
 {
-	vsx_free_mark(&X, p);
+	if (!vsx_free_mark(&X, p) && !(freed_bits[p / 64] >> (p % 64) & 1))
+		return;
 	if (!dead[p])
 		memcpy(ghost[p], truth[p], VSX_PAGE);
 	dead[p] = 1;
@@ -440,6 +446,8 @@ static void reset_model(void)
 	X.map = map;
 	X.freed = freed_bits;
 	X.freed_sum = freed_sumw;
+	reuse_on = true;
+	X.reuse = &reuse_on;
 	X.npages = NPG;
 	X.next_ctr = 1;
 	X.mode = VSX_SEAL;
@@ -1446,6 +1454,61 @@ int main(void)
 	counts("short pool end");
 	slot_cap = NSL;
 
+	/* --- slot reuse off (vswap_reuse 0, the default): the notify marks nothing, a short pool applies nothing --- */
+	reset_model();
+	wr(p, seq(0, 28, p), 0, VSX_PAGE);
+	reuse_on = false;
+	{
+		int got = 0;
+
+		for (i = 0; i < 8; i++)
+			got += vsx_free_mark(&X, i);
+		CHECK(!got && !vsx_frees_pending(&X) && !freed_bits[0] && !freed_sumw[0],
+		      "reuse off: no mark set (%d new, count %ld)", got, vsx_frees_count(&X));
+	}
+	slot_cap = 28;				/* short: no free slot, no chunk to grow by */
+	CHECK(!wr((p[0] = 100, p), 1, 0, VSX_PAGE) && map[100] == VSX_ON_DISK && fails_first == 0 && fails_last == 1 &&
+	      X.in_vram == 28 && X.st.freed_vram == 0, "reuse off, the pool short: the disk, the demotion asked at once, "
+	      "nothing applied (fails %d/%d)", fails_first, fails_last);
+	slot_cap = NSL;
+	CHECK(rd_check((seq(0, 28, p), p), 28, 0, VSX_PAGE, "reuse off") == 0, "reuse off: the unmarked pages read back");
+	counts("reuse off");
+	/* marks left from a time it was on: taken by a rewrite and a discard, kept by a short pool, applied by the
+	 * write-back; the count follows */
+	reset_model();
+	wr(p, seq(0, 28, p), 0, VSX_PAGE);
+	for (i = 0; i < 8; i++)
+		free_page(i);
+	reuse_on = false;
+	slot_cap = 28;
+	CHECK(!wr((p[0] = 100, p), 1, 0, VSX_PAGE) && map[100] == VSX_ON_DISK && vsx_frees_count(&X) == 8 &&
+	      X.st.freed_vram == 0 && fails_first == 0 && fails_last == 1,
+	      "reuse off with 8 marks left, the pool short: none applied, the page to the disk (count %ld, fails %d/%d)",
+	      vsx_frees_count(&X), fails_first, fails_last);
+	CHECK(!wr((p[0] = 0, p), 1, 0, VSX_PAGE) && vsx_frees_count(&X) == 7 && vsx_in_vram(map[0]),
+	      "reuse off: a rewrite still takes its mark, its slot freed for the new bytes (count %ld)", vsx_frees_count(&X));
+	slot_cap = NSL;
+	vsx_discard(&X, 1);
+	memset(truth[1], 0, VSX_PAGE);
+	dead[1] = 0;
+	CHECK(vsx_frees_count(&X) == 6, "reuse off: a discard still takes its mark (count %ld)", vsx_frees_count(&X));
+	evict(0, 1);
+	disk_complete(1);
+	{
+		int written = 0;
+
+		for (i = 2; i < 8; i++)
+			written += map[i] != 0;
+		CHECK(!vsx_frees_pending(&X) && vsx_frees_count(&X) == 0 && !freed_bits[0] && !written &&
+		      X.st.freed_vram == 7, "reuse off: the write-back applies the 6 left, none written (count %ld, "
+		      "freed %llu, %d written)", vsx_frees_count(&X), (unsigned long long)X.st.freed_vram, written);
+	}
+	CHECK(rd_check((seq(0, 28, p), p), 28, 0, VSX_PAGE, "reuse off, marks left") == 0 &&
+	      rd_check((p[0] = 100, p), 1, 0, VSX_PAGE, "reuse off, marks left") == 0, "and every page reads as it should");
+	reuse_on = true;
+	CHECK(vsx_free_mark(&X, 20) == 1 && vsx_frees_count(&X) == 1, "reuse on again: a free marks");
+	counts("reuse off, marks left");
+
 	/* a burst of marks during a batch's seal: the batch goes on, nothing applied while there is room */
 	reset_model();
 	wr(p, seq(300, 32, p), 0, VSX_PAGE);
@@ -1519,6 +1582,8 @@ int main(void)
 			gpu_ok = rnd() % 4 != 0;
 			if (step % 50 == 0)
 				X.plain = round % 4 == 0 ? (int)(rnd() % 3) : 0;	/* the switch, at run time */
+			if (step % 50 == 25 && round % 2)
+				reuse_on = rnd() % 3 != 0;	/* vswap_reuse flipped at run time */
 			if (k < 4) {
 				wr(p, seq(a, n, p), 0, VSX_PAGE);
 			} else if (k < 7) {
@@ -1565,6 +1630,14 @@ int main(void)
 			}
 		}
 		counts("random");
+		{
+			long bits = 0;
+
+			for (i = 0; i < (int)(sizeof(freed_bits) / sizeof(freed_bits[0])); i++)
+				bits += __builtin_popcountl(freed_bits[i]);
+			CHECK(bits == vsx_frees_count(&X), "round %d: %ld marks, the count %ld", round, bits,
+			      vsx_frees_count(&X));
+		}
 	}
 	disk_complete(1);
 	async_disk = 0;

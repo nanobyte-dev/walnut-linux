@@ -19,6 +19,7 @@
 #define vsx_take_word(a)		xchg(a, 0UL)			/* fully ordered */
 #define vsx_peek(a)			READ_ONCE(*(a))
 #define vsx_peek_ptr(a)			smp_load_acquire(&(a))	/* (backing_store's release) */
+#define vsx_reuse(x)			READ_ONCE(*(x)->reuse)	/* (vswap_reuse: may change at any time) */
 #define vsx_pend_add(x, v)		atomic_long_add(v, &(x)->pending)
 #define vsx_pend_read(x)		atomic_long_read(&(x)->pending)
 #define vsx_popcount(w)			hweight_long(w)
@@ -31,6 +32,7 @@
 #define vsx_take_word(a)		__atomic_exchange_n(a, 0UL, __ATOMIC_SEQ_CST)
 #define vsx_peek(a)			__atomic_load_n(a, __ATOMIC_RELAXED)
 #define vsx_peek_ptr(a)			__atomic_load_n(&(a), __ATOMIC_ACQUIRE)
+#define vsx_reuse(x)			__atomic_load_n((x)->reuse, __ATOMIC_RELAXED)
 #define vsx_pend_add(x, v)		((void)__atomic_fetch_add(&(x)->pending, (v), __ATOMIC_RELAXED))
 #define vsx_pend_read(x)		__atomic_load_n(&(x)->pending, __ATOMIC_RELAXED)
 #define vsx_popcount(w)			__builtin_popcountl(w)
@@ -548,6 +550,10 @@ int vsx_free_mark(struct vsx *x, unsigned long p)
 
 	if (!f || p >= x->npages)
 		return 0;
+#ifndef VSX_FIXOFF_OFF_MARKS			/* (the fix-off: marked with slot reuse off) */
+	if (!vsx_reuse(x))
+		return 0;			/* slot reuse off: the page keeps its slot, as before the notify */
+#endif
 #ifdef VSX_FIXOFF_FREE_NOW			/* (the fix-off: freed at once, as if no job could name the slot) */
 	vsx_discard(x, p);
 	return 0;
@@ -646,9 +652,9 @@ static void take_mark(struct vsx *x, vs_u32 p)
 #endif
 }
 
-/* A fresh slot for a write: a free one or a new chunk; when the pool is short (neither), the free marks applied
- * and once more, before the page goes to the disk and vswap.c asks for a demotion (vswap_core.h "Frees"); counted
- * in short_applies only when the apply freed a VRAM slot and the write got one. Only
+/* A fresh slot for a write: a free one or a new chunk; when the pool is short (neither) and slot reuse is on, the
+ * free marks applied and once more, before the page goes to the disk and vswap.c asks for a demotion (vswap_core.h
+ * "Frees"); counted in short_applies only when the apply freed a VRAM slot and the write got one. Only
  * in a write batch (no read queued): the queued writes name fresh slots no map entry points at, which no apply
  * frees. */
 static int fresh_slot(struct vsx *x)
@@ -661,6 +667,10 @@ static int fresh_slot(struct vsx *x)
 
 	if (x->nrd || !vsx_frees_pending(x))
 		return vsx_hw_slot_alloc(x->hw, 1);
+#ifndef VSX_FIXOFF_OFF_SHORT_APPLY		/* (the fix-off: a short pool applies with slot reuse off) */
+	if (!vsx_reuse(x))
+		return vsx_hw_slot_alloc(x->hw, 1);	/* off: marks left from before wait for the demotion */
+#endif
 	s = vsx_hw_slot_alloc(x->hw, 0);
 	if (s >= 0)
 		return s;

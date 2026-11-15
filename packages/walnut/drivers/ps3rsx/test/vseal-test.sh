@@ -42,7 +42,8 @@ for v in "vseal-test VSEAL_FIXOFF_PLAIN_GET" "vseal-test VSEAL_FIXOFF_SPLIT_TAGS
 	"vswap-test VSX_FIXOFF_NO_FREE" "vswap-test VSX_FIXOFF_FREE_KEEPS_MARK" "vswap-test VSX_FIXOFF_FREE_NOW" \
 	"vswap-test VSX_FIXOFF_WB_KEEP_ALL" "vswap-test VSX_FIXOFF_SHORT_NO_APPLY" "vswap-test VSX_FIXOFF_EAGER_APPLY" \
 	"vswap-test VSX_FIXOFF_PEND_UNCOUNTED" "vswap-test VSX_FIXOFF_DISCARD_KEEPS_MARK" \
-	"vswap-test VSX_FIXOFF_SHORT_COUNT_ANY" "vswap-test VSX_FIXOFF_KEEP_NO_APPLY"; do
+	"vswap-test VSX_FIXOFF_SHORT_COUNT_ANY" "vswap-test VSX_FIXOFF_KEEP_NO_APPLY" \
+	"vswap-test VSX_FIXOFF_OFF_MARKS" "vswap-test VSX_FIXOFF_OFF_SHORT_APPLY"; do
 	set -- $v
 	n_off=$((n_off + 1))
 	if build "fixoff-$2" "$1.c" -w -DVSEAL_TEST_OPS $([ "$1" = vswap-test ] && echo -DV2_SCALAR_ONLY) -D"$2" && ! timeout 300 "$O/fixoff-$2" > "$O/fixoff-$2.log" 2>&1; then
@@ -75,6 +76,17 @@ elif ! awk '/^int vsx_hw_slot_alloc\(/,/^}/' ../src/vswap.c | grep -q 'maybe_dem
 	echo "!! vswap.c: a first failed allocation asks for a demotion"; bad=1
 else
 	echo "vswap.c: the free notify and vsx_free_mark only mark, io_work applies none, a demotion only after the marks"
+fi
+# slot reuse (vswap_reuse) is off by default and can be changed at run time; backing_store points the core at it
+# before it publishes x->freed (the notify's acquire), so every mark and apply sees it
+if ! grep -q '^static bool vswap_reuse;' ../src/vswap.c || ! grep -q '^module_param(vswap_reuse, bool, 0644);' ../src/vswap.c; then
+	echo "!! vswap.c: vswap_reuse isn't a bool, off by default, writable at run time"; bad=1
+elif ! awk '/^static ssize_t backing_store\(/,/^}/' ../src/vswap.c | awk '
+	/vs->x\.reuse = &vswap_reuse;/ { r = NR } /smp_store_release\(&vs->x\.freed/ { f = NR }
+	END { exit !(r && f && r < f) }'; then
+	echo "!! vswap.c backing_store: x.reuse not set before x->freed is published"; bad=1
+else
+	echo "vswap.c: vswap_reuse off by default, writable, set before the marks' bitmap is published"
 fi
 # chunk_evict drops what changed since its open (vsx_writeback_keep, the model's rule) right before it sets
 # wb_pages, the only place it does, with no unlock between the two

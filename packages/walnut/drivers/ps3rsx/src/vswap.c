@@ -7,11 +7,12 @@
  * backing partition (the USB disk's swap partition), so the swap layer sees one device:
  *  - writes go to VRAM while the pool has room (1 MiB chunks from the CPU-visible VRAM heap,
  *    taken from its top end, at most vswap_vram_mb), else to the disk;
- *  - a page the swap layer frees gives its slot back: swap_slot_free_notify marks it (atomic context:
- *    a bit and a count, it wakes nothing), and the marks are applied under vs->lock only where room
- *    is needed: a write that finds the pool short and unable to grow, the demotion and the shrink
- *    before they choose, the write-back before it copies a page; discards (swapon --discard=pages,
- *    whole free clusters only) free slots too;
+ *  - with slot reuse on (vswap_reuse, off by default), a page the swap layer frees gives its slot back:
+ *    swap_slot_free_notify marks it (atomic context: a bit and a count, it wakes nothing), and the marks
+ *    are applied under vs->lock only where room is needed: a write that finds the pool short and unable
+ *    to grow, the demotion and the shrink before they choose, the write-back before it copies a page;
+ *    off, a freed page holds its slot until a rewrite, a discard or a write-back; discards
+ *    (swapon --discard=pages, whole free clusters only) free slots either way;
  *  - games come first: when a buffer object finds no VRAM, ps3rsx_vswap_shrink() writes the
  *    pages of the emptiest chunks back to the disk and hands the chunks over, each cleared
  *    before a buffer object gets it (vclear.c: the pages written back are still in it);
@@ -75,6 +76,10 @@ MODULE_PARM_DESC(vswap_gpu_min, "Swap-in pages per request from which the GPU co
 static unsigned int vswap_size_mb = 1024;
 module_param(vswap_size_mb, uint, 0444);
 MODULE_PARM_DESC(vswap_size_mb, "Swap device size (MiB, at most the backing partition's)");
+static bool vswap_reuse;
+module_param(vswap_reuse, bool, 0644);
+MODULE_PARM_DESC(vswap_reuse, "Slot reuse: a swap page Linux frees gives its VRAM slot back (default off: it holds "
+		 "the slot until a rewrite, a discard or a write-back; can be changed at any time)");
 static unsigned int vswap_seal_lockout = VSX_LOCKOUT;
 module_param(vswap_seal_lockout, uint, 0444);
 MODULE_PARM_DESC(vswap_seal_lockout, "Pages failing their check in a load after which no new page goes to VRAM");
@@ -761,9 +766,9 @@ static const struct blk_mq_ops vswap_mq_ops = {
 
 /*
  * The swap layer freed the swap entry at device page `offset` (mm/swapfile.c swap_range_free, called for every
- * freed offset with si->lock held: atomic, must not sleep). The page is only marked and counted (vswap_core.h
- * "Frees"): no lock, no work queued, nothing woken, so a game's frees during play cost two bit sets and an
- * add. The marks are applied under vs->lock where room is needed (a write that finds the pool short, the
+ * freed offset with si->lock held: atomic, must not sleep). With slot reuse off (vswap_reuse) vsx_free_mark returns
+ * before it marks anything. On, the page is only marked and counted (vswap_core.h "Frees"): no lock, no work
+ * queued, nothing woken, so a game's frees during play cost two bit sets and an add. The marks are applied under vs->lock where room is needed (a write that finds the pool short, the
  * demotion, the shrink, the write-back), so no free meets a slot that a job, a queued piece or a write-back
  * still names. The swap layer frees an entry only once no I/O of it is in flight (it holds SWAP_HAS_CACHE
  * across a read or a write-back), and reuses the offset only after this call returns, so the reuse's write is
@@ -1213,7 +1218,8 @@ static ssize_t backing_store(struct device *dev, struct device_attribute *attr, 
 	vs->x.freed_sum = freed + vsx_free_words(sectors >> (PAGE_SHIFT - 9));
 	vs->x.map = map;
 	vs->x.npages = sectors >> (PAGE_SHIFT - 9);
-	/* published last, with the summary and npages before it (the notify's acquire, vsx_free_mark); and
+	vs->x.reuse = &vswap_reuse;		/* (read at each use: a change takes effect at once) */
+	/* published last, with the summary, npages and the switch before it (the notify's acquire, vsx_free_mark); and
 	 * before the device has a size: no notify can come earlier anyway */
 	smp_store_release(&vs->x.freed, freed);
 	strscpy(vs->backing_path, path, sizeof(vs->backing_path));
@@ -1243,7 +1249,7 @@ static ssize_t stats_show(struct device *dev, struct device_attribute *attr, cha
 		       "seals %s: pages %llu (jobs %llu, failed %llu), opens from the bounce %llu, from VRAM %llu, "
 		       "by the PPE %llu, retries %llu, resubmits %llu, check failures %llu (BAD %llu)%s, kept %llu, "
 		       "merges %llu, unsealed writes %llu reads %llu, to disk without an SPE %llu\n"
-		       "freed by the swap layer: slots %llu, disk entries %llu, failed or empty %llu; "
+		       "slot reuse %s; freed by the swap layer: slots %llu, disk entries %llu, failed or empty %llu; "
 		       "waiting %ld, a short pool's apply gave a write its slot %llu times\n",
 		       vs->x.in_vram, vs->x.on_disk, vs->x.bad, chunks, vs->x.st.seals + vs->x.st.plain_writes,
 		       vs->disk_writes, vs->x.st.opens_bounce + vs->x.st.opens_vram + vs->x.st.opens_ppe +
@@ -1254,7 +1260,7 @@ static ssize_t stats_show(struct device *dev, struct device_attribute *attr, cha
 		       vs->x.st.opens_vram, vs->x.st.opens_ppe, vs->x.st.retries, vs->x.st.resubmits,
 		       vs->x.st.tag_fails, vs->x.st.bad_marked, vs->x.locked ? ", LOCKED OUT" : "", vs->x.st.kept,
 		       vs->x.st.merges, vs->x.st.plain_writes, vs->x.st.plain_reads, vs->x.st.to_disk_nospe,
-		       vs->x.st.freed_vram, vs->x.st.freed_disk, vs->x.st.freed_other, vsx_frees_count(&vs->x),
+		       READ_ONCE(vswap_reuse) ? "on" : "off", vs->x.st.freed_vram, vs->x.st.freed_disk, vs->x.st.freed_other, vsx_frees_count(&vs->x),
 		       vs->x.st.short_applies);
 	mutex_unlock(&vs->lock);
 	return n;
