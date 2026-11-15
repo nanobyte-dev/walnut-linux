@@ -7,6 +7,10 @@
  * - slot rules: every context DMA handle in every slot of every class;
  * - binds of the second M2MF and image from CPU refused;
  * - the fence label, query slice and render-enable forms of channels 0, 1 and 13;
+ * - draws: render targets and zeta inside the file's buffers (target 0 and zeta whatever
+ *   RT_ENABLE and the depth state say), GART targets over the kernel's ring and zero area, the
+ *   kept result (one check while the surface and the set stay), a change between draws, none
+ *   inside a primitive, a buffer leaving the set before a draw or a continued primitive;
  * - M2MF copies, scaled images into both surface kinds and clears, each at its edges: the last
  *   byte of a buffer accepted, one past refused, adjacent buffers not joined, the wrong domain,
  *   zero sizes, coordinates above 4096, overflowing values, unknown formats;
@@ -655,6 +659,162 @@ static void test_clear(void)
 	}
 }
 
+/* --- draws: render targets and zeta (slice b) ------------------------------------------------ */
+
+/* A draw after the surface in cw[0, n): BEGIN, a vertex batch, END */
+static u32 draw_words(u32 n)
+{
+	cw[n++] = H(1, S3D, 0x1808);
+	cw[n++] = 5;
+	cw[n++] = NI | H(1, S3D, 0x1814);
+	cw[n++] = 0x02000000;
+	cw[n++] = H(1, S3D, 0x1808);
+	cw[n++] = 0;
+	return n;
+}
+
+static int draw(u32 n)
+{
+	return run(cw, draw_words(n));
+}
+
+/* The kernel's own GART: the ring (0x1000 up to RING_END), the zero area after it */
+#define RING_AT		0x00001000u
+#define ZERO_AT		0x001f0000u
+
+static void test_draw(void)
+{
+	struct ps3rsx_vstate vs;
+	u32 n, w[64];
+	unsigned long c0;
+
+	/* 512 x 512 x 4 bytes, pitch 2048: exactly A's 1 MiB; zeta in C */
+	CHECK(draw(surface(512, 512, LIN, 2048, A_LO, C_LO, 1, 512, 0)) == 0,
+	      "draw: a 512x512 surface refused");
+	CHECK(draw(surface(512, 513, LIN, 2048, A_LO, C_LO, 1, 513, 0)) != 0 &&
+	      strstr(last_warn, "render target outside"), "draw: one row past A accepted");
+	/* zeta is checked at every draw, whatever the depth and stencil state */
+	CHECK(draw(surface(512, 512, LIN, 2048, A_LO, C_LO + C_SZ - 0x10000, 1, 512, 0)) != 0,
+	      "draw: zeta past C accepted");
+	/* RT_ENABLE 0 still writes target 0 */
+	CHECK(draw(surface(512, 513, LIN, 2048, A_LO, C_LO, 0, 513, 0)) != 0,
+	      "draw: RT_ENABLE 0 and target 0 past A accepted");
+	/* target 1 enabled without its offset and pitch */
+	CHECK(draw(surface(512, 512, LIN, 2048, A_LO, C_LO, 0x13, 512, 0)) != 0 &&
+	      strstr(last_warn, "not set by this channel"), "draw: target 1 with no offset accepted");
+	/* antialiasing, the window offset, the y-flip height, swizzled blocks: as for clears */
+	CHECK(draw(surface(256, 257, LIN | 0x4000, 2048, A_LO, C_LO, 1, 257, 0)) != 0,
+	      "draw: a 4x surface one row past A accepted");
+	CHECK(draw(surface(512, 511, LIN, 2048, A_LO, C_LO, 1, 511, XY(0, 2))) != 0,
+	      "draw: a window offset past A accepted");
+	CHECK(draw(surface(512, 400, LIN, 2048, A_LO, C_LO, 1, 600, 0)) != 0,
+	      "draw: a coordinate height past A accepted");
+	CHECK(draw(surface(512, 512, 0x0a090248, 2048, A_LO, C_LO, 1, 512, 0)) != 0,
+	      "draw: a 1024x512 swizzled block past A accepted");
+	/* the kernel's GART: a target or zeta over the ring or the zero area */
+	n = surface(64, 64, LIN, 256, G_LO, G_LO + 0x10000, 1, 64, 0);
+	cw[3] = cw[5] = G;
+	CHECK(draw(n) == 0, "draw: a target and zeta in G refused");
+	n = surface(64, 64, LIN, 256, RING_AT, G_LO, 1, 64, 0);
+	cw[3] = cw[5] = G;
+	CHECK(draw(n) != 0, "draw: a GART target over the ring accepted");
+	n = surface(64, 64, LIN, 256, G_LO, ZERO_AT, 1, 64, 0);
+	cw[3] = cw[5] = G;
+	CHECK(draw(n) != 0, "draw: GART zeta over the zero area accepted");
+	n = surface(64, 64, LIN, 256, G_LO, G_LO + 0x10000, 1, 64, 0);
+	cw[3] = G;		/* zeta's slot VRAM: G's offset is no VRAM buffer of the file */
+	CHECK(draw(n) != 0, "draw: zeta through the wrong domain accepted");
+	/* a draw on a fresh channel that never set its surface */
+	{
+		u32 d[] = { H(1, S3D, 0), 0x31337000, H(1, S3D, 0x1808), 5, H(1, S3D, 0x1808), 0 };
+
+		CHECK(run(d, ARRAY_SIZE(d)) != 0 && strstr(last_warn, "not set by this channel"),
+		      "draw: a draw with no surface set accepted");
+		n = surface(512, 512, LIN, 2048, A_LO, C_LO, 1, 512, 0) - 2;	/* no COORD */
+		CHECK(draw(n) != 0 && strstr(last_warn, "not set by this channel"),
+		      "draw: a draw without its coordinate conventions accepted");
+	}
+
+	/* the kept result: one check for draws on an unchanged surface (the same values written
+	 * again included); a field that changes value between draws is checked again */
+	vs_init(&vs, 2);
+	n = surface(512, 512, LIN, 2048, A_LO, C_LO, 1, 512, 0);
+	CHECK(ps3rsx_validate(&vs, cw, draw_words(n)) == 0, "draw: the kept case's first draw refused");
+	c0 = p4_draw_checks;
+	for (int i = 0; i < 10; i++)
+		CHECK(ps3rsx_validate(&vs, cw + n, draw_words(n) - n) == 0, "draw: draw %d refused", i);
+	CHECK(ps3rsx_validate(&vs, cw, draw_words(n)) == 0, "draw: the same surface again refused");
+	CHECK(p4_draw_checks == c0, "draw: %lu checks for draws on an unchanged surface",
+	      p4_draw_checks - c0);
+	{
+		u32 m[] = { H(1, S3D, 0x210), A_LO + 0x40000, H(1, S3D, 0x1808), 5, H(1, S3D, 0x1808), 0 };
+		struct ps3rsx_vstate t = vs;
+
+		last_warn[0] = 0;
+		CHECK(ps3rsx_validate(&t, m, ARRAY_SIZE(m)) != 0,
+		      "draw: a target moved past A between draws accepted");
+		CHECK(p4_draw_checks == c0 + 1, "draw: a changed target not checked again");
+	}
+	/* no surface field changes inside a primitive: its BEGIN's check covers every vertex */
+	{
+		u32 m[] = { H(1, S3D, 0x1808), 5, H(1, S3D, 0x210), A_LO + 0x40000,
+			    NI | H(1, S3D, 0x1814), 0x02000000, H(1, S3D, 0x1808), 0 };
+		u32 same[] = { H(1, S3D, 0x1808), 5, H(1, S3D, 0x210), A_LO,
+			       NI | H(1, S3D, 0x1814), 0x02000000, H(1, S3D, 0x1808), 0 };
+		struct ps3rsx_vstate t = vs;
+
+		last_warn[0] = 0;
+		CHECK(ps3rsx_validate(&t, m, ARRAY_SIZE(m)) != 0 &&
+		      strstr(last_warn, "inside an open primitive"),
+		      "draw: a target changed inside a primitive accepted");
+#ifndef PS3RSX_P4_COUNT		/* (there P7 refuses every state write inside a primitive) */
+		t = vs;
+		CHECK(ps3rsx_validate(&t, same, ARRAY_SIZE(same)) == 0,
+		      "draw: a target rewritten with its value inside a primitive refused");
+#else
+		(void)same;
+#endif
+	}
+	/* a buffer the targets were checked against leaves the file's set: the next draw (no field
+	 * changed) is checked again and refused; back in the set, it passes */
+	p4set_remove(&set, P4_VRAM, A_LO);
+	{
+		struct ps3rsx_vstate t = vs;
+
+		last_warn[0] = 0;
+		CHECK(ps3rsx_validate(&t, cw + n, draw_words(n) - n) != 0,
+		      "draw: a draw after its target's buffer left the set accepted");
+	}
+	p4set_insert(&set, P4_VRAM, A_LO, A_SZ);
+	CHECK(ps3rsx_validate(&vs, cw + n, draw_words(n) - n) == 0,
+	      "draw: a draw with its buffer back refused");
+	/* a primitive continued in a later submit after its buffer left the set */
+	w[0] = H(1, S3D, 0x1808);
+	w[1] = 5;
+	w[2] = NI | H(1, S3D, 0x1814);
+	w[3] = 0x02000000;
+	CHECK(ps3rsx_validate(&vs, w, 4) == 0 && vs.prim_open, "draw: an open primitive refused");
+	p4set_remove(&set, P4_VRAM, A_LO);
+	{
+		struct ps3rsx_vstate t = vs;
+
+		last_warn[0] = 0;
+		CHECK(ps3rsx_validate(&t, w + 2, 2) != 0,
+		      "draw: a continued primitive after its buffer left the set accepted");
+	}
+	p4set_insert(&set, P4_VRAM, A_LO, A_SZ);
+	w[4] = H(1, S3D, 0x1808);
+	w[5] = 0;
+	CHECK(ps3rsx_validate(&vs, w + 2, 4) == 0 && !vs.prim_open,
+	      "draw: the primitive's rest refused");
+	/* a lost channel: its fields no longer count, nor the kept result */
+	ps3rsx_vstate_forget(&vs);
+	last_warn[0] = 0;
+	CHECK(ps3rsx_validate(&vs, cw + n, draw_words(n) - n) != 0,
+	      "draw: a draw after a lost channel accepted");
+	set_init();
+}
+
 /* --- coverage (H2): every field is state the shadow restores ------------------------------ */
 
 static const u32 class_obj[VC_N] = { 0, 0x31337000, 0x31337303, 0x313371c3, 0x31337a73,
@@ -843,10 +1003,11 @@ static void test_count(void)
 #ifndef PS3RSX_P4_COUNT
 static void test_release_no_p7(void)
 {
-	u32 p[] = { H(1, S3D, 0), 0x31337000, H(1, S3D, 0x1808), 5, H(1, S3D, 0x0300), 1,
-		    H(1, S3D, 0x1808), 0 };
+	u32 n = surface(512, 512, LIN, 2048, A_LO, C_LO, 1, 512, 0);
+	u32 p[] = { H(1, S3D, 0x1808), 5, H(1, S3D, 0x0300), 1, H(1, S3D, 0x1808), 0 };
 
-	CHECK(run(p, ARRAY_SIZE(p)) == 0, "release: P7 refused a state write (it is c1's)");
+	memcpy(cw + n, p, sizeof(p));
+	CHECK(run(cw, n + ARRAY_SIZE(p)) == 0, "release: P7 refused a state write (it is c1's)");
 }
 #endif
 
@@ -872,6 +1033,7 @@ int main(void)
 	test_m2mf();
 	test_sifm();
 	test_clear();
+	test_draw();
 	test_coverage();
 	test_classification();
 #if defined(PS3RSX_P4_COUNT) && !defined(PS3RSX_P4_NO_ENFORCE)

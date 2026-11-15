@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
  * Property fuzz of the address checks, slices a and b: random streams of the methods that carry
- * addresses (context DMAs, M2MF copies, scaled images into both surface kinds, clears, fences,
- * reports, render enable), with values drawn near the edges of a random buffer set, go through
+ * addresses (context DMAs, M2MF copies, scaled images into both surface kinds, clears, draws and
+ * their vertex data, surface changes inside a primitive, fences, reports, render enable), with
+ * values drawn near the edges of a random buffer set that loses and regains buffers between
+ * streams, go through
  * the validator one push at a time on one channel. For every push it accepts, an independent
  * model of the GPU (written from the design, not from validate.c) replays the words and checks
  * each memory access they make: inside one of the file's buffers in the right domain, or in the
@@ -38,7 +40,7 @@ static u32 rn(u32 n) { return n ? rnd() % n : 0; }
 /* --- the file's buffers --------------------------------------------------------------------- */
 
 #define NBO 10
-static struct { int dom; u64 lo, hi; } bo[NBO];
+static struct { int dom; u64 lo, hi; bool gone; } bo[NBO];
 static struct p4set set;
 
 static void make_set(void)
@@ -54,6 +56,7 @@ static void make_set(void)
 		bo[i].dom = d;
 		bo[i].lo = at[d];
 		bo[i].hi = at[d] + size;
+		bo[i].gone = false;
 		at[d] += size;
 		p4set_insert(&set, d, bo[i].lo, size);
 	}
@@ -65,7 +68,7 @@ static bool inside(int dom, u64 lo, u64 len)
 	if (!len)
 		return false;
 	for (int i = 0; i < NBO; i++)
-		if (bo[i].dom == dom && lo >= bo[i].lo && lo + len <= bo[i].hi)
+		if (!bo[i].gone && bo[i].dom == dom && lo >= bo[i].lo && lo + len <= bo[i].hi)
 			return true;
 	return false;
 }
@@ -79,7 +82,7 @@ static const u32 subch[NCLS] = { 7, 2, 3, 4, 5 };
 struct cell { u32 v; bool mine; };
 static struct cell gpu[NCLS][0x2000 / 4];
 static int chan = 3;
-static unsigned long accepted, triggers, checked;
+static unsigned long accepted, triggers, checked, drawn;
 static int bad;
 
 static void forget_all(void)
@@ -221,28 +224,41 @@ static void copy_sifm(u32 point)
 	}
 }
 
-static void rt(u32 slot, u32 off, u32 pitch, u32 bpp, u64 cols, u64 rows, const char *what)
+static const char *op = "clear";	/* the trigger fb_write() models: a clear or a draw */
+
+static void violation_op(const char *what)
+{
+	char b[128];
+
+	snprintf(b, sizeof(b), "%s %s", op, what);
+	violation(b);
+}
+
+static void rt(u32 slot, u32 off, u32 pitch, u32 bpp, u64 cols, u64 rows, const char *target)
 {
 	u32 f = G(M3D, 0x208), aa = (f >> 12) & 0xf, type = (f >> 8) & 0xf;
+	char what[64];
+
+	snprintf(what, sizeof(what), "%s %s", op, target);
 	u64 xs = aa == 3 || aa == 4 || aa == 5 ? 2 : 1, ys = aa == 4 || aa == 5 ? 2 : 1;
 	u64 lo = off & ~63u;
 
 	if (aa && aa != 3 && aa != 4 && aa != 5) {
-		violation("clear with an unknown antialiasing mode");
+		violation_op("with an unknown antialiasing mode");
 		return;
 	}
 	if (type == 2) {
 		u32 lw = (f >> 16) & 0xff, lh = f >> 24;
 
 		if (lw > 12 || lh > 12 || cols > (1u << lw) || rows > (1u << lh) || aa) {
-			violation("clear outside a swizzled surface");
+			violation_op("outside a swizzled surface");
 			return;
 		}
 		access(G(M3D, slot), lo, (1ULL << lw << lh) * bpp, what);
 	} else if (type == 1) {
 		access(G(M3D, slot), lo, pitch * (rows * ys - 1) + cols * xs * bpp, what);
 	} else {
-		violation("clear of an unknown surface type");
+		violation_op("of an unknown surface type");
 	}
 }
 
@@ -257,16 +273,20 @@ static u32 bpp_rt(u32 c)
 	}
 }
 
-static void clear(u32 bits)
+/* What a clear (its bits) or a draw (0xf3: every target and zeta, as the design takes the
+ * GPU: colour target 0 whatever RT_ENABLE says, zeta whatever the depth state) writes */
+static void fb_write(u32 bits, const char *what_op)
 {
 	static const u16 used[] = { 0x200, 0x204, 0x208, 0x2b8, 0x2c0, 0x2c4, 0x1d88 };
 	u32 hz = G(M3D, 0x200), vt = G(M3D, 0x204), wo = G(M3D, 0x2b8), f = G(M3D, 0x208);
 	u64 cols, rows;
 
+	op = what_op;
 	if (!bits)
 		return;
+	drawn += what_op[0] == 'd';
 	if (!mine_all(M3D, used, ARRAY_SIZE(used))) {
-		violation("clear with a surface value this channel never wrote");
+		violation_op("with a surface value this channel never wrote");
 		return;
 	}
 	cols = (hz & 0xffff) + (hz >> 16);
@@ -284,14 +304,14 @@ static void clear(u32 bits)
 		u32 en = 1 | (MINE(M3D, 0x220) ? G(M3D, 0x220) & 0xf : 0xf);
 
 		if (!MINE(M3D, 0x220))
-			violation("colour clear with RT_ENABLE this channel never wrote");
+			violation_op("of colour with RT_ENABLE this channel never wrote");
 		for (int i = 0; i < 4; i++) {
 			const u16 u[3] = { off[i], pit[i], slot[i] };
 
 			if (!(en & (1u << i)))
 				continue;
 			if (!mine_all(M3D, u, 3)) {
-				violation("colour clear of a target this channel never set");
+				violation_op("of a target this channel never set");
 				continue;
 			}
 			rt(slot[i], G(M3D, off[i]), G(M3D, pit[i]), bpp_rt(f & 0x1f), cols, rows,
@@ -303,7 +323,7 @@ static void clear(u32 bits)
 		u32 z = (f >> 5) & 7;
 
 		if (!mine_all(M3D, u, 3)) {
-			violation("depth clear of a zeta this channel never set");
+			violation_op("of a zeta this channel never set");
 			return;
 		}
 		rt(0x198, G(M3D, 0x214), G(M3D, 0x22c), z == 1 ? 2 : z == 2 ? 4 : 8, cols, rows,
@@ -367,8 +387,17 @@ static void model_word(u32 sc, u32 m, u32 v)
 			break;
 		case 0x1d94:
 			triggers++;
-			clear(v);
+			fb_write(v, "clear");
 			return;
+		case 0x1808:		/* BEGIN: the draw writes its targets from here */
+			if (v) {
+				triggers++;
+				fb_write(0xf3, "draw");
+			}
+			break;
+		case 0x180c: case 0x1810: case 0x1814: case 0x1818: case 0x1824:
+			fb_write(0xf3, "draw");	/* each vertex: the targets as they are now */
+			break;
 		}
 	}
 	gpu[c][m / 4] = (struct cell){ v, true };
@@ -508,7 +537,7 @@ static void gen_sifm(void)
 	}
 }
 
-static void gen_clear(void)
+static void gen_surface(void)
 {
 	u32 w = small(512), h = small(512), pitch = rn(4) ? w * 4 : small(0x4000), slot = handle();
 	u32 fmt = (rn(6) ? 0x148 : rnd() & 0xffff) | (rn(4) ? 0 : (rnd() & 0x7) << 12);
@@ -534,7 +563,74 @@ static void gen_clear(void)
 		put1(M3D, 0x220, rn(4) ? 1 : rn(32));
 	if (rn(4))
 		put1(M3D, 0x1d88, rn(4) ? h : rnd() & 0x1fff);
+}
+
+static void gen_clear(void)
+{
+	gen_surface();
 	put1(M3D, 0x1d94, rn(4) ? 0xf3 : rnd() & 0x1ff);
+}
+
+/* A surface as Mesa sets one, A8R8G8B8 and Z24S8, its colour target at the start of one of the
+ * file's buffers and as high as it holds (now and then a row more), zeta at another's start */
+static void gen_good_surface(void)
+{
+	int i = rn(NBO), j = rn(NBO);
+	u32 w = 16u << rn(4), pitch = w * 4, h;
+	u64 size = bo[i].hi - bo[i].lo;
+
+	h = size / pitch > 512 ? 512 : size / pitch ? (u32)(size / pitch) : 1;
+	if (!rn(4))
+		h++;
+	{
+		u32 a[] = { bo[i].dom == P4_VRAM ? 0xfeed0000 : 0xfeed0001 };
+		u32 b[] = { bo[j].dom == P4_VRAM ? 0xfeed0000 : 0xfeed0001 };
+		u32 surf[3] = { w << 16, h << 16, 0x148 };
+		u32 win[4] = { 0, 0, (w - 1) << 16, (h - 1) << 16 };
+		u32 c[3] = { pitch, (u32)bo[i].lo, (u32)bo[j].lo };
+
+		put(M3D, 0x194, a, 1);
+		put(M3D, 0x198, b, 1);
+		put(M3D, 0x200, surf, 3);
+		put(M3D, 0x2b8, win, 4);
+		put1(M3D, 0x22c, pitch);
+		put(M3D, 0x20c, c, 3);
+		put1(M3D, 0x220, 1);
+		put1(M3D, 0x1d88, h);
+	}
+}
+
+/* A draw: mostly on a new surface; BEGIN (or a primitive an earlier stream left open), vertex
+ * data, now and then a surface word inside the primitive, and an END or none (it continues) */
+static void gen_draw(void)
+{
+	static const u16 fb[] = { 0x194, 0x198, 0x18c, 0x200, 0x204, 0x20c, 0x210, 0x214, 0x220,
+				  0x22c, 0x2b8, 0x2c0, 0x1d88 };
+
+	if (rn(2))
+		gen_good_surface();
+	else if (rn(2))
+		gen_surface();
+	if (rn(6))
+		put1(M3D, 0x1808, 1 + rn(10));
+	if (rn(2)) {
+		pw[pn++] = 0x40000000u | HD(2, subch[M3D], 0x1814);
+		pw[pn++] = 0x02000000;
+		pw[pn++] = 0x02000010;
+	} else {
+		pw[pn++] = 0x40000000u | HD(1, subch[M3D], 0x1818);
+		pw[pn++] = rnd();
+	}
+	if (!rn(8)) {
+		u16 m = fb[rn(ARRAY_SIZE(fb))];
+
+		put1(M3D, m, m >= 0x180 && m <= 0x1bc ? handle() : m == 0x210 || m == 0x214 ?
+			     offset(handle(), 0x1000) : rnd());
+		pw[pn++] = 0x40000000u | HD(1, subch[M3D], 0x1814);
+		pw[pn++] = 0x02000000;
+	}
+	if (rn(3))
+		put1(M3D, 0x1808, 0);
 }
 
 static void gen_slots_own(void)
@@ -588,12 +684,22 @@ int main(int argc, char **argv)
 			ps3rsx_vstate_forget(&vs);
 			forget_all();
 		}
+		if (!rn(40)) {			/* the file closes a buffer, or opens it again */
+			int b = rn(NBO);
+
+			if (bo[b].gone)
+				p4set_insert(&set, bo[b].dom, bo[b].lo, bo[b].hi - bo[b].lo);
+			else
+				p4set_remove(&set, bo[b].dom, bo[b].lo);
+			bo[b].gone = !bo[b].gone;
+		}
 		pn = 0;
 		for (int k = rn(4) ? 1 : 2 + rn(3); k > 0; k--)
-			switch (rn(4)) {
+			switch (rn(5)) {
 			case 0: gen_m2mf(); break;
 			case 1: gen_sifm(); break;
 			case 2: gen_clear(); break;
+			case 3: gen_draw(); break;
 			default: gen_slots_own(); break;
 			}
 		{
@@ -603,13 +709,16 @@ int main(int argc, char **argv)
 				vs = t;
 				accepted++;
 				model_push(pw, pn);
+			} else if (vs.prim_open) {
+				vs.prim_open = false;	/* submit.c's end_primitive() at a rejection */
 			}
 		}
 	}
 	p4set_free(&set);
-	printf("p4-fuzz seed %u: %lu streams, %lu accepted, %lu triggers, %lu accesses checked: %s\n",
-	       seed, streams, accepted, triggers, checked, bad ? "FAILED" : "ok");
-	if (!bad && (accepted < streams / 50 || checked < streams / 20)) {
+	printf("p4-fuzz seed %u: %lu streams, %lu accepted, %lu triggers, %lu accesses checked, "
+	       "%lu of them drawing: %s\n", seed, streams, accepted, triggers, checked, drawn,
+	       bad ? "FAILED" : "ok");
+	if (!bad && (accepted < streams / 50 || checked < streams / 20 || drawn < streams / 200)) {
 		printf("FAIL: too few accepted streams to mean anything\n");
 		return 1;
 	}

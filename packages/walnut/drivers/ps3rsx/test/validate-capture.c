@@ -170,6 +170,7 @@ static int check_file(const char *path)
 	unsigned long long words = 0;
 	bool bad_submit = false;
 	struct p4set fset = { 0 };
+	unsigned long draws0 = p4_draws, checks0 = p4_draw_checks;
 
 	if (!f) {
 		perror(path);
@@ -233,8 +234,9 @@ static int check_file(const char *path)
 	fclose(f);
 	free(w);
 	p4set_free(&fset);
-	printf("%s: %u submits, %u pushes, %llu words, %u refused%s\n", path, submits, pushes, words,
-	       refused, vs.set == &all_set ? " (no buffer set in the file: every range counted)" : "");
+	printf("%s: %u submits, %u pushes, %llu words, %lu draws (%lu surface checks), %u refused%s\n",
+	       path, submits, pushes, words, p4_draws - draws0, p4_draw_checks - checks0, refused,
+	       vs.set == &all_set ? " (no buffer set in the file: every range counted)" : "");
 	return refused;
 }
 

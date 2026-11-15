@@ -39,9 +39,17 @@ static const struct pd_range *find(const struct pd_scan *s, u8 what, u32 base)
 	return NULL;
 }
 
-/* A draw as Mesa sends it: bind 3D, a GART program, a u16 index buffer in GART, two batches */
+/* A draw as Mesa sends it: bind 3D, its surface (16x16 A8R8G8B8 and Z24S8 in the GART buffer at
+ * 0x100000, as nv30_validate_fb() sets one), a GART program, a u16 index buffer in GART, two
+ * batches; DRAW_SETUP words before the index buffer */
+#define DRAW_SETUP	27
 static const u32 draw[] = {
 	H(1, SC, 0), 0x31337000,
+	H(1, SC, 0x0194), 0xfeed0001, H(1, SC, 0x0198), 0xfeed0001,	/* colour 0 and zeta in GART */
+	H(3, SC, 0x0200), 16 << 16, 16 << 16, 0x148,
+	H(4, SC, 0x02b8), 0, 0, 15 << 16, 15 << 16,
+	H(1, SC, 0x022c), 64, H(3, SC, 0x020c), 64, 0x00104000, 0x00108000,
+	H(1, SC, 0x0220), 1, H(1, SC, 0x1d88), 16,
 	H(1, SC, 0x08e4), 0x00100002,			/* FP at GART 0x100000 */
 	H(2, SC, 0x181c), 0x00200000, 0x00000011,	/* index buffer GART 0x200000, u16 */
 	H(1, SC, 0x1808), 5,				/* BEGIN */
@@ -252,8 +260,8 @@ static void write_sample(const char *path)
 	pd_rec_restore(r, 1, 1, ARRAY_SIZE(restore));
 	put(r, PD_RESTORE_BYTES);
 	put_words(restore, ARRAY_SIZE(restore));
-	sample_push(1, 1, 0, draw, 4);			/* bind, program */
-	sample_push(1, 1, 1, draw + 4, ARRAY_SIZE(draw) - 4 - 2);	/* its END comes later */
+	sample_push(1, 1, 0, draw, DRAW_SETUP);		/* bind, surface, program */
+	sample_push(1, 1, 1, draw + DRAW_SETUP, ARRAY_SIZE(draw) - DRAW_SETUP - 2);	/* END later */
 	/* a program as the RSX keeps it (halfwords swapped): one instruction, then the END with a
 	 * constant source and its 16 bytes of constant, then words past the END */
 	{

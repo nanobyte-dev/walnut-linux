@@ -42,6 +42,8 @@ struct p4_dom {
 
 struct p4set {
 	struct p4_dom d[P4_NDOM];
+	u64 gen;		/* one more each time a buffer leaves the set (p4set_remove): a
+				 * result checked against the set before stays good while it holds */
 #ifndef __KERNEL__
 	bool all;		/* host tests only: captures with no set (mesa-shim's), all allowed */
 #endif
@@ -133,7 +135,14 @@ static inline bool p4set_remove(struct p4set *s, int dom, u64 lo)
 		return false;
 	memmove(&d->e[i], &d->e[i + 1], (d->n - i - 1) * sizeof(*d->e));
 	d->n--;
+	s->gen++;
 	return true;
+}
+
+/* The set's generation (0 for none): a buffer that left it since a check makes it differ */
+static inline u64 p4set_gen(const struct p4set *s)
+{
+	return s ? s->gen : 0;
 }
 
 static inline void p4set_free(struct p4set *s)
@@ -185,6 +194,9 @@ struct ps3rsx_vstate {
 	bool prim_open;		/* the channel's last BEGIN_END opened a primitive */
 	u8 chan_id;		/* its fence label and query slice (submit.c) */
 	const struct p4set *set;	/* its file's buffers (read under the file's set_lock) */
+	bool fb_ok;		/* the render targets and zeta passed draw_check() with the fields
+				 * as they are now, against the set at generation fb_gen */
+	u64 fb_gen;
 	u32 f[P4F_N];
 	u64 valid[P4_VALID_WORDS];
 };
@@ -201,6 +213,8 @@ enum p4_rule {
 	P4R_M2MF,		/* b: a copy outside the file's buffers */
 	P4R_SIFM,		/* b: a scaled image outside the file's buffers */
 	P4R_CLEAR,		/* b: a clear outside the file's buffers */
+	P4R_DRAW,		/* b: a draw's render target or zeta outside the file's buffers, or
+				 * changed inside an open primitive */
 	P4R_P7,			/* P7: a state write or bind inside an open primitive */
 	P4R_N
 };

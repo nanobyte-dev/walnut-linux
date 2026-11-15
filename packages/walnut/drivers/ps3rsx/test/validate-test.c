@@ -51,11 +51,17 @@ static char last_warn[256];
  * made before the dump carry none, so every range counts as one of the file's (host only) */
 static struct p4set all_set = { .all = true };
 
+struct ps3rsx_vstate;
+static void vs_surface(struct ps3rsx_vstate *vs);
+
+/* A fresh channel whose surface an earlier submit set (vs_surface()): the streams here are
+ * single frames and rule cases, not whole captures */
 static inline void vs_reset(struct ps3rsx_vstate *vs)
 {
 	memset(vs, 0, sizeof(*vs));
 	vs->chan_id = 1;
 	vs->set = &all_set;
+	vs_surface(vs);
 }
 bool ps3rsx_known_object(u32 handle);
 int ps3rsx_validate(struct ps3rsx_vstate *vs, const u32 *w, u32 nwords);
@@ -74,11 +80,35 @@ void ps3rsx_validate_init(void);
 
 #include "../src/wait.h"
 
+/*
+ * The surface Mesa's nv30_validate_fb() leaves before a frame: 1920x1080 linear A8R8G8B8 and
+ * Z24S8 in VRAM, all four colour targets' offsets and pitches set, RT_ENABLE target 0. The
+ * address checks (p4-test) test the draw rule; here every range counts (all_set), and the
+ * draws only need surface fields this channel set.
+ */
+static void vs_surface(struct ps3rsx_vstate *vs)
+{
+	static const struct { u8 f; u32 v; } s[] = {
+		{ P4F_RT_HORIZ, 1920 << 16 }, { P4F_RT_VERT, 1080 << 16 }, { P4F_RT_FORMAT, 0x148 },
+		{ P4F_WIN_OFF, 0 }, { P4F_WIN_MODE, 0 }, { P4F_WIN_H, 1919 << 16 },
+		{ P4F_WIN_V, 1079 << 16 }, { P4F_COORD, 1080 }, { P4F_RT_ENABLE, 1 },
+		{ P4F_C0_PITCH, 7680 }, { P4F_C1_PITCH, 7680 }, { P4F_C2_PITCH, 7680 },
+		{ P4F_C3_PITCH, 7680 }, { P4F_Z_PITCH, 7680 }, { P4F_C0_OFF, 0x01000000 },
+		{ P4F_C1_OFF, 0x01800000 }, { P4F_C2_OFF, 0x02000000 }, { P4F_C3_OFF, 0x02800000 },
+		{ P4F_Z_OFF, 0x03000000 }, { P4F_3D_DMA + 3, 0xfeed0000 },
+		{ P4F_3D_DMA + 5, 0xfeed0000 }, { P4F_3D_DMA + 6, 0xfeed0000 },
+		{ P4F_3D_DMA + 13, 0xfeed0000 }, { P4F_3D_DMA + 14, 0xfeed0000 },
+	};
+
+	for (u32 i = 0; i < ARRAY_SIZE(s); i++)
+		fset(vs, s[i].f, s[i].v);
+}
+
 #include "fixtures/mpv-vo-gpu-0x105.h"
 #include "fixtures/webkit-compositing.h"
 
 static int fails, checks;
-#define CHECK(c, ...) do { checks++; if (!(c)) { fails++; printf("FAIL: "); printf(__VA_ARGS__); printf("\n"); } } while (0)
+#define CHECK(c, ...) do { checks++; if (!(c)) { fails++; printf("FAIL: "); printf(__VA_ARGS__); printf("\n"); fflush(stdout); } } while (0)
 
 static bool expect_ok(u32 data)
 {
@@ -637,6 +667,8 @@ static void tchan_init2(struct tchan *a, struct tchan *b, bool recover_a, bool r
 {
 	tchan_init(a, recover_a);
 	memset(b, 0, sizeof(*b));
+	b->vs.set = &all_set;
+	vs_surface(&b->vs);		/* (its chan_id stays 0) */
 	b->id = 1;
 	b->recover = recover_b;
 	CHECK(SUB1(b, bind3d) == 0, "3D bind refused on channel 1");

@@ -136,6 +136,29 @@ off p4-clear-unset "FAIL: clear: without its coordinate conventions accepted" "$
 	$'\t\t*why = "clear with a surface field not set by this channel";\n\t\treturn P4R_UNSET;' ''
 off p4-lost "FAIL: m2mf: launch after a lost channel accepted" "${P4[@]}" \
 	'memset(vs->valid, 0, sizeof(vs->valid));' ''
+# the draws' render targets and zeta (draw_check, fb_targets, the kept result)
+off p4-draw-extent "FAIL: draw: one row past A accepted" "${P4[@]}" \
+	'rule = draw_check(vs, &bad);' '(void)0;'
+off p4-draw-ring "FAIL: draw: a GART target over the ring accepted" "${P4[@]}" \
+	'rule = draw_check(vs, &bad);' 'rule = vs->f[P4F_3D_DMA + 5] == H_GART ? -1 : draw_check(vs, &bad);'
+off p4-draw-zeta "FAIL: draw: zeta past C accepted" "${P4[@]}" \
+	'r = fb_targets(vs, true, true, P4R_DRAW, why);' 'r = fb_targets(vs, true, false, P4R_DRAW, why);'
+off p4-draw-rt0 "FAIL: draw: RT_ENABLE 0 and target 0 past A accepted" "${P4[@]}" \
+	'en = (vs->f[P4F_RT_ENABLE] & 0xf) | 1;' 'en = vs->f[P4F_RT_ENABLE] & 0xf;'
+off p4-draw-unset "FAIL: draw: a draw without its coordinate conventions accepted" "${P4[@]}" \
+	$'\t\t*why = "draw with a surface field not set by this channel";\n\t\treturn P4R_UNSET;' ''
+off p4-draw-changed "FAIL: draw: a target moved past A between draws accepted" "${P4[@]}" \
+	$'\t\t\tvs->fb_ok = false;\n\t\t}\n\t} else if (c == VC_3D) {' $'\t\t}\n\t} else if (c == VC_3D) {'
+off p4-draw-midprim "FAIL: draw: a target changed inside a primitive accepted" "${P4[@]}" \
+	'if (vs->prim_open && !bad) {' 'if (0) {'
+off p4-draw-gen "FAIL: draw: a draw after its target's buffer left the set accepted" "${P4[@]}" \
+	'return vs->fb_ok && vs->fb_gen == p4set_gen(vs->set);' 'return vs->fb_ok;'
+off p4-draw-gen-bump "FAIL: draw: a draw after its target's buffer left the set accepted" "${P4[@]}" \
+	-E p4.h P4_H $'\td->n--;\n\ts->gen++;' $'\td->n--;'
+off p4-draw-continued "FAIL: draw: a continued primitive after its buffer left the set accepted" "${P4[@]}" \
+	'if (vs->prim_open && !draw_checked(vs)) {' 'if (0) {'
+off p4-draw-lost "FAIL: draw: a draw after a lost channel accepted" "${P4[@]}" \
+	$'memset(vs->valid, 0, sizeof(vs->valid));\n\tvs->fb_ok = false;' 'memset(vs->valid, 0, sizeof(vs->valid));'
 off p4-set-find "FAIL: set: range across two BOs found" "${P4[@]}" -E p4.h P4_H \
 	'return lo < hi && i >= 0 && hi <= d->e[i].hi;' 'return lo < hi && i >= 0;'
 off p4-set-overlap "FAIL: set: overlap at the end" "${P4[@]}" -E p4.h P4_H \
@@ -157,8 +180,14 @@ off fuzz-m2mf-dst ": M2MF destination" "${F[@]}" \
 	'if (!in_set(vs, vs->f[P4F_M_OUT_DMA], vs->f[P4F_M_OFF_OUT], out)) {' 'if (0) {'
 off fuzz-sifm-src ": scaled image source" "${F[@]}" \
 	'!in_set(vs, vs->f[P4F_F_DMA], vs->f[P4F_F_OFF], len)) {' '0) {'
-off fuzz-clear-window ": colour target" "${F[@]}" \
+off fuzz-clear-window " colour target" "${F[@]}" \
 	'rows = max_t(u64, LO16(v) + HI16(v), HI16(wo) + HI16(vs->f[P4F_WIN_V]) + 1);' 'rows = LO16(v) + HI16(v);'
+off fuzz-draw ": draw colour target" "${F[@]}" \
+	'rule = draw_check(vs, &bad);' '(void)0;'
+off fuzz-draw-midprim ": draw " "${F[@]}" \
+	'if (vs->prim_open && !bad) {' 'if (0) {'
+off fuzz-draw-gen ": draw " "${F[@]}" \
+	'return vs->fb_ok && vs->fb_gen == p4set_gen(vs->set);' 'return vs->fb_ok;'
 off fuzz-unset ": M2MF copy with a value this channel never wrote" "${F[@]}" \
 	$'\t\t*why = "M2MF copy with a field not set by this channel";\n\t\treturn P4R_UNSET;' ''
 # the model of submit.c in validate-test.c, as it was before each change

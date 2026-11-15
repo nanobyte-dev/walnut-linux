@@ -17,7 +17,10 @@
  * Address checks (p4_method()): each context DMA slot takes only its own handles; semaphore
  * releases, reports and the render-enable read stay in the channel's own label and query slice;
  * M2MF and scaled-image copies and clears stay inside buffers the submitting file holds handles
- * to (the set, p4.h), with every field they use set by the channel itself. Not yet: draws.
+ * to (the set, p4.h), with every field they use set by the channel itself; so do a draw's render
+ * targets and zeta (draw_check()), checked again only when a surface field or the set changed,
+ * and no surface field changes inside an open primitive. Not checked: what draws read
+ * (textures, programs, vertex and index fetch).
  *
  * Every check reads only the push's own words and the channel's validator state, which only
  * accepted submits change: a rejected submit leaves nothing behind, so the streams that reach
@@ -179,11 +182,11 @@ static int dma_index(u32 handle)
 static const u8 p4_rule_slice[P4R_N] = {
 	[P4R_BIND] = P4S_A, [P4R_SLOT] = P4S_A, [P4R_FENCE] = P4S_A, [P4R_QUERY] = P4S_A,
 	[P4R_RENDER] = P4S_A, [P4R_UNSET] = P4S_B, [P4R_FIELD] = P4S_B, [P4R_M2MF] = P4S_B,
-	[P4R_SIFM] = P4S_B, [P4R_CLEAR] = P4S_B, [P4R_P7] = P4S_P7,
+	[P4R_SIFM] = P4S_B, [P4R_CLEAR] = P4S_B, [P4R_DRAW] = P4S_B, [P4R_P7] = P4S_P7,
 };
 static const char *const p4_rule_name[P4R_N] = {
 	"bind", "slot", "fence", "query", "render-enable", "unset", "field", "m2mf", "sifm",
-	"clear", "p7",
+	"clear", "draw", "p7",
 };
 #ifdef PS3RSX_P4_NO_ENFORCE
 /* the push dump build: it records what clients send, so nothing new is ever refused */
@@ -253,6 +256,7 @@ static __always_inline void fset(struct ps3rsx_vstate *vs, int f, u32 v)
 void ps3rsx_vstate_forget(struct ps3rsx_vstate *vs)
 {
 	memset(vs->valid, 0, sizeof(vs->valid));
+	vs->fb_ok = false;
 }
 
 /* Are all these fields set? */
@@ -433,67 +437,134 @@ static bool rt_ok(const struct ps3rsx_vstate *vs, u32 handle, u32 off, u32 pitch
 	return true;
 }
 
-/* CLEAR_BUFFERS (0x1d94): the cleared targets inside the file's buffers */
-static int clear_check(const struct ps3rsx_vstate *vs, u32 data, const char **why)
+/* The surface's extent in pixels, for clears and draws: the union of the surface clip, the
+ * window rectangle and the y flip's height */
+static void fb_extent(const struct ps3rsx_vstate *vs, u64 *colsp, u64 *rowsp)
 {
-	static const u8 need[] = { P4F_RT_HORIZ, P4F_RT_VERT, P4F_RT_FORMAT, P4F_WIN_OFF,
-				   P4F_WIN_H, P4F_WIN_V, P4F_COORD };
-	static const struct { u8 off, pitch, slot; } t[4] = {
-		{ P4F_C0_OFF, P4F_C0_PITCH, P4F_3D_DMA + 5 },	/* 0x194 */
-		{ P4F_C1_OFF, P4F_C1_PITCH, P4F_3D_DMA + 3 },	/* 0x18c */
-		{ P4F_C2_OFF, P4F_C2_PITCH, P4F_3D_DMA + 13 },	/* 0x1b4 */
-		{ P4F_C3_OFF, P4F_C3_PITCH, P4F_3D_DMA + 14 },	/* 0x1b8 */
-	};
 	u32 h = vs->f[P4F_RT_HORIZ], v = vs->f[P4F_RT_VERT], wo = vs->f[P4F_WIN_OFF];
+	u64 rows;
+
+	*colsp = max_t(u64, LO16(h) + HI16(h), LO16(wo) + HI16(vs->f[P4F_WIN_H]) + 1);
+	rows = max_t(u64, LO16(v) + HI16(v), HI16(wo) + HI16(vs->f[P4F_WIN_V]) + 1);
+	rows = max_t(u64, rows, vs->f[P4F_COORD] & 0xfff);
+	*rowsp = rows;
+}
+
+/* The colour targets 0-3 and zeta (4): offset, pitch and context DMA slot */
+static const struct { u8 off, pitch, slot; } fb_t[5] = {
+	{ P4F_C0_OFF, P4F_C0_PITCH, P4F_3D_DMA + 5 },	/* 0x194 */
+	{ P4F_C1_OFF, P4F_C1_PITCH, P4F_3D_DMA + 3 },	/* 0x18c */
+	{ P4F_C2_OFF, P4F_C2_PITCH, P4F_3D_DMA + 13 },	/* 0x1b4 */
+	{ P4F_C3_OFF, P4F_C3_PITCH, P4F_3D_DMA + 14 },	/* 0x1b8 */
+	{ P4F_Z_OFF, P4F_Z_PITCH, P4F_3D_DMA + 6 },	/* 0x198 */
+};
+
+/* The surface fields every clear and draw uses */
+static const u8 fb_need[] = { P4F_RT_HORIZ, P4F_RT_VERT, P4F_RT_FORMAT, P4F_WIN_OFF, P4F_WIN_H,
+			      P4F_WIN_V, P4F_COORD };
+
+/*
+ * The colour targets RT_ENABLE names (target 0 whatever it says) and zeta, each if asked,
+ * inside the file's buffers (fb_need set): -1, or the rule that failed (rule for an extent)
+ */
+static int fb_targets(const struct ps3rsx_vstate *vs, bool colour, bool zeta, int rule,
+		      const char **why)
+{
 	u32 fmt = vs->f[P4F_RT_FORMAT];
 	u64 cols, rows;
 	int i;
 
-	if (data & ~0xf3u) {
-		*why = "clear of unknown buffers";
-		return P4R_CLEAR;
-	}
-	if (!data)
-		return -1;
-	if (!fall(vs, need, ARRAY_SIZE(need))) {
-		*why = "clear with a surface field not set by this channel";
-		return P4R_UNSET;
-	}
-	cols = max_t(u64, LO16(h) + HI16(h), LO16(wo) + HI16(vs->f[P4F_WIN_H]) + 1);
-	rows = max_t(u64, LO16(v) + HI16(v), HI16(wo) + HI16(vs->f[P4F_WIN_V]) + 1);
-	rows = max_t(u64, rows, vs->f[P4F_COORD] & 0xfff);
-	if (data & 0xf0) {
+	fb_extent(vs, &cols, &rows);
+	if (colour) {
 		u32 en;
 
 		if (!fvalid(vs, P4F_RT_ENABLE)) {
-			*why = "colour clear with RT_ENABLE not set by this channel";
+			*why = "colour target with RT_ENABLE not set by this channel";
 			return P4R_UNSET;
 		}
 		en = (vs->f[P4F_RT_ENABLE] & 0xf) | 1;		/* target 0 whatever it says */
 		for (i = 0; i < 4; i++) {
 			if (!(en & (1u << i)))
 				continue;
-			if (!fvalid(vs, t[i].off) || !fvalid(vs, t[i].pitch) || !fvalid(vs, t[i].slot)) {
-				*why = "colour clear of a target not set by this channel";
+			if (!fvalid(vs, fb_t[i].off) || !fvalid(vs, fb_t[i].pitch) ||
+			    !fvalid(vs, fb_t[i].slot)) {
+				*why = "colour target not set by this channel";
 				return P4R_UNSET;
 			}
-			if (!rt_ok(vs, vs->f[t[i].slot], vs->f[t[i].off], vs->f[t[i].pitch],
+			if (!rt_ok(vs, vs->f[fb_t[i].slot], vs->f[fb_t[i].off], vs->f[fb_t[i].pitch],
 				   rt_bpp(fmt & 0x1f), cols, rows, why))
-				return P4R_CLEAR;
+				return rule;
 		}
 	}
-	if (data & 3) {
-		if (!fvalid(vs, P4F_Z_OFF) || !fvalid(vs, P4F_Z_PITCH) ||
-		    !fvalid(vs, P4F_3D_DMA + 6)) {
-			*why = "depth clear with zeta not set by this channel";
+	if (zeta) {
+		if (!fvalid(vs, fb_t[4].off) || !fvalid(vs, fb_t[4].pitch) ||
+		    !fvalid(vs, fb_t[4].slot)) {
+			*why = "zeta not set by this channel";
 			return P4R_UNSET;
 		}
-		if (!rt_ok(vs, vs->f[P4F_3D_DMA + 6], vs->f[P4F_Z_OFF], vs->f[P4F_Z_PITCH],
+		if (!rt_ok(vs, vs->f[fb_t[4].slot], vs->f[fb_t[4].off], vs->f[fb_t[4].pitch],
 			   zeta_bpp((fmt >> 5) & 7), cols, rows, why))
-			return P4R_CLEAR;
+			return rule;
 	}
 	return -1;
 }
+
+/* CLEAR_BUFFERS (0x1d94): the cleared targets inside the file's buffers */
+static int clear_check(const struct ps3rsx_vstate *vs, u32 data, const char **why)
+{
+	if (data & ~0xf3u) {
+		*why = "clear of unknown buffers";
+		return P4R_CLEAR;
+	}
+	if (!data)
+		return -1;
+	if (!fall(vs, fb_need, ARRAY_SIZE(fb_need))) {
+		*why = "clear with a surface field not set by this channel";
+		return P4R_UNSET;
+	}
+	return fb_targets(vs, data & 0xf0, data & 3, P4R_CLEAR, why);
+}
+
+/* The host tests' counts (validate-capture prints them): draws, and the checks they cost */
+#ifndef __KERNEL__
+static unsigned long p4_draws, p4_draw_checks;
+#define P4_STAT(x)	((x)++)
+#else
+#define P4_STAT(x)	do { } while (0)
+#endif
+
+/*
+ * A draw (BEGIN, or a primitive a later submit continues) writes its colour targets (target 0
+ * whatever RT_ENABLE says) and zeta, whatever the depth and stencil state: all inside the
+ * file's buffers. The fields don't change inside a primitive (p4_method()), so the check at
+ * BEGIN covers every vertex the primitive draws. The result is kept (fb_ok) until a surface
+ * field changes value or a buffer leaves the file's set (its generation), so a draw on an
+ * unchanged surface costs one comparison: -1, or the rule that failed.
+ */
+static int draw_check(struct ps3rsx_vstate *vs, const char **why)
+{
+	int r;
+
+	P4_STAT(p4_draw_checks);
+	if (!fall(vs, fb_need, ARRAY_SIZE(fb_need))) {
+		*why = "draw with a surface field not set by this channel";
+		return P4R_UNSET;
+	}
+	r = fb_targets(vs, true, true, P4R_DRAW, why);
+	if (r < 0) {
+		vs->fb_ok = true;
+		vs->fb_gen = p4set_gen(vs->set);
+	}
+	return r;
+}
+
+static __always_inline bool draw_checked(const struct ps3rsx_vstate *vs)
+{
+	return vs->fb_ok && vs->fb_gen == p4set_gen(vs->set);
+}
+
+/* fb_field[f]: f is a surface field a draw's check reads (built at load) */
+static bool fb_field[P4F_N];
 
 /* M2MF BUF_NOTIFY (0x328): the copy's source and destination inside the file's buffers */
 static int m2mf_check(const struct ps3rsx_vstate *vs, u32 data, const char **why)
@@ -645,6 +716,15 @@ static int p4_method(struct ps3rsx_vstate *vs, int c, u32 m, u32 data, const cha
 				rule = P4R_FENCE;
 			}
 		}
+		if (fb_field[f - 1] && (!fvalid(vs, f - 1) || vs->f[f - 1] != data)) {
+			/* a surface field changed: the next draw is checked again, and none
+			 * changes inside a primitive (its BEGIN's check covers its vertices) */
+			if (vs->prim_open && !bad) {
+				bad = "render target or zeta changed inside an open primitive";
+				rule = P4R_DRAW;
+			}
+			vs->fb_ok = false;
+		}
 	} else if (c == VC_3D) {
 		u32 lo = 0x1000 * vs->chan_id, off = data & 0xffffff;
 		bool slice = off >= lo && off + 16 <= lo + 0x1000 && !(off & 15);
@@ -679,6 +759,13 @@ static int p4_method(struct ps3rsx_vstate *vs, int c, u32 m, u32 data, const cha
 			break;
 		case 0x1d94:
 			rule = clear_check(vs, data, &bad);
+			break;
+		case 0x1808:
+			if (data) {
+				P4_STAT(p4_draws);
+				if (!draw_checked(vs))
+					rule = draw_check(vs, &bad);
+			}
 			break;
 		case 0x224:
 		case 0x228:
@@ -951,6 +1038,11 @@ void ps3rsx_validate_init(void)
 	allow(VC_SIFM, m_sifm, ARRAY_SIZE(m_sifm));
 	for (c = 0; c < P4F_N; c++)
 		field_of[p4_fields[c].cls][p4_fields[c].m / 4] = c + 1;
+	for (c = 0; c < ARRAY_SIZE(fb_t); c++)
+		fb_field[fb_t[c].off] = fb_field[fb_t[c].pitch] = fb_field[fb_t[c].slot] = true;
+	for (c = 0; c < ARRAY_SIZE(fb_need); c++)
+		fb_field[fb_need[c]] = true;
+	fb_field[P4F_RT_ENABLE] = fb_field[P4F_WIN_MODE] = true;
 	for (c = VC_NONE + 1; c < VC_N; c++)
 		for (m = 0x100; m < 0x2000; m += 4)
 			fast[c][m / 4] = test_bit(m / 4, allowed[c]) ? fast_kind(c, m) : F_SLOW;
@@ -1162,6 +1254,15 @@ int ps3rsx_validate(struct ps3rsx_vstate *vs, const u32 *w, u32 nwords)
 	u32 i = 0, k;
 	int ret;
 
+	/* a primitive an earlier submit began, continued: a buffer its targets were checked
+	 * against may have left the file's set since (the set changes only between submits) */
+	if (vs->prim_open && !draw_checked(vs)) {
+		ret = draw_check(vs, &why);
+		if (ret >= 0 && p4_fail(ret, 0x1808, 0, why, &why)) {
+			pr_warn_ratelimited("ps3rsx: rejected push: %s (a primitive continued)\n", why);
+			return -EINVAL;
+		}
+	}
 	while (i < nwords) {
 		u32 h = w[i], count, subch, mthd;
 		const u32 *data = &w[i + 1];
