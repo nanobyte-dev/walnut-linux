@@ -4,7 +4,7 @@ patches = ["patches/local/0061-spu-kernel-reserve-exclusive.patch"]
 aliases = ["local/0061", "kernel 0061"]
 category = "feature"
 switch = "spu_base.enum_shared"
-default = "no change with enum_shared=0 (the default boot entry)"
+default = "in effect with enum_shared=1, our kernels' boot argument from 6.12.115+ps3.1554; no change with enum_shared=0"
 forwarded = "no"
 tests = ["kernel-spu-reserve"]
 batches = []
@@ -31,4 +31,6 @@ Host test `kernel-spu-reserve`: the block of 0058 with this patch's part applied
 with one marked shared at the head, in the middle and at the tail of the node's list (never reserved and
 never touched, five exclusive ones reserved, the sixth refused, the shared SPE left as spufs's), and with
 `enum_shared=0` the same SPE taken as before; fix-off `take-shared`. The kernel objects compile with the
-release config. On the PS3: the D6 boot ([backlog/spu.md](../../../docs/backlog/spu.md), "The 7th SPE"), not run yet.
+release config. On the PS3 (2026-11-15, kernel .1545 with `enum_shared=1`): seven SPEs, the shared one
+(spu6) never reserved, spu5 held for the VRAM swap, the sealed swap under pressure with no failures; with
+`enum_shared=0` the same SPE reserved as before ([SPU.md](../../../docs/SPU.md#the-7th-spe)).

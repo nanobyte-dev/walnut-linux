@@ -2,8 +2,8 @@
 
 SPU work not done yet. What runs on the SPEs today (libspeq's DXT1/DXT5 encoders, fluidsynth's voice
 DSP on the shared 2-SPE deadline pool, [BananaBread](../../gamedb/games/bananabread/)'s optional skinning) is in [SPU.md](../SPU.md)
-and [SPU-AUDIO.md](../SPU-AUDIO.md). What is left: a 7th SPE, the audio libraries, and the work that
-waits on probe E16. Items are in rank order; the rank is the one in [the ranked list](README.md).
+and [SPU-AUDIO.md](../SPU-AUDIO.md). The 7th SPE is on by default ([SPU.md](../SPU.md#the-7th-spe)). What is left:
+the audio libraries, and the work that waits on probe E16. Items are in rank order; the rank is the one in [the ranked list](README.md).
 Terms: [glossary](../README.md#glossary).
 
 Two items are one game's each and live in its GameDB backlog (`gamedb/games/<id>/todo.toml`): why
@@ -11,29 +11,6 @@ Two items are one game's each and live in its GameDB backlog (`gamedb/games/<id>
 path, decision D3 waits on it), and SPU meshing for [Luanti](../../gamedb/games/luanti/) and for [ClassiCube](../../gamedb/games/classicube/) (rank 49; it needs E16).
 
 Effort: S = a day or less, M = days, L = weeks.
-
-### The 7th SPE
-
-Rank 21. One more SPE for Linux by a boot parameter, `spu_base.enum_shared=1`, in a second Petitboot
-entry.
-
-**Why.** Linux gets 6 SPEs (`spu_base.enum_shared=0`), and the kernel reserves one for the VRAM swap:
-3 for libspeq's bulk DXT queue, 2 for the deadline pool (audio, skinning). A 7th would go to the pool or
-to DXT. On such a boot the kernel reserves an exclusive SPE for the VRAM swap, never the 7th (lv1's
-shared one, which lv1 may preempt; kernel local/0061, built, not run on the PS3): libspeq gets 6, the
-shared one among them. Kernels before 0061 reserve none there. Nothing is written anywhere:
-the off switch is the other boot entry. It is the only hardware unlock on FLASH-SYSCON.md's list
-that costs nothing.
-
-- **Payoff:** medium, free. **Effort:** S. **Risk:** low.
-- **Needs:** the user (a reboot into the new entry), then PS3.
-- **Status:** waiting on decision D6; scheduled: TESTS.md "Next" (with the user).
-- **Source:** PLAN 4.2; [archive/FLASH-SYSCON.md, "6. Recommendation, ranked"](../archive/FLASH-SYSCON.md#6-recommendation-ranked) 1.
-
-**To start.** A Petitboot entry with the extra argument (an `/etc/kboot.d/*.conf` file, which
-`ps3-update-kboot` keeps); after the boot `ls /sys/devices/system/spu` shows 7. In that boot,
-`speq-bench` and the DXT tests with the default 6-way split against a split that uses the 7th, and
-`ps3-gameos-mount` to see nothing we use breaks.
 
 ### Audio libraries on the PPE
 

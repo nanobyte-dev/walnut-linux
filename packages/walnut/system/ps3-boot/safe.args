@@ -1,0 +1,7 @@
+# The walnut-safe Petitboot entry's arguments (ps3-boot: ps3-update-kboot and ps3-hdd1-boot add them at
+# the end of that entry, after the kernel's own, so they win): conservative settings for a boot that
+# fails with the defaults. walnut-safe boots the same kernel and initramfs as walnut. Arguments are
+# separated by spaces or lines; a line starting with # is a comment.
+#
+# lv1's shared SPE (the 7th) off: our kernels' args turn it on (docs/SPU.md)
+spu_base.enum_shared=0

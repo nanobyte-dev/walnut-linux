@@ -54,5 +54,7 @@ Host test `kernel-spu-reserve` (`packages/patched/kernel/linux/tests/spu-kernel-
 the patch adds it, on a model of six SPEs, PS3's priv1 operations (SR1's allowed bits), spu_base's
 interrupt handlers (late interrupts included), status and mailboxes that latch while masked, and spufs's
 list walks (spusched_thread's parked cursor, the affinity path); each quiesce step stuck in turn; five of six reserved and the
-sixth refused; nothing reserved with enum_shared=1; 37 fix-offs. On the PS3: reserve, reset, release and the
-reboot notifier with the VRAM swap's SPE client (six SPEs, enum_shared=0).
+sixth refused; with enum_shared=1 nothing reserved by this patch alone (local/0061 turns that refusal into
+a skip of the shared SPE, so an exclusive one is reserved); 37 fix-offs. On the PS3: reserve, reset, release
+and the reboot notifier with the VRAM swap's SPE client (six SPEs, enum_shared=0; with 0061, seven SPEs and
+enum_shared=1, our kernels' default from 6.12.115+ps3.1554).

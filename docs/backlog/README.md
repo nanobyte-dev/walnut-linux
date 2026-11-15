@@ -49,7 +49,7 @@ game's backlog, `gamedb/games/<id>/todo.toml`, where its details are.
 | 18 | [Tiling and Z-cull](graphics.md#tiling-and-z-cull) | +10-30% in fill-bound scenes (est.) | M-L | host, PS3 | 3.2 | #19 |
 | 19 | [Luanti: view40 as an option, and its memory](../../gamedb/games/luanti/todo.toml) | a 59 fps option, RAM | S-M | PS3, host | 2.9 | #2 |
 | 20 | [OpenArena opengl2: what is left](../../gamedb/games/openarena/todo.toml) | a few MB, shorter reloads | S-M | host, PS3 | 3.7 | - |
-| 21 | [The 7th SPE](spu.md#the-7th-spe) | one more SPE, no write of any kind | S | user, PS3 | 4.2 | #7 |
+| 21 | [The 7th SPE](../SPU.md#the-7th-spe) | one more SPE, no write of any kind | done (on by default from kernel 6.12.115+ps3.1554; the way back: the walnut-safe entry) | user, PS3 | 4.2 | #7 |
 | 22 | [Indirect constant addressing (ARL) in vertex programs](graphics.md#indirect-constant-addressing-arl-in-vertex-programs) | usable GPU skinning, smaller shaders | M-L | host, PS3 | 3.4 | #11 |
 | 23 | [RSX and SPU probes: E8b, E16, E17](graphics.md#rsx-and-spu-probes-e8b-e16-e17) | enabling: SPU writes into VRAM, WC mappings | S each | PS3 | 3.3 | #12 |
 | 24 | [The 720p console](memory.md#the-720p-console) | 4 MB always, 2.25x fewer pixels | S | user's decision (D2) | 4.10 | #14 |
@@ -209,7 +209,7 @@ for upstream (the user, 2026-10-18); setting it up is the user's.
 4. **Open for the user** at the time: the stable publish of the READY set, [Luanti](../../gamedb/games/luanti/)'s default, the
    test-kernel boot session, the fan floor, the 7th SPE entry, [SuperTuxKart](../../gamedb/games/supertuxkart/)'s `lean` default, the
    720p console. Since then: Luanti's default is settled by the clean runs (base stays, row 67); the
-   test kernels booted (.419, .433, now .472); the stable publish became "test first, then publish"
+   test kernels booted (.419, .433, now .472); the 7th SPE is on by default (D6, 2026-11-15); the stable publish became "test first, then publish"
    ([archive/RELEASE-CANDIDATES-2026-10-19.md](../archive/RELEASE-CANDIDATES-2026-10-19.md), 2026-10-18 evening); the upstream drafts in docs/upstream/ wait for the
    user to send them. The current list of open decisions is PLAN.md's D1-D14.
 
@@ -223,7 +223,7 @@ for upstream (the user, 2026-10-18); setting it up is the user's.
 | IDEAS #4 | [Texture compression at upload for every game](memory.md#texture-compression-at-upload-for-every-game) |
 | IDEAS #5 | [VRAM budget in game mode](memory.md#vram-budget-in-game-mode) |
 | IDEAS #6 | [Game-side batching in the remaining games](graphics.md#game-side-batching-in-the-remaining-games) |
-| IDEAS #7 | [The 7th SPE](spu.md#the-7th-spe) |
+| IDEAS #7 | done: on by default ([SPU.md](../SPU.md#the-7th-spe)) |
 | IDEAS #8 | [dsda-doom's chopping music](../../gamedb/games/dsda-doom/todo.toml) |
 | IDEAS #9 | [The dcbz memcpy trap](graphics.md#the-dcbz-memcpy-trap) |
 | IDEAS #10 | [Cheaper Mesa 0028 and 0031](graphics.md#cheaper-mesa-0028-and-0031) |

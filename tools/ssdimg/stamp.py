@@ -297,6 +297,16 @@ def kboot_entry(release, args_file, image):
             % (BOOT_DIR, release, BOOT_DIR, INITRD_NAME, image, " ".join(args))).replace(" '", "'")
 
 
+def install_menu(entry, old):
+    """dev_hdd1:/kboot.conf for a new install: its walnut line, then the old menu's other lines (another
+    install's); the old walnut, walnut-prev and walnut-safe lines go (ps3-hdd1-boot's fixed labels: they
+    name the previous install's kernels)"""
+    keep = [l for l in (old or b"").decode(errors="replace").splitlines()
+            if not l.startswith(("walnut=", "walnut-prev=", "walnut-safe="))]
+    return ("\n".join(["# Petitboot's menu on dev_hdd1 (the internal install, stamp.py install)", entry] + keep)
+            + "\n").encode()
+
+
 def kboot(a):
     """the release's kboot.conf, for setting up by hand what install does (github-ci/build-release.sh)"""
     if not GOOD_PATH.match(a.image) or "/../" in a.image or not a.image.endswith(".img"):
@@ -386,11 +396,7 @@ def install(a):
     ftp_put(ftp, a.rootfs, "/dev_hdd1" + rootfs)
     ftp_put(ftp, a.kernel, "/dev_hdd1%s/vmlinux-%s" % (BOOT_DIR, a.release))
     ftp_put(ftp, a.initrd, "/dev_hdd1%s/%s" % (BOOT_DIR, INITRD_NAME))
-    old = ftp_get(ftp, "/dev_hdd1/kboot.conf")
-    keep = [l for l in (old or b"").decode(errors="replace").splitlines()
-            if not l.startswith(("walnut=", "walnut-prev="))]
-    kboot = ("\n".join(["# Petitboot's menu on dev_hdd1 (the internal install, stamp.py install)", entry] + keep)
-             + "\n").encode()
+    kboot = install_menu(entry, ftp_get(ftp, "/dev_hdd1/kboot.conf"))
     ftp_put(ftp, kboot, "/dev_hdd1/kboot.conf")
     ftp_put(ftp, a.kernel, "%s/vmlinux-%s" % (GOOD_DIR, a.release))
     ftp_put(ftp, a.initrd, "%s/%s" % (GOOD_DIR, INITRD_NAME))

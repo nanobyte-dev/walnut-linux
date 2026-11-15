@@ -94,7 +94,7 @@ Other docs cite these numbers; "old N" was the number before the 2026-10-18 rest
 | D3 | dsda-doom's music default (old 8): fluidsynth on the SPEs (chops), OPL, or off | [SPU-AUDIO.md](SPU-AUDIO.md) | gamedb:dsda-doom (was 2.8) |
 | D4 | SuperTuxKart's `lean` default (old 7): 21.4 smooth fps and 2.4 s of stalls against 13 fps and 13.5 s. Its package's patch 0006 now makes `lean` a fresh configuration's default; the sound check by ear is still open | [technical notes](../gamedb/games/supertuxkart/technical.md) | 2.1 |
 | D5 | Fan floor and the panic-path test (old 4): a fixed floor (at least 60%, `pwm1`) and the optional panic test, each only with the user's explicit OK | [THERMAL.md](THERMAL.md) | 4.4 |
-| D6 | The 7th SPE entry (old 6): a Petitboot entry with `spu_base.enum_shared=1` and a same-boot benchmark | [research/FLASH-SYSCON.md](research/FLASH-SYSCON.md) | 4.2 |
+| D6 | The 7th SPE (old 6). Decided 2026-11-15: on by default, our kernels from 6.12.115+ps3.1554 boot with `spu_base.enum_shared=1`; the way back is the `walnut-safe` Petitboot entry, and `PS3_SPE_SHARED=0` keeps it off | [SPU.md](SPU.md#the-7th-spe) | 4.2 |
 | D7 | XMB-side backups (old 5): a second NOR dump with `cmp`, EEPROM, flags, SYSCON error log, encrypted copies off the PC | [CONSOLE.md](CONSOLE.md) | 4.1 |
 | D8 | lv1 peek (old 5): a read-only probe of hypercall 182 and the `gpu-4kb-iopage` site; the RAM it could win is small | [research/FLASH-SYSCON.md](research/FLASH-SYSCON.md) | 4.3 |
 | D9 | GameOS auto-mount at boot (read-only), asked on 2026-10-18, no answer yet | [GAMEOS-HDD.md](GAMEOS-HDD.md) | 4.5 |
@@ -181,7 +181,7 @@ The console itself, its safety margin, and the parts of the system a desktop use
 | # | Item | Needs | Where |
 |---|---|---|---|
 | 4.1 | XMB-side backups with xai_plugin: a second NOR dump compared with the first, EEPROM, flags, the SYSCON error log, encrypted copies off the PC (D7; recovery hardware is D11) | user (XMB) | [backlog/hardware.md](backlog/hardware.md) |
-| 4.2 | The 7th SPE by boot parameter (D6) | user (reboot), PS3 | [backlog/hardware.md](backlog/hardware.md) |
+| 4.2 | The 7th SPE by boot parameter (D6): on by default from kernel 6.12.115+ps3.1554, checked on the PS3 with .1545 booted with it by hand. Left: whether a game gains from it (a boot argument allows no same-boot comparison) and long play with music on the deadline pool (underruns) | PS3 | [SPU.md](SPU.md#the-7th-spe) |
 | 4.3 | lv1 peek probe, read-only (D8) | user OK, PS3 | [backlog/hardware.md](backlog/hardware.md) |
 | 4.4 | Fan floor and the panic-path test (D5) | user | [THERMAL.md](THERMAL.md) |
 | 4.5 | GameOS auto-mount at boot, or keep it on demand (D9) | user decision | [GAMEOS-HDD.md](GAMEOS-HDD.md) |

@@ -649,6 +649,16 @@ class InstallManifest(unittest.TestCase):
             self.assertTrue((d / "out" / f).is_file(), f)
         shutil.rmtree(d)
 
+    def test_install_menu_drops_the_old_installs_entries(self):
+        """stamp.py install's dev_hdd1 menu: the new walnut line; the old walnut, walnut-prev and walnut-safe
+        lines (ps3-hdd1-boot's labels, naming the previous install's kernels) go, another install's stay"""
+        old = ("# old\nwalnut='/linux/boot/vmlinux-1 x'\nwalnut-prev='/linux/boot/vmlinux-0 x'\n"
+               "walnut-safe='/linux/boot/vmlinux-1 x spu_base.enum_shared=0'\nother='/x/vmlinux root=/dev/sda2'\n")
+        menu = stamp.install_menu("walnut='/linux/boot/vmlinux-2 y'", old.encode()).decode().splitlines()
+        self.assertEqual([l.split("=", 1)[0] for l in menu if "='" in l], ["walnut", "other"])
+        self.assertIn("walnut='/linux/boot/vmlinux-2 y'", menu)
+        self.assertEqual(stamp.install_menu("walnut='a'", None).decode().splitlines()[1:], ["walnut='a'"])
+
     def test_unpacked_size(self):
         t = SCRATCH / "u.tar.xz"
         import tarfile

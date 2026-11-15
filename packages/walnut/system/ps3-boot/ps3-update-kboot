@@ -14,8 +14,11 @@
 # without that file get PS3_LEGACY_ARGS), then the display setting: PS3_UNDERSCAN=1 keeps the
 # picture inside the TV-safe inset for TVs that crop its edges (ps3fb.fullscreen=0, last so it wins
 # over the args file); unset or 0, the kernel's default, the full frame. The video mode itself is
-# never set here: it is Petitboot's (docs/DRIVER.md "Video modes"). An installer's or image build's
-# first menu has no setting yet; this script rewrites it on the next kernel change or run.
+# never set here: it is Petitboot's (docs/DRIVER.md "Video modes"). PS3_SPE_SHARED=0 is the off switch
+# for lv1's shared SPE, the 7th, which our kernels' args turn on (spu_base.enum_shared=1, docs/SPU.md):
+# spu_base.enum_shared=0 at the end of every entry, the kernels' and /etc/kboot.d's (the last one wins);
+# unset or 1, each kernel's own args decide; anything else is 0, with a warning. An installer's or
+# image build's first menu has no setting yet; this script rewrites it on the next kernel change or run.
 #
 # Extra entries (e.g. the SSD root's, docs/GAMEOS-HDD.md "Phase B"): the "label='image args'" lines
 # of every /etc/kboot.d/*.conf, in file name order, come after the kernels' entries as written, so a
@@ -23,7 +26,10 @@
 # that is already taken (Petitboot keys its default on the label), a line that isn't an entry, and an
 # entry whose image or initrd= is missing on this disk (paths without "device:" are looked up here).
 # With PS3_UNDERSCAN=1 an extra entry gets ps3fb.fullscreen=0 at its end too, unless it sets
-# ps3fb.fullscreen= itself.
+# ps3fb.fullscreen= itself; with PS3_SPE_SHARED=0 it gets spu_base.enum_shared=0 there, always.
+# walnut-safe: the default kernel's entry again with /usr/share/ps3-boot/safe.args at its end (the
+# conservative settings, which win as the last ones), the recovery entry after a failed boot; its label
+# stays across kernel changes, and a /etc/kboot.d entry can't take it. Without that file, no walnut-safe.
 # Petitboot ignores the default= line (docs/GAMEOS-HDD.md "Petitboot's behaviour"); it is kept for
 # the record. PS3_BOOT_ROOT: a prefix for every file (host tests only).
 set -e
@@ -38,7 +44,7 @@ if [ "$(id -u)" = 0 ] && ! { [ -f /run/ps3-test-seams ] && [ ! -L /run/ps3-test-
 fi
 # The settings come from /etc/default/ps3-boot only, never from the environment (they go onto the kernel
 # command line): a variable of the caller is dropped before the file is read.
-unset PS3_ROOT_ARGS PS3_EXTRA_ARGS PS3_LEGACY_ARGS PS3_UNDERSCAN PS3_DEFAULT PS3_DEFAULT_FLAVOUR PS3_BOOT_TARGET
+unset PS3_ROOT_ARGS PS3_EXTRA_ARGS PS3_LEGACY_ARGS PS3_UNDERSCAN PS3_SPE_SHARED PS3_DEFAULT PS3_DEFAULT_FLAVOUR PS3_BOOT_TARGET
 R=${PS3_BOOT_ROOT:-}
 DEFAULTS=$R/etc/default/ps3-boot
 CONF=$R/etc/kboot.conf
@@ -62,6 +68,16 @@ case $(printf '%s' "${PS3_UNDERSCAN:-0}" | tr '[:upper:]' '[:lower:]') in
 	0|no|false|off) display_args= ;;
 	*) echo "ps3-update-kboot: PS3_UNDERSCAN=$PS3_UNDERSCAN is not 0 or 1: the full frame" >&2; display_args= ;;
 esac
+# the shared SPE's off switch (the same values in ps3-hdd1-boot)
+case $(printf '%s' "${PS3_SPE_SHARED:-1}" | tr '[:upper:]' '[:lower:]') in
+	1|yes|true|on) spe_args= ;;
+	0|no|false|off) spe_args=spu_base.enum_shared=0 ;;
+	*) echo "ps3-update-kboot: PS3_SPE_SHARED=$PS3_SPE_SHARED is not 0 or 1: 0, no shared SPE" >&2; spe_args=spu_base.enum_shared=0 ;;
+esac
+
+# walnut-safe, the recovery entry: the default kernel with the conservative arguments of
+# /usr/share/ps3-boot/safe.args at its end (# lines are comments), the same list in both writers
+safe_args=$(sed '/^[[:space:]]*#/d' "$R/usr/share/ps3-boot/safe.args" 2>/dev/null | tr '\n\t' '  ' | tr -s ' ' | sed 's/^ //; s/ $//')
 
 # newest first, in Debian's kernel version order (linux-base), which knows about ~ and +
 # dpkg's temporary names during an upgrade (vmlinux-<release>.dpkg-tmp, .dpkg-new, ...) are not kernels
@@ -94,18 +110,20 @@ trap 'rm -f "$tmp"' EXIT
 echo "# Petitboot boot menu, written by ps3-update-kboot: newest kernel first" > "$tmp"
 default=
 labels=" "
+# one space between the arguments: Petitboot passes an empty one on as "(null)"
+cmdline() {	# cmdline IMAGE ARGS: a kernel entry's command line
+	printf '%s' "$1 $PS3_ROOT_ARGS $PS3_EXTRA_ARGS $2 $display_args $spe_args" | tr -s ' ' | sed 's/^ //; s/ $//'
+}
+args_of() {	# args_of RELEASE: the kernel's own arguments
+	if [ -e "$R/usr/lib/ps3/boot/$1.args" ]; then cat "$R/usr/lib/ps3/boot/$1.args"; else printf '%s' "$PS3_LEGACY_ARGS"; fi
+}
 for k in $kernels; do
 	release=${k#/boot/vmlinux-}
-	if [ -e "$R/usr/lib/ps3/boot/$release.args" ]; then
-		args=$(cat "$R/usr/lib/ps3/boot/$release.args")
-	else
-		args=$PS3_LEGACY_ARGS
-	fi
 	[ -n "$default" ] || default=$release
-	# one space between the arguments: Petitboot passes an empty one on as "(null)"
-	echo "$release='$(printf '%s' "$k $PS3_ROOT_ARGS $PS3_EXTRA_ARGS $args $display_args" | tr -s ' ' | sed 's/ $//')'" >> "$tmp"
+	echo "$release='$(cmdline "$k" "$(args_of "$release")")'" >> "$tmp"
 	labels="$labels$release "
 done
+[ -z "$safe_args" ] || labels="${labels}walnut-safe "
 
 # the extra entries from /etc/kboot.d
 extras=0
@@ -133,10 +151,10 @@ for f in "$R"/etc/kboot.d/*.conf; do
 			case $p in *:*) ;; *) [ -e "$R$p" ] || missing="$missing $p" ;; esac
 		done
 		if [ -n "$missing" ]; then skip "$name" "$label: missing$missing"; continue; fi
-		case " $val " in
-		*" ps3fb.fullscreen="*) echo "$line" >> "$tmp" ;;
-		*) if [ -n "$display_args" ]; then echo "$label='$val $display_args'" >> "$tmp"; else echo "$line" >> "$tmp"; fi ;;
-		esac
+		add=
+		case " $val " in *" ps3fb.fullscreen="*) ;; *) add=$display_args ;; esac
+		[ -z "$spe_args" ] || add="${add:+$add }$spe_args"
+		if [ -n "$add" ]; then echo "$label='$val $add'" >> "$tmp"; else echo "$line" >> "$tmp"; fi
 		labels="$labels$label "
 		extras=$((extras + 1))
 	done < "$f"
@@ -162,6 +180,11 @@ if [ -n "$flavour" ]; then
 fi
 if [ -n "${PS3_DEFAULT:-}" ] && [ -e "$R/boot/vmlinux-$PS3_DEFAULT" ]; then
 	default=$PS3_DEFAULT
+fi
+if [ -n "$safe_args" ]; then
+	echo "walnut-safe='$(cmdline "/boot/vmlinux-$default" "$(args_of "$default")") $safe_args'" >> "$tmp"
+else
+	echo "ps3-update-kboot: no /usr/share/ps3-boot/safe.args: no walnut-safe entry" >&2
 fi
 echo "default=$default" >> "$tmp"
 chmod 644 "$tmp"

@@ -5,8 +5,10 @@
 # sets it), with the default release first and every installed release, newest first.
 #
 # On dev_hdd1: /linux/boot/vmlinux-<release> for DEFAULT and the newest other release, and kboot.conf's
-# two fixed entries, walnut (DEFAULT) and walnut-prev (the other one; Petitboot keys its default on the
-# label, so a kernel update can't strand it on a label that is gone). The generic initramfs comes from
+# three fixed entries, walnut (DEFAULT), walnut-prev (the other one) and walnut-safe (walnut's kernel and
+# initramfs with /usr/share/ps3-boot/safe.args at its end, the conservative settings, which win as the last
+# ones: the recovery entry after a failed boot; none without that file). Petitboot keys its default on the
+# label, so a kernel update can't strand it on a label that is gone. The generic initramfs comes from
 # /usr/lib/ps3/boot/initrd-walnut.img when the package ships one; the one it replaces stays as
 # initrd-walnut-prev.img for walnut-prev. Other kboot.conf lines (another install's) are kept, older
 # vmlinux-* files of ours removed. Nothing else on dev_hdd1 is touched, and ps3da/ps3db never.
@@ -36,7 +38,7 @@ DEV=${PS3_HDD1_DEV:-/dev/ps3dc}
 die() { echo "ps3-hdd1-boot: $*" >&2; exit 1; }
 [ $# -ge 1 ] || die "usage: ps3-hdd1-boot DEFAULT [RELEASE...]"
 # the settings come from the file only, never from the caller's environment
-unset PS3_ROOT_ARGS PS3_EXTRA_ARGS PS3_LEGACY_ARGS PS3_UNDERSCAN PS3_DEFAULT PS3_DEFAULT_FLAVOUR PS3_BOOT_TARGET
+unset PS3_ROOT_ARGS PS3_EXTRA_ARGS PS3_LEGACY_ARGS PS3_UNDERSCAN PS3_SPE_SHARED PS3_DEFAULT PS3_DEFAULT_FLAVOUR PS3_BOOT_TARGET
 [ -r "$R/etc/default/ps3-boot" ] && . "$R/etc/default/ps3-boot"
 case "${PS3_ROOT_ARGS:-}" in *ps3ssd.image=/*) ;; *) die "PS3_ROOT_ARGS has no ps3ssd.image=: not an internal install" ;; esac
 # the generic initramfs carries no modules: only kernels with ufs and dm built in can boot through it
@@ -81,12 +83,12 @@ free_kb() {
 	if [ -n "${PS3_HDD1_DIR:-}" ] && [ -n "${PS3_HDD1_FREE_KB:-}" ]; then echo "$PS3_HDD1_FREE_KB"
 	else df -Pk "$M" | awk 'NR==2 {print $4}'; fi
 }
-# kernels the current menu names: ours (the walnut and walnut-prev lines) and every other line's (another install's,
+# kernels the current menu names: ours (the walnut and walnut-prev lines; walnut-safe's is walnut's) and every other line's (another install's,
 # any label, single or double quotes); the other lines survive this run, so their kernels are never removed
 kernels_of() { sed -n "s/^$1=[\"']\{0,1\}\/linux\/boot\/vmlinux-\([^ \"']*\).*/\1/p" "$M/kboot.conf" 2>/dev/null || true; }
 ours=$(kernels_of walnut; kernels_of walnut-prev)
 ours=$(echo $ours)
-foreign=$(sed -n "/^walnut\(-prev\)\{0,1\}=/d; s/^[^=#]*=[\"']\{0,1\}\/linux\/boot\/vmlinux-\([^ \"']*\).*/\1/p" "$M/kboot.conf" 2>/dev/null | tr '\n' ' ' || true)
+foreign=$(sed -n "/^walnut\(-prev\)\{0,1\}=/d; /^walnut-safe=/d; s/^[^=#]*=[\"']\{0,1\}\/linux\/boot\/vmlinux-\([^ \"']*\).*/\1/p" "$M/kboot.conf" 2>/dev/null | tr '\n' ' ' || true)
 needed=0
 for r in $cur $prev; do
 	cmp -s "$R/boot/vmlinux-$r" "$M/linux/boot/vmlinux-$r" 2>/dev/null || needed=$((needed + $(size "$R/boot/vmlinux-$r")))
@@ -124,10 +126,20 @@ case $(printf '%s' "${PS3_UNDERSCAN:-0}" | tr '[:upper:]' '[:lower:]') in
 	0|no|false|off) display_args= ;;
 	*) echo "ps3-hdd1-boot: PS3_UNDERSCAN=$PS3_UNDERSCAN is not 0 or 1: the full frame" >&2; display_args= ;;
 esac
+# the shared SPE's off switch (the same values as in ps3-update-kboot): PS3_SPE_SHARED=0 ends every
+# entry (walnut, walnut-prev, walnut-safe) with spu_base.enum_shared=0, after the kernel's args, which turn it on
+case $(printf '%s' "${PS3_SPE_SHARED:-1}" | tr '[:upper:]' '[:lower:]') in
+	1|yes|true|on) spe_args= ;;
+	0|no|false|off) spe_args=spu_base.enum_shared=0 ;;
+	*) echo "ps3-hdd1-boot: PS3_SPE_SHARED=$PS3_SPE_SHARED is not 0 or 1: 0, no shared SPE" >&2; spe_args=spu_base.enum_shared=0 ;;
+esac
 args_of() {
 	if [ -e "$R/usr/lib/ps3/boot/$1.args" ]; then a=$(cat "$R/usr/lib/ps3/boot/$1.args"); else a=${PS3_LEGACY_ARGS:-}; fi
-	echo "$a $display_args"
+	echo "$a $display_args $spe_args"
 }
+# walnut-safe's conservative arguments, the same list as ps3-update-kboot's (# lines are comments)
+safe_args=$(sed '/^[[:space:]]*#/d' "$R/usr/share/ps3-boot/safe.args" 2>/dev/null | tr '\n\t' '  ' | tr -s ' ' | sed 's/^ //; s/ $//')
+[ -n "$safe_args" ] || echo "ps3-hdd1-boot: no /usr/share/ps3-boot/safe.args: no walnut-safe entry" >&2
 mkdir -p "$M/linux/boot"
 for r in $cur $prev; do
 	cmp -s "$R/boot/vmlinux-$r" "$M/linux/boot/vmlinux-$r" 2>/dev/null || put "$R/boot/vmlinux-$r" "/linux/boot/vmlinux-$r"
@@ -148,7 +160,8 @@ squeeze() { printf '%s' "$*" | tr -s ' ' | sed 's/^ //; s/ $//'; }
 	echo "# Petitboot's menu on dev_hdd1: the internal install's entries, written by ps3-hdd1-boot"
 	echo "walnut='$(squeeze "/linux/boot/vmlinux-$cur initrd=$I $PS3_ROOT_ARGS ${PS3_EXTRA_ARGS:-} $(args_of "$cur")")'"
 	[ -n "$prev" ] && echo "walnut-prev='$(squeeze "/linux/boot/vmlinux-$prev initrd=$pinit $PS3_ROOT_ARGS ${PS3_EXTRA_ARGS:-} $(args_of "$prev")")'"
-	[ -e "$M/kboot.conf" ] && grep -v -e '^walnut=' -e '^walnut-prev=' \
+	[ -n "$safe_args" ] && echo "walnut-safe='$(squeeze "/linux/boot/vmlinux-$cur initrd=$I $PS3_ROOT_ARGS ${PS3_EXTRA_ARGS:-} $(args_of "$cur") $safe_args")'"
+	[ -e "$M/kboot.conf" ] && grep -v -e '^walnut=' -e '^walnut-prev=' -e '^walnut-safe=' \
 		-e '^# Petitboot.s menu on dev_hdd1: the internal install' "$M/kboot.conf" || true
 } > "$M/kboot.conf.new"
 sync
@@ -158,4 +171,4 @@ for f in "$M"/linux/boot/vmlinux-*; do
 	case " $cur $prev $foreign " in *" ${f##*/vmlinux-} "*) ;; *) rm -f "$f" ;; esac
 done
 sync
-echo "ps3-hdd1-boot: dev_hdd1: walnut $cur${prev:+, walnut-prev $prev}"
+echo "ps3-hdd1-boot: dev_hdd1: walnut $cur${prev:+, walnut-prev $prev}${safe_args:+, walnut-safe $cur}"

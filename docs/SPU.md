@@ -101,12 +101,43 @@ What step 0 established that still holds:
 - A DMA to a page that is swapped out is a USB-disk swap-in on the worker's thread. Services touch their input windows on the PPE first (the fluidsynth hook touches every sample window).
 - Opening the queue is not free (see the table): open it once per process, not per job.
 - A futex sleep costs about 62 us over spinning, so short jobs spin (80 us) and audio waits use `SPEQ_WAIT_NOSPIN` (the mixer thread shares the PPE core with the game through SMT, so a spin takes cycles from the game).
-- Linux gets 6 SPEs (`spu_base.enum_shared=0`), and the kernel reserves one for the VRAM swap: 5 for libspeq. A 7th by boot parameter is a hardware-side item ([backlog/spu.md](backlog/spu.md)); on such a boot the kernel reserves an exclusive SPE, never the 7th (lv1's shared SPE, which lv1 may preempt; kernel local/0061), so libspeq gets 6, the shared one among them. Kernels before local/0061 reserve none there, and the VRAM swap keeps nothing in VRAM.
+- Linux gets 7 SPEs: our kernels from 6.12.115+ps3.1554 on boot with `spu_base.enum_shared=1` (their `/usr/lib/ps3/boot/<release>.args`, from the kernel package's flavours/*.args), which adds lv1's shared SPE to the six exclusive ones. The kernel reserves an exclusive SPE for the VRAM swap, never the shared one (lv1 may preempt it; kernel local/0061), so libspeq gets 6, the shared one among them. Earlier kernels, .1545 among them (it has local/0061), boot with 6 SPEs and libspeq gets 5. Kernels before local/0061 never get the argument: with it they would reserve no SPE and the VRAM swap would keep nothing in VRAM. What was checked and the way back: [The 7th SPE](#the-7th-spe).
 - libspeq counts only the SPEs spufs can give it: one whose `/sys/devices/system/spu/spuN/reserved` reads 1 belongs to a kernel driver (kernel local/0058) and is skipped, so with one reserved a bulk queue gets 3 and the deadline pool keeps its 2. A kernel without the attribute reserves none. ps3rsx reserves at module load, before user sessions start, and doesn't retry: if every SPE is taken, the swap keeps nothing in VRAM for that load. The DXT loads measured the same with 5 SPEs as with 6 (OpenArena's level load, 8 runs an arm, same boot). The count is taken when a queue opens, so a reservation made later reaches a process only when it reopens its queues; a kernel driver reserves before user sessions start. Host test: queue-test with a fake sysfs (`SPEQ_FAKE_SYSFS`, fake builds only).
 - The SPU rounds single-precision results toward zero and flushes denormals; host tests round to nearest, so comparisons use SNR where bit equality is impossible.
 - `perf` on the PS3 needs `--proc-map-timeout=20000`; with the default 500 ms it attaches before it has read a big process's maps and files most samples under `[unknown]` (77% of [OpenArena](../gamedb/games/openarena/)'s, 56% of [dsda-doom](../gamedb/games/dsda-doom/)'s in the first profiles). `perf record -a -g` hung the PS3: use `-p <pid>`, `-F 999` and `timeout`, and run `perf report` as the owner of `perf.data`, with `-g none` for flat sorts. See [PROFILING.md](PROFILING.md).
 - Opening spufs contexts: `spu_run` takes no argument, registers go through the context's `regs` file; a faulted context returns the status word with the event in its third argument, not `-EFAULT`. With no more contexts than SPEs nothing is preempted.
 - Harness traps: in the bench harness `swapon -a` restores nothing here (fstab swap is `noauto`; the `ps3-swap` and `ps3-vswap` services enable zram0 and ps3vswap0). Restore by hand with `swapon -p 300 --discard /dev/ps3vswap0` (frees stale VRAM slots) and `swapon -p 100 /dev/zram0`. xinit runs a client only when its path starts with `/`. OpenArena archives `+set` cvars to `q3config.cfg` on quit.
+
+## The 7th SPE
+
+On by default from kernel 6.12.115+ps3.1554 (above). Checked on the PS3 on 2026-11-15 with kernel .1545
+booted with the argument by hand ([TESTS.md](TESTS.md) history): 7 SPEs, spu6 the shared one and spu5
+reserved for the swap; the sealed swap under pressure on the exclusive SPE (no failures, no retries);
+`speq-bench` at full load on 6 SPEs and its XDR bandwidth probe three times, with no sign of lv1 taking
+the shared SPE back; [BananaBread](../gamedb/games/bananabread/) and [Luanti](../gamedb/games/luanti/) smokes; music by ear; the reboot back to GameOS;
+and the same kernel without the argument as before (6 SPEs, spu5 reserved, libspeq 5). Not measured:
+whether a game gains or loses with the 7th. A boot argument allows no same-boot comparison, and
+BananaBread's 37.7 fps on that boot matches its earlier base (one run, another boot). Long play with
+music on the deadline pool is where a preemption would show, as underruns.
+
+**If a boot fails with it.** Whether lv1 hands the shared SPE over depends on the console's firmware.
+If it refuses, the kernel's error path can stop the boot with a BUG or wait for the SPE forever (an
+upstream path from before our patches; not seen on this console). The way back:
+
+1. Turn the console off by holding the power button, then boot into Petitboot again as usual.
+2. Pick `walnut-safe`: the same kernel and initramfs as `walnut`, with conservative arguments at the end
+   of its command line, so they win over the kernel's own; today that is `spu_base.enum_shared=0`
+   (ps3-boot's `/usr/share/ps3-boot/safe.args`). Petitboot boots the entry picked last after its
+   countdown, so the console stays on `walnut-safe` until `walnut` is picked again.
+3. A menu written before the ps3-boot that brings `walnut-safe` has no such entry. Then pick
+   `walnut-prev` while it is a kernel before 6.12.115+ps3.1554, or highlight `walnut`, press `e` and add
+   `spu_base.enum_shared=0` at the end of its command line.
+4. To keep the 7th SPE off on every entry: `PS3_SPE_SHARED=0` in `/etc/default/ps3-boot`, then
+   `sudo ps3-update-kboot`. Every entry it writes (the kernels', `/etc/kboot.d`'s, and `walnut`,
+   `walnut-prev` and `walnut-safe` on dev_hdd1) then ends with `spu_base.enum_shared=0`; for a
+   built-in parameter the kernel takes the last value given. Unset or `1`, each kernel's own args
+   decide (`1` doesn't add the argument to kernels that don't ship it); any other value counts as `0`,
+   with a warning. Remove the line and run `ps3-update-kboot` again to go back.
 
 ## How to run things
 

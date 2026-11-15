@@ -916,7 +916,7 @@ writable only for those writes), dm-linear sealed by the guard, mkfs.ext4, the t
 unpacked, the install's fstab and `PS3_BOOT_TARGET=hdd1`, the manifest renamed `install.done` and the
 tarball deleted. An interrupted install resumes at the next boot. Later boots are Phase B's: recheck
 against the saved map, the header stamps, the guard. Kernel updates: `ps3-hdd1-boot` (walnut-boot)
-writes `walnut` and `walnut-prev` to dev_hdd1. The webMAN autoexec (`packages/walnut/system/ps3-boot/webman/autoexec.bat`)
+writes `walnut`, `walnut-prev` and `walnut-safe` (walnut's kernel with conservative arguments, [SPU.md](SPU.md#the-7th-spe)) to dev_hdd1. The webMAN autoexec (`packages/walnut/system/ps3-boot/webman/autoexec.bat`)
 mirrors dev_hdd1's set to `/dev_hdd0/linux/walnut-mirror` and puts it back if GameOS cleared it.
 
 Tested: `tools/ssdimg/vm-e2e.sh` runs the whole first boot, a second boot and two refusals in a KVM

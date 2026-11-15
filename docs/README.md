@@ -69,7 +69,7 @@ layout and the build commands are in [LAYOUT.md](LAYOUT.md).
 | [backlog/spu.md](backlog/spu.md) | SPU work not done |
 | [backlog/games.md](backlog/games.md) | Per-game items: repeats, defaults to decide, engine patches |
 | [backlog/platform.md](backlog/platform.md) | Desktop, input, network, power, display, storage, release work |
-| [backlog/hardware.md](backlog/hardware.md) | Backups not yet taken, the 7th SPE, lv1 probes, recovery hardware; what is out of scope under the safety rules |
+| [backlog/hardware.md](backlog/hardware.md) | Backups not yet taken, lv1 probes, recovery hardware; what is out of scope under the safety rules |
 
 ## Research (read or reasoned, not measured here)
 

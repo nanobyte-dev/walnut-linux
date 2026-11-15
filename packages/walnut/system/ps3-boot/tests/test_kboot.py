@@ -17,6 +17,7 @@ if os.geteuid() == 0:
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[4]   # the repository (packages/walnut/system/ps3-boot/tests)
 SCRIPT = HERE.parent / "ps3-update-kboot"
+SAFE = HERE.parent / "safe.args"
 SCRATCH = ROOT / "build" / "tmp" / "ps3-boot-test"
 
 REL = "6.12.111+ps3.472"
@@ -44,6 +45,11 @@ class Kboot(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.r, ignore_errors=True)
 
+    def safe(self):
+        """the package's safe.args, where it installs it"""
+        (self.r / "usr/share/ps3-boot").mkdir(parents=True, exist_ok=True)
+        shutil.copy(SAFE, self.r / "usr/share/ps3-boot/safe.args")
+
     def kernel(self, k):
         (self.r / "boot" / ("vmlinux-" + k)).write_bytes(b"\0")
 
@@ -51,11 +57,11 @@ class Kboot(unittest.TestCase):
         """a kernel without a .args file gets PS3_LEGACY_ARGS from the file; the caller's value is dropped"""
         self.kernel(OLD)
         e = dict(os.environ, PS3_BOOT_ROOT=str(self.r), PS3_LEGACY_ARGS="init=/bin/sh", PS3_EXTRA_ARGS="evil=1",
-                 PS3_DEFAULT=OLD, PS3_UNDERSCAN="1")
+                 PS3_DEFAULT=OLD, PS3_UNDERSCAN="1", PS3_SPE_SHARED="0")
         p = subprocess.run(["sh", str(SCRIPT)], env=e, capture_output=True, text=True, timeout=30)
         self.assertEqual(p.returncode, 0, p.stderr)
         conf = (self.r / "etc/kboot.conf").read_text()
-        for bad in ("init=/bin/sh", "evil=1", "ps3fb.fullscreen=0"):
+        for bad in ("init=/bin/sh", "evil=1", "ps3fb.fullscreen=0", "spu_base.enum_shared=0"):
             self.assertNotIn(bad, conf)
         self.assertIn("default=" + REL, conf)
 
@@ -375,6 +381,74 @@ class Kboot(unittest.TestCase):
         lines, out = self.run_it()
         self.assertIn(own, lines)
 
+    def test_spe_shared_off_switch(self):
+        """PS3_SPE_SHARED=0 (or no/false/off, any case): spu_base.enum_shared=0 ends every kernel's entry and
+        every /etc/kboot.d entry, after the kernel's own enum_shared=1 (the last one wins), also one that
+        sets ps3fb.fullscreen= itself; unset or 1/yes/true/on: the entries as the kernels' args make them;
+        anything else is 0, with a warning, and never reaches the command line as written"""
+        (self.r / "usr/lib/ps3/boot" / (REL + ".args")).write_text(RARGS + " spu_base.enum_shared=1\n")
+        ssd = SSD[:-1] + " spu_base.enum_shared=1'"
+        own = "own='/boot/vmlinux-%s root=/dev/sda2 ps3fb.fullscreen=1'" % OLD
+        (self.r / "boot" / ("initrd-ssd-%s.img" % REL)).write_bytes(b"\0")
+        (self.r / "etc/kboot.d/ssd.conf").write_text(ssd + "\n" + own + "\n")
+        defaults = (self.r / "etc/default/ps3-boot").read_text()
+        for value, off, warn in (("", False, False), ("PS3_SPE_SHARED=1\n", False, False),
+                                 ("PS3_SPE_SHARED=On\n", False, False), ("PS3_SPE_SHARED=0\n", True, False),
+                                 ("PS3_SPE_SHARED=off\n", True, False), ("PS3_SPE_SHARED=NO\n", True, False),
+                                 ("PS3_SPE_SHARED=0\nPS3_UNDERSCAN=1\n", True, False),
+                                 ("PS3_SPE_SHARED='1 init=/bin/sh'\n", True, True)):
+            (self.r / "etc/default/ps3-boot").write_text(defaults + value)
+            lines, out = self.run_it()
+            ours = [x for x in lines if x.split("=", 1)[0] in (REL, DBG, OLD, "ssd-" + REL, "own")]
+            self.assertEqual(len(ours), 5, lines)
+            for x in ours:
+                self.assertEqual(x.endswith(" spu_base.enum_shared=0'"), off, (value, x))
+                self.assertNotIn("init=/bin/sh", x)
+                self.assertNotIn("  ", x)
+            self.assertEqual(sum("enum_shared=0" in x for x in lines), 5 if off else 0, (value, lines))
+            rel = [x for x in ours if x.startswith(REL + "=")][0]
+            self.assertTrue(rel.endswith("enum_shared=1'") or rel.index("enum_shared=1") < rel.index("enum_shared=0"), rel)
+            if not off:
+                self.assertIn(ssd, lines)                                   # as written
+                self.assertIn(own, lines)
+            elif "UNDERSCAN" in value:
+                self.assertIn(ssd[:-1] + " ps3fb.fullscreen=0 spu_base.enum_shared=0'", lines)
+                self.assertIn(own[:-1] + " spu_base.enum_shared=0'", lines)  # its own fullscreen kept, no second one
+            self.assertEqual("PS3_SPE_SHARED=1 init=/bin/sh is not 0 or 1" in out, warn, (value, out))
+
+    def test_shipped_safe_args(self):
+        """walnut-safe's list: spu_base.enum_shared=0 only for now, plain words (no quote breaks the entry),
+        installed where both writers read it"""
+        words = " ".join(l for l in SAFE.read_text().splitlines() if not l.lstrip().startswith("#")).split()
+        self.assertEqual(words, ["spu_base.enum_shared=0"])
+        install = (HERE.parent / "debian/install").read_text().splitlines()
+        self.assertIn("safe.args usr/share/ps3-boot", install)
+
+    def test_walnut_safe_entry(self):
+        """/etc/kboot.conf: walnut-safe is the default kernel's entry with safe.args at its end; it follows the
+        default (PS3_DEFAULT too), its label can't be taken by /etc/kboot.d, and the default stays the kernel's;
+        without safe.args no walnut-safe"""
+        lines, out = self.run_it()
+        self.assertNotIn("walnut-safe", "\n".join(lines))
+        self.assertIn("no walnut-safe entry", out)
+        self.safe()
+        (self.r / "etc/kboot.d/10-x.conf").write_text("walnut-safe='/boot/vmlinux-%s root=/dev/sda2'\n" % OLD)
+        lines, out = self.run_it()
+        self.assertEqual(self.entries(lines), [DBG, REL, OLD, "walnut-safe"])
+        rel = [x for x in lines if x.startswith(REL + "=")][0]
+        self.assertIn("walnut-safe=" + rel[len(REL) + 1:-1] + " spu_base.enum_shared=0'", lines)
+        self.assertIn("label walnut-safe is already taken", "\n".join(lines))
+        self.assertEqual(lines[-1], "default=" + REL)
+        (self.r / "etc/default/ps3-boot").write_text((self.r / "etc/default/ps3-boot").read_text()
+                                                    + "PS3_DEFAULT=%s\nPS3_UNDERSCAN=1\n" % OLD)
+        lines, out = self.run_it()
+        safe = [x for x in lines if x.startswith("walnut-safe=")]
+        self.assertEqual(len(safe), 1, lines)
+        self.assertTrue(safe[0].startswith("walnut-safe='/boot/vmlinux-%s " % OLD), safe)
+        self.assertTrue(safe[0].endswith(" ps3fb.fullscreen=0 spu_base.enum_shared=0'"), safe)
+        self.assertNotIn("  ", safe[0])
+        self.assertEqual(lines[-1], "default=" + OLD)
+
     def test_first_run_legacy_args_have_no_video_mode(self):
         """an installation from before ps3-boot: the defaults come from /proc/cmdline, and the legacy
         arguments (kernels without an args file) carry no fixed video mode"""
@@ -402,6 +476,58 @@ class Kboot(unittest.TestCase):
                 self.assertNotIn("  ", x)
             self.assertIn(RARGS + (" ps3fb.fullscreen=0" if want else "") + "'", ours[0])   # walnut: REL, its args first
             self.assertEqual("ps3-hdd1-boot: PS3_UNDERSCAN=maybe is not 0 or 1" in p.stderr, warn, p.stderr)
+
+    def test_hdd1_spe_shared_off_switch(self):
+        """the internal install's walnut and walnut-prev: PS3_SPE_SHARED=0 ends both with spu_base.enum_shared=0"""
+        (self.r / "usr/lib/ps3/boot/initrd-walnut.img").write_bytes(b"i")
+        (self.r / "usr/lib/ps3/boot" / (REL + ".args")).write_text(RARGS + " spu_base.enum_shared=1\n")
+        for extra, off, warn in (("", False, False), ("PS3_SPE_SHARED=1\n", False, False),
+                                 ("PS3_SPE_SHARED=0\n", True, False), ("PS3_SPE_SHARED=Off\n", True, False),
+                                 ("PS3_SPE_SHARED=0\nPS3_UNDERSCAN=1\n", True, False),
+                                 ("PS3_SPE_SHARED=maybe\n", True, True)):
+            p, h = self.hdd1(extra)
+            self.assertEqual(p.returncode, 0, p.stderr)
+            ours = [x for x in (h / "kboot.conf").read_text().splitlines() if x.startswith(("walnut=", "walnut-prev="))]
+            self.assertEqual(len(ours), 2, ours)
+            for x in ours:
+                self.assertEqual(x.endswith(" spu_base.enum_shared=0'"), off, (extra, x))
+                self.assertNotIn("  ", x)
+            self.assertIn(RARGS + " spu_base.enum_shared=1" + (" ps3fb.fullscreen=0" if "UNDERSCAN" in extra else "")
+                          + (" spu_base.enum_shared=0" if off else "") + "'", ours[0])   # walnut: REL, its args first
+            self.assertEqual("ps3-hdd1-boot: PS3_SPE_SHARED=maybe is not 0 or 1" in p.stderr, warn, p.stderr)
+
+    def test_hdd1_walnut_safe_entry(self):
+        """dev_hdd1: walnut-safe is walnut's kernel and initramfs with safe.args at its end, after walnut-prev;
+        a kernel update moves it to the new kernel (one line, the label kept), and an old walnut-safe line
+        doesn't keep its kernel on dev_hdd1 as another install's would"""
+        (self.r / "usr/lib/ps3/boot/initrd-walnut.img").write_bytes(b"i")
+        (self.r / "usr/lib/ps3/boot" / (REL + ".args")).write_text(RARGS + " spu_base.enum_shared=1\n")
+        self.safe()
+        p, h = self.hdd1()
+        self.assertEqual(p.returncode, 0, p.stderr)
+        lines = (h / "kboot.conf").read_text().splitlines()
+        self.assertEqual([x.split("=", 1)[0] for x in lines if "='" in x], ["walnut", "walnut-prev", "walnut-safe"])
+        walnut = [x for x in lines if x.startswith("walnut=")][0]
+        self.assertIn("walnut-safe=" + walnut[len("walnut="):-1] + " spu_base.enum_shared=0'", lines)
+        self.assertIn("walnut-safe " + REL, p.stdout)
+        new = "6.12.111+ps3.700"
+        self.kernel(new)
+        self.builtins(new)
+        p, h = self.hdd1()
+        self.assertEqual(p.returncode, 0, p.stderr)
+        lines = (h / "kboot.conf").read_text().splitlines()
+        safe = [x for x in lines if x.startswith("walnut-safe=")]
+        self.assertEqual(len(safe), 1, lines)
+        self.assertTrue(safe[0].startswith("walnut-safe='/linux/boot/vmlinux-%s initrd=/linux/boot/initrd-walnut.img " % new), safe)
+        self.assertTrue(safe[0].endswith(" spu_base.enum_shared=0'"), safe)
+        # walnut-prev REL, walnut and walnut-safe the new one: OLD's file goes, also when only a walnut-safe line names it
+        conf = (h / "kboot.conf").read_text()
+        (h / "kboot.conf").write_text(conf.replace(safe[0], "walnut-safe='/linux/boot/vmlinux-%s x'" % OLD))
+        shutil.copy(self.r / "boot" / ("vmlinux-" + OLD), h / "linux/boot" / ("vmlinux-" + OLD))
+        p, h = self.hdd1()
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertEqual(sorted(f.name for f in (h / "linux/boot").glob("vmlinux-*")), ["vmlinux-" + REL, "vmlinux-" + new])
+        self.assertEqual(sum(x.startswith("walnut-safe=") for x in (h / "kboot.conf").read_text().splitlines()), 1)
 
     def test_kernel_without_gpu_driver_listed_last(self):
         # the newest release kernel's ps3rsx module isn't published yet: the older one, which has it,

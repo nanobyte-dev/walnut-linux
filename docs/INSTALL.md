@@ -204,6 +204,7 @@ Updating Walnut Linux packages:
   reboot -f
   ```
   Then in Petitboot, choose the fallback kernel entry `walnut-prev`.
+- **Safe settings**: if the system stops early in the boot with the usual kernel, turn the console off by holding the power button and pick **`walnut-safe`** in Petitboot: the same kernel with conservative settings (today: without the PS3's seventh SPE). Petitboot remembers the entry you picked last, so pick `walnut` again once the problem is fixed.
 - **Editing Kernel Parameters**: In the Petitboot menu, highlight any boot entry and press `e` to edit its command line. You can append maintenance parameters (such as `init=/bin/sh` for emergency recovery). Note that the root account is locked by default for security, so system repairs should be performed using standard recovery steps or via sudo credentials.
 
 ### Uninstallation
