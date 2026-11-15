@@ -25,7 +25,7 @@ PPCFLAGS := --sysroot=$(SYSROOT) -isystem $(SYSROOT)/usr/include/powerpc64-linux
 
 all: $(O)/shadow-equiv $(O)/shadow-equiv-fast $(O)/shadow-equiv-ppc64 $(O)/zero-test $(O)/zero-test-ppc64 \
 	$(O)/validate-test $(O)/validate-capture $(O)/blame-test $(O)/pushbuf-test $(O)/vclear-test \
-	$(O)/pushdump-test $(O)/p4-test $(O)/p4-test-count $(O)/p4-test-dump $(O)/p4-fuzz
+	$(O)/pushdump-test $(O)/p4-test $(O)/p4-test-count $(O)/p4-test-dump $(O)/p4-fuzz $(O)/busy-test
 $(O)/shadow-equiv: $(SRC)
 	@mkdir -p $(O)
 	gcc $(CFLAGS) -fsanitize=address,undefined -fno-sanitize-recover=undefined -o $@ $<
@@ -57,6 +57,11 @@ $(O)/blame-test: blame-test.c ../src/blame.h
 	gcc $(CFLAGS) -I../src -fsanitize=address,undefined -fno-sanitize-recover=undefined -o $@ $<
 # GEM_PUSHBUF's argument checks (src/pushbuf.h): offsets, lengths and totals at the u64 edge
 $(O)/pushbuf-test: pushbuf-test.c ../src/pushbuf.h inc/shim.h
+	@mkdir -p $(O)
+	gcc $(CFLAGS) -Wno-unused-function -fsanitize=address,undefined -fno-sanitize-recover=undefined -o $@ $<
+# the released-busy flag (src/busy.h, kernel local/0057): exec_init's refusal with the accessor present
+# and absent, exec_fini's decision
+$(O)/busy-test: busy-test.c ../src/busy.h inc/shim.h
 	@mkdir -p $(O)
 	gcc $(CFLAGS) -Wno-unused-function -fsanitize=address,undefined -fno-sanitize-recover=undefined -o $@ $<
 # the VRAM clear (src/vclear.h): zombies, fills, recoveries, the allocator's waits, on a model
@@ -104,6 +109,7 @@ run: all
 	$(O)/validate-test
 	$(O)/pushbuf-test
 	$(O)/vclear-test
+	$(O)/busy-test
 	./pushdump-test.sh $(O)
 	$(O)/p4-test
 	$(O)/p4-test-count

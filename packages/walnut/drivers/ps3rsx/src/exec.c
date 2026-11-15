@@ -11,11 +11,13 @@
 #include <linux/dma-fence.h>
 #include <linux/hrtimer.h>
 #include <linux/io.h>
+#include <linux/module.h>
 #include <linux/slab.h>
 #include <asm/lv1call.h>
 #include <asm/ps3gpu.h>
 
 #include "ps3rsx.h"
+#include "busy.h"
 
 #define RESET_SIZE	0x9b8		/* ps3fb's reset program, ends with RETURN */
 #define CMD_JMP(a)	(0x20000000u | (a))
@@ -366,6 +368,25 @@ int ps3rsx_exec_init(struct ps3rsx_device *rsx)
 	u32 *p;
 	int ret, i;
 
+	/* refusals first, before anything is allocated: a refused insmod leaks nothing (busy.h) */
+	{
+		/* the flag lives in ps3fb (local/0057), looked up now so that a kernel without it still loads */
+		bool (*released)(void) = symbol_get(ps3fb_gpu_released_busy);
+		enum busy_flag bf = busy_flag_read(released);
+
+		if (released)
+			symbol_put(ps3fb_gpu_released_busy);
+		if (bf == BUSY_ABSENT)
+			drm_info(&rsx->drm, "this kernel has no released-busy flag (ps3fb local/0057): a reload after a busy unload is not refused here\n");
+		ret = busy_init_refusal(ps3fb_gpu_exception_seen(), bf);
+		if (ret == -EIO)
+			drm_err(&rsx->drm, "the GPU has had a graphics exception since boot: reboot first\n");
+		else if (ret)
+			drm_err(&rsx->drm, "an earlier unload kept a busy or stalled GPU from ps3fb: reboot first\n");
+		if (ret)
+			return ret;
+	}
+
 	rsx->hw_shadow = ps3rsx_shadow_new();
 	rsx->restore_buf = kvmalloc(RESTORE_MAX_WORDS * 4, GFP_KERNEL);
 	rsx->last_chan = -1;
@@ -386,10 +407,6 @@ int ps3rsx_exec_init(struct ps3rsx_device *rsx)
 	rsx->fence_context = dma_fence_context_alloc(1);
 	ps3rsx_submit_debugfs_init(rsx);
 
-	if (ps3fb_gpu_exception_seen()) {
-		drm_err(&rsx->drm, "the GPU has had a graphics exception since boot: reboot first\n");
-		return -EIO;
-	}
 	rsx->ctrl = ioremap(rsx->ctx.ctrl_lpar, PAGE_SIZE);
 	rsx->dinfo = ioremap(rsx->ctx.dinfo_lpar, 128 * 1024);
 	/* the reports area faults map (mem.c); no mapping exists yet, so no lock needed */
@@ -459,10 +476,12 @@ err_unmap:
 void ps3rsx_exec_fini(struct ps3rsx_device *rsx)
 {
 	unsigned long flags;
+	int drained;
 
 	if (!rsx->ctrl)
 		return;
-	if (exec_drain(rsx))
+	drained = exec_drain(rsx);
+	if (drained)
 		drm_err(&rsx->drm, "ring didn't drain (ref %#x, last %#x)\n", ref_read(rsx),
 			rsx->seqno);
 	hrtimer_cancel(&rsx->fence_timer);
@@ -472,12 +491,27 @@ void ps3rsx_exec_fini(struct ps3rsx_device *rsx)
 	ps3rsx_uw_quiesce(rsx);		/* the hook off, the recovery work done */
 	ps3rsx_uw_dev_fini(rsx);
 	ps3rsx_uw_stop();		/* after it: the work can't re-arm the watchdog */
-	if (ps3rsx_uw_active())
+	switch (busy_fini_action(ps3rsx_uw_active(), rsx->wedged, drained)) {
+	case FINI_RECOVERED:
 		drm_err(&rsx->drm, "the GPU was recovered in this boot: it stays with ps3rsx until reboot (ps3fb's channel 0 is not run again)\n");
-	else if (!rsx->wedged)
+		break;
+	case FINI_GIVE_BACK:
 		ps3fb_gpu_takeover(false);
-	else
-		drm_err(&rsx->drm, "GPU wedged: keeping it from ps3fb until reboot\n");
+		break;
+	case FINI_KEEP_BUSY: {
+		int (*release)(void) = symbol_get(ps3fb_gpu_release_busy);
+
+		drm_err(&rsx->drm, "GPU wedged or still busy: keeping it from ps3fb until reboot\n");
+		if (release) {		/* a later load must not set up the FIFO under the old job */
+			int err = release();
+
+			symbol_put(ps3fb_gpu_release_busy);
+			if (err)
+				drm_err(&rsx->drm, "ps3fb didn't take the released-busy flag: %d\n", err);
+		}
+		break;
+	}
+	}
 	iounmap(rsx->ctrl);
 	rsx->ctrl = NULL;
 	if (rsx->dinfo)

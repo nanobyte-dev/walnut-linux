@@ -199,6 +199,18 @@ off reuse-cheap-first "FAIL: the reuse walk: " -T vclear-test.c -E vclear.h VCLE
 off clear-overrun "FAIL: random: launch " -T vclear-test.c -E vclear.h VCLEAR_H \
 	'u64 lines = (c->hi - at) / VCLEAR_LINE;' \
 	'u64 lines = (c->hi - at + VCLEAR_ZERO_SIZE - 1) / VCLEAR_ZERO_SIZE * VCLEAR_MAX_LINES;'
+# the released-busy flag (src/busy.h, kernel local/0057)
+BF=(-T busy-test.c -E busy.h BUSY_H)
+off busy-refuse "FAIL: busy: a set flag didn't refuse the load" "${BF[@]}" \
+	'return f == BUSY_SET;' 'return false;'
+off busy-absent "FAIL: busy: the old kernel's load refused or not told apart" "${BF[@]}" \
+	'return BUSY_ABSENT;' 'return BUSY_CLEAR;'
+off busy-init-exc "FAIL: busy: exec_init's refusals" "${BF[@]}" \
+	$'\tif (exceptions)\n\t\treturn -EIO;\n' ''
+off busy-timeout "FAIL: busy: a drain timeout not kept from ps3fb" "${BF[@]}" \
+	'if (!wedged && drained != -ETIMEDOUT)' 'if (!wedged)'
+off busy-recovered "FAIL: busy: a recovered GPU is neither handed back nor flagged" "${BF[@]}" \
+	$'\tif (recovered)\n\t\treturn FINI_RECOVERED;\n' ''
 wait
 
 bad=0
