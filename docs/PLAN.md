@@ -24,46 +24,45 @@ Walnut Games sets up the data from the player's own copy (a disc, a disc image, 
 folder, an installer; "Add game files..." in the app, `walnut-data import` in a terminal). Nothing
 copyrighted is ever published. That is item 5.10.
 
-## Next up (the user, 2026-10-23)
+## Next up
 
-Walnut 0.1.0, the first public alpha, is out ([release/ALPHA.md](release/ALPHA.md)). In this order:
+Walnut 0.1.0, the first public alpha, is out ([release/ALPHA.md](release/ALPHA.md)). The queue the
+user set on 2026-10-23 had the PC cleanups first (done) and an Atomic Bomberman clone second (done:
+the `bomberclone` package, 09e2cb92, played and rated). What is left is one stage, **Walnut Games**
+([GAMEDB.md](GAMEDB.md)): a games database at walnut.nanobyte.dev/gamedb/ and a launcher app on
+Walnut, every game played, measured and compared with the PC, rated with medals. Steps:
 
-1. A round of cleanups (disk space on the PC).
-2. An Atomic Bomberman clone on the PS3, packaged.
-3. Then what the release interrupted, now one stage: **Walnut Games** ([GAMEDB.md](GAMEDB.md)), a
-   games database at walnut.nanobyte.dev/gamedb/ and a launcher app on Walnut, every game played,
-   measured and compared with the PC, rated with medals. Steps:
    - P0 the rating, calibrated on the 13 benchmarked games (done, the user's OK);
-   - P1 the catalog (one folder per game), the scoring and import tools, the Hugo site (3 games);
-   - P2 the server: screenshots as their own upload kind, /gamedb/ published;
-   - P3 the session recorder (the ~10-minute played session, its end-of-session form);
-   - P4 the desktop app (Tk) and its install helper;
-   - P5 the games one by one to about 50, new games first. Rules 2.0 (2026-10-26, [GAMEDB.md](GAMEDB.md#rules-versions))
-     rate the sessions from here on: each game runs on its shipped defaults (the player's settings set
+   - P1 the catalog (one folder per game), the scoring and import tools, the Hugo site (done);
+   - P2 the server: screenshots as their own upload kind, /gamedb/ published (done);
+   - P3 the session recorder (the ~10-minute played session, its end-of-session form; done);
+   - P4 the desktop app (Tk) and its install helper (built, item 5.11);
+   - P5 the games one by one to about 50, new games first (running). Rules 2.0 (2026-10-26, [GAMEDB.md](GAMEDB.md#rules-versions))
+     rate the sessions: each game runs on its shipped defaults (the player's settings set
      aside and back), the recorder measures the input, the pointer, the level load and the quit, the
      importing agent answers a picture questionnaire (review.py), the form asks eight one-tap questions.
    - Scripted runs ([games/SUITE.md](games/SUITE.md#scripted-runs)) are the benchmark harness for measuring game and
      GPU-driver optimizations (A/B runs, regressions, profiling). They never rate a game: ratings come from played sessions only.
-   - P6 (the user, 2026-10-26: "keep planned"; started as 5.12): tests submitted by other Walnut users,
+   - P6 (item 5.12): tests submitted by other Walnut users,
      recorded by the same harness and form (`walnut-rate`), sent to us as GitHub pull requests and reviewed
-     by the maintainer before they count. Decided by the user, 2026-10-30: pull requests rather than a receiver
+     by the maintainer before they count (the user, 2026-10-30: pull requests rather than a receiver
      on our server, an optional nickname for the credit, an accepted session weighing like ours; one player's
-     odd setup moving a medal is what the review is there to catch.
+     odd setup moving a medal is what the review is there to catch). Built and host-tested, not yet on the PS3.
 
-The rest of this file predates the 0.1.0 release and gets a refresh alongside P2.
+After that, in the user's order: the PS3-versus-PC comparison.
 
-## Where we are (2026-10-19)
+## Where we are
 
-The whole stack is built and packaged: the kernel (6.12 LTS with our PS3 patches), the ps3rsx
+The whole stack is built and packaged: the kernel (6.12 LTS with the OtherOS++ patches and ours), the ps3rsx
 driver, Mesa nv30, the SPU toolchain and libspeq, the desktop with game mode, the splash, our apt
-repository. The release kernel `6.12.111+ps3.472` with ps3rsx 0.443 and Mesa `.476` is the
-default of the 2026-10-18 release build ([archive/RELEASE-CANDIDATES-2026-10-19.md](archive/RELEASE-CANDIDATES-2026-10-19.md)). Releases
-now go through CI to walnut.nanobyte.dev's stable suite (docs/release/ALPHA.md); the LAN repository
-that build waited in was retired on 2026-10-26 (docs/PACKAGING.md).
+repository. Walnut 0.1.0 (2026-10-23, kernel `6.12.111+ps3.751`) is on walnut.nanobyte.dev's stable
+suite, released through CI (docs/release/ALPHA.md); testing carries newer builds (kernel
+`6.12.115+ps3.1554`, booted on the PS3 on 2026-11-15 and 11-16). The LAN repository the first builds
+waited in was retired on 2026-10-26 (docs/PACKAGING.md).
 
 What limits the games, in order: RAM (about 217 MB reach Linux), then the PPE (the driver stack
-takes 30-55% of a game's CPU), then the disk. The RSX and the SPEs have headroom. What we learned
-in the last three days:
+takes 30-55% of a game's CPU), then the disk. The RSX and the SPEs have headroom. What the first rounds
+of work taught (2026-10-17 to 10-19):
 
 - Fewer GL calls in the game beat driver work by far: [X-Moto](../gamedb/games/xmoto/) went from 44.5 to 166.5 fps (18,500 to
   165 GL calls a frame), against +5 to +24% from Mesa's patch rounds.
@@ -75,10 +74,9 @@ in the last three days:
   renderer to 57-60 fps with 1-2 s of stalls (9-11 s before, batch 17). [MEMORY.md](MEMORY.md)
 - The internal SSD reads at 100 MB/s with 0.1 ms random reads, against the USB disk's 27.8 MB/s
   and 20 ms. Since 2026-10-19 the whole system can boot from a disk image on it (Phase B), and
-  tonight's batches run on that SSD root. [GAMEOS-HDD.md](GAMEOS-HDD.md)
+  the batches since run on that SSD root. [GAMEOS-HDD.md](GAMEOS-HDD.md)
 
-Six of the 13 suite games reach 60 fps without stalls worth the name; the heavy ones are limited by
-memory. The table is in [games/README.md](games/README.md).
+Each game's state is in [games/README.md](games/README.md).
 
 One gap in how we measure: every benchmark runs with the desktop stopped, so game mode, which is
 how players start games, has never been benchmarked (item 2.2).
@@ -89,7 +87,6 @@ Other docs cite these numbers; "old N" was the number before the 2026-10-18 rest
 
 | # | Decision | Rests on | Item |
 |---|---|---|---|
-| D1 | Stable publish of the release (old 1). Decided 2026-10-18 as "test first, then publish": everything rebuilt official, an image built, the PS3 image session, then the stable publish with an explicit `DEBS=` list and `build/aptly` backed up. Nothing is published yet. | [archive/RELEASE-CANDIDATES-2026-10-19.md](archive/RELEASE-CANDIDATES-2026-10-19.md) | 5.1 |
 | D2 | The 720p console (old 8): 4 MB of RAM always, but X shares the mode, so the desktop and games run at 720p (2.25x fewer pixels) | [KERNEL-MEMORY.md](KERNEL-MEMORY.md) | 4.10 |
 | D3 | dsda-doom's music default (old 8): fluidsynth on the SPEs (chops), OPL, or off | [SPU-AUDIO.md](SPU-AUDIO.md) | gamedb:dsda-doom (was 2.8) |
 | D4 | SuperTuxKart's `lean` default (old 7): 21.4 smooth fps and 2.4 s of stalls against 13 fps and 13.5 s. Its package's patch 0006 now makes `lean` a fresh configuration's default; the sound check by ear is still open | [technical notes](../gamedb/games/supertuxkart/technical.md) | 2.1 |
@@ -101,10 +98,10 @@ Other docs cite these numbers; "old N" was the number before the 2026-10-18 rest
 | D10 | Upstream drafts (old 9): five drafts ([Teeworlds](../gamedb/games/teeworlds/), Yamagi, the Mesa LUT, two kernel patches), none sent | [upstream/README.md](upstream/README.md) | 5.8 |
 | D11 | Recovery hardware (old 5): a NOR flasher and a SYSCON UART are hardware mods, so only on request; every flash or SYSCON write waits for them | [CONSOLE.md](CONSOLE.md) | 4.1 |
 | D12 | Nexuiz install: about 800 MB on the USB disk for one smoke run | [technical notes](../gamedb/games/nexuiz/technical.md) | gamedb:nexuiz (was 1.12) |
-| D13 | The default kernel: the release build makes `.472` (with the idle fix) the default; the stable suite still has the 2026-10-16 builds. Left: when the stopgap kicker goes for good | [archive/RELEASE-CANDIDATES-2026-10-19.md](archive/RELEASE-CANDIDATES-2026-10-19.md) | 1.2 |
-| D14 | Reimage timing: the user said on 2026-10-17 the image rebuild waits until this plan is through; it is in Stage 5 | [IMAGE-DIFF.md](IMAGE-DIFF.md) | 5.4 |
+| D13 | The stopgap kicker: every current kernel has the idle fix; `ps3-kick` still ships and skips itself when `ps3_idle_prep` is on. Drop it? | [STALLS.md](STALLS.md) | 1.2 |
 
-Settled since the list was made: [Luanti](../gamedb/games/luanti/)'s package default (base stays, clean runs, row 67).
+Settled since the list was made: D1 (the stable publish: Walnut 0.1.0 went out on 2026-10-23, [release/ALPHA.md](release/ALPHA.md)),
+D14 (the reimage: the release image is built by CI and this console boots Walnut from dev_hdd1, TESTS.md 10-21), [Luanti](../gamedb/games/luanti/)'s package default (base stays, clean runs, row 67).
 
 ## The stages
 
@@ -128,7 +125,7 @@ smoke games), 1.12 (Nexuiz).
 | # | Item | Status | Needs | Where |
 |---|---|---|---|---|
 | 1.1 | Clean repeat of the idle fix on/off | **done** (batch 16): confirmed, no SSH poll | PS3 | [STALLS.md](STALLS.md) |
-| 1.2 | The fixed kernel as the default, then retire the stopgap kicker | `.472` is the release default; the bench's default `ENVS` is `-` (no kicker); game mode's `ps3-kick` skips itself when `ps3_idle_prep` is on. Left: drop `ps3-kick` once no kernel without the fix is in use (D13) | host, PS3 | [DESKTOP.md](DESKTOP.md), [STALLS.md](STALLS.md) |
+| 1.2 | The fixed kernel as the default, then retire the stopgap kicker | every current kernel has the fix; the bench's default `ENVS` is `-` (no kicker); game mode's `ps3-kick` skips itself when `ps3_idle_prep` is on. Left: drop `ps3-kick` (D13) | host, PS3 | [DESKTOP.md](DESKTOP.md), [STALLS.md](STALLS.md) |
 | 1.5 | Game prefetch A/B | **done** (batch 16): no gain, [Luanti](../gamedb/games/luanti/) loads slower, default off | PS3 | [STALLS.md](STALLS.md) |
 | 1.6 | Internal disk speed test, read-only | **done**: SSD 100 MB/s, 0.1 ms random 4K; USB 27.8 MB/s, 20 ms | PS3 | [GAMEOS-HDD.md](GAMEOS-HDD.md) |
 | 1.7 | Load and warm-up profiles of 5 games, shader caches cold/warm | batch 17 read: the disk is 34-41% of every load, CPU items 1-3 s per game ([SuperTuxKart](../gamedb/games/supertuxkart/) 5-8), the GLSL cache saves CPU but no wall time. The SSD root (ssdroot2 P1a): loads -39 to -61%, the disk 11-26% of a load, decoders and linking are what is left. Left: Mesa 0039 `NV30_SHADER_CACHE` cold/warm, a symbolised re-run | PS3 | [PROFILING.md](PROFILING.md) |
@@ -137,7 +134,7 @@ smoke games), 1.12 (Nexuiz).
 | 1.10 | Game mode at the TV: the escape keys, the automatic start, Luanti from the menu with sound, the desktop's return time, `gamemode-check.sh`, the `ps3-game-kick` unit | open; almost none of it has run on the PS3 | user | [DESKTOP.md](DESKTOP.md) |
 | 1.13 | The interference detector's own checks: a key press, an SSH login, a mouse bump, the tty8 screen | open | user | [STALLS.md](STALLS.md) |
 | 1.14 | The whole system on the SSD image (Phase B) | the SSD root ran batches ssdroot1 and ssdroot2 (loads -39 to -61%, BananaBread's gameplay stalls 1.6 to 0.05 s); left: USB root against SSD root in alternating boots | PS3, user (reboots) | [GAMEOS-HDD.md](GAMEOS-HDD.md) |
-| 1.15 | The kernel guard (local/0045) on the PS3: a kernel deb with it, then the "On the PS3" checks | built, on in the series since 1abb2a1, not booted | user, PS3 | [GAMEOS-HDD.md](GAMEOS-HDD.md) |
+| 1.15 | The kernel guard (local/0045) on the PS3: a kernel deb with it, then the "On the PS3" checks | booted since 2026-10-21 (kernel .648 and later, TESTS.md 10-21); GAMEOS-HDD.md "On the PS3" steps 1-4 done, the rest is in TESTS.md Next | user, PS3 | [GAMEOS-HDD.md](GAMEOS-HDD.md) |
 | 1.16 | Smoke runs of the new games ([ScummVM](../gamedb/games/scummvm/), [Simutrans](../gamedb/games/simutrans/), Crawl, [Freeciv](../gamedb/games/freeciv/), [LinCity-NG](../gamedb/games/lincity-ng/), [Flare](../gamedb/games/flare/), [Widelands](../gamedb/games/widelands/), [Warmux](../gamedb/games/warmux/), Cataclysm) and [OpenTTD](../gamedb/games/openttd/)'s gameplay benchmark | first runs done in batch ssdroot3 (seven of nine start; OpenTTD `blit8` 34-43 fps against 11, now the package default); the re-runs and the menu-only games are each game's todo item (TESTS.md Next lists them) | PS3 | [TESTS.md](TESTS.md), [games/README.md](games/README.md) |
 
 ### Stage 2: smoothness and correctness for the suite
@@ -203,10 +200,10 @@ Everything meant for other users. Nothing here is published without the user's O
 
 | # | Item | Status | Where |
 |---|---|---|---|
-| 5.1 | Stable publish of the release (D1), then a written release process | every package rebuilt official (kernel `.472` the default, Mesa `.476`, ...) and in `ps3-dev`; the stable command with its `DEBS=` list is written, not run, until the image session passes | [archive/RELEASE-CANDIDATES-2026-10-19.md](archive/RELEASE-CANDIDATES-2026-10-19.md) |
+| 5.1 | Stable publish of the release, then a written release process | done: Walnut 0.1.0 went to stable on 2026-10-23 through CI (the release process is in [release/ALPHA.md](release/ALPHA.md) and [PACKAGING.md](PACKAGING.md)) | [release/ALPHA.md](release/ALPHA.md) |
 | 5.2 | A repository for others: a public host, signing and a published key, mirrors; licensed data only for the owner | done: walnut.nanobyte.dev (2026-10-21; signed suites built by CI, the licensed suite password-protected, published from the PC); the LAN repository on tibi-server retired 2026-10-26; mirrors not done | [backlog/platform.md](backlog/platform.md) |
 | 5.3 | The installer (GameOS app design), `make iso`, `make disk-image`, first-boot assumptions | designed, not built | [backlog/platform.md](backlog/platform.md), [GAMEOS-HDD.md](GAMEOS-HDD.md) |
-| 5.4 | Image rebuild and a reimage of the USB disk (D14) | the image is built (2026-10-18, 2.9 GiB, sha256 `65dae499...`); its PS3 session is pending | [archive/RELEASE-CANDIDATES-2026-10-19.md](archive/RELEASE-CANDIDATES-2026-10-19.md), [IMAGE-DIFF.md](IMAGE-DIFF.md) |
+| 5.4 | Image rebuild and a reimage of the USB disk | done: the release image is built by CI (`release-image.yml`; 0.1.0 is 981 MB) and this console boots Walnut from dev_hdd1 | [release/ALPHA.md](release/ALPHA.md), [IMAGE-DIFF.md](IMAGE-DIFF.md) |
 | 5.5 | End-user docs: booting through Petitboot (the fan and boot-flag steps), game mode and its keys, which games work, licensed data, OtherOS++ safety | open | [backlog/platform.md](backlog/platform.md) |
 | 5.6 | Security update policy: the sid snapshot plus Debian's live ports, when we rebase, SSH exposure | open | [PACKAGING.md](PACKAGING.md) |
 | 5.7 | Other PS3 models (fats, other slims, the QCFW/BadWDSD news for 25xx-40xx); everything is tested on one CECH-20xx | open (research) | [backlog/hardware.md](backlog/hardware.md) |

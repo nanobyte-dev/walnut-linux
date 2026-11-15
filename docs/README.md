@@ -103,7 +103,7 @@ Endless Sky's memory and renderer study (2026-10-19) is the game's investigation
 ## Elsewhere in docs/
 
 - [upstream/](upstream/README.md): drafts of upstream bug reports and patches ([Teeworlds](../gamedb/games/teeworlds/), Yamagi, Mesa, two kernel patches), none sent.
-- [archive/](archive/): the originals these docs were rewritten from on 2026-10-19, unchanged except for a first line naming their successor. Every dated number and decision of 2026-10-13 to 10-19 is there. [archive/RELEASE-CANDIDATES-2026-10-19.md](archive/RELEASE-CANDIDATES-2026-10-19.md) is the 2026-10-18 release plan for the retired LAN repository (its checks and the version record), superseded on 2026-10-26.
+- [archive/](archive/): the originals these docs were rewritten from on 2026-10-19, unchanged except for a first line naming their successor. Every dated number and decision of 2026-10-13 to 10-19 is there. [archive/RELEASE-CANDIDATES-2026-10-19.md](archive/RELEASE-CANDIDATES-2026-10-19.md) is the 2026-10-18 release plan for the retired LAN repository (its checks and the version record), superseded on 2026-10-26. [archive/PLAN-TESTS-STALE-2026-11-16.md](archive/PLAN-TESTS-STALE-2026-11-16.md) holds the PLAN.md and TESTS.md entries removed on 2026-11-16 (done or superseded).
 - `glxinfo-nv47.txt`: glxinfo of Mesa nv30 on the RSX. `dumps/`: GPU exception dumps from the LXQt days.
 
 ## Where the old docs went
