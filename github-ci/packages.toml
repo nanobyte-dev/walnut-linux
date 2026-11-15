@@ -71,6 +71,7 @@ dir = "gamedb/games/classicube/licensed/classicube-data"
 source = "classicube-data"
 tier = "licensed"
 binaries = ["classicube-data"]
+relations = ["classicube"]
 
 [package.colobot]
 dir = "gamedb/games/colobot/packages/colobot"
