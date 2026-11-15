@@ -186,6 +186,25 @@ two expected VT lines); `ssh ps3 true` during a run (a login); `run.sh smoke arm
 evemu keyboard as a `-` line); the BENCHMARK RUNNING screen on the TV; a brief mouse move (a bump)
 against 3 s of motion (counted). The detector's own cost is the log's `# self cpu=` line.
 
+### A core game set and an A/A noise table
+
+Not ranked yet (the README's "Added 2026-11-15" table). A proposal; the members are for the user to confirm.
+
+**Why.** Each performance plan names its own games, so a patch found on one game is checked on
+whatever that plan picked. On 2026-10-31 the user asked for a set of core games that use the GPU,
+memory and CPU in different ways, as a sanity and regression check for every performance patch. It
+was left for a later round and never written down. The proposed members: BananaBread, Luanti,
+OpenArena gl2min, ClassiCube, Trigger Rally or Neverball, OpenTTD. Together with it comes an A/A
+noise table: for each game, the same build against itself in one boot, so every later A/B knows how
+far a difference must go to count. The run rules that go with it: keep every run's numbers,
+alternate the variant order, one primary number per test. `abba-report.py` already judges noise from
+all the A arms; the table itself does not exist.
+
+- **Payoff:** every patch judged on the same games, and a known noise floor. **Effort:** M.
+- **Risk:** none. **Needs:** the user to confirm the set, then PS3 (the A/A runs).
+- **Status:** not started; add it to the games list (docs/games/SUITE.md) once confirmed, and a
+  scheduled row in TESTS.md for the A/A runs.
+
 ### Kernel stat options and ps3rsx counters
 
 Rank 30. Exact stall causes instead of 10 ms samples.

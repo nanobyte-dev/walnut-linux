@@ -61,6 +61,24 @@ Rank 64. Small runtime leftovers, and the uses that wait for SPU DMA into VRAM.
 - **Effort:** M-L. **Needs:** E16 first. **Status:** never tried.
 - **Source:** [archive/SPU-OFFLOAD-PLAN.md, "Parked"](../archive/SPU-OFFLOAD-PLAN.md#parked-in-the-order-they-would-come-back) 4-6; [archive/HARDWARE-LEVERAGE.md, "3. SPU + RSX together"](../archive/HARDWARE-LEVERAGE.md#3-spu--rsx-together-as-ps3-games-did).
 
+### The reserved SPE's busy percentage, and a shared SPE scheduler
+
+Not ranked yet (the README's "Added 2026-11-15" table).
+
+**Why.** Two asks from 2026-11-14. First, the user asked how much of the time the reserved SPE is
+busy. The answer was qualitative (the other five SPEs are mostly idle, nothing needs a sixth); no
+measured busy percentage exists. Second, the user asked for "a serious spe scheduler so that both
+kernel and user programs share them". It gains nothing today. On 2026-11-15 the user moved SPE
+utilisation to the backlog until games use the SPUs near 100%.
+
+- **The measurement:** read each SPE's busy time (the SPU context's run time over a window) during a
+  game on the 7-SPE kernel, 6.12.115+ps3.1554 or later, and put the figure in [SPU.md](../SPU.md#the-7th-spe).
+  **Effort:** S. **Needs:** PS3.
+- **The scheduler:** one scheduler for the kernel's and userspace's SPE jobs. **Trigger:** worth doing
+  once something keeps the shared SPEs busy. Until then the shared 2-SPE deadline pool is enough.
+  **Effort:** L. **Risk:** high (kernel code, security review).
+- **Status:** not started; the scheduler waits on its trigger.
+
 ## Parked
 
 ### Video decoding on the SPEs

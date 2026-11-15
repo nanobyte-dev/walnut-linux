@@ -19,3 +19,14 @@ The last frame to 60: uncapped (`vblank_mode=0`, 52477a2) it still runs at 59, s
 In the HOTPATHS profile 45.6% of its CPU is outside the game and Mesa (freetype and harfbuzz 29%, \
 SFML audio): find what draws text every frame. Its GART grows by about 4 MB a minute (the \
 long-session soak, backlog smoothness.md)."""
+
+[[item]]
+kind = "research"
+added = 2026-11-15
+source = "the 2026-10-24 rated session"
+text = """\
+Audio dropouts: the rated session logged 7.5 audible dropouts a minute, an even trickle of 20-30 ms \
+gaps (the player heard none). First check which audio library the packaged build uses: the item \
+above says SFML audio, so SDL_mixer may be the wrong guess. Then find the buffer size the game asks \
+for. Doubling it in our package would likely remove most gaps, at about 20 ms more latency. Check \
+with the session's underrun counters, same boot, buffer as it is against doubled."""

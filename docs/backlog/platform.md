@@ -72,14 +72,27 @@ Rank 34. What the SSD image still needs before it can stand without the USB disk
 
 ### The SSD root image is nearly full
 
-Rank 77. The root is a 15 GiB ext4 in a 16 GiB file and about 83% full (2026-10-20). Many more
-games, or Nexuiz (about 800 MB) and Xonotic (1.2 GB), need room first.
+Rank 77. The root is a 15 GiB ext4 in a 16 GiB file and nearly full: about 1.2 GB free on 2026-11-15.
+Many more games, or Nexuiz (about 800 MB) and Xonotic (1.2 GB), need room first.
 
-- Growing the file needs a GameOS-side upload of a larger stamped image (the user's step; the
-  16 GiB file is uploaded to `dev_hdd0` and mapped, [GAMEOS-HDD.md](../GAMEOS-HDD.md)), so
-  it is decided before the next batch of games, not during one.
-- **Payoff:** room for the games on the list. **Effort:** M. **Needs:** the user. **Status:** not
-  started.
+**Why.** On 2026-11-14 Widelands was not installed: 712 MB with its data against 1.4 GB free. On
+2026-11-15 the user asked to extend the image by about 50 GB (reboot into GameOS, extend the file, then
+`resize2fs` in Linux). It is not a resize-and-go job. A "grow" mode needs:
+
+- a grow mode in the image tools: append stamped blocks over FTP (about 40 min for 50 GB);
+- the initramfs accepting a grown file once all stamps check;
+- the swap at the end of the image moving;
+- the kernel write guard's block map registered again;
+- a VM test of the whole path before the console sees it.
+
+Growing the file needs a GameOS-side upload of larger stamped blocks (the user's step; the 16 GiB
+file lives in `dev_hdd0` and is mapped, [GAMEOS-HDD.md](../GAMEOS-HDD.md)), so it is decided before
+the next batch of games, not during one.
+
+- **Payoff:** room for the games on the list. **Effort:** M. **Risk:** medium: the image is the
+  root, so a bad grow is a boot failure (back up the image first; the guard keeps GameOS's disk safe).
+- **Needs:** host for the tools and the VM test, then the user for the GameOS reboot.
+- **Status:** not started; the priority is the user's to give.
 
 ### ps3disk multi-region (packages/patched/kernel/linux/patches/ps3/0010): two bugs
 
@@ -302,6 +315,52 @@ Rank 60. Each wedge or kernel test costs a trip through the XMB.
 - **Needs:** the user. **Status:** never tried.
 - **Source:** PLAN 4.15; [archive/DRIVER-PLAN.md, "Later"](../archive/DRIVER-PLAN.md#later-pushing-the-hardware-limits-after-the-baseline-runs).
 
+### Code survey proposals still open
+
+Not ranked yet (the README's "Added 2026-11-15" table). The 2026-11-06 code survey of the shell
+scripts ranked twelve proposals. The PC-side ones (the test registry, `tools/lib`, data work out of
+shell, the deploy script) are done and pushed. These are left. The ones marked **perf check** change
+what runs on the PS3 and need a same-boot A/A batch (old against new, same boot, inside noise) before
+they ship.
+
+- **P1, small items.** Close the open small ones: three missing CI skips, delete dead scripts
+  (`walnut-net-kick.sh`, the stick diagnostics, `baseline-check.py`, `bench-import.py`,
+  `ps3-sm-temp.sh --raw`), fix stale doc paths and `build/aptly` mentions, one `changelog()` function
+  in deb-prepare.sh. Effort hours. Only the ps3-sm-temp.sh change rebuilds a PS3 package, and it
+  removes code.
+- **P4, shell rules.** Write short rules (strictness, a `main "$@"` ending, 120-column lines, no
+  long embedded programs, short headers) and check new and changed lines in
+  `tools/commit_tests/checks/shell.py`. Half a day, needs no PS3.
+- **P6, bench post-processing in Python.** `bench/harness/summary.py` prints what ps3-bench.sh prints
+  after a run today, using the parsers `bench/analysis` already has. It runs outside the measured
+  window. Do it with the move to `bench/harness`, in one supervised PS3 session. **Perf check:**
+  one cheap game, old and new harness alternating; compare the gap between runs and the first 30 s of
+  the next run. 1-2 days.
+- **P7, split the big shell files.** `client.sh` into `client.sh` plus `client.d/*.sh`; `deb-build.sh`
+  into functions chosen by one `case "$BUILD"`. No behaviour change. **Perf check:** old client
+  against new on 2-3 games, bench.txt identical apart from timestamps. The deb-build half is PC-only
+  but CI uses it, so build one package of each kind first. 2-3 days.
+- **P8, ps3-game-detect's X watching in C.** A small `ps3-x-watch` (Xlib and XRes) replaces
+  `xev | awk` and the per-event `xprop` calls. The detector runs all the time. **Perf check:** its
+  RSS and CPU over an idle hour and during a game, before and after. First measure what
+  `python3 -I -c pass` costs on the PS3; a ctypes version may do instead of C. It decides when root's
+  game mode runs, so it needs a security review. 2-3 days.
+- **P9, Python structure.** Split `walnut_games.py` into a package, a shared `pylib/walnut/`, and
+  named exceptions instead of blind `except`. **Perf check:** the launcher's cold start on the PS3.
+  1-3 days.
+- **P10, Makefile tidy.** One `$(DOCKER_RUN)`, one PS3 ssh definition, the four long recipes into
+  scripts, maybe `make/*.mk`. Compare `make -pn` output for every target CI calls. Half a day, no
+  runtime effect.
+- **P11, config.** Fold upstream.mk and orig.mk into `package.conf` keys, with the Makefile
+  generating the fetch rules. A day, no runtime effect.
+- **P12, split the pushbuf ioctl.** When it is next touched. Kernel code, so a security review. **Perf
+  check:** a draw-heavy game's fps and stalls, old module against new (`tools/rsx-ab`).
+
+- **Effort:** hours to days each. **Risk:** low; P6 to P9 and P12 touch the PS3 path.
+- **Needs:** host for P1, P4, P10, P11; a supervised PS3 session for P6-P9 and P12.
+- **Status:** not started.
+- **Source:** the 2026-11-06 code survey.
+
 ### Kernel patches surveyed, not ported
 
 Rank 63. OTHEROS-PATCHES.md's SAFE candidates left out, and one test never made.
@@ -346,6 +405,29 @@ data split on an upgrade, supertuxkart, teeworlds, ps3-system and ps3-desktop, p
   stable is walnut.nanobyte.dev's, published by CI with the owner's approval (docs/PACKAGING.md).
   The image session itself is still open (decisions D1, D14).
 - **Source:** PLAN 5.1, 5.4; [archive/RELEASE-CANDIDATES.md, "Release 2026-10-18"](../archive/RELEASE-CANDIDATES.md#release-2026-10-18-test-first-then-publish).
+
+### Updates that don't thrash
+
+Not ranked yet (the README's "Added 2026-11-15" table). ALPHA.md's M10, and the message the user asked for.
+
+**Why.** On 2026-10-21 a kernel, Mesa and desktop upgrade on the USB root (32 packages, debug symbols
+included) hung the PS3 for over an hour. The cause is still open. 0.1.0 shipped on 2026-10-23
+without a fix, and with one supported release the users' update path is `apt full-upgrade`, the
+path that hung. [docs/release/ALPHA.md](../release/ALPHA.md) item M10 lists the fixes: no `-dbgsym` on
+normal systems, a small `vm.dirty_bytes` cap, a lighter apt (fewer sources, no translations or
+deb-src), man-db's auto-update off, and a `walnut-update` command that downloads first, then installs,
+with `force-unsafe-io` and the kernel and Mesa one at a time. The user also asked (2026-10-21) for a
+text message on the console instead of the boot screen while the desktop is stopped: "Updating the
+system: the desktop comes back when it's done". Today only the dev deploy (tools/deploy.sh) prints it.
+
+- **Payoff:** an upgrade that finishes, and a screen that says why it is quiet. **Effort:** M.
+- **Risk:** medium: it changes the update path every user takes; a security review applies to the
+  maintainer scripts and apt settings.
+- **Needs:** PS3 for the measuring, then host.
+- **Status:** not started. Measure first (PSI, vmstat and dpkg's timeline during a small upgrade on
+  the USB root), then each fix against the same run. Ask whether the message alone, as a desktop hook
+  around apt, should come before the full `walnut-update`.
+- **Source:** [ALPHA.md, M10](../release/ALPHA.md).
 
 ### Upstream submissions
 

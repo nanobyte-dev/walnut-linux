@@ -75,6 +75,16 @@ a measurement first, then the reserve.
 - **Status:** never tried; not in TESTS.md.
 - **Source:** PLAN 2.3; [archive/GAME-PLAN.md, "Next phase"](../archive/GAME-PLAN.md#next-phase-from-playable-to-good); [archive/IDEAS.md, "How to start the top ones"](../archive/IDEAS.md#how-to-start-the-top-ones) step 5.
 
+**Two more questions (added 2026-11-15).** Does the swap's VRAM hurt GPU-bound games? The user suspects
+that the swap holding up to 96 MiB of 256 MB of VRAM explains why some GPU-bound games run badly or
+crash. The test: a same-boot `vswap_vram_mb` 0 against 96 on DDNet, Luanti, BananaBread and OpenArena
+gl2. Read the give-back counters, the VRAM peak and the failed-allocation lines. TESTS.md's DDNet "out
+of VRAM" row is the same question for one game. And the user's idea of 2026-11-09: size the pool
+dynamically ("some kind of dynamic rebalancing between video and normal memory"), as free VRAM minus a
+headroom, drained to a floor when game mode sees a 3D app. The first test decides whether the second
+is worth building. Both wait on the first measurement; the P4 containment work they were parked
+behind was shelved on 2026-11-11.
+
 **To start.** Log `ps3rsx_vswap_shrink` calls and GART fallbacks during an OpenArena gl2min and a
 SuperTuxKart `lean` run (with the kernel counters item this becomes a `ps3rsx_stats` read; until
 then a trace or a debug print). Then try `vswap_vram_mb` lower (a load-time parameter, 0444: a boot

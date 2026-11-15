@@ -111,6 +111,20 @@ game's backlog, `gamedb/games/<id>/todo.toml`, where its details are.
 | 80 | [Skia on big-endian](platform.md#skia-on-big-endian) | WebKitGTK 2.54+ and its security fixes, Ladybird | L? | host | 4.16 | - |
 | 72 | [Host tests run automatically](platform.md#host-tests-run-automatically) | tests that run without someone remembering | S-M | host | 5.9 | - |
 
+## Added 2026-11-15, not yet ranked
+
+Seven items found missing from the backlog. They are not in the ranked list; rank them with the user.
+
+| Item | Payoff | Effort | Needs |
+|---|---|---|---|
+| [Growing the root image](platform.md#the-ssd-root-image-is-nearly-full) (rank 77, expanded) | room for the game list | M | host, user |
+| [A core game set and an A/A noise table](smoothness.md#a-core-game-set-and-an-aa-noise-table) | one set of games, a known noise floor | M | user, PS3 |
+| [Code survey proposals still open](platform.md#code-survey-proposals-still-open) | simpler scripts (P1, P4, P6-P12) | hours to days each | host, PS3 |
+| [Updates that don't thrash](platform.md#updates-that-dont-thrash) | an upgrade that finishes, with a message | M | PS3, host |
+| [Extreme Tux Racer's audio dropouts](../../gamedb/games/etr/todo.toml) | clean sound in a light game | S | PS3 |
+| [The reserved SPE's busy % and a shared SPE scheduler](spu.md#the-reserved-spes-busy-percentage-and-a-shared-spe-scheduler) | a measured figure; a scheduler once the SPEs are busy | S, L | PS3 |
+| [Does the VRAM swap hurt GPU-bound games, and dynamic pool sizing](memory.md#vram-budget-in-game-mode) (rank 4, expanded) | fewer crashes and stalls in GPU-bound games | S-M | PS3 |
+
 Parked by CLAUDE.md, not ranked: [video decoding on the SPEs](spu.md#video-decoding-on-the-spes)
 (was IDEAS #24).
 
