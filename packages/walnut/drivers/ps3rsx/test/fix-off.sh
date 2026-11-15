@@ -147,24 +147,18 @@ off p4-clear-round "FAIL: clear: an offset the hardware rounds down to A refused
 	'lo = off & ~63u, len, rb;' 'lo = off, len, rb;'
 off p4-clear-aa "FAIL: clear: a 4x surface one row past A accepted" "${P4[@]}" \
 	'u64 xs = aa ? 2 : 1, ys = aa == 4 || aa == 5 ? 2 : 1,' 'u64 xs = 1, ys = 1,'
-off p4-clear-window "FAIL: clear: window clip rows past A accepted" "${P4[@]}" \
-	'max_t(u64, LO16(v) + HI16(v), HI16(vs->f[P4F_WIN_V]) + 1);' '(u64)(LO16(v) + HI16(v));'
+off p4-clear-window "FAIL: clear: a window offset past A accepted" "${P4[@]}" \
+	'rows = max_t(u64, LO16(v) + HI16(v), HI16(wo) + HI16(vs->f[P4F_WIN_V]) + 1);' 'rows = LO16(v) + HI16(v);'
 off p4-clear-coord "FAIL: clear: a coordinate height past A accepted" "${P4[@]}" \
-	'*rowsp = max_t(u64, rows, HI16(wo) + flip_h);' '*rowsp = rows;'
-# the extent's orders (surface clip before the window offset, the flip before it, rows past an
-# inverted flip) and the render target pitches
-off p4-fb-winoff "FAIL: clear: a surface clip past A with the window offset added accepted" "${P4[@]}" \
-	$'\t\tsx += LO16(wo);\n' ''
-off p4-fb-winoff-rows "FAIL: clear: surface clip rows past A with the window offset added accepted" "${P4[@]}" \
-	'rows = HI16(wo) + max_t(' 'rows = max_t('
-off p4-fb-winoff-swz "FAIL: clear: Mesa's 16x2 swizzled block at a window offset refused" "${P4[@]}" \
-	$'\tif (((vs->f[P4F_RT_FORMAT] >> 8) & 0xf) != 2)\n\t\tsx += LO16(wo);' $'\tsx += LO16(wo);'
-off p4-fb-flip "FAIL: clear: clip rows past an inverted flip's height accepted" "${P4[@]}" \
-	'if ((coord & 0xf000) && rows > flip_h)' 'if (0)'
-off p4-fb-flip-origin "FAIL: clear: origin value 8 not taken as inverted" "${P4[@]}" \
-	'if ((coord & 0xf000) && rows > flip_h)' 'if ((coord & 0x1000) && rows > flip_h)'
-off p4-fb-flip-offset "FAIL: clear: a flip before the window's y offset past A accepted" "${P4[@]}" \
-	'*rowsp = max_t(u64, rows, HI16(wo) + flip_h);' '*rowsp = max_t(u64, rows, flip_h);'
+	'rows = max_t(u64, rows, vs->f[P4F_COORD] & 0xfff);' ''
+# the extent's order rules b60b773c added and took back: each refused a stream Mesa sends (the
+# inverted origin's rows past the flip's height: a 4096-tall target's COORD 0x1000; the window
+# offset added to the surface clip: 0013's 1-high linear rows at their buffer's end)
+off p4-fb-tall "FAIL: clear: a 4096-tall target with COORD 0x1000 refused" "${P4[@]}" \
+	'rows = max_t(u64, rows, vs->f[P4F_COORD] & 0xfff);' \
+	'rows = (vs->f[P4F_COORD] & 0xf000) && rows > (vs->f[P4F_COORD] & 0xfff) ? 1ULL << 40 : max_t(u64, rows, vs->f[P4F_COORD] & 0xfff);'
+off p4-fb-linrow "FAIL: clear: a 1x1 linear row 8 bytes before A's end refused" "${P4[@]}" \
+	'*colsp = max_t(u64, LO16(h) + HI16(h),' '*colsp = max_t(u64, LO16(h) + HI16(h) + LO16(wo),'
 off p4-pitch "FAIL: clear: pitch 0x10040 accepted" "${P4[@]}" \
 	'if (pitch > 0x10000 || pitch % 64) {' 'if (pitch % 64) {'
 off p4-pitch-64 "FAIL: clear: pitch 2080 accepted" "${P4[@]}" \
@@ -225,15 +219,8 @@ off fuzz-m2mf-dst ": M2MF destination" "${F[@]}" \
 	'if (!in_set(vs, vs->f[P4F_M_OUT_DMA], vs->f[P4F_M_OFF_OUT], out)) {' 'if (0) {'
 off fuzz-sifm-src ": scaled image source" "${F[@]}" \
 	'!in_set(vs, vs->f[P4F_F_DMA], vs->f[P4F_F_OFF], len)) {' '0) {'
-# (with the window's rows gone, the flip's rows check misses them too: either shows first)
-off fuzz-clear-window "FAIL: accepted stream" "${F[@]}" \
-	'max_t(u64, LO16(v) + HI16(v), HI16(vs->f[P4F_WIN_V]) + 1);' '(u64)(LO16(v) + HI16(v));'
-off fuzz-fb-winoff " colour target" "${F[@]}" \
-	$'\t\tsx += LO16(wo);\n' ''
-off fuzz-fb-flip "rows past an inverted y flip's height" "${F[@]}" \
-	'if ((coord & 0xf000) && rows > flip_h)' 'if (0)'
-off fuzz-fb-flip-offset " colour target" "${F[@]}" \
-	'*rowsp = max_t(u64, rows, HI16(wo) + flip_h);' '*rowsp = max_t(u64, rows, flip_h);'
+off fuzz-clear-window " colour target" "${F[@]}" \
+	'rows = max_t(u64, LO16(v) + HI16(v), HI16(wo) + HI16(vs->f[P4F_WIN_V]) + 1);' 'rows = LO16(v) + HI16(v);'
 off fuzz-pitch "with a pitch the RSX's behaviour isn't known for" "${F[@]}" \
 	'if (pitch > 0x10000 || pitch % 64) {' 'if (0) {'
 off fuzz-draw ": draw colour target" "${F[@]}" \

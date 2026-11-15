@@ -294,21 +294,16 @@ static void fb_write(u32 bits, const char *what_op)
 		violation_op("with a surface value this channel never wrote");
 		return;
 	}
-	/* the surface clip before or after the window offset (a swizzled surface's columns: after,
-	 * as Mesa's 16x2 block takes it), the y flip before or after it: the furthest of each */
-	cols = (hz & 0xffff) + (hz >> 16) + (((f >> 8) & 0xf) == 2 ? 0 : wo & 0xffff);
+	/* the union of the surface clip, the window rectangle and the y flip's height (the RSX's
+	 * order of the clip, the window offset and the flip is unprobed: validate.c's fb_extent) */
+	cols = (hz & 0xffff) + (hz >> 16);
 	if ((wo & 0xffff) + (G(M3D, 0x2c0) >> 16) + 1 > cols)
 		cols = (wo & 0xffff) + (G(M3D, 0x2c0) >> 16) + 1;
-	rows = (wo >> 16) + (vt & 0xffff) + (vt >> 16);
+	rows = (vt & 0xffff) + (vt >> 16);
 	if ((wo >> 16) + (G(M3D, 0x2c4) >> 16) + 1 > rows)
 		rows = (wo >> 16) + (G(M3D, 0x2c4) >> 16) + 1;
-	/* origin at the bottom: a row at or past the flip's height lands before the target */
-	if ((G(M3D, 0x1d88) & 0xf000) && rows > (G(M3D, 0x1d88) & 0xfff)) {
-		violation_op("with rows past an inverted y flip's height");
-		return;
-	}
-	if ((wo >> 16) + (G(M3D, 0x1d88) & 0xfff) > rows)
-		rows = (wo >> 16) + (G(M3D, 0x1d88) & 0xfff);
+	if ((G(M3D, 0x1d88) & 0xfff) > rows)
+		rows = G(M3D, 0x1d88) & 0xfff;
 	if (bits & 0xf0) {
 		static const u16 off[4] = { 0x210, 0x218, 0x288, 0x28c };
 		static const u16 pit[4] = { 0x20c, 0x21c, 0x280, 0x284 };
@@ -575,7 +570,7 @@ static void gen_surface(void)
 	if (rn(4))
 		put1(M3D, 0x220, rn(4) ? 1 : rn(32));
 	if (rn(4))
-		put1(M3D, 0x1d88, rn(4) ? (rn(3) ? h : 0x1000 | h) : rnd() & 0x1fff);
+		put1(M3D, 0x1d88, rn(4) ? (rn(3) ? h : rn(2) ? 0x1000 | h : 0x1000) : rnd() & 0x1fff);
 }
 
 static void gen_clear(void)
@@ -586,10 +581,11 @@ static void gen_clear(void)
 
 /* A surface as Mesa sets one, A8R8G8B8 and Z24S8, its colour target at the start of one of the
  * file's buffers and as high as it holds (now and then a row more), zeta at another's start;
- * now and then a window offset d with the window clip d narrower than the surface clip (the
- * offset added to the surface clip reaches past the buffer), or d rows down with the clips
- * d rows lower and the y flip the buffer's height (the flip before the offset reaches past it),
- * or a window clip d rows taller than the surface clip */
+ * now and then a window offset d with the window clip d narrower than the surface clip, or d
+ * rows down with the clips d rows lower and the y flip the buffer's height (both accepted while
+ * those orders are uncovered: validate.c's fb_extent), or a window clip d rows taller than the
+ * surface clip; the origin at the top or the bottom, also COORD 0x1000 alone (the inverted bit
+ * with height 0, as Mesa writes a 4096-tall target's) */
 static void gen_good_surface(void)
 {
 	int i = rn(NBO), j = rn(NBO);
@@ -631,7 +627,8 @@ static void gen_good_surface(void)
 		put1(M3D, 0x22c, pitch);
 		put(M3D, 0x20c, c, 3);
 		put1(M3D, 0x220, 1);
-		put1(M3D, 0x1d88, rn(2) ? h : 0x1000 | h);	/* origin at the top or the bottom */
+		/* origin at the top or the bottom, or COORD 0x1000 alone (height 0) */
+		put1(M3D, 0x1d88, rn(2) ? h : rn(2) ? 0x1000 | h : 0x1000);
 	}
 }
 

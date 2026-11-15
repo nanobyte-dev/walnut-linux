@@ -22,7 +22,8 @@ format is src/pushdump_scan.h) into the host tools' inputs:
 A gap (records the kernel dropped when the dump's buffer was full) may take a SUBMIT and leave its
 pushes: those are skipped and counted (pushes without their submit), as are submits a gap took a
 push of (submits missing a push: the push index skips; the rest are kept, but the channel's state
-may differ from what the kernel saw).
+may differ from what the kernel saw). Either count above 0 means a replay of the split doesn't
+cover the whole dump: the split is still written, with a "!!" warning on stderr and exit status 3.
 
 Run with python3 -I: pushdump-split.py DUMP OUTDIR
 """
@@ -174,6 +175,11 @@ def main(argv):
         f.write("gaps %d, records dropped %d\n" % (gaps, dropped))
         f.write("pushes without their submit %d, submits missing a push %d\n" % (orphans, lost))
         f.write("channels %s\n" % " ".join("%d-s%d" % k for k in sorted(push_files)))
+    if orphans or lost:
+        sys.stderr.write("!! pushdump-split: %d pushes without their submit, %d submits missing a "
+                         "push: a replay of this split doesn't cover the whole dump\n"
+                         % (orphans, lost))
+        return 3
     return 0
 
 

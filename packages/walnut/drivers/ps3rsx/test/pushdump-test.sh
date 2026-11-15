@@ -10,9 +10,15 @@ here=$(cd "$(dirname "$0")" && pwd)
 rm -rf "$T"
 mkdir -p "$T"
 "$O/pushdump-test" "$T/sample.bin"
-python3 -I "$here/pushdump-split.py" "$T/sample.bin" "$T/split"
 S=$T/split
 fail() { echo "FAIL pushdump-test.sh: $*"; exit 1; }
+# the sample's gap leaves a push without its submit and a submit missing a push: written, with
+# the warning and exit status 3
+rc=0
+python3 -I "$here/pushdump-split.py" "$T/sample.bin" "$S" 2>"$T/split.err" || rc=$?
+[ $rc = 3 ] || fail "the splitter's exit status $rc with pushes skipped, not 3"
+grep -q '^!! pushdump-split: 1 pushes without their submit, 1 submits missing a push' "$T/split.err" ||
+	fail "no warning for the skipped pushes: $(cat "$T/split.err")"
 for f in chan1-s101.push chan2-s102.push chan1-s101.gpu submits.tsv bos.tsv set.tsv contents.tsv summary.txt; do
 	[ -s "$S/$f" ] || fail "no $f"
 done

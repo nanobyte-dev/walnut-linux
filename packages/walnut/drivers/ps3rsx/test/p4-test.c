@@ -671,13 +671,17 @@ static void test_clear(void)
 /* --- draws: render targets and zeta (slice b) ------------------------------------------------ */
 
 /*
- * The orders of the surface clip, the window offset and the y flip the RSX may take (unprobed):
- * the surface clip applied before the offset (the window clip narrower than it, so only the
- * offset added to the surface clip reaches past A), the origin at the bottom with clip or
- * window rows past the flip's height (rows that would flip to before the target), the flip
- * before the window's y offset; the pitches past what Mesa uses; Mesa's 16x2 swizzled block at
- * a window offset (0060's window clip) passes. cw's words: 11 the window offset, 13 and 14 the
- * window clip, 16 zeta's pitch, 18 colour 0's.
+ * The extent's clip semantics and the render target pitches. The orders of the surface clip,
+ * the window offset and the y flip the RSX takes are unprobed, and the rules that took the
+ * furthest one refused streams current Mesa sends: until the clip probe and the Mesa fixes
+ * (the height masked in COORD, the PS3's swizzled buffers padded, the 16x2 block 32 wide), the
+ * extent is the union of the surface clip, the window rectangle and the flip's height, and the
+ * cases below that a returning rule would refuse are marked "(order uncovered)". Mesa's streams
+ * those rules refused pass: a 4096-tall target (COORD 0x1000: the inverted origin bit with
+ * height 0, Mesa ORs the height in unmasked) and 0013's 1-high linear rows at an unaligned
+ * offset in the last 64 bytes of their buffer. Mesa's 16x2 swizzled block at a window offset
+ * passes. cw's words: 11 the window offset, 13 and 14 the window clip, 16 zeta's pitch, 18
+ * colour 0's.
  */
 static void fb_order_cases(const char *what, int (*trigger)(u32 n))
 {
@@ -688,30 +692,44 @@ static void fb_order_cases(const char *what, int (*trigger)(u32 n))
 	CHECK(trigger(n) == 0, "%s: a window clip narrower than the surface refused", what);
 	n = surface(512, 512, LIN, 2048, A_LO, C_LO, 1, 512, XY(64, 0));
 	cw[13] = 447 << 16;
-	CHECK(trigger(n) != 0 && strstr(last_warn, "render target outside"),
-	      "%s: a surface clip past A with the window offset added accepted", what);
+	CHECK(trigger(n) == 0,
+	      "%s: a surface clip at a window offset refused (order uncovered)", what);
 	n = surface(512, 512, LIN, 2048, A_LO, C_LO, 1, 504, XY(0, 8));
 	cw[14] = 503 << 16;
-	CHECK(trigger(n) != 0 && strstr(last_warn, "render target outside"),
-	      "%s: surface clip rows past A with the window offset added accepted", what);
+	CHECK(trigger(n) == 0,
+	      "%s: surface clip rows at a window offset refused (order uncovered)", what);
 	/* the origin at the bottom (COORD 0x1000, any value in bits 12-15) */
 	CHECK(trigger(surface(512, 512, LIN, 2048, A_LO, C_LO, 1, 0x1000 | 512, 0)) == 0,
 	      "%s: a flipped 512x512 surface refused", what);
-	CHECK(trigger(surface(512, 512, LIN, 2048, A_LO, C_LO, 1, 0x1000 | 500, 0)) != 0 &&
-	      strstr(last_warn, "past the y flip's height"),
-	      "%s: clip rows past an inverted flip's height accepted", what);
-	CHECK(trigger(surface(512, 512, LIN, 2048, A_LO, C_LO, 1, 0x8000 | 500, 0)) != 0 &&
-	      strstr(last_warn, "past the y flip's height"),
-	      "%s: origin value 8 not taken as inverted", what);
+	CHECK(trigger(surface(512, 512, LIN, 2048, A_LO, C_LO, 1, 0x1000 | 500, 0)) == 0,
+	      "%s: clip rows past an inverted flip's height refused (order uncovered)", what);
 	n = surface(512, 500, LIN, 2048, A_LO, C_LO, 1, 0x1000 | 500, 0);
 	cw[14] = 509 << 16;
-	CHECK(trigger(n) != 0 && strstr(last_warn, "past the y flip's height"),
-	      "%s: window rows past an inverted flip's height accepted", what);
+	CHECK(trigger(n) == 0,
+	      "%s: window rows past an inverted flip's height refused (order uncovered)", what);
 	CHECK(trigger(surface(512, 500, LIN, 2048, A_LO, C_LO, 1, 500, 0)) == 0,
 	      "%s: a 500-row surface with its origin at the top refused", what);
 	n = surface(512, 504, LIN, 2048, A_LO, C_LO, 1, 0x1000 | 512, XY(0, 8));
+	CHECK(trigger(n) == 0,
+	      "%s: a flip before the window's y offset refused (order uncovered)", what);
+	/* Mesa's 4096-tall target: COORD 0x1000 (height 4096 unmasked), and with CENTER_INTEGER */
+	CHECK(trigger(surface(16, 4096, LIN, 64, A_LO, C_LO, 1, 0x1000, 0)) == 0,
+	      "%s: a 4096-tall target with COORD 0x1000 refused", what);
+	CHECK(trigger(surface(16, 4096, LIN, 64, A_LO, C_LO, 1, 0x11000, 0)) == 0,
+	      "%s: a 4096-tall target with COORD 0x11000 refused", what);
+	/* Mesa 0013's 1-high levels as linear rows: the offset's remainder x in RT_HORIZ (w + x)
+	 * and the window offset, the window clip w wide; a 1x1 RGBA8 level at A's end - 8 (x 14)
+	 * and a 4x1 at A's end - 32 (x 8), pitch align(w * 4 + 64, 64) */
+	n = surface(15, 1, LIN, 128, A_LO + A_SZ - 8, C_LO, 1, 1, XY(14, 0));
+	cw[13] = 0;
+	CHECK(trigger(n) == 0, "%s: a 1x1 linear row 8 bytes before A's end refused", what);
+	n = surface(12, 1, LIN, 128, A_LO + A_SZ - 32, C_LO, 1, 1, XY(8, 0));
+	cw[13] = 3 << 16;
+	CHECK(trigger(n) == 0, "%s: a 4x1 linear row 32 bytes before A's end refused", what);
+	n = surface(15, 1, LIN, 128, A_LO + A_SZ - 8, C_LO, 1, 1, XY(14, 0));
+	cw[13] = 2 << 16;	/* columns 14-16: the last one past A */
 	CHECK(trigger(n) != 0 && strstr(last_warn, "render target outside"),
-	      "%s: a flip before the window's y offset past A accepted", what);
+	      "%s: a 1x1 linear row with its window past A accepted", what);
 	/* pitches: multiples of 64 up to 0x10000, colour and zeta; a swizzled surface's is unused */
 	CHECK(trigger(surface(16, 16, LIN, 0x10000, A_LO, C_LO, 1, 16, 0)) == 0,
 	      "%s: pitch 0x10000 refused", what);
