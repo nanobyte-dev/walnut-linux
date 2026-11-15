@@ -1264,7 +1264,8 @@ int ps3rsx_validate(struct ps3rsx_vstate *vs, const u32 *w, u32 nwords)
 		}
 	}
 	while (i < nwords) {
-		u32 h = w[i], count, subch, mthd;
+		/* once: the ring is GPU-visible, the count is checked against nwords from this copy */
+		u32 h = READ_ONCE(w[i]), count, subch, mthd;
 		const u32 *data = &w[i + 1];
 		const u8 *ok;
 		bool noninc;

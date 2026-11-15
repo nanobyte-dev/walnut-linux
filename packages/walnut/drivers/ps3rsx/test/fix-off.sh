@@ -3,7 +3,8 @@
 # FAIL line given for it, so the case shows the old behaviour. The rule is turned off in a copy
 # of src/validate.c (or the source -E names, with the define its test includes it by) under
 # OUTDIR/fix-off (a literal edit, which must match exactly once), or for the submit.c model in
-# validate-test.c (or the test -T names) by a define (OLD_*). Nothing here touches src/.
+# validate-test.c (or the test -T names) by a define (OLD_*). -S builds the variant with ASan and
+# UBSan, for a rule whose case shows up only as an out-of-bounds access. Nothing here touches src/.
 #   fix-off.sh OUTDIR		(make fix-off; exits 0 only when every variant fails as expected)
 set -u
 [ $# -eq 1 ] || { echo "usage: $0 OUTDIR" >&2; exit 2; }
@@ -15,15 +16,16 @@ rm -f "$D"/*.built
 JOBS=${JOBS:-6}
 names=() expects=()
 
-# off NAME 'FAIL line it must print' [-T TEST.c] [-E SRC MACRO] [-DDEFINE | 'FROM' 'TO']...
+# off NAME 'FAIL line it must print' [-T TEST.c] [-E SRC MACRO] [-S] [-DDEFINE | 'FROM' 'TO']...
 off() {
-	local name=$1 expect=$2 src=validate.c macro=VALIDATE_C vc=../src/validate.c defs=()
+	local name=$1 expect=$2 src=validate.c macro=VALIDATE_C vc=../src/validate.c defs=() san=()
 	local t=validate-test.c
 	shift 2
 	while [ $# -gt 0 ]; do
 		case $1 in
 		-T)	t=$2; shift 2 ;;
 		-E)	src=$2 macro=$3 vc=../src/$2; shift 3 ;;
+		-S)	san=(-fsanitize=address,undefined -fno-sanitize-recover=undefined); shift ;;
 		-D*)	defs+=("$1"); shift ;;
 		*)	if [ "$vc" = "../src/$src" ]; then
 				cp "../src/$src" "$D/$name.${src##*.}"; vc=$D/$name.${src##*.}
@@ -36,7 +38,7 @@ off() {
 		esac
 	done
 	while [ "$(jobs -rp | wc -l)" -ge "$JOBS" ]; do wait -n; done
-	( gcc -O1 -g -w -fno-strict-aliasing -Iinc -iquote ../src -D"$macro"="\"$vc\"" "${defs[@]}" \
+	( gcc -O1 -g -w -fno-strict-aliasing "${san[@]}" -Iinc -iquote ../src -D"$macro"="\"$vc\"" "${defs[@]}" \
 		-o "$D/$name" "$t" && touch "$D/$name.built" ) &
 	names+=("$name") expects+=("$expect")
 }
@@ -75,6 +77,24 @@ off context-dma "FAIL: 3D context DMA feed0002 accepted" \
 	'(d < 0 || !(slot_allow(vs->cls[subch], mthd) & DM(d)))' '0'
 off sifm-surface "FAIL: SIFM surface feed0000 accepted" \
 	'if (data != 0x313371c3 && data != 0x31337a73) {' 'if (0) {'
+# the shadow's replay of words read back from the ring (src/shadow.c, validate-test's ring_cases()):
+# a count past the push in each replay, an incrementing burst past 0x1ffc (kind3d's K_NONE tail and
+# its size), a method or count no header holds at the entry points
+SH=(-E shadow.c SHADOW_C)
+off ring-count-slow "FAIL: ring: a count past the push (slow) took 10 words after it" "${SH[@]}" \
+	$'\n\t\tu32 h = READ_ONCE(w[i]), n = min((h >> 18) & 0x7ff, nwords - i - 1);' \
+	$'\n\t\tu32 h = READ_ONCE(w[i]), n = (h >> 18) & 0x7ff;'
+off ring-count-fast "FAIL: ring: a count past the push (fast) took 10 words after it" "${SH[@]}" \
+	$'\t\t\tu32 h = READ_ONCE(w[i]), n = min((h >> 18) & 0x7ff, nwords - i - 1);' \
+	$'\t\t\tu32 h = READ_ONCE(w[i]), n = (h >> 18) & 0x7ff;'
+off ring-kind-tail "out of bounds for type" -S "${SH[@]}" \
+	$'\tfor (m = 0x2000; m < 4 * KIND3D_N; m += 4)\n\t\tkind3d[m / 4] = K_NONE;' ''
+off ring-kind-size "out of bounds for type" -S "${SH[@]}" \
+	'#define KIND3D_N	(NREG + 0x800)' '#define KIND3D_N	NREG' \
+	$'\tBUILD_BUG_ON((0x1ffc + 4 * (0x7ff - 1)) / 4 >= KIND3D_N);\n' ''
+off ring-burst-method "out of bounds for type" -S "${SH[@]}" 'if (mthd > 0x1ffc || n > 0x7ff)' 'if (n > 0x7ff)'
+off ring-burst-count "out of bounds for type" -S "${SH[@]}" 'if (mthd > 0x1ffc || n > 0x7ff)' 'if (mthd > 0x1ffc)'
+off ring-write-method "out of bounds for type" -S "${SH[@]}" 'else if (m < 0x2000)' 'else'
 # the address checks (src/validate.c, src/p4.h): each rule off, its p4-test case fails
 P4=(-T p4-test.c)
 off p4-bind "FAIL: bind of 3137c0de accepted" "${P4[@]}" \

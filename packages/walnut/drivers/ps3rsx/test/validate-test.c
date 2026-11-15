@@ -34,6 +34,9 @@
  * - the rest of the first validator and the allowlist commit (allowlist_cases()): JMP, CALL,
  *   RETURN and malformed headers, bursts past the push, binds of unknown handles, host methods,
  *   context DMA handles, the image-from-CPU object, SIFM's surface.
+ * - words read back from the ring (ring_cases()): pushes changed after the validator passed them
+ *   (counts past the push, bursts past 0x1ffc, random headers in mpv's frame) replayed into the
+ *   shadow by both paths: nothing read past the push or written past the method arrays.
  * Built in userspace with inc/ (kernel stand-ins) by the Makefile here; fix-off.sh builds it
  * again with each rule off (a copy of validate.c, or OLD_* for the model) and expects failures.
  */
@@ -917,6 +920,234 @@ static void recover_cases(void)
 }
 
 /*
+ * Words read back from the ring (ring_cases()). submit.c replays the pushes into the channel's
+ * shadow from the ring after the commit (ps3rsx_shadow_push()), and the ring is GPU-visible
+ * memory: its words may no longer be the ones the validator passed. Each push here passes the
+ * validator and is then changed (a count past the push, an incrementing burst past 0x1ffc, from a
+ * host method too, a copy object's burst past its methods, random headers in mpv's frame). Both
+ * replays must read nothing past the push (an exactly sized heap copy: ASan; the words after it
+ * in the same buffer: they must not show up), write nothing past the method arrays (UBSan's
+ * bounds; nothing outside what an in-range burst sets) and leave the same state.
+ */
+static const char *const path[2] = { "slow", "fast" };
+
+static bool same(const struct ps3rsx_shadow *a, const struct ps3rsx_shadow *b)
+{
+	return !memcmp(a, b, sizeof(*a));
+}
+
+/* n words into sh by one replay, from an exactly sized copy */
+static void replay_into(struct ps3rsx_shadow *sh, const u32 *w, u32 n, bool fast)
+{
+	u32 *copy = malloc(n * 4);
+
+	memcpy(copy, w, n * 4);
+	*test_param_shadow_fast = fast;
+	ps3rsx_shadow_push(sh, copy, n);
+	*test_param_shadow_fast = false;
+	free(copy);
+}
+
+/* the same into a fresh shadow */
+static struct ps3rsx_shadow *replay(const u32 *w, u32 n, bool fast)
+{
+	struct ps3rsx_shadow *sh = ps3rsx_shadow_new();
+
+	replay_into(sh, w, n, fast);
+	return sh;
+}
+
+static u32 weight3d(const struct ps3rsx_shadow *sh)
+{
+	return bitmap_weight(sh->reg3d_set, NREG);
+}
+
+/* nothing but 3D registers: no 2D state, no program or constant slot, no upload pointer */
+static bool only3d(const struct ps3rsx_shadow *sh)
+{
+	return !bitmap_weight(sh->reg2d_set, NOBJ * NREG_2D) && !bitmap_weight(sh->vp_set, VP_SLOTS) &&
+	       !bitmap_weight(sh->cst_set, CONST_SLOTS) && !sh->vp_ptr_set && !sh->cst_ptr_set;
+}
+
+static u64 ring_rng = 1;
+
+static u32 ring_rnd(void)
+{
+	ring_rng ^= ring_rng << 13;
+	ring_rng ^= ring_rng >> 7;
+	ring_rng ^= ring_rng << 17;
+	return ring_rng >> 16;
+}
+
+static void ring_cases(void)
+{
+	static u32 w[5 + 2047 + 16];
+	struct ps3rsx_vstate vs;
+	u32 k, n;
+	int f;
+
+	/* 1. a count past the push: two words left, the header says 12; what follows in the
+	 * buffer stands for the ring's next words (the SET_REFERENCE, older commands) */
+	{
+		static const u32 p[] = { HDR(1, 0), 0x31337000, HDR(2, 0x300), 0x11, 0x22 };
+
+		vs_reset(&vs);
+		CHECK(ps3rsx_validate(&vs, p, 5) == 0, "ring: the state push refused (%s)", last_warn);
+		memcpy(w, p, sizeof(p));
+		w[2] = HDR(12, 0x300);
+		for (k = 5; k < 5 + 16; k++)
+			w[k] = 0x5e000000 + k;
+		for (f = 0; f < 2; f++) {
+			struct ps3rsx_shadow *sh = ps3rsx_shadow_new(), *ex = replay(w, 5, f);
+			u32 m, extra = 0;
+
+			*test_param_shadow_fast = f;
+			ps3rsx_shadow_push(sh, w, 5);
+			*test_param_shadow_fast = false;
+			for (m = 0x308; m < 0x300 + 4 * 12; m += 4)
+				extra += test_bit(m / 4, sh->reg3d_set);
+			CHECK(!extra && reg3d(sh, 0x300) == 0x11 && reg3d(sh, 0x304) == 0x22,
+			      "ring: a count past the push (%s) took %u words after it", path[f], extra);
+			CHECK(same(sh, ex), "ring: a count past the push (%s): the exact copy differs",
+			      path[f]);
+			ps3rsx_shadow_free(sh);
+			ps3rsx_shadow_free(ex);
+		}
+	}
+
+	/* a push the validator passes with 2047 words in one burst: one state method (blending),
+	 * non-incrementing */
+	w[0] = HDR(1, 0);
+	w[1] = 0x31337000;
+	w[2] = HDR(1, 0x300);
+	w[3] = 5;
+	w[4] = NONINC | HDR(2047, 0x300);
+	for (k = 0; k < 2047; k++)
+		w[5 + k] = 0xc0de0000 + k;
+	n = 5 + 2047;
+	vs_reset(&vs);
+	CHECK(ps3rsx_validate(&vs, w, n) == 0, "ring: the long state burst refused (%s)", last_warn);
+
+	/* 2. its header turned into an incrementing burst at 0x1ff0: 4 methods are left below
+	 * 0x2000, the other 2043 words go nowhere */
+	w[4] = HDR(2047, 0x1ff0);
+	{
+		struct ps3rsx_shadow *a = replay(w, n, false), *b = replay(w, n, true);
+
+		CHECK(same(a, b), "ring: a burst past 0x1ffc: the replays differ");
+		for (f = 0; f < 2; f++) {
+			struct ps3rsx_shadow *sh = f ? b : a;
+
+			/* 0x300 from the first burst, 0x1ff0-0x1ffc from this one */
+			CHECK(weight3d(sh) == 5 && only3d(sh) && reg3d(sh, 0x300) == 5 &&
+			      reg3d(sh, 0x1ff0) == w[5] && reg3d(sh, 0x1ffc) == w[8],
+			      "ring: a burst past 0x1ffc (%s): %u 3D registers set, expected 5", path[f],
+			      weight3d(sh));
+		}
+		ps3rsx_shadow_free(a);
+		ps3rsx_shadow_free(b);
+	}
+
+	/* 3. from a host method (0xfc): words to 0x100-0x1ffc count, the last 61 would be past it */
+	w[4] = HDR(2047, 0xfc);
+	{
+		struct ps3rsx_shadow *a = replay(w, n, false), *b = replay(w, n, true);
+
+		CHECK(same(a, b), "ring: a host-method burst past 0x1ffc: the replays differ");
+		CHECK(reg3d(a, 0x1ffc) == w[5 + (0x1ffc - 0xfc) / 4] && reg3d(a, 0x200) == w[5 + 0x41],
+		      "ring: a host-method burst past 0x1ffc: wrong words at 0x200 or 0x1ffc");
+		ps3rsx_shadow_free(a);
+		ps3rsx_shadow_free(b);
+	}
+
+	/* 4. a copy object's burst past its methods (the scaled image on subchannel 7) */
+	w[1] = 0x3137af00;
+	w[2] = HDR(1, 0x300);
+	w[3] = 0x1234;
+	w[4] = NONINC | HDR(2047, 0x300);
+	vs_reset(&vs);
+	CHECK(ps3rsx_validate(&vs, w, n) == 0, "ring: the scaled image's formats refused (%s)",
+	      last_warn);
+	w[4] = HDR(2047, 0x300);
+	{
+		struct ps3rsx_shadow *a = replay(w, n, false), *b = replay(w, n, true);
+
+		CHECK(same(a, b) && !weight3d(a) &&
+		      bitmap_weight(a->reg2d_set, NOBJ * NREG_2D) == (0x410 - 0x300) / 4 - 1,
+		      "ring: a copy object's burst past its methods: %u 2D registers set",
+		      bitmap_weight(a->reg2d_set, NOBJ * NREG_2D));
+		ps3rsx_shadow_free(a);
+		ps3rsx_shadow_free(b);
+	}
+
+	/* 5. the entry points with what no header holds (callers mask the header's fields, kcopy
+	 * writes its own methods): a method past 0x1ffc, a count past 0x7ff change nothing; 0x1ffc
+	 * itself takes one word */
+	for (f = 0; f < 2; f++) {
+		struct ps3rsx_shadow *sh = ps3rsx_shadow_new(), *ref = ps3rsx_shadow_new();
+		static u32 v[0x1000] = { 1, 2, 3, 4 };
+
+		ps3rsx_shadow_write(sh, 7, 0, 0x31337000);
+		memcpy(ref, sh, sizeof(*sh));
+		*test_param_shadow_fast = f;
+		ps3rsx_shadow_burst(sh, 7, 0x10000, false, v, 4);
+		ps3rsx_shadow_burst(sh, 7, 0x10000, true, v, 4);
+		CHECK(same(sh, ref), "ring: a burst at method 0x10000 (%s) changed the shadow", path[f]);
+		ps3rsx_shadow_burst(sh, 7, 0x1ff0, false, v, 0x1000);
+		CHECK(weight3d(sh) == 0, "ring: a burst of 0x1000 words (%s) changed the shadow", path[f]);
+		ps3rsx_shadow_write(sh, 7, 0x4000 + 4 * f, 5);
+		CHECK(same(sh, ref), "ring: a write to method %#x changed the shadow", 0x4000 + 4 * f);
+		ps3rsx_shadow_burst(sh, 7, 0x1ffc, false, v, 4);
+		*test_param_shadow_fast = false;
+		CHECK(weight3d(sh) == 1 && reg3d(sh, 0x1ffc) == 1,
+		      "ring: a burst at 0x1ffc (%s): %u 3D registers set, expected 1", path[f],
+		      weight3d(sh));
+		ps3rsx_shadow_free(sh);
+		ps3rsx_shadow_free(ref);
+	}
+
+	/* 6. mpv's frame (it passed the validator above) with 1-8 of its headers changed after
+	 * the check: any count, subchannel, method and increment, now and then any word */
+	{
+		const u32 n0 = ARRAY_SIZE(mpv_init), n1 = ARRAY_SIZE(mpv_frame1_0052);
+		u32 hdr[ARRAY_SIZE(mpv_frame1_0052)], nh = 0, i, it, diff = 0;
+		static u32 fr[ARRAY_SIZE(mpv_frame1_0052)];
+
+		for (i = 0; i < n1; i += 1 + ((mpv_frame1_0052[i] >> 18) & 0x7ff))
+			hdr[nh++] = i;
+		for (it = 0; it < 3000; it++) {
+			struct ps3rsx_shadow *a, *b;
+
+			memcpy(fr, mpv_frame1_0052, sizeof(fr));
+			for (k = 1 + ring_rnd() % 8; k--; ) {
+				u32 at = hdr[ring_rnd() % nh], r = ring_rnd();
+
+				if (r % 16 == 0)
+					fr[ring_rnd() % n1] = ring_rnd() << 16 | ring_rnd();
+				else
+					fr[at] = (r & 1 ? NONINC : 0) |
+						 (r & 2 ? 0x7c0 + ring_rnd() % 64 : ring_rnd() % 0x800) << 18 |
+						 (ring_rnd() % 8) << 13 |
+						 (r & 4 ? 0x1f00 + 4 * (ring_rnd() % 64) : 4 * (ring_rnd() % 0x800));
+			}
+			a = ps3rsx_shadow_new();
+			b = ps3rsx_shadow_new();
+			*test_param_shadow_fast = false;
+			ps3rsx_shadow_push(a, mpv_init, n0);
+			*test_param_shadow_fast = true;
+			ps3rsx_shadow_push(b, mpv_init, n0);
+			replay_into(a, fr, n1, false);
+			replay_into(b, fr, n1, true);
+			diff += !same(a, b);
+			ps3rsx_shadow_free(a);
+			ps3rsx_shadow_free(b);
+		}
+		CHECK(!diff, "ring: mpv's frame changed after validation: the replays differ in %u of 3000",
+		      diff);
+	}
+}
+
+/*
  * A wait for fences as GEM_PUSHBUF's SYNC and GEM_CPU_PREP return it (src/wait.h): a fence a
  * wedge ended (-EIO, exec.c's fences_update(), the wait returning with jiffies left) is an error,
  * not "done". Session M: the RT_ENABLE 0x12 push wedged the RSX and its SYNC returned 0.
@@ -1132,6 +1363,7 @@ int main(int argc, char **argv)
 	allowlist_cases();
 	vtxtex_cases();
 	recover_cases();
+	ring_cases();
 	wait_cases();
 
 	printf("validate-test: %d checks, %d failed\n", checks, fails);
