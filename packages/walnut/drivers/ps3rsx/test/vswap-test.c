@@ -92,6 +92,7 @@ static void (*gap_hook)(const vs_u32 *pages, int n);	/* own pages: between two b
 static bool reuse_on = true;		/* vswap_reuse (X.reuse points here) */
 static int pool_chunks = NCH;		/* the chunks in the pool: slots are handed out from these only */
 static vs_u64 born[NCH], age_seq;	/* each chunk's age (vswap.c's vchunk.born, vs->seq) */
+static bool joined[NCH];		/* the chunk has joined the pool (vswap.c: slot_alloc's grow) */
 
 struct req { int failed; };
 
@@ -112,13 +113,13 @@ int vsx_hw_slot_alloc(void *hw, int last)
 	for (int n = 0; n < NSL; n++)
 		nused += used[n];
 	for (int n = 0; n < lim && nused < slot_cap; n++) {
-		int s = (next_free_hint + n) % lim, c = s / (int)VSX_SLOTS, cu = 0;
+		int s = (next_free_hint + n) % lim, c = s / (int)VSX_SLOTS;
 
 		if (!used[s] && c != evicting) {
-			for (int k = 0; k < (int)VSX_SLOTS; k++)
-				cu += used[c * VSX_SLOTS + k];
-			if (!cu)
-				born[c] = ++age_seq;	/* an empty chunk joins (vswap.c: grown, or emptied) */
+			if (!joined[c]) {		/* the chunk joins the pool (vswap.c: the grow) */
+				joined[c] = true;
+				born[c] = ++age_seq;
+			}
 			vsx_chunk_used(&X, &born[c], &age_seq);
 			used[s] = 1;
 			next_free_hint = s + 1;
@@ -460,6 +461,7 @@ static void reset_model(void)
 	X.reuse = &reuse_on;
 	pool_chunks = NCH;
 	memset(born, 0, sizeof(born));
+	memset(joined, 0, sizeof(joined));
 	age_seq = 0;
 	X.npages = NPG;
 	X.next_ctr = 1;
@@ -548,6 +550,14 @@ static void evict_m(int c, int gpu, int own_pages)
 				vsx_set_disk(&X, wp[i]);
 		disk_complete(1);		/* then the held-back ones */
 		nw = 0;
+	}
+	{
+		int cu = 0;
+
+		for (int k = 0; k < (int)VSX_SLOTS; k++)
+			cu += used[c * VSX_SLOTS + k];
+		if (!cu)
+			born[c] = ++age_seq;	/* emptied by its write-back (chunk_evict); frees keep the age */
 	}
 	evicting = -1;
 	counts("write-back");
@@ -686,14 +696,18 @@ static void wb_free(const vs_u32 *pages, int n)
 }
 
 /* the mark and the apply on two threads: the notify marks with no lock and wakes nothing, the applier applies
- * whenever it likes (room needed); no mark lost, and at rest the count is exactly the marks waiting */
+ * whenever it likes (room needed) and flips vswap_reuse at random times (a flip at run time, possibly in the middle
+ * of a mark); no mark lost, a free made while it was off leaves its page as it is, and at rest the count is exactly
+ * the marks waiting */
 static int race_done;
+static unsigned char race_marked[NPG];
+static long race_on_total, race_off_total;	/* frees marked, frees made while off, over all rounds */
 static void *race_marker(void *arg)
 {
 	vs_u32 *order = arg;
 
 	for (int i = 0; i < NPG - 100; i++) {
-		vsx_free_mark(&X, order[i]);
+		race_marked[order[i]] = vsx_free_mark(&X, order[i]) != 0;
 		if (i % 37 == 0)
 			sched_yield();
 	}
@@ -705,10 +719,11 @@ static int race_round(void)
 {
 	static vs_u32 order[NPG];
 	pthread_t t;
-	int lost = 0, bits = 0;
+	int lost = 0, bits = 0, nmarked = 0, off_kept = 0;
 	long rest;
 
 	reset_model();
+	memset(race_marked, 0, sizeof(race_marked));
 	for (int p = 100; p < NPG; p++) {
 		map[p] = VSX_ON_DISK;
 		order[p - 100] = p;
@@ -723,21 +738,34 @@ static int race_round(void)
 	}
 	race_done = 0;
 	pthread_create(&t, NULL, race_marker, order);
-	while (!__atomic_load_n(&race_done, __ATOMIC_SEQ_CST))
+	while (!__atomic_load_n(&race_done, __ATOMIC_SEQ_CST)) {
 		if (rnd() % 3 == 0)
 			vsx_apply_frees(&X);	/* (vs->lock held: a short pool, the write-back, the demotion) */
+		if (rnd() % 7 == 0)		/* (vswap_reuse written through sysfs) */
+			__atomic_store_n(&reuse_on, !__atomic_load_n(&reuse_on, __ATOMIC_RELAXED), __ATOMIC_RELAXED);
+	}
 	pthread_join(t, NULL);
+	reuse_on = true;
 	for (unsigned int k = 0; k < sizeof(freed_bits) / sizeof(freed_bits[0]); k++)
 		bits += __builtin_popcountl(freed_bits[k]);
 	rest = vsx_frees_count(&X);
 	vsx_apply_frees(&X);			/* the next time room is needed */
-	for (int p = 100; p < NPG; p++)
-		lost += map[p] != 0;
+	for (int p = 100; p < NPG; p++) {
+		nmarked += race_marked[p];
+		if (race_marked[p])
+			lost += map[p] != 0;
+		else
+			off_kept += map[p] == VSX_ON_DISK;
+	}
 	CHECK(rest == bits && X.pending == 0, "marks racing the apply: %ld counted at rest for %d marks, %ld after",
 	      rest, bits, X.pending);
-	CHECK(!lost && X.on_disk == 0 && X.st.freed_disk == NPG - 100 && !vsx_frees_pending(&X),
-	      "marks racing the apply: %d lost, %u on disk, %llu applied", lost, X.on_disk,
-	      (unsigned long long)X.st.freed_disk);
+	CHECK(!lost && X.on_disk == (vs_u32)(NPG - 100 - nmarked) && X.st.freed_disk == (vs_u64)nmarked &&
+	      !vsx_frees_pending(&X), "marks racing the apply: %d lost, %u on disk, %llu applied of %d marked", lost,
+	      X.on_disk, (unsigned long long)X.st.freed_disk, nmarked);
+	CHECK(off_kept == NPG - 100 - nmarked, "marks racing the apply, the switch flipped: %d frees made while off "
+	      "left their page (%d marked)", off_kept, nmarked);
+	race_on_total += nmarked;
+	race_off_total += off_kept;
 	return lost;
 }
 
@@ -1429,9 +1457,12 @@ int main(void)
 	{
 		int lost = 0;
 
+		race_on_total = race_off_total = 0;
 		for (i = 0; i < 200; i++)
 			lost += race_round();
 		CHECK(!lost, "200 rounds of marks racing the apply: %d lost", lost);
+		CHECK(race_on_total > 1000 && race_off_total > 1000, "200 rounds racing the switch: %ld frees marked, %ld "
+		      "made while off (both ways covered)", race_on_total, race_off_total);
 	}
 
 	/* --- the marks applied lazily (vswap_core.h "Frees") --- */
@@ -1588,6 +1619,64 @@ int main(void)
 				       "age order") == 0;
 		CHECK(ok, "age order %d: every page reads as it should", off);
 		counts("age order");
+	}
+	/* reuse off, chunk 0 emptied whole by discards, 88 new pages into it: its age stays the one at join (only
+	 * the grow and the write-back's empty set it, as vswap.c), so the demotion takes it, new pages and all, as on
+	 * 0.1534 */
+	{
+		int v, in0 = 0, ok = 1;
+
+		reset_model();
+		reuse_on = false;
+		pool_chunks = 2;
+		next_free_hint = 0;
+		for (i = 0; i < 512; i += 32)
+			wr(p, seq(i, 32, p), 0, VSX_PAGE);
+		for (i = 0; i < 256; i++) {
+			vsx_discard(&X, i);
+			memset(truth[i], 0, VSX_PAGE);
+		}
+		for (i = 512; i < 600; i += 32)
+			wr(p, seq(i, i + 32 <= 600 ? 32 : 600 - i, p), 0, VSX_PAGE);
+		for (i = 512; i < 600; i++)
+			in0 += vsx_in_vram(map[i]) && map[i] - 1 < VSX_SLOTS;
+		v = demote_victim();
+		CHECK(in0 == 88 && v == 0 && born[0] < born[1], "reuse off: chunk 0 emptied by discards and refilled (%d "
+		      "new pages) keeps its age at join, the demotion takes it (victim %d, ages %llu %llu)", in0, v,
+		      (unsigned long long)born[0], (unsigned long long)born[1]);
+		for (i = 0; i < 600; i += 32)
+			ok &= rd_check((seq(i, i + 32 <= 600 ? 32 : 600 - i, p), p), i + 32 <= 600 ? 32 : 600 - i, 0, VSX_PAGE,
+				       "age at join") == 0;
+		CHECK(ok, "reuse off, chunk 0 refilled: every page reads as it should");
+		counts("age at join");
+		reuse_on = true;
+	}
+	/* reuse off, chunk 0 emptied by its write-back (chunk_evict) and refilled: a new age (vswap.c: the empty
+	 * branch), so the demotion now takes chunk 1 */
+	{
+		int v, in0 = 0;
+
+		reset_model();
+		reuse_on = false;
+		pool_chunks = 2;
+		next_free_hint = 0;
+		for (i = 0; i < 512; i += 32)
+			wr(p, seq(i, 32, p), 0, VSX_PAGE);
+		evict(0, 1);
+		disk_complete(1);
+		for (i = 512; i < 600; i += 32)
+			wr(p, seq(i, i + 32 <= 600 ? 32 : 600 - i, p), 0, VSX_PAGE);
+		for (i = 512; i < 600; i++)
+			in0 += vsx_in_vram(map[i]) && map[i] - 1 < VSX_SLOTS;
+		v = demote_victim();
+		CHECK(in0 == 88 && v == 1 && born[0] > born[1], "reuse off: chunk 0 written back whole and refilled (%d new "
+		      "pages) gets a new age, the demotion takes chunk 1 (victim %d, ages %llu %llu)", in0, v,
+		      (unsigned long long)born[0], (unsigned long long)born[1]);
+		CHECK(rd_check((seq(0, 32, p), p), 32, 0, VSX_PAGE, "age after write-back") == 0 &&
+		      rd_check((seq(512, 32, p), p), 32, 0, VSX_PAGE, "age after write-back") == 0,
+		      "reuse off, chunk 0 written back: its old pages read from the disk, the new ones from VRAM");
+		counts("age after write-back");
+		reuse_on = true;
 	}
 	pool_chunks = NCH;
 

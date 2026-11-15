@@ -100,6 +100,17 @@ elif ! awk '/^static void vswap_demote_work\(/,/^}/' ../src/vswap.c | grep -q 'v
 else
 	echo "vswap.c: slot_alloc sets the chunk's age through vsx_chunk_used, the demotion takes the lowest"
 fi
+# the age is otherwise set only where the model sets it: slot_alloc's grow (before found:) and chunk_evict's empty
+# branch; nowhere else in vswap.c
+if ! awk '/^static int slot_alloc\(/,/^found:/' ../src/vswap.c | grep -q 'c->born = ++vs->seq;'; then
+	echo "!! vswap.c slot_alloc: the grow doesn't set the new chunk's age"; bad=1
+elif ! awk '/^static .*chunk_evict\(/,/^}/' ../src/vswap.c | awk '/} else if \(empty\) \{/ { e = NR } /c->born = \+\+vs->seq;/ && e && NR == e + 1 { ok = 1 } END { exit !ok }'; then
+	echo "!! vswap.c chunk_evict: emptying a chunk doesn't give it a new age"; bad=1
+elif [ "$(grep -c 'born = ' ../src/vswap.c)" != 2 ]; then
+	echo "!! vswap.c: a chunk's age is set somewhere the model doesn't know ($(grep -c 'born = ' ../src/vswap.c) places)"; bad=1
+else
+	echo "vswap.c: a chunk's age is set at the grow and when its write-back empties it, as the model does"
+fi
 # chunk_evict drops what changed since its open (vsx_writeback_keep, the model's rule) right before it sets
 # wb_pages, the only place it does, with no unlock between the two
 if awk '/^static bool chunk_evict\(/,/^}/' ../src/vswap.c | awk '
