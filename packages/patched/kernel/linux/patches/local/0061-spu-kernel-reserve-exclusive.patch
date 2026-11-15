@@ -1,0 +1,117 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Sun, 15 Nov 2026 02:31:00 +0200
+Subject: powerpc/cell: a kernel driver's SPE is an exclusive one with enum_shared=1
+
+With spu_base.enum_shared=1 (ps3/0100), ps3_enumerate_spus also creates
+lv1's shared SPE, which lv1 may preempt, saving its local store where a
+kernel driver can't clear it. Once the SPE exists nothing records its
+resource type, so local/0058's spu_kernel_reserve() took no SPE at all
+on such a boot.
+
+- struct spu gets "shared"; ps3_enumerate_spus marks the SPE it creates
+  for a resource that isn't PS3_SPU_RESOURCE_TYPE_EXCLUSIVE (an
+  __initdata flag around the create call, read by ps3_create_spu), and
+  the boot log names it ("spuN: lv1's shared SPE").
+- spu_kernel_reserve() skips a shared SPE like one with a context, and
+  takes an exclusive one on any boot. With enum_shared=1 the kernel then
+  holds one exclusive SPE and spufs has the other five and the shared
+  one: six for user space.
+
+With enum_shared=0 no SPE is shared, the flag is never set, and reserve
+takes the same SPE as before. No new hypervisor call.
+
+Forwarded: no
+---
+diff --git a/arch/powerpc/include/asm/spu.h b/arch/powerpc/include/asm/spu.h
+--- a/arch/powerpc/include/asm/spu.h
++++ b/arch/powerpc/include/asm/spu.h
+@@ -158,6 +158,7 @@ struct spu {
+ 	enum { SPU_FREE, SPU_USED } alloc_state;
+ 	enum spu_kernel_state kernel_state;
+ 	struct module *kernel_owner;	/* the reserving driver's (spu_kernel_ops.owner) */
++	bool shared;			/* PS3: lv1's shared SPE (spu_base.enum_shared=1), which lv1 may preempt */
+ 	int number;
+ 	unsigned int irqs[3];
+ 	u32 node;
+diff --git a/arch/powerpc/platforms/cell/spu_base.c b/arch/powerpc/platforms/cell/spu_base.c
+--- a/arch/powerpc/platforms/cell/spu_base.c
++++ b/arch/powerpc/platforms/cell/spu_base.c
+@@ -494,7 +494,9 @@ EXPORT_SYMBOL_GPL(spu_init_channels);
+  *   an SPE to schedule, preempt or notify (spu_get_idle, find_victim,
+  *   do_notify_spus_active), and stays SPU_USED, which is all the affinity
+  *   walk through aff_list checks.  Only an SPE that is SPU_FREE with no
+- *   context is taken, never one find_victim has unbound but kept SPU_USED.
++ *   context is taken, never one find_victim has unbound but kept SPU_USED,
++ *   and never lv1's shared SPE (spu->shared, only with enum_shared=1): lv1
++ *   may preempt it and save its LS where the driver can't clear it.
+  *   It is taken off with list_del_rcu(), not list_del_init(): spusched_thread
+  *   drops list_mutex with its cursor parked on an SPE and goes on from that
+  *   SPE's ->next, which must still lead back to the list head.
+@@ -785,7 +787,7 @@ static void spu_kernel_unreserve(struct spu *spu)
+  * running, its outbound mailboxes empty, every interrupt class masked with
+  * its status clear, and @ops installed; none of @ops runs before this
+  * returns.  Or ERR_PTR: -EINVAL (@ops incomplete or of another size),
+- * -EBUSY (no free SPE: a node's last SPE is never taken, nor any with enum_shared=1),
++ * -EBUSY (no free SPE: a node's last SPE is never taken, nor lv1's shared one),
+  * -EIO (the SPE taken didn't reset; it is either back with spufs or, if it
+  * wasn't quiet, kept from it; don't retry), -ESHUTDOWN.  Process context;
+  * it sleeps for the grace period.
+@@ -805,11 +807,6 @@ struct spu *spu_kernel_reserve_v1(const struct spu_kernel_ops *ops, size_t ops_s
+ 	ret = -ESHUTDOWN;
+ 	if (spu_kernel_down)
+ 		goto out;
+-	ret = -EBUSY;
+-	/* enum_shared=1 adds lv1's shared SPE, which lv1 may preempt, saving its LS
+-	 * where the driver can't clear it: no SPE is reserved on such a boot */
+-	if (spu_enum_shared())
+-		goto out;
+ 	for (node = 0; node < MAX_NUMNODES && !spu; node++) {
+ 		mutex_lock(&cbe_spu_info[node].list_mutex);
+ 		list_for_each_entry(s, &cbe_spu_info[node].spus, cbe_list) {
+@@ -817,7 +814,9 @@ struct spu *spu_kernel_reserve_v1(const struct spu_kernel_ops *ops, size_t ops_s
+ 			 * entry without the lock, so the list must never be empty */
+ 			if (cbe_spu_info[node].n_spus <= 1)
+ 				break;
+-			if (s->alloc_state != SPU_FREE || s->ctx ||
++			/* never lv1's shared SPE (enum_shared=1): lv1 may preempt it, saving
++			 * its LS where the driver can't clear it */
++			if (s->alloc_state != SPU_FREE || s->ctx || s->shared ||
+ 			    s->kernel_state != SPU_KERNEL_NONE ||
+ 			    (in_be32(&s->problem->spu_status_R) & SPU_KERNEL_ISOLATED))
+ 				continue;
+diff --git a/arch/powerpc/platforms/ps3/spu.c b/arch/powerpc/platforms/ps3/spu.c
+--- a/arch/powerpc/platforms/ps3/spu.c
++++ b/arch/powerpc/platforms/ps3/spu.c
+@@ -331,6 +331,9 @@ static int ps3_destroy_spu(struct spu *spu)
+ 	return 0;
+ }
+ 
++/* ps3_enumerate_spus is creating an SPE that isn't exclusive (spu_base.enum_shared=1) */
++static bool ps3_creating_shared_spu __initdata;
++
+ static int __init ps3_create_spu(struct spu *spu, void *data)
+ {
+ 	int result;
+@@ -346,6 +349,11 @@ static int __init ps3_create_spu(struct spu *spu, void *data)
+ 	}
+ 
+ 	spu_pdata(spu)->resource_id = (unsigned long)data;
++	if (ps3_creating_shared_spu) {
++		spu->shared = true;	/* spu_kernel_reserve never takes it */
++		pr_info("spu%d: lv1's shared SPE (resource %lu)\n", spu->number,
++			(unsigned long)data);
++	}
+ 
+ 	/* Init cached reg values to HV defaults. */
+ 
+@@ -403,7 +411,9 @@ static int __init ps3_enumerate_spus(int (*fn)(void *data))
+ 			break;
+ 
+ 		if (resource_type == PS3_SPU_RESOURCE_TYPE_EXCLUSIVE || spu_enum_shared()) {
++			ps3_creating_shared_spu = resource_type != PS3_SPU_RESOURCE_TYPE_EXCLUSIVE;
+ 			result = fn((void*)(unsigned long)resource_id);
++			ps3_creating_shared_spu = false;
+ 
+ 			if (result)
+ 				break;

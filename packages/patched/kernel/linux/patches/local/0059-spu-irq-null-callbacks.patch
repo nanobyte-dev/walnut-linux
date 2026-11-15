@@ -1,0 +1,74 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Sun, 15 Nov 2026 02:30:00 +0200
+Subject: powerpc/cell: no SPE interrupt callback is called while it is NULL
+
+spufs's spu_unbind_context sets all four of an SPE's interrupt
+callbacks to NULL, and spu_irq_class_0 calls stop_callback without a
+test, even with no status pending. lv1 can deliver an SPE interrupt
+after the SPU was seen stopped (local/0058 saw such late deliveries),
+so a class 0 interrupt that reaches an SPE between an unbind and the
+next bind is a NULL call in hard interrupt context. The class 1 path
+(__spu_trap_data_map) and the class 2 handler call theirs only for a
+status bit that is unmasked and set, but nothing else keeps them from
+NULL either.
+
+Each call in spu_base.c's handlers is now made only when the callback
+isn't NULL, tested under register_lock, which spufs's bind and unbind
+also hold when they set the callbacks. With no context bound there is
+nobody to tell: spufs_stop_callback itself does nothing when spu->ctx
+is NULL, and the status is cleared as before. A handler that finds its
+callback set runs exactly as it did.
+
+Forwarded: no
+---
+diff --git a/arch/powerpc/platforms/cell/spu_base.c b/arch/powerpc/platforms/cell/spu_base.c
+--- a/arch/powerpc/platforms/cell/spu_base.c
++++ b/arch/powerpc/platforms/cell/spu_base.c
+@@ -206,7 +206,8 @@ static int __spu_trap_data_map(struct spu *spu, unsigned long ea, u64 dsisr)
+ 	spu->class_1_dar = ea;
+ 	spu->class_1_dsisr = dsisr;
+ 
+-	spu->stop_callback(spu, 1);
++	if (spu->stop_callback)
++		spu->stop_callback(spu, 1);
+ 
+ 	spu->class_1_dar = 0;
+ 	spu->class_1_dsisr = 0;
+@@ -298,7 +299,10 @@ spu_irq_class_0(int irq, void *data)
+ 
+ 	spu->class_0_pending |= stat;
+ 	spu->class_0_dar = spu_mfc_dar_get(spu);
+-	spu->stop_callback(spu, 0);
++	/* NULL while no context is bound (spufs's unbind), and lv1 can deliver
++	 * a class 0 interrupt after that with nothing pending */
++	if (spu->stop_callback)
++		spu->stop_callback(spu, 0);
+ 	spu->class_0_pending = 0;
+ 	spu->class_0_dar = 0;
+ 
+@@ -367,19 +371,19 @@ spu_irq_class_2(int irq, void *data)
+ 
+ 	pr_debug("class 2 interrupt %d, %lx, %lx\n", irq, stat, mask);
+ 
+-	if (stat & CLASS2_MAILBOX_INTR)
++	if ((stat & CLASS2_MAILBOX_INTR) && spu->ibox_callback)
+ 		spu->ibox_callback(spu);
+ 
+-	if (stat & CLASS2_SPU_STOP_INTR)
++	if ((stat & CLASS2_SPU_STOP_INTR) && spu->stop_callback)
+ 		spu->stop_callback(spu, 2);
+ 
+-	if (stat & CLASS2_SPU_HALT_INTR)
++	if ((stat & CLASS2_SPU_HALT_INTR) && spu->stop_callback)
+ 		spu->stop_callback(spu, 2);
+ 
+-	if (stat & CLASS2_SPU_DMA_TAG_GROUP_COMPLETE_INTR)
++	if ((stat & CLASS2_SPU_DMA_TAG_GROUP_COMPLETE_INTR) && spu->mfc_callback)
+ 		spu->mfc_callback(spu);
+ 
+-	if (stat & CLASS2_MAILBOX_THRESHOLD_INTR)
++	if ((stat & CLASS2_MAILBOX_THRESHOLD_INTR) && spu->wbox_callback)
+ 		spu->wbox_callback(spu);
+ 
+ 	spu->stats.class2_intr++;

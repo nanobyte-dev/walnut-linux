@@ -1,14 +1,19 @@
 #!/bin/bash
 # spu-kernel-reserve.sh: local/0058 (spu_kernel_reserve, spu_kernel_reset, spu_kernel_ls_decode,
 # spu_kernel_release, the "reserved" sysfs attribute, the reboot notifier) on the host.
+# With local/0059 (spu_base's interrupt handlers skip a NULL callback) and local/0061 (with enum_shared=1
+# reserve takes an exclusive SPE, never lv1's shared one: struct spu's "shared", set by ps3/spu.c).
 #  1. The patch: only spu_base.c and asm/spu.h; no hypervisor call added (no lv1_ in an added line, and
 #     the block calls only the priv1 operations and spu_base helpers on its list); the four functions
 #     exported GPL and nothing non-GPL; nothing in the block allocates or loads firmware;
 #     no callback is ever set to NULL; init_spu_base calls spu_kernel_init; the series carries it.
 #  2. The config: CONFIG_SPUISO_FS and CONFIG_SPULDR_FS stay unset (package.conf's REQUIRE_UNSET names
 #     both, no fragment turns them on, and tools/linux-config-check.sh refuses a config that has them).
+#     0059: only spu_base.c, every callback call in its handlers behind a NULL test, nothing else removed.
+#     0061: only asm/spu.h, spu_base.c and ps3/spu.c, no lv1_ added; ps3/spu.c marks only an SPE created
+#     for a resource that isn't exclusive, the flag cleared after each create; both in the series after 0058.
 #  3. The block between the patch's "SPEs reserved for a kernel driver" markers, taken from the patch as
-#     it is, compiled with spu-kernel-reserve-test.c (a model of six SPEs, PS3's priv1 operations,
+#     it is with 0061's spu_base.c part applied to it (patch(1)), compiled with spu-kernel-reserve-test.c (a model of six SPEs, PS3's priv1 operations,
 #     spu_base's interrupt handlers and spufs's list walks): plain with -Werror, then ASan/UBSan.
 #  4. Fix-offs: one of the reserve rules turned off at a time in a copy of the block (a literal edit
 #     that must match exactly once); each build must fail with the FAIL line given for it.
@@ -18,13 +23,20 @@ set -u
 cd "$(dirname "$0")/../../../../.." || exit 1
 KD=packages/patched/kernel/linux
 P=$KD/patches/local/0058-spu-kernel-reserve.patch
+P59=$KD/patches/local/0059-spu-irq-null-callbacks.patch
+P61=$KD/patches/local/0061-spu-kernel-reserve-exclusive.patch
 TEST=$PWD/$KD/tests/spu-kernel-reserve-test.c
 O=$PWD/build/tmp/tests/spu-kernel-reserve
 command -v gcc >/dev/null || { echo "skip: no gcc"; exit 77; }
+command -v patch >/dev/null || { echo "FAIL: no patch(1)"; exit 1; }
 rm -rf "$O"; mkdir -p "$O"
 fail=0 nok=0 noff=0
 ok() { echo "ok: $1"; nok=$((nok + 1)); }
 bad() { echo "FAIL: $1"; fail=1; }
+for f in "$P59" "$P61"; do [ -f "$f" ] || { echo "FAIL: no $f"; exit 1; }; done
+part() {	# part PATCH FILE: that file's diff in PATCH
+	awk -v want="$2" '/^diff --git / { file = $3; sub(/^a\//, "", file) } file == want' "$1"
+}
 
 # --- 1. the patch ---------------------------------------------------------------------------------
 [ -f "$P" ] || { echo "FAIL: no $P"; exit 1; }
@@ -41,6 +53,48 @@ grep -qx '+#define SPU_KERNEL_API_VERSION 1' "$P" && grep -qx '+	return spu_kern
 	&& ok "the exported reserve carries the API version, the header's wrapper passes the size" || bad "no versioned reserve"
 grep -qx '+	spu_kernel_init();' "$P" && ok "init_spu_base calls spu_kernel_init" || bad "spu_kernel_init not called"
 grep -qx 'local/0058-spu-kernel-reserve.patch' $KD/patches/series && ok "the series carries 0058" || bad "0058 not in the series"
+order=$(grep -nxE 'local/(0058-spu-kernel-reserve|0059-spu-irq-null-callbacks|0061-spu-kernel-reserve-exclusive)\.patch' $KD/patches/series | cut -d: -f2 | tr '\n' ' ')
+[ "$order" = "local/0058-spu-kernel-reserve.patch local/0059-spu-irq-null-callbacks.patch local/0061-spu-kernel-reserve-exclusive.patch " ] \
+	&& ok "the series carries 0059 and 0061 after 0058" || bad "the series order of 0058, 0059, 0061: $order"
+
+# --- 1b. local/0059: no callback called while NULL --------------------------------------------------
+files=$(sed -n 's|^diff --git a/\([^ ]*\) b/.*|\1|p' "$P59" | sort -u | tr '\n' ' ')
+[ "$files" = "arch/powerpc/platforms/cell/spu_base.c " ] && ok "0059 touches only spu_base.c" || bad "0059 touches: $files"
+grep -qE '^\+.*\blv1_' "$P59" && bad "0059 adds an lv1 call" || ok "0059 adds no hypervisor call"
+# the new side of its hunks: each call of a callback follows a test of that callback on its line or the one before
+awk '/^@@/ { on = 1; prev = ""; next } on && /^[ +]/ {
+		line = substr($0, 2)
+		if (match(line, /spu->(stop|ibox|wbox|mfc)_callback\(/)) {
+			cb = substr(line, RSTART, RLENGTH - 1); calls++
+			if (index(prev, "&& " cb ")") || index(prev, "if (" cb ")")) guarded++
+			else print "unguarded: " line
+		}
+		prev = line }
+	END { print "calls " calls + 0 " guarded " guarded + 0 }' "$P59" > "$O/0059-calls.txt"
+if grep -q '^unguarded' "$O/0059-calls.txt" || ! grep -qx 'calls 7 guarded 7' "$O/0059-calls.txt"; then
+	bad "0059: $(tr '\n' ';' < "$O/0059-calls.txt")"
+else ok "0059: the 7 callback calls in the class 0, 1 and 2 paths are each behind a NULL test"; fi
+# what it removes: only the unguarded call or its if line, each replaced
+rm59=$(grep -E '^-[^-]' "$P59" | grep -vcE '^-	(spu->stop_callback\(spu, [01]\);|if \(stat & CLASS2_[A-Z_]+\))$')
+[ "$rm59" = 0 ] && ok "0059 removes nothing but the unguarded calls" || bad "0059 removes $rm59 other lines"
+
+# --- 1c. local/0061: the shared SPE is marked, and only it -----------------------------------------
+files=$(sed -n 's|^diff --git a/\([^ ]*\) b/.*|\1|p' "$P61" | sort -u | tr '\n' ' ')
+[ "$files" = "arch/powerpc/include/asm/spu.h arch/powerpc/platforms/cell/spu_base.c arch/powerpc/platforms/ps3/spu.c " ] \
+	&& ok "0061 touches only asm/spu.h, spu_base.c and ps3/spu.c" || bad "0061 touches: $files"
+grep -qE '^\+.*\blv1_' "$P61" && bad "0061 adds an lv1 call" || ok "0061 adds no hypervisor call"
+part "$P61" arch/powerpc/platforms/ps3/spu.c > "$O/0061-ps3.diff"
+grep -qx '+static bool ps3_creating_shared_spu __initdata;' "$O/0061-ps3.diff" \
+	&& ok "0061: the flag is init data, false until set" || bad "0061: no __initdata flag"
+grep -A2 -x '+			ps3_creating_shared_spu = resource_type != PS3_SPU_RESOURCE_TYPE_EXCLUSIVE;' "$O/0061-ps3.diff" |
+	tr '\n' '|' | grep -qxF '+			ps3_creating_shared_spu = resource_type != PS3_SPU_RESOURCE_TYPE_EXCLUSIVE;| 			result = fn((void*)(unsigned long)resource_id);|+			ps3_creating_shared_spu = false;|' \
+	&& ok "0061: set from the resource type right before the create, cleared right after" \
+	|| bad "0061: the flag isn't set and cleared around fn()"
+[ "$(grep -c 'ps3_creating_shared_spu = ' "$O/0061-ps3.diff")" = 2 ] && [ "$(grep -c 'shared = true' "$P61")" = 1 ] &&
+	grep -B1 -x '+		spu->shared = true;	/\* spu_kernel_reserve never takes it \*/' "$O/0061-ps3.diff" | grep -qx '+	if (ps3_creating_shared_spu) {' \
+	&& ok "0061: spu->shared is set in one place, only for the SPE being created as shared" \
+	|| bad "0061: spu->shared is set elsewhere or unconditionally"
+part "$P61" arch/powerpc/include/asm/spu.h | grep -qE '^\+	bool shared;' && ok "0061: struct spu has shared" || bad "0061: no struct spu field"
 
 # the two parts, as the patch adds them
 awk -v want=arch/powerpc/platforms/cell/spu_base.c '
@@ -55,6 +109,13 @@ awk -v want=arch/powerpc/include/asm/spu.h '
 	on && /^\+\/\* --- end of SPEs reserved for a kernel driver --- \*\/$/ { on = 0 }' "$P" > "$O/spu-h.h"
 [ -s "$O/block.c" ] && [ -s "$O/spu-h.h" ] || { echo "FAIL: the marked parts are not in $P"; exit 1; }
 grep -q 'end of SPEs reserved' "$O/block.c" || { echo "FAIL: the block's end marker is missing"; exit 1; }
+# local/0061's spu_base.c part goes on the block (all its hunks are inside it): the model tests what ships
+part "$P61" arch/powerpc/platforms/cell/spu_base.c > "$O/0061-spu_base.diff"
+if patch -s -F0 --no-backup-if-mismatch "$O/block.c" < "$O/0061-spu_base.diff" > "$O/patch61.log" 2>&1; then
+	ok "0061's spu_base.c part applies to 0058's block"
+else sed 's/^/    /' "$O/patch61.log"; echo "FAIL: 0061's spu_base.c part doesn't apply to 0058's block"; exit 1; fi
+grep -q 'spu_enum_shared' "$O/block.c" && bad "the block still refuses by spu_enum_shared() after 0061" \
+	|| ok "after 0061 the block doesn't refuse a whole boot by enum_shared"
 if grep -nE '\b(kmalloc|kzalloc|kcalloc|vmalloc|kvmalloc|devm_[a-z]+|alloc_pages?|__get_free_pages?|request_firmware[a-z_]*)\(|GFP_' "$O/block.c"; then
 	bad "the block allocates or loads firmware (the reset path must not)"
 else ok "nothing in the block allocates or loads firmware"; fi
@@ -62,7 +123,7 @@ if grep -nE '_callback = NULL' "$O/block.c"; then bad "a callback set to NULL"
 else ok "no callback is ever set to NULL"; fi
 # the spu_* calls the block makes outside itself: only these (the priv1 operations spufs uses, and
 # spu_base.c's own helpers); a new one must be added here on purpose
-allowed=" spu_add_dev_attr spu_associate_mm spu_enum_shared spu_init_channels spu_int_mask_set spu_int_stat_clear spu_invalidate_slbs spu_mfc_sr1_get spu_mfc_sr1_set spu_mfc_tclass_id_set "
+allowed=" spu_add_dev_attr spu_associate_mm spu_init_channels spu_int_mask_set spu_int_stat_clear spu_invalidate_slbs spu_mfc_sr1_get spu_mfc_sr1_set spu_mfc_tclass_id_set "
 defined=$(sed -nE 's/^(static )?[a-z_ ]+[ *]+(spu_[a-z0-9_]+)\(.*/\2/p' "$O/block.c" | sort -u | tr '\n' ' ')
 other=
 for f in $(grep -oE '\bspu_[a-z0-9_]+\(' "$O/block.c" | tr -d '(' | sort -u); do
@@ -146,8 +207,8 @@ off take-isolated "spu3, isolated" \
 	'(in_be32(&s->problem->spu_status_R) & SPU_KERNEL_ISOLATED))' '0)'
 off take-last "FAIL: the node's last SPE was reserved" \
 	"$T$T${T}if (cbe_spu_info[node].n_spus <= 1)$N$T$T$T${T}break;$N" ''
-off take-shared "FAIL: an SPE was reserved with enum_shared=1" \
-	"${T}if (spu_enum_shared())$N$T${T}goto out;$N" ''
+off take-shared "FAIL: lv1's shared SPE (spu5) was reserved" \
+	's->ctx || s->shared ||' 's->ctx ||'
 # the callbacks
 off callbacks-before-reset "FAIL: a driver callback ran during reserve" \
 	"${T}spu_kernel_mask_all(spu);$N${T}spu_kernel_set_callbacks(spu, NULL);$N${T}ret = __spu_kernel_reset(spu);" \

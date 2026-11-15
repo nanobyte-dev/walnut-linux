@@ -19,9 +19,9 @@ entry.
 
 **Why.** Linux gets 6 SPEs (`spu_base.enum_shared=0`), and the kernel reserves one for the VRAM swap:
 3 for libspeq's bulk DXT queue, 2 for the deadline pool (audio, skinning). A 7th would go to the pool or
-to DXT. On such a boot the kernel reserves no SPE today (the 7th is lv1's shared one, which lv1 may
-preempt), so the VRAM swap keeps nothing in VRAM there; moving its reservation to the shared SPE would
-need its own test. Nothing is written anywhere:
+to DXT. On such a boot the kernel reserves an exclusive SPE for the VRAM swap, never the 7th (lv1's
+shared one, which lv1 may preempt; kernel local/0061, built, not run on the PS3): libspeq gets 6, the
+shared one among them. Kernels before 0061 reserve none there. Nothing is written anywhere:
 the off switch is the other boot entry. It is the only hardware unlock on FLASH-SYSCON.md's list
 that costs nothing.
 

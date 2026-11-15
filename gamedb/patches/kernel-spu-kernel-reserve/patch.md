@@ -17,7 +17,8 @@ touches. `spu_base.c` gets four calls, exported GPL like the rest of the SPU API
 
 - `spu_kernel_reserve(ops)` takes an SPE that is `SPU_FREE` with no context, never the node's last one (spufs's
   affinity code reads the list's first entry without the lock), and none at all on a boot with
-  `spu_base.enum_shared=1` (lv1 may preempt its shared SPE and save the local store itself), off its node's list (the only
+  `spu_base.enum_shared=1` (lv1 may preempt its shared SPE and save the local store itself; local/0061 takes an
+  exclusive one there instead), off its node's list (the only
   list spufs schedules, preempts and notifies from) and keeps it `SPU_USED` (all the affinity walk checks).
   The entry goes with `list_del_rcu()`, which keeps `->next`: spusched_thread drops the list's mutex with
   its cursor parked on an SPE and goes on from there. It masks every interrupt class and resets the SPE

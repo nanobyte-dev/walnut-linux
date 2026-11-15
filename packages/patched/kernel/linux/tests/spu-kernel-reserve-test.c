@@ -1,7 +1,7 @@
 /* spu-kernel-reserve-test: local/0058's reserve, reset, LS decode, release and reboot code
  * (arch/powerpc/platforms/cell/spu_base.c, the block between its "SPEs reserved for a kernel
- * driver" markers) compiled in userspace against a model of six SPEs, spufs's list walks and
- * spu_base's interrupt handlers:
+ * driver" markers, with local/0061's change to it applied) compiled in userspace against a model
+ * of six SPEs, spufs's list walks and spu_base's interrupt handlers:
  *
  *  - the registers the block touches (run control and status, MFC control with its suspend,
  *    purge and queue-empty fields, SLB invalidate, LSLR, privileged control, NPC, the LS), and
@@ -177,6 +177,7 @@ struct spu {
 	enum { SPU_FREE, SPU_USED } alloc_state;
 	enum spu_kernel_state kernel_state;
 	struct module *kernel_owner;
+	bool shared;		/* lv1's shared SPE (local/0061; ps3/spu.c sets it with enum_shared=1) */
 	int number;
 	unsigned int irqs[3];
 	u32 node;
@@ -273,7 +274,7 @@ static void handler(struct hw *h, int c)
 
 	h->spu.register_lock.held = 1;
 	if (c == 0)
-		cb_stop(spu, 0);		/* unconditional in spu_irq_class_0 */
+		cb_stop(spu, 0);		/* with nothing pending too, as spu_irq_class_0 (NULL tested since local/0059) */
 	if (c == 1 && (stat & CLASS1_STORAGE_FAULT_INTR))
 		cb_stop(spu, 1);
 	if (c == 2) {
@@ -429,10 +430,6 @@ static int spu_add_dev_attr(struct device_attribute *a) { added_attr = a; return
 struct notifier_block { int (*notifier_call)(struct notifier_block *, unsigned long, void *); int priority; };
 static struct notifier_block *reboot_nb;
 static int register_reboot_notifier(struct notifier_block *nb) { reboot_nb = nb; return 0; }
-
-/* spu_base.enum_shared (spu_base.c, above the block) */
-static int enum_shared;
-static int spu_enum_shared(void) { return enum_shared; }
 
 /* the code under test */
 #include "block.c"
@@ -735,23 +732,53 @@ static void t_all_six(void)
 	CHECK(cbe_spu_info[0].n_spus == NSPE, "n_spus %d after releasing all", cbe_spu_info[0].n_spus);
 }
 
-/* enum_shared=1: one of the SPEs is lv1's shared one, which lv1 may preempt: nothing is reserved */
+/* an enum_shared=1 boot (local/0061): lv1's shared SPE, which lv1 may preempt, is never reserved
+ * and never touched, wherever it is on the list; an exclusive one is reserved instead. The block
+ * reads only spu->shared (ps3/spu.c sets it; here it is set by hand). With no SPE shared (an
+ * enum_shared=0 boot) the same SPE as before is taken. */
 static void t_shared(void)
 {
-	struct spu *s;
+	static const int at[] = { NSPE - 1, 2, 0 };	/* the list's first entry, one in the middle, the last */
+	struct spu *s[NSPE], *sh;
+	struct hw *h;
+	int n;
 
+	for (unsigned int k = 0; k < sizeof(at) / sizeof(at[0]); k++) {
+		boot();
+		sh = &hw[at[k]].spu;
+		sh->shared = true;
+		h = hw_of(sh);
+		for (n = 0; n < NSPE; n++) {
+			s[n] = reserve();
+			if (IS_ERR(s[n]))
+				break;
+			CHECK(s[n] != sh, "lv1's shared SPE (spu%d) was reserved", at[k]);
+			CHECK(!s[n]->shared, "a shared SPE was reserved");
+		}
+		CHECK(n == NSPE - 1, "shared spu%d: %d SPEs reserved, expected %d", at[k], n, NSPE - 1);
+		CHECK(n == NSPE || (IS_ERR(s[n]) && PTR_ERR(s[n]) == -EBUSY), "shared spu%d: the refusal isn't -EBUSY", at[k]);
+		if (at[k] == NSPE - 1 && n > 0)
+			CHECK(s[0] == &hw[NSPE - 2].spu, "shared spu%d first: reserve took spu%d, not spu%d",
+			      at[k], s[0]->number, NSPE - 2);
+		CHECK(cbe_spu_info[0].n_spus == 1 && cbe_spu_info[0].spus.next == &sh->cbe_list,
+		      "shared spu%d: the node's list doesn't hold just the shared SPE (n_spus %d)", at[k],
+		      cbe_spu_info[0].n_spus);
+		CHECK(spufs_sees(sh) && sh->alloc_state == SPU_FREE && sh->kernel_state == SPU_KERNEL_NONE &&
+		      !strcmp(sysfs(sh), "0\n"), "shared spu%d: not spufs's", at[k]);
+		CHECK(h->sr1 == 0x3b && h->sr1_writes == 0 && !ls_clear(h) && sh->stop_callback == spufs_stop,
+		      "shared spu%d: reserve touched it (SR1 %#llx, %d writes)", at[k],
+		      (unsigned long long)h->sr1, h->sr1_writes);
+		for (int i = 0; i < n; i++)
+			CHECK(spu_kernel_release(s[i]) == 0, "shared spu%d: release %d", at[k], i);
+		CHECK(cbe_spu_info[0].n_spus == NSPE, "n_spus %d after releasing with enum_shared=1",
+		      cbe_spu_info[0].n_spus);
+	}
+	/* enum_shared=0: no SPE is shared, reserve takes the list's first one as it always did */
 	boot();
-	enum_shared = 1;
-	s = reserve();
-	CHECK(IS_ERR(s) && PTR_ERR(s) == -EBUSY, "an SPE was reserved with enum_shared=1");
-	if (!IS_ERR(s))
-		spu_kernel_release(s);
-	CHECK(cbe_spu_info[0].n_spus == NSPE, "n_spus %d with enum_shared=1", cbe_spu_info[0].n_spus);
-	enum_shared = 0;
-	s = reserve();
-	CHECK(!IS_ERR(s), "no SPE reserved with enum_shared=0");
-	if (!IS_ERR(s))
-		CHECK(spu_kernel_release(s) == 0, "release after enum_shared=0");
+	s[0] = reserve();
+	CHECK(!IS_ERR(s[0]) && s[0] == &hw[NSPE - 1].spu, "enum_shared=0: reserve took another SPE");
+	if (!IS_ERR(s[0]))
+		CHECK(spu_kernel_release(s[0]) == 0, "release after enum_shared=0");
 }
 
 static void t_release(void)

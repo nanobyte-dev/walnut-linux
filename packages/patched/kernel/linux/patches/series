@@ -43,6 +43,11 @@
 #   period; given back only when proven quiet, else kept until reboot with the driver's module pinned; stub callbacks;
 #   /sys/devices/system/spu/spuN/reserved; a reboot notifier stops it and clears its LS. No new lv1 call. Host test:
 #   linux/tests/spu-kernel-reserve.sh.
+# local/0059: spu_base's interrupt handlers call an SPE's callbacks only when they aren't NULL (spufs's unbind sets them
+#   NULL, and lv1 can deliver a class 0 interrupt after that). Host test: linux/tests/spu-kernel-reserve.sh.
+# local/0061: with spu_base.enum_shared=1 the kernel driver's SPE is an exclusive one, never lv1's shared one (struct
+#   spu's "shared", set by ps3_enumerate_spus): spufs gets the other five and the shared one (D6). With
+#   enum_shared=0 nothing changes. (0060 is taken on the shelved/p4-containment branch.) Host test: the same.
 # Round 3 (2026-11-04): local/0007 parses ps3rsx_gart= and ps3rsx_cma= with a ceiling (a larger number, or one
 #   memparse wrapped, is clamped with a warning; a fixed reservation memblock can't give turns the GART off instead of
 #   panicking) and the parameters are __ro_after_init; local/0049's re-probe is cancelled in remove and shutdown;
@@ -119,3 +124,5 @@ local/0055-ps3fb-restrict-gpu-ioctls.patch
 local/0056-ps3fb-gpu-recovery.patch
 local/0057-ps3fb-gpu-released-busy.patch
 local/0058-spu-kernel-reserve.patch
+local/0059-spu-irq-null-callbacks.patch
+local/0061-spu-kernel-reserve-exclusive.patch
