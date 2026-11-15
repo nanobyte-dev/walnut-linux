@@ -78,16 +78,16 @@ elif ! awk '/^int vsx_hw_slot_alloc\(/,/^}/' ../src/vswap.c | grep -q 'maybe_dem
 else
 	echo "vswap.c: the free notify and vsx_free_mark only mark, io_work applies none, a demotion only after the marks"
 fi
-# slot reuse (vswap_reuse) is off by default and can be changed at run time; backing_store points the core at it
+# slot reuse (vswap_reuse) is on by default and can be changed at run time; backing_store points the core at it
 # before it publishes x->freed (the notify's acquire), so every mark and apply sees it
-if ! grep -q '^static bool vswap_reuse;' ../src/vswap.c || ! grep -q '^module_param(vswap_reuse, bool, 0644);' ../src/vswap.c; then
-	echo "!! vswap.c: vswap_reuse isn't a bool, off by default, writable at run time"; bad=1
+if ! grep -q '^static bool vswap_reuse = true;' ../src/vswap.c || ! grep -q '^module_param(vswap_reuse, bool, 0644);' ../src/vswap.c; then
+	echo "!! vswap.c: vswap_reuse isn't a bool, on by default, writable at run time"; bad=1
 elif ! awk '/^static ssize_t backing_store\(/,/^}/' ../src/vswap.c | awk '
 	/vs->x\.reuse = &vswap_reuse;/ { r = NR } /smp_store_release\(&vs->x\.freed/ { f = NR }
 	END { exit !(r && f && r < f) }'; then
 	echo "!! vswap.c backing_store: x.reuse not set before x->freed is published"; bad=1
 else
-	echo "vswap.c: vswap_reuse off by default, writable, set before the marks' bitmap is published"
+	echo "vswap.c: vswap_reuse on by default, writable, set before the marks' bitmap is published"
 fi
 # the age order: slot_alloc hands every slot out through its found: path, which tells the core (vsx_chunk_used, the
 # model's rule), and the demotion takes the lowest age

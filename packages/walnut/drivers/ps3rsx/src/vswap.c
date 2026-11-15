@@ -7,7 +7,7 @@
  * backing partition (the USB disk's swap partition), so the swap layer sees one device:
  *  - writes go to VRAM while the pool has room (1 MiB chunks from the CPU-visible VRAM heap,
  *    taken from its top end, at most vswap_vram_mb), else to the disk;
- *  - with slot reuse on (vswap_reuse, off by default), a page the swap layer frees gives its slot back:
+ *  - with slot reuse on (vswap_reuse, on by default), a page the swap layer frees gives its slot back:
  *    swap_slot_free_notify marks it (atomic context: a bit and a count, it wakes nothing), and the marks
  *    are applied under vs->lock only where room is needed: a write that finds the pool short and unable
  *    to grow, the demotion and the shrink before they choose, the write-back before it copies a page;
@@ -77,9 +77,9 @@ MODULE_PARM_DESC(vswap_gpu_min, "Swap-in pages per request from which the GPU co
 static unsigned int vswap_size_mb = 1024;
 module_param(vswap_size_mb, uint, 0444);
 MODULE_PARM_DESC(vswap_size_mb, "Swap device size (MiB, at most the backing partition's)");
-static bool vswap_reuse;
+static bool vswap_reuse = true;
 module_param(vswap_reuse, bool, 0644);
-MODULE_PARM_DESC(vswap_reuse, "Slot reuse: a swap page Linux frees gives its VRAM slot back (default off: it holds "
+MODULE_PARM_DESC(vswap_reuse, "Slot reuse: a swap page Linux frees gives its VRAM slot back (default on; off: it holds "
 		 "the slot until a rewrite, a discard or a write-back; can be changed at any time)");
 static unsigned int vswap_seal_lockout = VSX_LOCKOUT;
 module_param(vswap_seal_lockout, uint, 0444);

@@ -84,7 +84,7 @@ unload)
 	;;
 status)
 	echo "arm: $(which_arm); loaded: $([ -d /sys/module/ps3rsx ] && echo yes || echo no)"
-	for f in /sys/module/ps3rsx/parameters/*; do [ -r "$f" ] && echo "  ${f##*/}=$(cat "$f")"; done 2>/dev/null | grep -E 'test_clear_off|test_reuse_off|test_gart_wait_off|vswap_vram_mb|ctxsw|dry_run' || true
+	for f in /sys/module/ps3rsx/parameters/*; do [ -r "$f" ] && echo "  ${f##*/}=$(cat "$f")"; done 2>/dev/null | grep -E 'test_clear_off|test_reuse_off|test_gart_wait_off|vswap_vram_mb|vswap_reuse|ctxsw|dry_run' || true
 	;;
 A|B|C|D)
 	arm=$1; shift

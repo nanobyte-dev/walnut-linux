@@ -1514,7 +1514,7 @@ int main(void)
 	counts("short pool end");
 	slot_cap = NSL;
 
-	/* --- slot reuse off (vswap_reuse 0, the default): the notify marks nothing, a short pool applies nothing --- */
+	/* --- slot reuse off (vswap_reuse 0, the off switch): the notify marks nothing, a short pool applies nothing --- */
 	reset_model();
 	wr(p, seq(0, 28, p), 0, VSX_PAGE);
 	reuse_on = false;

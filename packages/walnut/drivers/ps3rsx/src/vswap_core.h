@@ -39,7 +39,7 @@
  * with 2, the SPE copies them through the same paths as the seal, without the cipher (the cipher's own cost).
  * Each slot records how it was written, and is read back that way whatever the switch says now.
  *
- * Frees (slot reuse: *x->reuse, vswap.c's vswap_reuse, off by default). The swap layer tells the device when a
+ * Frees (slot reuse: *x->reuse, vswap.c's vswap_reuse, on by default). The swap layer tells the device when a
  * swap entry is free (swap_slot_free_notify, for every freed offset: 6.12 discards only whole free 256-page
  * clusters, so without it the pool keeps dead pages until a write-back moves them to the disk). The notify runs under the swap layer's spinlock and may not sleep, so
  * vsx_free_mark() only sets the page's bit in an atomic bitmap (and its group's bit in a summary) and counts
