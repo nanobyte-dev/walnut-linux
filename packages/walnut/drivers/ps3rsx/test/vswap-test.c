@@ -18,20 +18,26 @@
  * write going to the disk); an open from the bounce failing as a whole, retried from VRAM. Frees by the swap
  * layer (swap_slot_free_notify's marks): the slot and the counts freed, disk, BAD and empty entries, a mark
  * during an open, a seal and a write-back (no job ever names a free slot), a freed page rewritten (whole, partly,
- * in the same batch, into the same slot with a fresh counter) reads the new bytes, marks under random runs, and
- * the mark and apply racing on two threads (no mark lost). A write-back with its own pages, the lock dropped
+ * in the same batch, into the same slot with a fresh counter) reads the new bytes, marks under random runs (a
+ * marked page reads its old bytes or zeros, never another's), and the mark and apply racing on two threads (no
+ * mark lost, the count exact at rest). The marks applied lazily: a batch with room applies none; a write that
+ * finds the pool short applies them before its page would go to the disk (mid-batch, with writes queued; a
+ * merge too), and asks for a demotion only when they gave no room; a burst of marks during a batch's job or
+ * with the lock held never waits. A write-back with its own pages, the lock dropped
  * between its batches: pages opened before a gap rewritten to the disk there (whole, partly, after a free; the pool
  * full or the SPE gone), freed or discarded there, also under the random runs: the newer bytes stay on the disk,
  * a dead page never reaches it.
  * Built with VSX_FIXOFF_IGNORE_TAG, VSX_FIXOFF_SAME_CTR, VSX_FIXOFF_AD_NO_PAGE, VSX_FIXOFF_WB_INTO_BOUNCE,
  * VSX_FIXOFF_NO_RETRY, VSX_FIXOFF_DISCARD_BAD, VSX_FIXOFF_NO_DEFER, VSX_FIXOFF_PPE_NO_RETRY,
  * VSX_FIXOFF_PARTIAL_EMPTY, VSX_FIXOFF_MODE_BY_SWITCH, VSX_FIXOFF_BATCH_REORDER, VSX_FIXOFF_R1_FINAL,
- * VSX_FIXOFF_NO_FREE, VSX_FIXOFF_FREE_KEEPS_MARK, VSX_FIXOFF_FREE_NOW or VSX_FIXOFF_WB_KEEP_ALL it must fail. */
+ * VSX_FIXOFF_NO_FREE, VSX_FIXOFF_FREE_KEEPS_MARK, VSX_FIXOFF_FREE_NOW, VSX_FIXOFF_WB_KEEP_ALL,
+ * VSX_FIXOFF_SHORT_NO_APPLY, VSX_FIXOFF_EAGER_APPLY or VSX_FIXOFF_PEND_UNCOUNTED it must fail. */
 #define VSX_PLAIN
 #include <pthread.h>
 #include <sched.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <time.h>
 #include "../src/vswap_core.c"
 
 static int fails, checks;
@@ -51,6 +57,8 @@ static vs_u8 bounce[VSX_SLOTS][VSX_PAGE] __attribute__((aligned(16)));
 static vs_u8 disk[NPG][VSX_PAGE];
 static vs_u8 truth[NPG][VSX_PAGE];
 static int truth_lost[NPG];		/* allowed to fail: its slot was changed by someone else */
+static vs_u8 ghost[NPG][VSX_PAGE];	/* a freed page's bytes before the free (dead[p]) */
+static int dead[NPG];			/* freed, not rewritten: it reads truth (zeros) or its ghost */
 static vs_u8 bio[64][VSX_PAGE] __attribute__((aligned(16)));
 static vs_u8 priv[VSEAL_PAGES_MAX][VSX_PAGE] __attribute__((aligned(16)));
 static vs_u8 scratch[VSX_PAGE] __attribute__((aligned(16)));
@@ -68,6 +76,8 @@ static vs_u64 ctr_seen[200000];
 static unsigned int nctr;
 static int live_written, plain_seen, next_free_hint, bounce_plain[VSX_SLOTS];
 static int job_names_free;		/* a job or a GPU copy named a slot that wasn't allocated */
+static int slot_cap = NSL;		/* the pool's room: slots it hands out at most (a pool that can't grow) */
+static int fails_last, fails_first;	/* failed allocations: the last word (a demotion asked), or not yet */
 static void (*job_hook)(void);		/* runs when a job or a GPU copy starts (a notify meanwhile) */
 static int evicting = -1;		/* the chunk being written back: none of its slots handed out (slot_alloc) */
 static void (*gap_hook)(const vs_u32 *pages, int n);	/* own pages: between two batches, the lock dropped */
@@ -84,9 +94,13 @@ static vs_u32 rnd(void)
 }
 
 /* --- the hardware calls ------------------------------------------------------------------------- */
-int vsx_hw_slot_alloc(void *hw)
+int vsx_hw_slot_alloc(void *hw, int last)
 {
-	for (int n = 0; n < NSL; n++) {
+	int nused = 0;
+
+	for (int n = 0; n < NSL; n++)
+		nused += used[n];
+	for (int n = 0; n < NSL && nused < slot_cap; n++) {
 		int s = (next_free_hint + n) % NSL;
 
 		if (!used[s] && s / (int)VSX_SLOTS != evicting) {
@@ -95,6 +109,10 @@ int vsx_hw_slot_alloc(void *hw)
 			return s;
 		}
 	}
+	if (last)
+		fails_last++;
+	else
+		fails_first++;
 	return -1;
 }
 void vsx_hw_slot_free(void *hw, vs_u32 slot)
@@ -303,6 +321,17 @@ static void fill(int p)
 	memcpy(truth[p], &(vs_u64){ MARK }, 8);
 	memcpy(truth[p] + 8, &p, 4);
 	truth_lost[p] = 0;
+	dead[p] = 0;
+}
+
+/* the swap layer frees page p: marked; until an apply or a rewrite it may still read its old bytes */
+static void free_page(int p)
+{
+	vsx_free_mark(&X, p);
+	if (!dead[p])
+		memcpy(ghost[p], truth[p], VSX_PAGE);
+	dead[p] = 1;
+	memset(truth[p], 0, VSX_PAGE);
 }
 
 static void scan(const char *when)
@@ -355,6 +384,7 @@ static int wr(const int *p, int n, int in_page, int len)
 		else
 			for (int k = in_page; k < in_page + len; k++)
 				truth[p[i]][k] = rnd();
+		dead[p[i]] = 0;			/* (the write takes the mark: zeros around a piece) */
 		memcpy(bio[i], truth[p[i]] + in_page, len);
 		pc.buf = bio[i];
 		vsx_write(&X, &pc);
@@ -383,7 +413,8 @@ static int rd_check(const int *p, int n, int in_page, int len, const char *what)
 	if (r.failed)
 		return -1;
 	for (int i = 0; i < n; i++)
-		if (memcmp(bio[i], truth[p[i]] + in_page, len))
+		if (memcmp(bio[i], truth[p[i]] + in_page, len) &&
+		    !(dead[p[i]] && !memcmp(bio[i], ghost[p[i]] + in_page, len)))
 			bad++;
 	CHECK(!bad, "%s: %d pages read back wrong", what, bad);
 	return bad ? -2 : 0;
@@ -401,6 +432,9 @@ static void reset_model(void)
 	memset(&X, 0, sizeof(X));
 	memset(freed_bits, 0, sizeof(freed_bits));
 	memset(freed_sumw, 0, sizeof(freed_sumw));
+	memset(dead, 0, sizeof(dead));
+	slot_cap = NSL;
+	fails_last = fails_first = 0;
 	X.map = map;
 	X.freed = freed_bits;
 	X.freed_sum = freed_sumw;
@@ -520,7 +554,7 @@ static void wb_rewrite(const vs_u32 *pages, int n)
 
 /* in the first gap of a write-back with its own pages, six pages opened before it: rewritten to the disk (no
  * fresh slot: the pool full, or the SPE gone) whole, partly (a merge's disk copy), freed and the offset reused;
- * freed (applied by io_work there, or left for the write-back); discarded */
+ * freed (applied there, as by a write that found the pool short, or left for the write-back); discarded */
 static int gapp[6] = { -1, -1, -1, -1, -1, -1 }, gap_drain;
 static void gap_change(const vs_u32 *pages, int n)
 {
@@ -568,13 +602,13 @@ static void gap_random(const vs_u32 *pages, int n)
 		if (map[q] != VSX_BAD)
 			wr(&q, 1, (rnd() % 8) * 512, 512);
 	} else if (k == 2 || k == 4) {
-		vsx_free_mark(&X, q);
-		memset(truth[q], 0, VSX_PAGE);
+		free_page(q);
 		if (k == 4)
 			wr(&q, 1, 0, VSX_PAGE);
 	} else {
 		vsx_discard(&X, q);
 		memset(truth[q], 0, VSX_PAGE);
+		dead[q] = 0;
 	}
 	X.locked = locked;
 }
@@ -591,7 +625,7 @@ static void hook_mark(void)		/* a notify while a job or a GPU copy runs */
 	hook_page = -1;
 }
 
-/* during a write-back's unlocked window: page 0 of it freed and applied (io_work ran), page 1 freed only
+/* during a write-back's unlocked window: page 0 of it freed and applied (a short pool's write), page 1 freed only
  * (applied by the write-back itself), page 2 freed and rewritten by a request */
 static int wbf_pages[3] = { -1, -1, -1 };
 static void wb_free(const vs_u32 *pages, int n)
@@ -607,20 +641,20 @@ static void wb_free(const vs_u32 *pages, int n)
 	{
 		int p = pages[2];
 
-		wr(&p, 1, 0, VSX_PAGE);		/* (its vsx_begin applies page 1's mark too) */
+		wr(&p, 1, 0, VSX_PAGE);		/* (page 1's mark waits: room enough) */
 	}
 	vsx_free_mark(&X, pages[1]);		/* again, left for the write-back */
 }
 
-/* the mark and the apply on two threads: io_work's protocol (a run after every kick), no mark lost */
-static int race_kick, race_done;
+/* the mark and the apply on two threads: the notify marks with no lock and wakes nothing, the applier applies
+ * whenever it likes (room needed); no mark lost, and at rest the count is exactly the marks waiting */
+static int race_done;
 static void *race_marker(void *arg)
 {
 	vs_u32 *order = arg;
 
 	for (int i = 0; i < NPG - 100; i++) {
-		if (vsx_free_mark(&X, order[i]))
-			__atomic_store_n(&race_kick, 1, __ATOMIC_SEQ_CST);
+		vsx_free_mark(&X, order[i]);
 		if (i % 37 == 0)
 			sched_yield();
 	}
@@ -632,7 +666,8 @@ static int race_round(void)
 {
 	static vs_u32 order[NPG];
 	pthread_t t;
-	int lost = 0;
+	int lost = 0, bits = 0;
+	long rest;
 
 	reset_model();
 	for (int p = 100; p < NPG; p++) {
@@ -647,25 +682,47 @@ static int race_round(void)
 		order[i] = order[j];
 		order[j] = t2;
 	}
-	race_kick = race_done = 0;
+	race_done = 0;
 	pthread_create(&t, NULL, race_marker, order);
-	for (;;) {			/* io_work: applies after every kick; ends when the marker is done and no kick is left */
-		int d = __atomic_load_n(&race_done, __ATOMIC_SEQ_CST);
-
-		if (__atomic_exchange_n(&race_kick, 0, __ATOMIC_SEQ_CST)) {
-			vsx_apply_frees(&X);
-			continue;
-		}
-		if (d)
-			break;
-	}
+	while (!__atomic_load_n(&race_done, __ATOMIC_SEQ_CST))
+		if (rnd() % 3 == 0)
+			vsx_apply_frees(&X);	/* (vs->lock held: a short pool, the write-back, the demotion) */
 	pthread_join(t, NULL);
+	for (unsigned int k = 0; k < sizeof(freed_bits) / sizeof(freed_bits[0]); k++)
+		bits += __builtin_popcountl(freed_bits[k]);
+	rest = vsx_frees_count(&X);
+	vsx_apply_frees(&X);			/* the next time room is needed */
 	for (int p = 100; p < NPG; p++)
 		lost += map[p] != 0;
+	CHECK(rest == bits && X.pending == 0, "marks racing the apply: %ld counted at rest for %d marks, %ld after",
+	      rest, bits, X.pending);
 	CHECK(!lost && X.on_disk == 0 && X.st.freed_disk == NPG - 100 && !vsx_frees_pending(&X),
 	      "marks racing the apply: %d lost, %u on disk, %llu applied", lost, X.on_disk,
 	      (unsigned long long)X.st.freed_disk);
 	return lost;
+}
+
+/* a burst of frees while the swap's lock is held (a batch, a write-back): every mark goes through without it */
+static pthread_mutex_t burst_lock = PTHREAD_MUTEX_INITIALIZER;
+static int burst_done;
+static void *burst_marker(void *arg)
+{
+	for (int r = 0; r < 50; r++)
+		for (int p = 0; p < NPG; p++)
+			vsx_free_mark(&X, (p * 7 + r) % NPG);
+	__atomic_store_n(&burst_done, 1, __ATOMIC_SEQ_CST);
+	return NULL;
+}
+
+/* a job's hook: a burst of marks on pages the batch doesn't name (the batch's own are under their write) */
+static int burst_from = -1;
+static void burst_hook(void)
+{
+	if (burst_from < 0)
+		return;
+	for (int p = burst_from; p < burst_from + 200; p++)
+		free_page(p);
+	burst_from = -1;
 }
 
 static int seq(int a, int n, int *p)
@@ -1072,7 +1129,8 @@ int main(void)
 	{
 		vs_u32 s5 = map[5] - 1;
 
-		CHECK(vsx_free_mark(&X, 5) == 1 && vsx_free_mark(&X, 7) == 0, "the first mark of a group kicks, the next doesn't");
+		CHECK(vsx_free_mark(&X, 5) == 1 && vsx_free_mark(&X, 7) == 1 && vsx_free_mark(&X, 5) == 0 &&
+		      vsx_frees_count(&X) == 2 && vsx_frees_pending(&X), "two marks counted, the second of one page not");
 		CHECK(vsx_in_vram(map[5]) && used[s5] && X.in_vram == 32, "a mark alone frees nothing");
 		CHECK(vsx_apply_frees(&X) == 2, "two marks applied");
 		CHECK(map[5] == 0 && !used[s5] && map[7] == 0 && X.in_vram == 30 && X.st.freed_vram == 2 &&
@@ -1081,9 +1139,19 @@ int main(void)
 		memset(truth[5], 0, VSX_PAGE);
 		memset(truth[7], 0, VSX_PAGE);
 		CHECK(rd_check((p[0] = 5, p[1] = 7, p), 2, 0, VSX_PAGE, "freed") == 0, "a freed page reads zeros");
-		CHECK(vsx_free_mark(&X, 9) == 1, "after the apply, a mark kicks again");
-		CHECK(!wr((p[0] = 40, p), 1, 0, VSX_PAGE) && map[9] == 0 && X.in_vram == 30,
-		      "a batch's vsx_begin applies the marks");
+		CHECK(vsx_free_mark(&X, 9) == 1 && vsx_frees_count(&X) == 1, "after the apply, a new mark counts again");
+		{
+			vs_u32 e9 = map[9];
+			vs_u64 v0 = X.st.freed_vram;
+
+			CHECK(!wr((p[0] = 40, p), 1, 0, VSX_PAGE) && vsx_in_vram(e9) && map[9] == e9 && used[e9 - 1] && X.in_vram == 31 &&
+			      X.st.freed_vram == v0 && vsx_frees_count(&X) == 1 && !fails_first && !fails_last,
+			      "lazy: a batch with room applies no mark (page 9 still held, its mark waiting)");
+			CHECK(rd_check((p[0] = 8, p), 1, 0, VSX_PAGE, "next to a waiting mark") == 0, "its neighbour reads");
+			vsx_apply_frees(&X);
+			CHECK(vsx_in_vram(e9) && map[9] == 0 && !used[e9 - 1] && X.in_vram == 30 && !vsx_frees_pending(&X),
+			      "and applied by the next apply");
+		}
 		/* the slot goes back into use */
 		next_free_hint = s5;
 		CHECK(!wr((p[0] = 41, p), 1, 0, VSX_PAGE) && map[41] - 1 == s5, "a freed slot is reused");
@@ -1186,18 +1254,25 @@ int main(void)
 		CHECK(!rq.failed && rd_check((p[0] = 3, p), 1, 0, VSX_PAGE, "partial after free") == 0,
 		      "a partial write of a freed page: zeros around the piece");
 	}
-	/* freed, then the same slot sealed again: a fresh counter */
+	/* freed, then the same slot sealed again (the pool short: the mark applied for the write): a fresh counter */
 	{
 		vs_u32 s4 = map[4] - 1;
 		vs_u64 c4 = meta[s4].ctr;
+		int u = 0;
 
-		vsx_free_mark(&X, 4);
+		for (i = 0; i < NSL; i++)
+			u += used[i];
+		slot_cap = u;			/* no free slot, no chunk to grow by */
+		free_page(4);
 		next_free_hint = s4;
 		CHECK(!wr((p[0] = 5, p), 1, 0, VSX_PAGE) && map[5] - 1 == s4 && meta[s4].ctr > c4 && X.next_ctr > meta[s4].ctr,
 		      "the freed slot sealed again under a fresh counter (%llu after %llu)",
 		      (unsigned long long)meta[s4].ctr, (unsigned long long)c4);
+		CHECK(map[4] == 0 && X.st.short_applies == 1 && fails_first == 1 && !fails_last,
+		      "the pool short: the mark applied before the slot was handed out, no demotion asked");
 		CHECK(rd_check(p, 1, 0, VSX_PAGE, "same slot fresh counter") == 0, "and reads back");
 		counts("same slot");
+		slot_cap = NSL;
 	}
 
 	/* a write-back with frees: before it collects (never written), during its window (empty, not on the disk), a
@@ -1273,6 +1348,112 @@ int main(void)
 		CHECK(!lost, "200 rounds of marks racing the apply: %d lost", lost);
 	}
 
+	/* --- the marks applied lazily (vswap_core.h "Frees") --- */
+	/* the pool short in the middle of a batch, four writes queued: the marks applied, every page into VRAM */
+	reset_model();
+	wr(p, seq(0, 28, p), 0, VSX_PAGE);
+	slot_cap = 32;				/* a pool that can't grow: 4 slots left */
+	for (i = 0; i < 8; i++)
+		free_page(i);
+	CHECK(vsx_frees_count(&X) == 8 && X.in_vram == 28, "eight marks waiting, nothing freed yet");
+	{
+		vs_u64 j0 = X.st.seal_jobs;
+
+		r = wr(p, seq(100, 12, p), 0, VSX_PAGE);
+		CHECK(!r && X.in_vram == 32 && X.on_disk == 0 && X.st.freed_vram == 8 && X.st.short_applies == 1 &&
+		      fails_first == 1 && !fails_last && !vsx_frees_pending(&X) && X.st.seal_jobs == j0 + 1,
+		      "the pool short mid-batch: the marks applied, all 12 pages into VRAM in one job (vram %u, disk %u, "
+		      "freed %llu, short %llu, fails %d/%d)", X.in_vram, X.on_disk, (unsigned long long)X.st.freed_vram,
+		      (unsigned long long)X.st.short_applies, fails_first, fails_last);
+	}
+	CHECK(rd_check(p, 12, 0, VSX_PAGE, "short pool") == 0, "and read back");
+	CHECK(rd_check((seq(0, 28, p), p), 28, 0, VSX_PAGE, "short pool, the rest") == 0, "freed pages zeros, the rest theirs");
+	counts("short pool");
+	/* still short, no mark: the disk, and now the demotion is asked */
+	CHECK(!wr((p[0] = 200, p), 1, 0, VSX_PAGE) && map[200] == VSX_ON_DISK && fails_last == 1 && fails_first == 1,
+	      "short with no mark: the disk, the demotion asked");
+	/* short, only a disk entry marked: applied, no slot from it: the disk, the demotion asked */
+	free_page(200);
+	CHECK(!wr((p[0] = 201, p), 1, 0, VSX_PAGE) && map[201] == VSX_ON_DISK && map[200] == 0 && X.st.freed_disk == 1 &&
+	      fails_first == 2 && fails_last == 2, "short, only a disk mark: applied, the page to the disk, demotion asked");
+	/* a merge that finds the pool short: the mark applied, the merged page sealed into the freed slot */
+	{
+		vs_u32 s10 = map[10] - 1;
+
+		free_page(10);
+		next_free_hint = s10;
+		p[0] = 11;
+		CHECK(!wr(p, 1, 512, 1024) && vsx_in_vram(map[11]) && map[11] - 1 == s10 && map[10] == 0 &&
+		      X.st.short_applies == 3, "a merge on a short pool: the mark applied, sealed into the freed slot");
+		CHECK(rd_check(p, 1, 0, VSX_PAGE, "short merge") == 0, "and reads back whole");
+	}
+	/* a write takes its own mark: the count follows */
+	free_page(12);
+	CHECK(vsx_frees_count(&X) == 1, "one mark waiting");
+	CHECK(!wr((p[0] = 12, p), 1, 0, VSX_PAGE) && vsx_frees_count(&X) == 0 && !vsx_frees_pending(&X) &&
+	      vsx_in_vram(map[12]), "a rewrite takes its mark: none waiting");
+	counts("short pool end");
+	slot_cap = NSL;
+
+	/* a burst of marks during a batch's seal: the batch goes on, nothing applied while there is room */
+	reset_model();
+	wr(p, seq(300, 32, p), 0, VSX_PAGE);
+	for (i = 332; i < 500; i += 32)
+		wr(p, seq(i, i + 32 <= 500 ? 32 : 500 - i, p), 0, VSX_PAGE);
+	{
+		vs_u32 v0 = X.in_vram;
+
+		burst_from = 300;
+		job_hook = burst_hook;
+		r = wr(p, seq(0, 8, p), 0, VSX_PAGE);
+		job_hook = NULL;
+		CHECK(!r && burst_from < 0 && X.in_vram == v0 + 8 && X.st.freed_vram == 0 && vsx_frees_count(&X) == 200,
+		      "200 marks during a seal: the batch done, all 200 waiting (vram %u, count %ld)", X.in_vram,
+		      vsx_frees_count(&X));
+		CHECK(rd_check(p, 8, 0, VSX_PAGE, "burst batch") == 0, "the batch's pages read back");
+		CHECK(rd_check((seq(300, 32, p), p), 32, 0, VSX_PAGE, "burst freed") == 0, "a marked page: old bytes or zeros");
+		next_free_hint = 0;
+		evict(1, 1);				/* the write-back applies them before it collects */
+		evict(0, 1);
+		{
+			int k, written = 0;
+
+			for (k = 300; k < 500; k++)
+				written += map[k] != 0;
+			CHECK(X.st.freed_vram == 200 && !vsx_frees_pending(&X) && !written && X.on_disk == 8,
+			      "the write-backs applied the 200 first: none written (freed %llu, %d written, disk %u)",
+			      (unsigned long long)X.st.freed_vram, written, X.on_disk);
+		}
+		CHECK(rd_check((seq(0, 8, p), p), 8, 0, VSX_PAGE, "burst written back") == 0, "the batch's pages from the disk");
+		counts("burst");
+	}
+	/* a burst of frees with the swap's lock held: no mark waits for it */
+	reset_model();
+	wr(p, seq(0, 32, p), 0, VSX_PAGE);
+	{
+		pthread_t t;
+		struct timespec t0, t1;
+		int done = 0;
+
+		pthread_mutex_lock(&burst_lock);	/* (vs->lock: a batch, a write-back) */
+		burst_done = 0;
+		pthread_create(&t, NULL, burst_marker, NULL);
+		clock_gettime(CLOCK_MONOTONIC, &t0);
+		do {
+			done = __atomic_load_n(&burst_done, __ATOMIC_SEQ_CST);
+			clock_gettime(CLOCK_MONOTONIC, &t1);
+			sched_yield();
+		} while (!done && t1.tv_sec - t0.tv_sec < 20);
+		CHECK(done, "30000 marks while the lock is held: all through without it");
+		pthread_mutex_unlock(&burst_lock);
+		pthread_join(t, NULL);
+		CHECK(vsx_frees_count(&X) == NPG, "each page counted once (%ld)", vsx_frees_count(&X));
+		vsx_apply_frees(&X);
+		CHECK(X.in_vram == 0 && !vsx_frees_pending(&X) && X.st.freed_vram == 32 && X.st.freed_other == NPG - 32,
+		      "and all applied at the next apply");
+		counts("burst with the lock held");
+	}
+
 	/* --- random sequences, several seeds --- */
 	static const vs_u32 seeds[] = { 0x13579bdf, 0x31415926, 0x27182818, 0x9e3779b9, 0x0badf00d };
 	for (unsigned int sd = 0; sd < sizeof(seeds) / sizeof(seeds[0]); sd++) {
@@ -1282,7 +1463,7 @@ int main(void)
 		reset_model();
 		gap_hook = gap_random;
 		for (int step = 0; step < 300; step++) {
-			int k = rnd() % 10, n = 1 + rnd() % 8, a = rnd() % (NPG - 8);
+			int k = rnd() % 10, n = 1 + rnd() % 8, a = rnd() % (NPG - 8), c;
 
 			gpu_ok = rnd() % 4 != 0;
 			if (step % 50 == 0)
@@ -1296,14 +1477,24 @@ int main(void)
 				r = rd_check((seq(a, n, p), p), n, 0, VSX_PAGE, "random");
 				CHECK(r != -2, "round %d: a random read came back wrong", round);
 			} else if (k == 7) {
-				if (rnd() & 1)
+				if (rnd() & 1) {
 					vsx_discard(&X, a);
-				else	/* a free: applied before anything reads it (vsx_begin, the write-back) */
-					for (i = 0; i < n; i++) {
-						vsx_free_mark(&X, a + i);
-						memset(truth[a + i], 0, VSX_PAGE);
-					}
-				memset(truth[a], 0, VSX_PAGE);
+					memset(truth[a], 0, VSX_PAGE);
+					dead[a] = 0;
+				} else {	/* a free: applied when room is needed (a short pool, the write-back) */
+					for (i = 0; i < n; i++)
+						free_page(a + i);
+				}
+				c = rnd() % 4;
+				if (c == 0) {		/* the pool can't grow: a few slots left, short soon */
+					int u = 0;
+
+					for (i = 0; i < NSL; i++)
+						u += used[i];
+					slot_cap = u + (int)(rnd() % 16);
+				} else if (c == 1) {
+					slot_cap = NSL;
+				}
 			} else if (k == 8) {
 				int in = (rnd() % 8) * 512;
 

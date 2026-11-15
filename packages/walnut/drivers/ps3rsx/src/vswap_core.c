@@ -13,21 +13,27 @@
 #include <linux/bitops.h>
 #include <linux/string.h>
 /* the free marks: set from any context, taken under vs->lock (vswap_core.h "Frees") */
-#define vsx_mark_bit(n, a)		set_bit(n, a)			/* (unordered) */
-#define vsx_mark_sum(n, a)		test_and_set_bit(n, a)		/* fully ordered */
+#define vsx_mark_bit(n, a)		test_and_set_bit(n, a)		/* fully ordered */
+#define vsx_mark_sum(n, a)		set_bit(n, a)			/* (after the page's fully ordered set) */
 #define vsx_take_bit(n, a)		test_and_clear_bit(n, a)	/* fully ordered */
 #define vsx_take_word(a)		xchg(a, 0UL)			/* fully ordered */
 #define vsx_peek(a)			READ_ONCE(*(a))
 #define vsx_peek_ptr(a)			smp_load_acquire(&(a))	/* (backing_store's release) */
+#define vsx_pend_add(x, v)		atomic_long_add(v, &(x)->pending)
+#define vsx_pend_read(x)		atomic_long_read(&(x)->pending)
+#define vsx_popcount(w)			hweight_long(w)
 #else
 #include <string.h>
 #define VSX_BM(n)	(1UL << ((n) % VSX_LBITS))
-#define vsx_mark_bit(n, a)		((void)__atomic_fetch_or(&(a)[(n) / VSX_LBITS], VSX_BM(n), __ATOMIC_RELAXED))
-#define vsx_mark_sum(n, a)		(!!(__atomic_fetch_or(&(a)[(n) / VSX_LBITS], VSX_BM(n), __ATOMIC_SEQ_CST) & VSX_BM(n)))
+#define vsx_mark_bit(n, a)		(!!(__atomic_fetch_or(&(a)[(n) / VSX_LBITS], VSX_BM(n), __ATOMIC_SEQ_CST) & VSX_BM(n)))
+#define vsx_mark_sum(n, a)		((void)__atomic_fetch_or(&(a)[(n) / VSX_LBITS], VSX_BM(n), __ATOMIC_RELAXED))
 #define vsx_take_bit(n, a)		(!!(__atomic_fetch_and(&(a)[(n) / VSX_LBITS], ~VSX_BM(n), __ATOMIC_SEQ_CST) & VSX_BM(n)))
 #define vsx_take_word(a)		__atomic_exchange_n(a, 0UL, __ATOMIC_SEQ_CST)
 #define vsx_peek(a)			__atomic_load_n(a, __ATOMIC_RELAXED)
 #define vsx_peek_ptr(a)			__atomic_load_n(&(a), __ATOMIC_ACQUIRE)
+#define vsx_pend_add(x, v)		((void)__atomic_fetch_add(&(x)->pending, (v), __ATOMIC_RELAXED))
+#define vsx_pend_read(x)		__atomic_load_n(&(x)->pending, __ATOMIC_RELAXED)
+#define vsx_popcount(w)			__builtin_popcountl(w)
 #endif
 
 #define EA(p)	((vs_u64)(unsigned long)(p))
@@ -495,6 +501,8 @@ void vsx_open(struct vsx *x, struct vsx_open *o, unsigned int n)
 			mark_bad(x, &o[idx[i]]);
 }
 
+static int fresh_slot(struct vsx *x);
+
 /* a partial piece on a page in VRAM: the slot opened into the private page, the piece merged, the page
  * sealed into a fresh slot from there (or written to the disk from a copy) */
 static void merge(struct vsx *x, struct vsx_piece *pc, vs_u32 e)
@@ -514,7 +522,7 @@ static void merge(struct vsx *x, struct vsx_piece *pc, vs_u32 e)
 	}
 	memcpy((vs_u8 *)buf + pc->in_page, pc->buf, pc->len);
 	x->st.merges++;
-	if (can_vram(x) && (s = vsx_hw_slot_alloc(x->hw)) >= 0) {
+	if (can_vram(x) && (s = fresh_slot(x)) >= 0) {
 		struct vsx_piece m = *pc;
 
 		m.buf = buf;
@@ -544,22 +552,24 @@ int vsx_free_mark(struct vsx *x, unsigned long p)
 	vsx_discard(x, p);
 	return 0;
 #endif
-	vsx_mark_bit(p, f);
-	/* (fully ordered: the page's bit is seen by whoever takes the group's bit) */
-	return !vsx_mark_sum(p / VSX_FREE_GROUP, x->freed_sum);
+	if (vsx_mark_bit(p, f))
+		return 0;			/* (marked already: counted then) */
+	vsx_pend_add(x, 1);
+	/* after the page's fully ordered set: whoever takes the group's bit sees the page's */
+	vsx_mark_sum(p / VSX_FREE_GROUP, x->freed_sum);
+	return 1;
 }
 
 int vsx_frees_pending(struct vsx *x)
 {
-	unsigned long i, n;
+	return x->freed && vsx_pend_read(x) > 0;
+}
 
-	if (!x->freed)
-		return 0;
-	n = vsx_free_sum_words(x->npages);
-	for (i = 0; i < n; i++)
-		if (vsx_peek(&x->freed_sum[i]))
-			return 1;
-	return 0;
+long vsx_frees_count(struct vsx *x)
+{
+	long n = x->freed ? vsx_pend_read(x) : 0;
+
+	return n > 0 ? n : 0;
 }
 
 /* a marked page leaves the map, as a discard does */
@@ -579,7 +589,8 @@ static void apply_free(struct vsx *x, vs_u32 p)
 }
 
 /* The groups' bits are taken before their pages' bits: a mark set after its page's word was read sets the group's
- * bit again after that (vsx_free_mark), so it is seen by the next call; one set before is taken now. */
+ * bit again after that (vsx_free_mark), so it is seen by the next call; one set before is taken now. The count
+ * goes down by the bits taken. */
 unsigned int vsx_apply_frees(struct vsx *x)
 {
 	unsigned long i, k, nsum, nw, w, fw, g;
@@ -600,6 +611,7 @@ unsigned int vsx_apply_frees(struct vsx *x)
 				if (!vsx_peek(&x->freed[k]))
 					continue;
 				fw = vsx_take_word(&x->freed[k]);
+				vsx_pend_add(x, -(long)vsx_popcount(fw));
 				while (fw) {
 					unsigned long p = k * VSX_LBITS + __builtin_ctzl(fw);
 
@@ -619,16 +631,42 @@ unsigned int vsx_apply_frees(struct vsx *x)
 static void take_mark(struct vsx *x, vs_u32 p)
 {
 #ifndef VSX_FIXOFF_FREE_KEEPS_MARK		/* (the fix-off: the mark left for a later apply) */
-	if (x->freed && (vsx_peek(&x->freed[p / VSX_LBITS]) >> (p % VSX_LBITS) & 1) && vsx_take_bit(p, x->freed))
-		apply_free(x, p);
+	if (x->freed && (vsx_peek(&x->freed[p / VSX_LBITS]) >> (p % VSX_LBITS) & 1) && vsx_take_bit(p, x->freed)) {
+#ifndef VSX_FIXOFF_PEND_UNCOUNTED		/* (the fix-off: the count kept up after a write took the mark) */
+		vsx_pend_add(x, -1);
 #endif
+		apply_free(x, p);
+	}
+#endif
+}
+
+/* A fresh slot for a write: a free one or a new chunk; when the pool is short (neither), the free marks applied
+ * and once more, before the page goes to the disk and vswap.c asks for a demotion (vswap_core.h "Frees"). Only
+ * in a write batch (no read queued): the queued writes name fresh slots no map entry points at, which no apply
+ * frees. */
+static int fresh_slot(struct vsx *x)
+{
+	int s;
+
+	if (x->nrd || !vsx_frees_pending(x))
+		return vsx_hw_slot_alloc(x->hw, 1);
+	s = vsx_hw_slot_alloc(x->hw, 0);
+	if (s >= 0)
+		return s;
+#ifndef VSX_FIXOFF_SHORT_NO_APPLY		/* (the fix-off: the pool short, the marks left: the disk) */
+	if (vsx_apply_frees(x))
+		x->st.short_applies++;
+#endif
+	return vsx_hw_slot_alloc(x->hw, 1);
 }
 
 void vsx_begin(struct vsx *x)
 {
 	x->nwr = 0;
 	x->nrd = 0;
+#ifdef VSX_FIXOFF_EAGER_APPLY			/* (the fix-off: every batch applies the marks, as 0.1558 did) */
 	vsx_apply_frees(x);
+#endif
 }
 
 /* whether page p has a write queued for the batch's seal */
@@ -659,7 +697,7 @@ void vsx_write(struct vsx *x, struct vsx_piece *pc)
 			x->map[pc->p] = 0;
 			x->bad--;
 		}
-		if (can_vram(x) && (s = vsx_hw_slot_alloc(x->hw)) >= 0) {
+		if (can_vram(x) && (s = fresh_slot(x)) >= 0) {
 			pc->slot = s;
 			x->wr[x->nwr++] = *pc;
 			if (x->nwr == VSEAL_PAGES_MAX)

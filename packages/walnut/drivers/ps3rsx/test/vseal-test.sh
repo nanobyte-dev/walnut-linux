@@ -40,7 +40,8 @@ for v in "vseal-test VSEAL_FIXOFF_PLAIN_GET" "vseal-test VSEAL_FIXOFF_SPLIT_TAGS
 	"vswap-test VSX_FIXOFF_NO_DEFER" "vswap-test VSX_FIXOFF_PPE_NO_RETRY" "vswap-test VSX_FIXOFF_PARTIAL_EMPTY" \
 	"vswap-test VSX_FIXOFF_MODE_BY_SWITCH" "vswap-test VSX_FIXOFF_BATCH_REORDER" "vswap-test VSX_FIXOFF_R1_FINAL" \
 	"vswap-test VSX_FIXOFF_NO_FREE" "vswap-test VSX_FIXOFF_FREE_KEEPS_MARK" "vswap-test VSX_FIXOFF_FREE_NOW" \
-	"vswap-test VSX_FIXOFF_WB_KEEP_ALL"; do
+	"vswap-test VSX_FIXOFF_WB_KEEP_ALL" "vswap-test VSX_FIXOFF_SHORT_NO_APPLY" "vswap-test VSX_FIXOFF_EAGER_APPLY" \
+	"vswap-test VSX_FIXOFF_PEND_UNCOUNTED"; do
 	set -- $v
 	n_off=$((n_off + 1))
 	if build "fixoff-$2" "$1.c" -w -DVSEAL_TEST_OPS $([ "$1" = vswap-test ] && echo -DV2_SCALAR_ONLY) -D"$2" && ! timeout 300 "$O/fixoff-$2" > "$O/fixoff-$2.log" 2>&1; then
@@ -54,6 +55,20 @@ if awk '/^static int slot_alloc\(/,/^}/' ../src/vswap.c | grep -q 'mutex_lock(&r
 	echo "!! vswap.c slot_alloc waits for mm_lock"; bad=1
 else
 	echo "vswap.c: slot_alloc only trylocks mm_lock"
+fi
+# the free notify only marks (vswap_core.h "Frees": a game's frees cost no wakeup and no lock): no work queued,
+# no lock, nothing woken; io_work applies no marks (a short pool, the demotion, the shrink and the write-back do),
+# and a failed allocation asks for a demotion only when it is the last word (after the marks were applied)
+if awk '/^static void vswap_slot_free_notify\(/,/^}/' ../src/vswap.c | grep -Eq 'queue_work|_lock\(|wake_up|schedule'; then
+	echo "!! vswap.c: the free notify queues work or takes a lock"; bad=1
+elif ! awk '/^static void vswap_slot_free_notify\(/,/^}/' ../src/vswap.c | grep -q 'vsx_free_mark('; then
+	echo "!! vswap.c: the free notify doesn't mark"; bad=1
+elif awk '/^static void vswap_io_work\(/,/^}/' ../src/vswap.c | grep -q 'vsx_apply_frees'; then
+	echo "!! vswap.c: io_work applies the free marks"; bad=1
+elif ! awk '/^int vsx_hw_slot_alloc\(/,/^}/' ../src/vswap.c | grep -q 'maybe_demote(vs, slot < 0 && last)'; then
+	echo "!! vswap.c: a first failed allocation asks for a demotion"; bad=1
+else
+	echo "vswap.c: the free notify only marks, io_work applies none, a demotion only after the marks"
 fi
 # chunk_evict drops what changed since its open (vsx_writeback_keep, the model's rule) right before it sets
 # wb_pages, the only place it does, with no unlock between the two

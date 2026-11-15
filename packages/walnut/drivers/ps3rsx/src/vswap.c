@@ -8,9 +8,10 @@
  *  - writes go to VRAM while the pool has room (1 MiB chunks from the CPU-visible VRAM heap,
  *    taken from its top end, at most vswap_vram_mb), else to the disk;
  *  - a page the swap layer frees gives its slot back: swap_slot_free_notify marks it (atomic context:
- *    a bit, nothing else), and io_work applies the marks under vs->lock before its next batch, the
- *    write-back before it copies a page; discards (swapon --discard=pages, whole free clusters only)
- *    free slots too;
+ *    a bit and a count, it wakes nothing), and the marks are applied under vs->lock only where room
+ *    is needed: a write that finds the pool short and unable to grow, the demotion and the shrink
+ *    before they choose, the write-back before it copies a page; discards (swapon --discard=pages,
+ *    whole free clusters only) free slots too;
  *  - games come first: when a buffer object finds no VRAM, ps3rsx_vswap_shrink() writes the
  *    pages of the emptiest chunks back to the disk and hands the chunks over, each cleared
  *    before a buffer object gets it (vclear.c: the pages written back are still in it);
@@ -328,7 +329,8 @@ static void chunk_unmap(struct vchunk *c)
 
 /* --- requests ----------------------------------------------------------------------------- */
 
-/* A full (or no longer growing) pool: let the demotion make room for new pages. vs->lock held. */
+/* A full (or no longer growing) pool: let the demotion make room for new pages (it applies the free marks
+ * first, and writes nothing back if they make the room). vs->lock held. */
 static void maybe_demote(struct ps3rsx_vswap *vs, bool alloc_failed)
 {
 	if (alloc_failed || (vs->nalloc == vs->nchunks && vs->nalloc * SLOTS - vs->x.in_vram < HEADROOM))
@@ -360,12 +362,12 @@ static void gpu_failed(struct ps3rsx_vswap *vs, int err, u32 seq)
 
 /* --- vswap_core's hardware calls (vs->lock held) ------------------------------------------- */
 
-int vsx_hw_slot_alloc(void *hw)
+int vsx_hw_slot_alloc(void *hw, int last)
 {
 	struct ps3rsx_vswap *vs = hw;
 	int slot = slot_alloc(vs);
 
-	maybe_demote(vs, slot < 0);
+	maybe_demote(vs, slot < 0 && last);	/* (not last: the free marks are applied and it asks again) */
 	return slot;
 }
 
@@ -734,13 +736,7 @@ static void vswap_io_work(struct work_struct *work)
 		spin_unlock_irq(&vs->pending_lock);
 		if (!n)
 			break;
-		vswap_do_batch(vs, rqs, n);	/* (vsx_begin applies the free marks first) */
-	}
-	/* marks with no request after them (queued by the notify): every run looks once more after its last batch */
-	if (vsx_frees_pending(&vs->x)) {
-		mutex_lock(&vs->lock);
-		vsx_apply_frees(&vs->x);
-		mutex_unlock(&vs->lock);
+		vswap_do_batch(vs, rqs, n);	/* (no free marks applied unless the pool is short) */
 	}
 }
 
@@ -765,19 +761,19 @@ static const struct blk_mq_ops vswap_mq_ops = {
 
 /*
  * The swap layer freed the swap entry at device page `offset` (mm/swapfile.c swap_range_free, called for every
- * freed offset with si->lock held: atomic, must not sleep). The page is only marked (vswap_core.h "Frees");
- * io_work applies the marks under vs->lock before its next batch, so the free takes no lock here and never
- * meets a slot that a job, a queued piece or a write-back still names. The swap layer frees an entry only once
- * no I/O of it is in flight (it holds SWAP_HAS_CACHE across a read or a write-back), and reuses the offset only
- * after this call returns, so the reuse's write is a later request: the batch that serves it has applied the
- * mark first (or the write takes it, vsx_write).
+ * freed offset with si->lock held: atomic, must not sleep). The page is only marked and counted (vswap_core.h
+ * "Frees"): no lock, no work queued, nothing woken, so a game's frees during play cost two bit sets and an
+ * add. The marks are applied under vs->lock where room is needed (a write that finds the pool short, the
+ * demotion, the shrink, the write-back), so no free meets a slot that a job, a queued piece or a write-back
+ * still names. The swap layer frees an entry only once no I/O of it is in flight (it holds SWAP_HAS_CACHE
+ * across a read or a write-back), and reuses the offset only after this call returns, so the reuse's write is
+ * a later request, which takes the mark first (vsx_write).
  */
 static void vswap_slot_free_notify(struct block_device *bdev, unsigned long offset)
 {
 	struct ps3rsx_vswap *vs = bdev->bd_disk->private_data;
 
-	if (vsx_free_mark(&vs->x, offset))
-		queue_work(vs->io_wq, &vs->io_work);
+	vsx_free_mark(&vs->x, offset);
 }
 
 static const struct block_device_operations vswap_fops = {
@@ -1247,7 +1243,8 @@ static ssize_t stats_show(struct device *dev, struct device_attribute *attr, cha
 		       "seals %s: pages %llu (jobs %llu, failed %llu), opens from the bounce %llu, from VRAM %llu, "
 		       "by the PPE %llu, retries %llu, resubmits %llu, check failures %llu (BAD %llu)%s, kept %llu, "
 		       "merges %llu, unsealed writes %llu reads %llu, to disk without an SPE %llu\n"
-		       "freed by the swap layer: slots %llu, disk entries %llu, failed or empty %llu\n",
+		       "freed by the swap layer: slots %llu, disk entries %llu, failed or empty %llu; "
+		       "waiting %ld, applied when the pool was short %llu times\n",
 		       vs->x.in_vram, vs->x.on_disk, vs->x.bad, chunks, vs->x.st.seals + vs->x.st.plain_writes,
 		       vs->disk_writes, vs->x.st.opens_bounce + vs->x.st.opens_vram + vs->x.st.opens_ppe +
 		       vs->x.st.plain_reads, vs->disk_reads, vs->evicted, vs->demoted, vs->gpu_reads,
@@ -1257,7 +1254,8 @@ static ssize_t stats_show(struct device *dev, struct device_attribute *attr, cha
 		       vs->x.st.opens_vram, vs->x.st.opens_ppe, vs->x.st.retries, vs->x.st.resubmits,
 		       vs->x.st.tag_fails, vs->x.st.bad_marked, vs->x.locked ? ", LOCKED OUT" : "", vs->x.st.kept,
 		       vs->x.st.merges, vs->x.st.plain_writes, vs->x.st.plain_reads, vs->x.st.to_disk_nospe,
-		       vs->x.st.freed_vram, vs->x.st.freed_disk, vs->x.st.freed_other);
+		       vs->x.st.freed_vram, vs->x.st.freed_disk, vs->x.st.freed_other, vsx_frees_count(&vs->x),
+		       vs->x.st.short_applies);
 	mutex_unlock(&vs->lock);
 	return n;
 }

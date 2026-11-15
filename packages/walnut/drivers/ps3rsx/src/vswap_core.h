@@ -42,14 +42,22 @@
  * Frees. The swap layer tells the device when a swap entry is free (swap_slot_free_notify, for every freed
  * offset: 6.12 discards only whole free 256-page clusters, so without it the pool kept dead pages until a
  * write-back moved them to the disk). The notify runs under the swap layer's spinlock and may not sleep, so
- * vsx_free_mark() only sets the page's bit in an atomic bitmap (and its group's bit in a summary); the marks
- * are applied under vs->lock by vsx_apply_frees(), which vsx_begin() runs before a batch's first piece and the
- * write-back before it collects or switches a page: each marked page then leaves the map as a discard does
- * (its slot freed, a disk or BAD entry made empty). A mark never frees a slot by itself, so no slot a job,
- * a queued piece or a write-back names is freed under it. A write of a marked page takes the mark away
- * first (applied right there), so a free that is applied late never undoes a newer write; a read of a
- * marked page before the next apply returns the old bytes. Counters come from next_ctr and nothing a free
- * touches, so a freed slot's next seal still has a fresh one.
+ * vsx_free_mark() only sets the page's bit in an atomic bitmap (and its group's bit in a summary) and counts
+ * it; it wakes nothing. The marks are applied under vs->lock by vsx_apply_frees() only where room is needed:
+ * a write that finds the pool short (no free slot and no chunk to grow by: fresh_slot() applies them and asks
+ * once more, before the page would go to the disk and a demotion be asked for), the demotion and the shrink
+ * before they choose, and the write-back before it collects, writes or switches a page. A batch with room
+ * applies nothing, so the frees of a game's play cost the notify's two bit sets and a count, and the pool
+ * keeps its size as before the notify (a dead page holds its slot until the room is wanted). Each applied
+ * page leaves the map as a discard does (its slot freed, a disk or BAD entry made empty). A mark never frees
+ * a slot by itself, and an apply frees only a map entry's slot under vs->lock: never one a running job or GPU
+ * copy or a queued read names (a queued write names a fresh slot no entry points at); one a write-back opened
+ * isn't handed out before the write-back ends (its chunk is evicting), which drops that page (c->dirty,
+ * vsx_writeback_keep). A write of a marked page
+ * takes the mark away first (applied right there), so a free that is applied late never undoes a newer
+ * write; a read of a marked page before the next apply returns the old bytes (the swap layer reads no free
+ * entry). Counters come from next_ctr and nothing a free touches, so a freed slot's next seal still has a
+ * fresh one.
  *
  * Locking: the caller holds vs->lock around every vsx_*() call except vsx_free_mark() (none); the SPE client
  * takes its own lock inside.
@@ -58,6 +66,12 @@
 #define PS3RSX_VSWAP_CORE_H
 
 #include "spe_core.h"
+#ifdef __KERNEL__
+#include <linux/atomic.h>
+typedef atomic_long_t vsx_count;
+#else
+typedef long vsx_count;
+#endif
 
 #define VSX_PAGE		4096u
 #define VSX_SLOTS		256u		/* slots a 1 MiB chunk */
@@ -112,6 +126,7 @@ struct vsx_stats {
 	vs_u64 seals, seal_jobs, opens_bounce, opens_vram, opens_ppe, plain_writes, plain_reads;
 	vs_u64 retries, resubmits, tag_fails, bad_marked, seal_fails, kept, merges, to_disk_nospe;
 	vs_u64 freed_vram, freed_disk, freed_other;	/* marks applied: a slot freed, a disk entry, BAD or empty */
+	vs_u64 short_applies;		/* applies by a write that found the pool short (fresh_slot) */
 };
 
 struct vsx {
@@ -126,6 +141,8 @@ struct vsx {
 	vs_u32 in_vram, on_disk, bad;
 	unsigned long *freed;		/* a bit per device page the swap layer freed, not yet applied (or NULL) */
 	unsigned long *freed_sum;	/* a bit per VSX_FREE_GROUP pages that may have a mark */
+	vsx_count pending;		/* the marks not applied yet: +1 a new mark, -1 a mark taken (at rest exact;
+					 * for a moment off by the marks being set or taken) */
 	struct vsx_piece wr[VSX_PIECES];
 	unsigned int nwr;
 	struct vsx_piece rd[VSX_PIECES];
@@ -142,7 +159,9 @@ struct vsx {
 };
 
 /* --- what vswap.c (or the model) provides; vs->lock is held -------------------------------------- */
-int vsx_hw_slot_alloc(void *hw);			/* a fresh slot, or -1 */
+/* a fresh slot (a free one, else a new chunk), or -1. last 0: the core applies the free marks and asks once more
+ * when this fails, so a failure is not the pool's last word yet (vswap.c asks for no demotion then) */
+int vsx_hw_slot_alloc(void *hw, int last);
 void vsx_hw_slot_free(void *hw, vs_u32 slot);		/* (and marks it changed for a write-back) */
 void vsx_hw_slot_page(void *hw, vs_u32 slot, vs_u32 p);	/* the device page a slot now holds */
 struct vsx_meta *vsx_hw_meta(void *hw, vs_u32 slot);
@@ -187,15 +206,17 @@ static inline unsigned long vsx_free_sum_words(vs_u32 npages)
 	return ((npages + VSX_FREE_GROUP - 1) / VSX_FREE_GROUP + VSX_LBITS - 1) / VSX_LBITS;
 }
 
-/* swap_slot_free_notify: page p's swap entry is free. Any context, no lock: only marks it. Returns 1 when its
- * group had no mark: the caller then makes sure vsx_apply_frees() runs (queues io_work). */
+/* swap_slot_free_notify: page p's swap entry is free. Any context, no lock, wakes nothing: only marks it.
+ * Returns 1 for a new mark, 0 if p was marked already or is out of range. */
 int vsx_free_mark(struct vsx *x, unsigned long p);
-/* whether any group may have a mark (a quick look, no lock) */
+/* whether marks wait to be applied (the count: O(1), no lock) */
 int vsx_frees_pending(struct vsx *x);
-/* the marked pages leave the map (as discards). vs->lock held, outside a batch (no queued piece). Returns the
- * marks applied. */
+/* the marks waiting (the count, at least 0; for the stats) */
+long vsx_frees_count(struct vsx *x);
+/* the marked pages leave the map (as discards). vs->lock held, no read piece queued (a write batch's queued
+ * writes name fresh slots, which no apply frees). Returns the marks applied. */
 unsigned int vsx_apply_frees(struct vsx *x);
-/* applies the marks, then starts a batch */
+/* starts a batch (applies no marks: vswap_core.h "Frees") */
 void vsx_begin(struct vsx *x);
 void vsx_write(struct vsx *x, struct vsx_piece *pc);
 void vsx_read(struct vsx *x, struct vsx_piece *pc);
