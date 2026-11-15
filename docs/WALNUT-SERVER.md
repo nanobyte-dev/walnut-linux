@@ -76,6 +76,14 @@ relations), every pool file must lie exactly where its Source puts it and be nam
 copies of files the Release names and nothing else, and a site bundle can only carry the pinned keys and fingerprints. This
 bounds names and places; it does not make the content of a testing package trustworthy (that is the testing key's trust).
 
+An entry's tier ties it to suites: a `licensed` entry's names go into the `licensed` suite only, and the `licensed` suite takes
+no `trusted` or `external` entry's name. The `licensed` suite (signed with the offline archive key, from the owner's PC) also
+takes a name no entry owns, so a new licensed package needs no entry in `packages.toml`. Such a name must not be protected
+or under a reserved prefix, its Section must be `local/*` or `non-free/*`, its Source one no entry owns, and its Replaces,
+Breaks, Conflicts and Provides may name no protected name and no entry's name (Depends is free). Its source's Sources stanza
+(a `.dsc` has no Section) needs a Package-List with licensed sections; the names there and in Binary are unowned and
+unprotected, and the files lie in the source's own pool directory. Every other suite refuses a name no entry owns.
+
 Everything under `/apt`, `/licensed`, `/download`, `/status` is served as `application/octet-stream` with `nosniff` and a
 `sandbox` CSP (`repo-headers.inc`; `check-headers.sh` tests it from outside). Known remaining hole: the site and
 `/licensed/` share an origin, so a script the site serves could use credentials a browser holds for `/licensed/`. The fix

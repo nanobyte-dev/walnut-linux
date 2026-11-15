@@ -750,6 +750,95 @@ binaries = ["linux-image-@RELEASE@"]
 		self.assertEqual(code("version"), "E-POOLPATH")
 		self.assertFalse(os.path.exists(f"{self.root}/www/apt/pool"))
 
+	# --- the licensed suite: unowned licensed names, tiers ---
+
+	def check(self, suite, st, sources=False, rules=None):
+		"""check_index on one stanza: None when it passes, else the code"""
+		import walnut_checks as wc
+		text = "".join(f"{k}: {v}\n" for k, v in st.items() if v is not None)
+		try:
+			wc.check_index(rules or wc.load_rules(f"{self.root}/rules"), suite, sources, text)
+		except wc.Refused as e:
+			return e.code
+		return None
+
+	def lic(self, name="tyr", suite="licensed", **f):
+		st = {"Package": name, "Source": None, "Version": "1", "Architecture": "all", "Section": "local/games",
+		      "Filename": f"pool/{suite}/main/{name[0]}/{name}/{name}_1_all.deb"}
+		st.update(f)
+		return st
+
+	def test_unowned_licensed_names(self):
+		c = self.check
+		self.assertIsNone(c("licensed", self.lic()))
+		self.assertIsNone(c("licensed", self.lic(Section="non-free/games", Depends="sudo, bar")))	# Depends is free
+		self.assertIsNone(c("licensed", self.lic("tyr-music", Source="tyr (1)", Filename="pool/licensed/main/t/tyr/tyr-music_1_all.deb")))
+		for suite in ("testing", "stable", "stable-debug"):
+			self.assertEqual(c(suite, self.lic(suite=suite)), "E-OWNER", suite)
+		for sec in ("main/games", "games", "local", "local/", "contrib/games", None):
+			self.assertEqual(c("licensed", self.lic(Section=sec)), "E-OWNER", sec)
+		self.assertEqual(c("licensed", self.lic("sudo")), "E-OWNER")								# protected
+		self.assertEqual(c("licensed", self.lic("linux-image-evil")), "E-OWNER")					# under linux's reserved prefix
+		self.assertEqual(c("licensed", self.lic("linux-image-6.12.1+ps3.1")), "E-OWNER")			# linux's pattern (trusted)
+		self.assertEqual(c("licensed", self.lic(Source="bar", Filename="pool/licensed/main/b/bar/tyr_1_all.deb")), "E-OWNER")
+		self.assertEqual(c("licensed", self.lic("bar", Filename="pool/licensed/main/b/bar/bar_1_all.deb")), "E-OWNER")
+		for k, v in (("Provides", "sudo"), ("Replaces", "bar"), ("Conflicts", "libc6"), ("Breaks", "sudo"),
+		             ("Provides", "linux-image-x"), ("Replaces", "q"), ("Essential", "yes")):
+			self.assertIn(c("licensed", self.lic(**{k: v})), ("E-RELATION",), (k, v))
+		self.assertEqual(c("licensed", self.lic(Filename="pool/licensed/main/b/bar/tyr_1_all.deb")), "E-POOLPATH")
+		self.assertEqual(c("licensed", self.lic(Filename="pool/stable/main/t/tyr/tyr_1_all.deb")), "E-POOLPATH")
+
+	def test_tiers_and_suites(self):
+		c = self.check
+		self.assertIsNone(c("licensed", self.lic("q")))
+		self.assertIsNone(c("licensed", self.lic("q", Section=None)))			# an owned name keeps today's checks
+		for suite in ("stable", "stable-debug", "testing"):
+			self.assertEqual(c(suite, self.lic("q", suite=suite)), "E-OWNER", suite)	# a licensed deb never goes into stable
+		self.assertEqual(c("licensed", self.lic("foo", Section="local/games")), "E-OWNER")	# a trusted name never goes into licensed
+		self.assertIsNone(c("stable", self.lic("foo", suite="stable", Section="games")))
+		# the real ownership rule: tyrian-data is a licensed entry
+		import walnut_checks as wc
+		here = os.path.dirname(os.path.abspath(__file__))
+		lists = wc.L.Lists(slurp(f"{here}/../../github-ci/packages.toml"))
+		lists.owner = wc.index_owner(lists)
+		real = wc.Rules(lists, wc.L.load_protected(slurp(f"{here}/../../github-ci/protected-names.txt")), {}, [])
+		td = lambda suite: self.lic("tyrian-data", suite=suite, Version="2.1-2", Filename=f"pool/{suite}/main/t/tyrian-data/tyrian-data_2.1-2_all.deb")
+		self.assertIsNone(c("licensed", td("licensed"), rules=real))
+		self.assertEqual(c("stable", td("stable"), rules=real), "E-OWNER")
+
+	def test_unowned_licensed_sources(self):
+		def src(name="tyr", suite="licensed", **f):
+			st = {"Package": name, "Binary": name, "Version": "1", "Package-List": f"\n {name} deb local/games optional arch=all",
+			      "Directory": f"pool/{suite}/main/{name[0]}/{name}", "Files": f"\n 00 1 {name}_1.dsc\n 00 2 {name}_1.tar.xz"}
+			st.update(f)
+			return st
+		c = lambda suite, st: self.check(suite, st, sources=True)
+		self.assertIsNone(c("licensed", src()))
+		self.assertIsNone(c("licensed", src(Section="local/games")))
+		self.assertEqual(c("stable", src(suite="stable")), "E-SOURCE")
+		self.assertEqual(c("licensed", src(**{"Package-List": None})), "E-SOURCE")
+		self.assertEqual(c("licensed", src(**{"Package-List": "\n tyr deb games optional arch=all"})), "E-SOURCE")
+		self.assertEqual(c("licensed", src(Section="games")), "E-SOURCE")
+		self.assertEqual(c("licensed", src(Binary="tyr, bar")), "E-SOURCE")					# another package's binary
+		self.assertEqual(c("licensed", src(Binary="tyr, sudo")), "E-SOURCE")					# a protected one
+		self.assertEqual(c("licensed", src(**{"Package-List": "\n tyr deb local/games optional\n linux-image-x deb local/games optional"})), "E-SOURCE")
+		self.assertEqual(c("licensed", src(Directory="pool/licensed/main/b/bar")), "E-SOURCE")
+		self.assertEqual(c("licensed", src("bar")), "E-SOURCE")									# a trusted source in licensed
+		self.assertIsNone(c("licensed", src("q")))
+		self.assertEqual(c("stable", src("q", suite="stable")), "E-SOURCE")						# a licensed source in stable
+
+	def test_licensed_bundle_with_an_unowned_name(self):
+		local = {"tyr": {"Section": "local/games"}}
+		self.drop("licensed", "un", self.apt_bundle({"tyr_1_all.deb": b"t"}, suite="licensed", fields=local))
+		self.drop("apt", "unst", self.apt_bundle({"tyr_1_all.deb": b"t"}, suite="stable", fields=local))
+		self.drop("apt", "qst", self.apt_bundle({"q_1_all.deb": b"q"}, suite="stable"))
+		self.run_watch()
+		self.assertTrue(self.status("licensed", "un").startswith("ok "), self.status("licensed", "un"))
+		self.assertEqual(self.www("licensed/pool/licensed/main/t/tyr/tyr_1_all.deb"), b"t")
+		self.assertEqual(self.refused_code("apt", "unst"), "E-OWNER")
+		self.assertEqual(self.refused_code("apt", "qst"), "E-OWNER")
+		self.assertFalse(os.path.exists(f"{self.root}/www/apt/dists/stable"))
+
 	def test_rules_missing_fails_closed(self):
 		shutil.rmtree(f"{self.root}/rules")
 		self.drop("apt", "a", self.apt_bundle({"foo_1_ppc64.deb": b"f"}))

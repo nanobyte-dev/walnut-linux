@@ -2,9 +2,10 @@
 """walnut_testrules.py ROOT [BUNDLE_DIR...]: for tests that use the real walnut-watch as a fake server (apt-repo/test_walnut_repo.py,
 github-ci/test_batch_publish.py): writes ROOT/rules/ the way deploy.sh --rules would, from what the test has. Pins are every
 fingerprint of ROOT/keys/{testing,archive}-keyring.gpg; the ownership copy lists every package the given bundles' Packages
-indices name (each Source owns its binaries, relations included), added to what the previous call wrote. The test then
-exercises walnut-watch's other checks (signatures, pins, indices, pool paths, ownership shape) unchanged; what these tests
-do not do is decide which package may be published (server tests in test_walnut_watch.py do)."""
+indices name (each Source owns its binaries, relations included; tier licensed in the licensed suite), added to what the
+previous call wrote. The test then exercises walnut-watch's other checks (signatures, pins, indices, pool paths, ownership
+shape) unchanged; what these tests do not do is decide which package may be published (server tests in test_walnut_watch.py
+do)."""
 import json, os, re, subprocess, sys, tomllib
 
 HERE = os.path.dirname(os.path.realpath(__file__))
@@ -22,11 +23,13 @@ def fprs(ring):
 
 
 def stanzas(bundle):
+	"""(suite, stanza) of every Packages index in the bundle"""
 	for d, _, fs in os.walk(os.path.join(bundle, "dists")):
 		for f in fs:
 			if f == "Packages":
+				suite = os.path.relpath(d, os.path.join(bundle, "dists")).split(os.sep)[0]
 				with open(os.path.join(d, f), encoding="utf-8", errors="replace") as fh:
-					yield from parse_stanzas(fh.read())
+					yield from ((suite, st) for st in parse_stanzas(fh.read()))
 
 
 def prepare(root, bundles=()):
@@ -37,13 +40,13 @@ def prepare(root, bundles=()):
 	if os.path.exists(path):
 		with open(path, "rb") as f:
 			for name, e in tomllib.load(f).get("package", {}).items():
-				own[name] = {"binaries": set(e["binaries"]), "relations": set(e.get("relations", []))}
+				own[name] = {"binaries": set(e["binaries"]), "relations": set(e.get("relations", [])), "tier": e["tier"]}
 	for b in bundles:
-		for st in stanzas(b):
+		for suite, st in stanzas(b):
 			pkg = st.get("Package", "")
 			m = SOURCE_FIELD_RE.match(st.get("Source") or pkg)
 			src = m.group(1) if m else pkg
-			e = own.setdefault(src, {"binaries": set(), "relations": set()})
+			e = own.setdefault(src, {"binaries": set(), "relations": set(), "tier": "licensed" if suite == "licensed" else "trusted"})
 			e["binaries"].add(pkg.removesuffix("-dbgsym"))
 			for f in L.RELATION_FIELDS:
 				e["relations"].update(L.parse_relation(st.get(f, "")))
@@ -51,7 +54,7 @@ def prepare(root, bundles=()):
 	for name, e in sorted(own.items()):
 		rel = sorted(e["relations"] - e["binaries"])
 		text += (f'\n[package.{json.dumps(name)[1:-1] if re.fullmatch(r"[A-Za-z0-9_-]+", name) else json.dumps(name)}]\n'
-		         f'dir = "packages/x/{name}"\nsource = {json.dumps(name)}\ntier = "trusted"\n'
+		         f'dir = "packages/x/{name}"\nsource = {json.dumps(name)}\ntier = "{e["tier"]}"\n'
 		         f'binaries = {json.dumps(sorted(e["binaries"]))}\n' + (f"relations = {json.dumps(rel)}\n" if rel else ""))
 	with open(path, "w") as f:
 		f.write(text)

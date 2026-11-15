@@ -8,7 +8,8 @@ raise (docs/WALNUT-SERVER.md; round 3 V1, V2, V4). walnut-watch imports this fil
   policy_error    why a bundle at this key is not allowed, or None
   load_rules      the server's own rules (rules/: ownership.toml, protected-names.txt, pins.json), fail closed
   parse_stanzas   the stanzas of a Packages or Sources index
-  check_index     ownership, relations, pool paths for one index (V2)
+  check_index     ownership, tiers, relations, pool paths for one index (V2); the licensed suite also takes
+                  licensed names no entry owns
   signing_ok      a VALIDSIG status line against the suite's pinned fingerprints (V4)
 """
 import json, os, re, sys
@@ -187,6 +188,9 @@ SRC_FILE_RE = re.compile(r"(?:\.dsc|\.tar\.(?:gz|xz|bz2|zst)|\.diff\.gz|\.tar\.(
 PKG_RE = re.compile(r"[a-z0-9][a-z0-9+.-]*\Z")
 VER_RE = re.compile(r"[A-Za-z0-9.+~:-]+\Z")
 ARCH_RE = re.compile(r"[a-z0-9-]+\Z")
+LICENSED = "licensed"	# the suite of licensed packages: the only one for tier-licensed entries, and for unowned names
+LICENSED_SECTION_RE = re.compile(r"(?:local|non-free)/[a-z0-9][a-z0-9+.-]*\Z")	# as tools/licensed.py reads a Section
+UNOWNED = L.Entry(None, {"dir": "", "source": "", "tier": "licensed", "binaries": []})	# relations of an unowned name: no names of its own
 
 
 def parse_stanzas(text):
@@ -215,6 +219,24 @@ def _entry_for_source(lists, src):
 	return [e for e in lists.entries.values() if src == e.source or src in e.moved_from]
 
 
+def _tier_error(suite, entry):
+	"""A tier-licensed entry goes into the licensed suite only, and only tier-licensed entries go there."""
+	if (entry.tier == "licensed") != (suite == LICENSED):
+		return f"{suite}: package {entry.name} (tier {entry.tier}) is not for this suite"
+	return None
+
+
+def _unowned_error(rules, suite, name):
+	"""Why a binary name no entry owns may not be in the licensed suite's Binary or Package-List, or None."""
+	if not PKG_RE.match(name):
+		return f"{suite}: package name {name!r}"
+	if own := rules.lists.owner(name):	# listed, retired or under a reserved prefix
+		return f"{suite}: {name} belongs to package {own[0]}"
+	if L.is_protected(rules.protected, name):
+		return f"{suite}: {name} is a protected name"
+	return None
+
+
 def check_index(rules, suite, sources, text, published=lambda st: False):
 	"""Checks one Packages (sources=False) or Sources (True) index of suite against the server's ownership
 	copy. Raises Refused (E-OWNER, E-RELATION, E-POOLPATH, E-SOURCE) at the first violation. The one exception is a
@@ -234,19 +256,32 @@ def check_index(rules, suite, sources, text, published=lambda st: False):
 		if not PKG_RE.match(name):
 			raise Refused(f"{suite}: package name {name!r}", "E-OWNER")
 		own = lists.owner(name)
-		if own is None:
-			raise Refused(f"{suite}: {name} is in no entry of the server's ownership rule", "E-OWNER")
-		if own[1]:
-			raise Refused(f"{suite}: {name} is retired or reserved: nobody may publish it", "E-OWNER")
-		entry = lists.entries.get(own[0])
-		if entry is None:
-			raise Refused(f"{suite}: {name}: owner {own[0]} has no entry", "E-OWNER")
 		m = SOURCE_FIELD_RE.match(st.get("Source") or name)
 		if not m:
 			raise Refused(f"{suite}: {name}: Source {st.get('Source')!r}", "E-OWNER")
 		src = m.group(1)
-		if src != entry.source and src not in entry.moved_from:
-			raise Refused(f"{suite}: {name} belongs to source {entry.source}, not {src}", "E-OWNER")
+		if own is None:
+			# the licensed suite takes a licensed name no entry owns: licensed by its Section, under a source no entry
+			# owns, naming no protected or owned name in its relations (the owner's PC publishes it, signed offline)
+			if suite != LICENSED:
+				raise Refused(f"{suite}: {name} is in no entry of the server's ownership rule", "E-OWNER")
+			if L.is_protected(rules.protected, name):
+				raise Refused(f"{suite}: {name} is a protected name", "E-OWNER")
+			if not LICENSED_SECTION_RE.match(st.get("Section", "")):
+				raise Refused(f"{suite}: {name}: Section {st.get('Section')!r} is not local/* or non-free/*", "E-OWNER")
+			if taken := _entry_for_source(lists, src):
+				raise Refused(f"{suite}: {name}: source {src} belongs to package {taken[0].name}", "E-OWNER")
+			entry = UNOWNED
+		else:
+			if own[1]:
+				raise Refused(f"{suite}: {name} is retired or reserved: nobody may publish it", "E-OWNER")
+			entry = lists.entries.get(own[0])
+			if entry is None:
+				raise Refused(f"{suite}: {name}: owner {own[0]} has no entry", "E-OWNER")
+			if why := _tier_error(suite, entry):
+				raise Refused(f"{why}: {name}", "E-OWNER")
+			if src != entry.source and src not in entry.moved_from:
+				raise Refused(f"{suite}: {name} belongs to source {entry.source}, not {src}", "E-OWNER")
 		refusals, _ = L.check_relations(lists, rules.protected, entry, st)
 		if refusals:
 			raise Refused(f"{suite}: {name}: {refusals[0]}", "E-RELATION")
@@ -262,15 +297,30 @@ def _check_source_stanza(rules, suite, st):
 	lists = rules.lists
 	name = st.get("Package", "")
 	entries = _entry_for_source(lists, name)
-	if not PKG_RE.match(name) or not entries:
+	if not PKG_RE.match(name) or not entries and suite != LICENSED:
 		raise Refused(f"{suite}: source {name!r} is in no entry of the server's ownership rule", "E-SOURCE")
+	for e in entries:
+		if why := _tier_error(suite, e):
+			raise Refused(f"{why}: source {name}", "E-SOURCE")
 	ents = {e.name for e in entries}
+	if not entries:
+		# a licensed source no entry owns: its binaries are unowned, unprotected and licensed by their Package-List
+		# sections (a .dsc has no Section of its own; one given must be licensed too)
+		plist = [l.split() for l in st.get("Package-List", "").split("\n") if l.strip()]
+		if L.is_protected(rules.protected, name) or not plist or "Section" in st and not LICENSED_SECTION_RE.match(st["Section"]):
+			raise Refused(f"{suite}: source {name}: protected, or not licensed by its Section and Package-List", "E-SOURCE")
+		for p in plist:
+			why = _unowned_error(rules, suite, p[0]) if len(p) >= 3 else f"{suite}: Package-List line {p}"
+			if why or not LICENSED_SECTION_RE.match(p[2]):
+				raise Refused(f"source {name}: {why or f'{p[0]}: section {p[2]!r}'}", "E-SOURCE")
 	for b in re.split(r"[,\s]+", st.get("Binary", "").strip()):
 		if not b:
 			continue
 		own = lists.owner(b)	# a Binary: line lists every binary of the source package, built here or not: none may be another's
 		if own is not None and own[0] not in ents:
 			raise Refused(f"{suite}: source {name}: binary {b} belongs to another package", "E-SOURCE")
+		if not entries and (why := _unowned_error(rules, suite, b)):
+			raise Refused(f"source {name}: {why}", "E-SOURCE")
 	if st.get("Directory") != pool_dir(suite, name):
 		raise Refused(f"{suite}: source {name}: Directory {st.get('Directory')!r}", "E-SOURCE")
 	files = [l.split() for l in st.get("Files", "").split("\n") if l.strip()]
