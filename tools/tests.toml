@@ -52,7 +52,7 @@ run = ["python3", "-I", "packages/walnut/system/ps3-system/tests/test_firstboot_
 
 [[suite]]
 name = "ps3-system-r3"
-what = "ds3-pair restarting bluetooth only for a new pairing, ps3-vswap.service's order, the three sudoers-file postinst blocks, the escape hatch's docs line"
+what = "ds3-pair restarting bluetooth only for a new pairing, ps3-vswap.service's order, the three sudoers-file postinst blocks, the escape hatch's docs line, the licensed suite's apt pin"
 run = ["python3", "-I", "packages/walnut/system/ps3-system/tests/test_system_r3.py"]
 
 [[suite]]

@@ -10,6 +10,14 @@ Package: *
 Pin: release o=Walnut, n=testing
 Pin-Priority: 1
 
+# the licensed suite (the owner's consoles add it by hand, docs/PACKAGING.md) like Debian's backports: below Debian
+# (500) and stable (990), so a licensed package never wins over a package of that name from them, whatever its
+# version. At 100, the installed version's own priority, a package only the licensed suite has still installs
+# (as a dependency too) and upgrades from it; one installed from there is never downgraded.
+Package: *
+Pin: release o=Walnut, n=licensed
+Pin-Priority: 100
+
 # Debian's kernels and Mesa are never installed: the PS3 runs ours (Debian's linux-libc-dev,
 # linux-base, perf etc. stay installable). A Debian package needing a newer Mesa than ours is
 # kept back by apt upgrade, nothing is removed.

@@ -130,6 +130,26 @@ class SudoersPostinst(unittest.TestCase):
             self.assertEqual((files, err), (["other"], ""), n)
 
 
+class AptPins(unittest.TestCase):
+    """the licensed suite sits below Debian (500) and stable (990) at the installed version's 100: a licensed package
+    never wins over a Debian or Walnut package of its name, and one only the licensed suite has installs and upgrades
+    (checked with apt in debian:sid-slim, 2026-11-15)"""
+    def pins(self):
+        text = (PKG / "files/apt/walnut.pref").read_text()
+        out = []
+        for para in re.split(r"\n\s*\n", text):
+            f = dict(l.split(":", 1) for l in para.splitlines() if l and not l.startswith("#"))
+            if f:
+                out.append({k.strip(): v.strip() for k, v in f.items()})
+        return out
+
+    def test_licensed_below_debian_and_stable(self):
+        p = {x["Pin"]: int(x["Pin-Priority"]) for x in self.pins() if x["Package"] == "*"}
+        self.assertEqual(p["release o=Walnut, n=licensed"], 100)
+        self.assertEqual(p["release o=Walnut, n=stable"], 990)
+        self.assertEqual([k for k in p if "licensed" in k], ["release o=Walnut, n=licensed"])
+
+
 class ResearchModules(unittest.TestCase):
     def test_modprobe_refuses_the_research_modules(self):
         lines = [l.split() for l in (PKG / "debian/walnut-research.conf").read_text().splitlines()
