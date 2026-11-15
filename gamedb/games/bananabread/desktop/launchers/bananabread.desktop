@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=Cube2:Demo
+Comment=playable demo for the Cube2 engine
+Exec=ps3-game cube2 "-xoqwaterlag 1"
+Icon=cube2
+Terminal=false
+Type=Application
+Categories=Game;ActionGame;
+Keywords=action;shooter;3D;fps;first-person;fast-paced;editor;maps;client;single-player;bots;

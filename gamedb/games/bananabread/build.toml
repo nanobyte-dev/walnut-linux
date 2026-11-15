@@ -3,6 +3,13 @@ packages = ["cube2", "cube2-data"]
 engine = "cube2"
 suite = "none"
 needs_data = false
+# our menu entry (desktop/launchers/bananabread.desktop, Debian's cube2-data one diverted; same name and
+# fields): cube2 0010's `oqwaterlag 1` (the water's occlusion query counts only once its result is in;
+# the reflection can be one frame late as water comes into view), the user's default since 2026-11-15:
+# 43.8 against 37.7 fps steady (gamedb:batch/2026-11-14-s1114-bananabread-oq). On the command line, so
+# Sauerbraten (the same engine, unmeasured) keeps 0
+desktop = ["bananabread.desktop"]
+divert = ["/usr/share/applications/cube2.desktop"]
 # the models and sounds Debian's cube2-data leaves out (the licensed suite only)
 data = ["sauerbraten-nonfree-data"]
 recipes = ["bananabread:base"]

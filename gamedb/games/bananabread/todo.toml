@@ -13,16 +13,6 @@ Played 2026-10-24: Scrap (20 fps, 22 s of stutter a minute, 64 s to load). Debia
 BananaBread, not Sauerbraten; the real Sauerbraten is its own bundle (gamedb:sauerbraten)."""
 
 [[item]]
-kind = "package"
-added = 2026-11-14
-source = "gamedb:batch/2026-11-14-s1114-bananabread-oq"
-text = """\
-`oqwaterlag 1` (cube2 0010, recipe variant `oqlag`) as the shipped default: 43.8 against 37.7 fps steady \
-(+16%), 1% low 26.2 against 24.9, three interleaved rounds on kernel .1529 and Mesa ps3.1508, the same \
-picture in the screenshots. The cost: the first frame water shows again keeps last frame's reflection. \
-The user's call."""
-
-[[item]]
 kind = "benchmark"
 added = 2026-10-19
 source = "PLAN 2.6"

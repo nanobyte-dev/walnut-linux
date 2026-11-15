@@ -17,7 +17,7 @@ they came from.
 | Game | Open items | Kinds | From the plan |
 |---|---|---|---|
 | [Armagetron Advanced](../../gamedb/games/armagetronad/todo.toml) | 1 | 1 session |  |
-| [BananaBread](../../gamedb/games/bananabread/todo.toml) | 5 | 2 benchmark, 2 package, 1 session | 2.6 |
+| [BananaBread](../../gamedb/games/bananabread/todo.toml) | 4 | 2 benchmark, 1 package, 1 session | 2.6 |
 | [Battle for Wesnoth](../../gamedb/games/wesnoth/todo.toml) | 1 | 1 benchmark |  |
 | [BZFlag](../../gamedb/games/bzflag/todo.toml) | 3 | 2 package, 1 session |  |
 | [Chromium B.S.U.](../../gamedb/games/chromium-bsu/todo.toml) | 1 | 1 benchmark |  |
@@ -38,14 +38,14 @@ they came from.
 | [Half-Life (Xash3D FWGS)](../../gamedb/games/half-life/todo.toml) | 2 | 1 package, 1 research |  |
 | [Heroes of Might and Magic II (fheroes2)](../../gamedb/games/heroes-of-might-and-magic-2/todo.toml) | 3 | 1 package, 1 research, 1 session |  |
 | [LinCity-NG](../../gamedb/games/lincity-ng/todo.toml) | 1 | 1 benchmark |  |
-| [Luanti](../../gamedb/games/luanti/todo.toml) | 9 | 2 benchmark, 1 package, 5 research, 1 session | 2.6, 2.9, 3.12 |
+| [Luanti](../../gamedb/games/luanti/todo.toml) | 7 | 1 benchmark, 5 research, 1 session | 3.12 |
 | [MegaGlest](../../gamedb/games/megaglest/todo.toml) | 2 | 1 benchmark, 1 fix |  |
 | [Mr.Boom](../../gamedb/games/mrboom/todo.toml) | 1 | 1 session |  |
 | [Neverball](../../gamedb/games/neverball/todo.toml) | 2 | 1 benchmark, 1 session | 3.10 |
 | [Nexuiz Classic](../../gamedb/games/nexuiz/todo.toml) | 1 | 1 benchmark | 1.12 |
 | [OpenArena](../../gamedb/games/openarena/todo.toml) | 5 | 1 benchmark, 2 fix, 1 package, 1 session | 3.7 |
 | [OpenRCT2](../../gamedb/games/openrct2/todo.toml) | 1 | 1 benchmark |  |
-| [OpenTTD](../../gamedb/games/openttd/todo.toml) | 6 | 2 benchmark, 1 fix, 1 package, 1 research, 1 session | 2.8, 3.1 |
+| [OpenTTD](../../gamedb/games/openttd/todo.toml) | 5 | 2 benchmark, 1 fix, 1 research, 1 session | 2.8, 3.1 |
 | [OpenTyrian](../../gamedb/games/opentyrian/todo.toml) | 2 | 2 benchmark |  |
 | [QuakeSpasm](../../gamedb/games/quakespasm/todo.toml) | 2 | 1 package, 1 session |  |
 | [Red Eclipse](../../gamedb/games/redeclipse/todo.toml) | 1 | 1 fix | 3.8 |

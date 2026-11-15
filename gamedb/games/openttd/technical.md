@@ -24,6 +24,10 @@ driver plays too, but gives the frame timer nothing to measure.
 - Two menu entries of ours ([desktop/launchers](desktop/launchers/)) replace Debian's (diverted): "OpenTTD
   (OpenGL)", `-v sdl-opengl -r 1920x1080`, and "OpenTTD (software)", `-v sdl` with
   `SDL_FRAMEBUFFER_ACCELERATION=0`.
+- The OpenGL entries (and the original-graphics one) start the game with Mesa 0040's staging pool,
+  `NV30_STAGING_POOL_MB=24` (the user, 2026-11-15): 56 against 45 fps steady and a 1% low of 21.5
+  against 15.6 with the 8bpp blitter (gamedb:batch/2026-11-14-s1114b-openttd-pool). It keeps up to 24 MB
+  of idle, mapped GART staging buffers for reuse while the game runs; one unused for a second goes back.
 - The software path needed our SDL3 fix (libsdl3 +ps3.254): SDL3's accelerated window framebuffer was
   BGRA8888 on big-endian, a strong blue cast.
 

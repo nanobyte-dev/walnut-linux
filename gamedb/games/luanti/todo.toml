@@ -16,24 +16,6 @@ and memory over a long session (the client keeps up to 7500 blocks for 10 minute
 flight never reaches)."""
 
 [[item]]
-kind = "benchmark"
-added = 2026-10-19
-source = "PLAN 2.6"
-text = """\
-`view40` repeated x3: one run gave 59 fps with closer fog and 0.9 s of stalls (row 63). `run.sh \
-bench luanti \"base view40\" 3` with `STALLS=1`."""
-
-[[item]]
-kind = "package"
-added = 2026-10-19
-source = "PLAN 2.9"
-text = """\
-`view40` as a menu option, once its repeat holds. (`base` stays the default after the clean runs: \
-1.5 and 2.1 s of gameplay stalls, 45-46 fps; `cliunload` is worse, `lean` draws a black void because \
-`chunk3` empties the world, `srvunload` and `active2` render but stall more, 6.3 and 6.7 s against \
-about 2.5.)"""
-
-[[item]]
 kind = "research"
 added = 2026-10-19
 source = "backlog/games.md rank 19"

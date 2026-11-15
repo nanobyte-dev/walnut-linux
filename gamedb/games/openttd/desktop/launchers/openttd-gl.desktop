@@ -2,7 +2,7 @@
 Type=Application
 Name=OpenTTD (OpenGL)
 Comment=Transport simulation, OpenGL video driver
-Exec=ps3-game openttd -v sdl-opengl -r 1920x1080
+Exec=ps3-game env NV30_STAGING_POOL_MB=24 openttd -v sdl-opengl -r 1920x1080
 Icon=openttd
 Terminal=false
 Categories=Game;Simulation;
