@@ -43,7 +43,8 @@ for v in "vseal-test VSEAL_FIXOFF_PLAIN_GET" "vseal-test VSEAL_FIXOFF_SPLIT_TAGS
 	"vswap-test VSX_FIXOFF_WB_KEEP_ALL" "vswap-test VSX_FIXOFF_SHORT_NO_APPLY" "vswap-test VSX_FIXOFF_EAGER_APPLY" \
 	"vswap-test VSX_FIXOFF_PEND_UNCOUNTED" "vswap-test VSX_FIXOFF_DISCARD_KEEPS_MARK" \
 	"vswap-test VSX_FIXOFF_SHORT_COUNT_ANY" "vswap-test VSX_FIXOFF_KEEP_NO_APPLY" \
-	"vswap-test VSX_FIXOFF_OFF_MARKS" "vswap-test VSX_FIXOFF_OFF_SHORT_APPLY"; do
+	"vswap-test VSX_FIXOFF_OFF_MARKS" "vswap-test VSX_FIXOFF_OFF_SHORT_APPLY" \
+	"vswap-test VSX_FIXOFF_AGE_AT_JOIN" "vswap-test VSX_FIXOFF_AGE_ALWAYS"; do
 	set -- $v
 	n_off=$((n_off + 1))
 	if build "fixoff-$2" "$1.c" -w -DVSEAL_TEST_OPS $([ "$1" = vswap-test ] && echo -DV2_SCALAR_ONLY) -D"$2" && ! timeout 300 "$O/fixoff-$2" > "$O/fixoff-$2.log" 2>&1; then
@@ -87,6 +88,17 @@ elif ! awk '/^static ssize_t backing_store\(/,/^}/' ../src/vswap.c | awk '
 	echo "!! vswap.c backing_store: x.reuse not set before x->freed is published"; bad=1
 else
 	echo "vswap.c: vswap_reuse off by default, writable, set before the marks' bitmap is published"
+fi
+# the age order: slot_alloc hands every slot out through its found: path, which tells the core (vsx_chunk_used, the
+# model's rule), and the demotion takes the lowest age
+if ! awk '/^static int slot_alloc\(/,/^}/' ../src/vswap.c | awk '
+	/^found:/ { f = NR } /vsx_chunk_used\(&vs->x, &c->born, &vs->seq\);/ { u = NR } /return i \* SLOTS \+ n;/ { r = NR }
+	END { exit !(f && u > f && r > u) }'; then
+	echo "!! vswap.c slot_alloc: a handed-out slot doesn't set its chunk's age (vsx_chunk_used)"; bad=1
+elif ! awk '/^static void vswap_demote_work\(/,/^}/' ../src/vswap.c | grep -q 'vs->chunks\[i\]\.born < vs->chunks\[oldest\]\.born'; then
+	echo "!! vswap.c: the demotion doesn't take the lowest age"; bad=1
+else
+	echo "vswap.c: slot_alloc sets the chunk's age through vsx_chunk_used, the demotion takes the lowest"
 fi
 # chunk_evict drops what changed since its open (vsx_writeback_keep, the model's rule) right before it sets
 # wb_pages, the only place it does, with no unlock between the two

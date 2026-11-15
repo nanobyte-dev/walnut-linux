@@ -19,7 +19,8 @@
  *  - the VRAM holds the recently swapped: when the pool is (nearly) full, a background job
  *    moves the pages of its oldest chunk to the disk (pages that sat in swap longest without
  *    being freed or rewritten are the cold ones; a read keeps its slot: the page stays in swap
- *    until the swap layer frees the entry).
+ *    until the swap layer frees the entry). A chunk's age is when it joined the pool, and with
+ *    slot reuse on also when a slot of it was last handed out (vswap_core.h "The age order").
  * Requests are served by our own work queue, on a fresh stack: blk-mq runs queue_rq inline from
  * a plug flush in direct reclaim, which was already deep in the stack (an IRQ found < 4 KiB left).
  *
@@ -95,7 +96,8 @@ struct vchunk {
 	void __iomem *io;
 	unsigned int nused;
 	bool evicting;			/* being written back: no new pages into it */
-	u64 born;			/* when it was (re)filled: the demotion takes the oldest */
+	u64 born;			/* its age: joined or emptied, and with slot reuse its newest page's
+					 * (vsx_chunk_used); the demotion takes the lowest */
 	DECLARE_BITMAP(used, SLOTS);
 	DECLARE_BITMAP(dirty, SLOTS);	/* rewritten or freed since the write-back copied it */
 	u32 page[SLOTS];		/* device page in each used slot */
@@ -311,6 +313,7 @@ found:
 	n = find_first_zero_bit(c->used, SLOTS);
 	set_bit(n, c->used);
 	c->nused++;
+	vsx_chunk_used(&vs->x, &c->born, &vs->seq);	/* (slot reuse: the age is the newest page's) */
 	return i * SLOTS + n;
 }
 
@@ -1100,7 +1103,7 @@ bool ps3rsx_vswap_shrink(struct ps3rsx_device *rsx, u64 bytes)
 	return freed > 0;
 }
 
-/* Keep HEADROOM slots free in a full pool: the oldest chunk's pages go to the disk */
+/* Keep HEADROOM slots free in a full pool: the pages of the chunk with the lowest age (born) go to the disk */
 static void vswap_demote_work(struct work_struct *work)
 {
 	struct ps3rsx_vswap *vs = container_of(work, struct ps3rsx_vswap, demote_work);

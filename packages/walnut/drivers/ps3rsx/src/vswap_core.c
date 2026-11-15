@@ -687,6 +687,16 @@ static int fresh_slot(struct vsx *x)
 	return s;
 }
 
+void vsx_chunk_used(struct vsx *x, vs_u64 *age, vs_u64 *seq)
+{
+#ifdef VSX_FIXOFF_AGE_ALWAYS			/* (the fix-off: the age moved with slot reuse off too) */
+	*age = ++*seq;
+#elif !defined(VSX_FIXOFF_AGE_AT_JOIN)		/* (the fix-off: the age only at join, with slot reuse on too) */
+	if (vsx_reuse(x))
+		*age = ++*seq;
+#endif
+}
+
 void vsx_begin(struct vsx *x)
 {
 	x->nwr = 0;

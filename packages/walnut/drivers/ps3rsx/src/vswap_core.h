@@ -64,6 +64,14 @@
  * consumes a mark runs whatever the switch says), so it can change at any time: no mark is lost, the count
  * stays exact, and nothing is freed that a job still names (no mark, no apply).
  *
+ * The age order (vswap.c's demotion takes the chunk with the lowest age). Off, a chunk's age is when it joined the
+ * pool or was last emptied, as before slot reuse. On, it is also set each time a slot of it is handed out
+ * (vsx_chunk_used), so it is its newest page's: an apply frees holes in old chunks too, the next writes fill them,
+ * and with the age at join the demotion would write those new pages to the disk with the old ones (BananaBread
+ * read them straight back during play). With the newest page's age, every page the demotion takes was written
+ * before the newest page of every chunk it keeps; the old pages of a refilled chunk stay with it until it is
+ * the oldest-written again.
+ *
  * Locking: the caller holds vs->lock around every vsx_*() call except vsx_free_mark() (none); the SPE client
  * takes its own lock inside.
  */
@@ -223,6 +231,9 @@ long vsx_frees_count(struct vsx *x);
 /* the marked pages leave the map (as discards). vs->lock held, no read piece queued (a write batch's queued
  * writes name fresh slots, which no apply frees). Returns the marks applied. */
 unsigned int vsx_apply_frees(struct vsx *x);
+/* a slot of a chunk was handed out (vswap.c's slot_alloc, vs->lock held): with slot reuse on, the chunk's age
+ * (*age, from the pool's counter *seq) becomes its newest page's ("The age order" above) */
+void vsx_chunk_used(struct vsx *x, vs_u64 *age, vs_u64 *seq);
 /* starts a batch (applies no marks: vswap_core.h "Frees") */
 void vsx_begin(struct vsx *x);
 void vsx_write(struct vsx *x, struct vsx_piece *pc);

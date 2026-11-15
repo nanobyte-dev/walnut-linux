@@ -29,14 +29,17 @@
  * full or the SPE gone), freed or discarded there, also under the random runs: the newer bytes stay on the disk,
  * a page freed before its write starts never reaches it. Slot reuse off (vswap_reuse): no mark, no short-pool
  * apply; marks left from a time it was on taken by a rewrite and a discard and applied by the write-back, the
- * count exact; the switch flipped at random in the random runs (the count equal to the bits at the end).
+ * count exact; the switch flipped at random in the random runs (the count equal to the bits at the end). The age
+ * order (vsx_chunk_used, the demotion's choice as vswap_demote_work's): with slot reuse, a short pool's apply frees
+ * holes in the oldest chunk and new pages fill them; the demotion takes the chunk holding only older pages and
+ * the new ones stay in VRAM; off, the age at join as before.
  * Built with VSX_FIXOFF_IGNORE_TAG, VSX_FIXOFF_SAME_CTR, VSX_FIXOFF_AD_NO_PAGE, VSX_FIXOFF_WB_INTO_BOUNCE,
  * VSX_FIXOFF_NO_RETRY, VSX_FIXOFF_DISCARD_BAD, VSX_FIXOFF_NO_DEFER, VSX_FIXOFF_PPE_NO_RETRY,
  * VSX_FIXOFF_PARTIAL_EMPTY, VSX_FIXOFF_MODE_BY_SWITCH, VSX_FIXOFF_BATCH_REORDER, VSX_FIXOFF_R1_FINAL,
  * VSX_FIXOFF_NO_FREE, VSX_FIXOFF_FREE_KEEPS_MARK, VSX_FIXOFF_FREE_NOW, VSX_FIXOFF_WB_KEEP_ALL,
  * VSX_FIXOFF_SHORT_NO_APPLY, VSX_FIXOFF_EAGER_APPLY, VSX_FIXOFF_PEND_UNCOUNTED, VSX_FIXOFF_DISCARD_KEEPS_MARK,
- * VSX_FIXOFF_SHORT_COUNT_ANY, VSX_FIXOFF_KEEP_NO_APPLY, VSX_FIXOFF_OFF_MARKS or VSX_FIXOFF_OFF_SHORT_APPLY it must
- * fail. */
+ * VSX_FIXOFF_SHORT_COUNT_ANY, VSX_FIXOFF_KEEP_NO_APPLY, VSX_FIXOFF_OFF_MARKS, VSX_FIXOFF_OFF_SHORT_APPLY,
+ * VSX_FIXOFF_AGE_AT_JOIN or VSX_FIXOFF_AGE_ALWAYS it must fail. */
 #define VSX_PLAIN
 #include <pthread.h>
 #include <sched.h>
@@ -87,6 +90,8 @@ static void (*job_hook)(void);		/* runs when a job or a GPU copy starts (a notif
 static int evicting = -1;		/* the chunk being written back: none of its slots handed out (slot_alloc) */
 static void (*gap_hook)(const vs_u32 *pages, int n);	/* own pages: between two batches, the lock dropped */
 static bool reuse_on = true;		/* vswap_reuse (X.reuse points here) */
+static int pool_chunks = NCH;		/* the chunks in the pool: slots are handed out from these only */
+static vs_u64 born[NCH], age_seq;	/* each chunk's age (vswap.c's vchunk.born, vs->seq) */
 
 struct req { int failed; };
 
@@ -102,14 +107,19 @@ static vs_u32 rnd(void)
 /* --- the hardware calls ------------------------------------------------------------------------- */
 int vsx_hw_slot_alloc(void *hw, int last)
 {
-	int nused = 0;
+	int nused = 0, lim = pool_chunks * (int)VSX_SLOTS;
 
 	for (int n = 0; n < NSL; n++)
 		nused += used[n];
-	for (int n = 0; n < NSL && nused < slot_cap; n++) {
-		int s = (next_free_hint + n) % NSL;
+	for (int n = 0; n < lim && nused < slot_cap; n++) {
+		int s = (next_free_hint + n) % lim, c = s / (int)VSX_SLOTS, cu = 0;
 
-		if (!used[s] && s / (int)VSX_SLOTS != evicting) {
+		if (!used[s] && c != evicting) {
+			for (int k = 0; k < (int)VSX_SLOTS; k++)
+				cu += used[c * VSX_SLOTS + k];
+			if (!cu)
+				born[c] = ++age_seq;	/* an empty chunk joins (vswap.c: grown, or emptied) */
+			vsx_chunk_used(&X, &born[c], &age_seq);
 			used[s] = 1;
 			next_free_hint = s + 1;
 			return s;
@@ -448,6 +458,9 @@ static void reset_model(void)
 	X.freed_sum = freed_sumw;
 	reuse_on = true;
 	X.reuse = &reuse_on;
+	pool_chunks = NCH;
+	memset(born, 0, sizeof(born));
+	age_seq = 0;
 	X.npages = NPG;
 	X.next_ctr = 1;
 	X.mode = VSX_SEAL;
@@ -543,6 +556,22 @@ static void evict_m(int c, int gpu, int own_pages)
 static void evict(int c, int gpu)
 {
 	evict_m(c, gpu, 0);
+}
+
+/* the demotion's choice (vswap_demote_work): the chunk in the pool, not evicting, with pages, of the lowest age */
+static int demote_victim(void)
+{
+	int v = -1;
+
+	for (int c = 0; c < pool_chunks; c++) {
+		int n = 0;
+
+		for (int k = 0; k < (int)VSX_SLOTS; k++)
+			n += used[c * VSX_SLOTS + k];
+		if (n && c != evicting && (v < 0 || born[c] < born[v]))
+			v = c;
+	}
+	return v;
 }
 
 /* someone else changes page p's slot */
@@ -1508,6 +1537,59 @@ int main(void)
 	reuse_on = true;
 	CHECK(vsx_free_mark(&X, 20) == 1 && vsx_frees_count(&X) == 1, "reuse on again: a free marks");
 	counts("reuse off, marks left");
+
+	/* --- the age order (vsx_chunk_used): a pool of two chunks that can't grow, 100 holes in chunk 0 (the oldest),
+	 * 88 new pages into them, then the demotion's choice. Reuse on: the holes from marks, applied by the short
+	 * pool; chunk 0's age is now its newest page's, so the demotion takes chunk 1 (older pages only) and the new
+	 * pages stay in VRAM. Off: the holes from discards (as before slot reuse), the age at join: chunk 0 --- */
+	for (int off = 0; off < 2; off++) {
+		int v, in0 = 0, kept = 0, ok = 1;
+
+		reset_model();
+		reuse_on = !off;
+		pool_chunks = 2;
+		next_free_hint = 0;
+		for (i = 0; i < 512; i += 32)
+			wr(p, seq(i, 32, p), 0, VSX_PAGE);
+		CHECK(map[255] - 1 < VSX_SLOTS && map[256] - 1 >= VSX_SLOTS && map[511] - 1 < 2 * VSX_SLOTS && X.in_vram == 512,
+		      "age order %d: pages 0-255 in chunk 0, 256-511 in chunk 1", off);
+		for (i = 0; i < 100; i++) {
+			if (!off) {
+				free_page(i);
+			} else {
+				vsx_discard(&X, i);
+				memset(truth[i], 0, VSX_PAGE);
+			}
+		}
+		for (i = 512; i < 600; i += 32)
+			wr(p, seq(i, i + 32 <= 600 ? 32 : 600 - i, p), 0, VSX_PAGE);
+		for (i = 512; i < 600; i++)
+			in0 += vsx_in_vram(map[i]) && map[i] - 1 < VSX_SLOTS;
+		CHECK(in0 == 88 && X.on_disk == 0, "age order %d: the 88 new pages in chunk 0's holes (%d, disk %u)", off, in0,
+		      X.on_disk);
+		v = demote_victim();
+		if (!off) {
+			CHECK(X.st.short_applies == 1 && v == 1, "reuse on: the demotion takes chunk 1 (older pages only), not "
+			      "chunk 0 refilled (victim %d, ages %llu %llu)", v, (unsigned long long)born[0],
+			      (unsigned long long)born[1]);
+			if (v >= 0)
+				evict(v, 1);
+			disk_complete(1);
+			for (i = 512; i < 600; i++)
+				kept += vsx_in_vram(map[i]);
+			CHECK(kept == 88, "reuse on: after the demotion every new page is still in VRAM (%d of 88)", kept);
+		} else {
+			CHECK(v == 0 && born[0] < born[1], "reuse off: the age at join, as before slot reuse: the demotion takes "
+			      "chunk 0 (victim %d, ages %llu %llu)", v, (unsigned long long)born[0],
+			      (unsigned long long)born[1]);
+		}
+		for (i = 0; i < 600; i += 32)
+			ok &= rd_check((seq(i, i + 32 <= 600 ? 32 : 600 - i, p), p), i + 32 <= 600 ? 32 : 600 - i, 0, VSX_PAGE,
+				       "age order") == 0;
+		CHECK(ok, "age order %d: every page reads as it should", off);
+		counts("age order");
+	}
+	pool_chunks = NCH;
 
 	/* a burst of marks during a batch's seal: the batch goes on, nothing applied while there is room */
 	reset_model();
