@@ -320,7 +320,8 @@ def stanza_key(st):
 
 
 def published_stanzas(prefix, suite):
-	"""The stanzas (as stanza_key) of the suite's currently published Packages and Sources."""
+	"""The stanzas (as stanza_key) of the suite's currently published Packages and Sources. An index that can't be
+	read or parsed gives none: its stanzas are then checked in full."""
 	from walnut_checks import parse_stanzas
 	out = set()
 	top = os.path.realpath(f"{prefix}/dists/{suite}")
@@ -329,58 +330,26 @@ def published_stanzas(prefix, suite):
 			continue
 		for name in {f.split(".")[0] for f in fs} & {"Packages", "Sources"}:
 			try:
-				text = read_index(f"{d}/{name}")
+				out.update(stanza_key(st) for st in parse_stanzas(read_index(f"{d}/{name}") or ""))
 			except Refused:
 				continue
-			out.update(stanza_key(st) for st in parse_stanzas(text or ""))
-	return out
-
-
-def index_files(text, sources):
-	"""The pool paths an index names: Filename: in Packages, Directory + Files in Sources."""
-	out = []
-	for para in text.split("\n\n"):
-		if sources:
-			d = re.search(r"^Directory: (\S+)", para, re.M)
-			files = re.search(r"^Files:\n((?: .*\n?)+)", para, re.M)
-			if d and files:
-				for l in files.group(1).splitlines():
-					if l.strip():
-						f = l.split()
-						if len(f) != 3:
-							raise Refused("a Sources index has a malformed Files line", "E-INDEX")
-						out.append(f"{d.group(1)}/{f[2]}")
-		else:
-			m = re.search(r"^Filename: (\S+)", para, re.M)
-			if m:
-				out.append(m.group(1))
 	return out
 
 
 def index_hashes(text, sources):
-	"""{pool path: sha256 or None} for what an index names (Packages: SHA256; Sources: Checksums-Sha256)."""
+	"""{pool path: sha256 or None} for what an index names (Packages: Filename and SHA256; Sources: Directory + Files,
+	Checksums-Sha256), from the stanzas check_index reads (walnut_checks.parse_stanzas: Refused E-INDEX on an index apt
+	could read another way)."""
+	from walnut_checks import parse_stanzas, stanza_files
 	out = {}
-	for para in text.split("\n\n"):
-		if sources:
-			d = re.search(r"^Directory: (\S+)", para, re.M)
-			sums = re.search(r"^Checksums-Sha256:\n((?: .*\n?)+)", para, re.M)
-			files = re.search(r"^Files:\n((?: .*\n?)+)", para, re.M)
-			if d and files:
-				by_name = {}
-				for l in (sums.group(1).splitlines() if sums else []):
-					f = l.split()
-					if len(f) == 3:
-						by_name[f[2]] = f[0]
-				for l in files.group(1).splitlines():
-					if l.strip():
-						name = l.split()[2]
-						out[f"{d.group(1)}/{name}"] = by_name.get(name)
-		else:
-			m = re.search(r"^Filename: (\S+)", para, re.M)
-			if m:
-				h = re.search(r"^SHA256: ([0-9a-f]{64})\s*$", para, re.M)
-				out[m.group(1)] = h.group(1) if h else None
+	for st in parse_stanzas(text):
+		out.update(stanza_files(st, sources))
 	return out
+
+
+def index_files(text, sources):
+	"""The pool paths an index names."""
+	return list(index_hashes(text, sources))
 
 
 def check_release_hashes(suite, sdir, signed, keyring=None, pins=None):
@@ -714,7 +683,10 @@ def referenced(prefix):
 				if text is None:
 					return None
 				found = True
-				refs.update(index_files(text, name == "Sources"))
+				try:
+					refs.update(index_files(text, name == "Sources"))
+				except Refused:	# an index that can't be parsed names files nobody knows: nothing is swept
+					return None
 		if not found:	# a suite without its indices: what it names is unknown
 			return None
 	return refs

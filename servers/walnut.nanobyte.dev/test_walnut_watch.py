@@ -311,7 +311,7 @@ binaries = ["linux-image-@RELEASE@"]
 		p = f"{self.root}/www/{kind}/dists/{suite}/InRelease"
 		return sha(slurp(p, "rb")) if os.path.exists(p) else "none"
 
-	def apt_bundle(self, debs, suite="testing", who=None, base=None, bad_line=None, bad_gz=False, key=None, fields=None, release_files=None, extra_hashed=None, idx_extra=None):
+	def apt_bundle(self, debs, suite="testing", who=None, base=None, bad_line=None, bad_gz=False, key=None, fields=None, release_files=None, extra_hashed=None, idx_extra=None, index_text=None):
 		who = who or ("ci" if suite.startswith("testing") else "good")
 		base = base or self.base("licensed" if suite == "licensed" else "apt", suite)
 		files, paras = {}, []
@@ -323,7 +323,7 @@ binaries = ["linux-image-@RELEASE@"]
 			st = {"Package": pkg, "Source": src, "Version": ver, "Architecture": arch, "Filename": rel, "SHA256": sha(data)}
 			st.update((fields or {}).get(pkg, {}))
 			paras.append("".join(f"{k}: {v}\n" for k, v in st.items() if v is not None))
-		text = "\n".join(paras).encode()
+		text = "\n".join(paras).encode() if index_text is None else index_text.encode()	# index_text: a crafted index
 		gz = gzip.compress(text, mtime=0)
 		idx = {"main/binary-ppc64/Packages": text, "main/binary-ppc64/Packages.gz": gz}
 		if bad_gz:	# only a truncated gzip index, correctly named and signed
@@ -786,6 +786,8 @@ binaries = ["linux-image-@RELEASE@"]
 		             ("Provides", "linux-image-x"), ("Replaces", "q"), ("Essential", "yes")):
 			self.assertIn(c("licensed", self.lic(**{k: v})), ("E-RELATION",), (k, v))
 		self.assertEqual(c("licensed", self.lic(Filename="pool/licensed/main/b/bar/tyr_1_all.deb")), "E-POOLPATH")
+		# a protected Source, refused as a Sources stanza of that name is
+		self.assertEqual(c("licensed", self.lic(Source="sudo", Filename="pool/licensed/main/s/sudo/tyr_1_all.deb")), "E-OWNER")
 		self.assertEqual(c("licensed", self.lic(Filename="pool/stable/main/t/tyr/tyr_1_all.deb")), "E-POOLPATH")
 
 	def test_tiers_and_suites(self):
@@ -824,6 +826,7 @@ binaries = ["linux-image-@RELEASE@"]
 		self.assertEqual(c("licensed", src(**{"Package-List": "\n tyr deb local/games optional\n linux-image-x deb local/games optional"})), "E-SOURCE")
 		self.assertEqual(c("licensed", src(Directory="pool/licensed/main/b/bar")), "E-SOURCE")
 		self.assertEqual(c("licensed", src("bar")), "E-SOURCE")									# a trusted source in licensed
+		self.assertEqual(c("licensed", src("sudo")), "E-SOURCE")								# a protected source
 		self.assertIsNone(c("licensed", src("q")))
 		self.assertEqual(c("stable", src("q", suite="stable")), "E-SOURCE")						# a licensed source in stable
 
@@ -838,6 +841,74 @@ binaries = ["linux-image-@RELEASE@"]
 		self.assertEqual(self.refused_code("apt", "unst"), "E-OWNER")
 		self.assertEqual(self.refused_code("apt", "qst"), "E-OWNER")
 		self.assertFalse(os.path.exists(f"{self.root}/www/apt/dists/stable"))
+
+	# --- an index apt reads differently: refused, never normalised ---
+
+	def check_text(self, suite, text, sources=False):
+		import walnut_checks as wc
+		try:
+			wc.check_index(wc.load_rules(f"{self.root}/rules"), suite, sources, text)
+		except wc.Refused as e:
+			return e.code
+		return None
+
+	TYR = "Package: tyr\nVersion: 1\nArchitecture: all\nSection: local/games\nFilename: pool/licensed/main/t/tyr/tyr_1_all.deb\n"
+	SUDO = "Package: sudo\nVersion: 999\nArchitecture: all\nSection: local/games\nFilename: pool/licensed/main/s/sudo/sudo_999_all.deb\n"
+
+	def test_index_parsed_as_apt_parses_it(self):
+		"""the review's four crafted indices (apt in debian:sid-slim read sudo or sudo's relations from each; the old parser
+		read tyr alone) and a field twice: each E-INDEX for the licensed suite and for stable"""
+		c = self.check_text
+		self.assertIsNone(c("licensed", self.TYR))
+		self.assertIsNone(c("licensed", self.TYR + "\n\n" + self.TYR.replace("tyr", "tyr2")))	# blank lines between stanzas
+		self.assertIsNone(c("licensed", self.TYR + "Description: d\n line\n .\n"))
+		crafted = {
+			"case": self.TYR + "package: sudo\n",									# apt: case-insensitive, the last wins: sudo
+			"lowercase relation": self.TYR + "conflicts: sudo\n",					# apt reads the Conflicts
+			"lowercase replaces": self.TYR + "replaces: coreutils\nprovides: sudo\n",
+			"cr line": self.SUDO + "\r\n" + self.TYR,								# apt: two stanzas, sudo 999 and tyr
+			"cr in a line": self.TYR.replace("Version: 1", "Version: 1\r"),
+			"colon-less line": self.SUDO + "junk\n" + self.TYR,					# apt: sudo, with both Filenames
+			"twice": "Package: sudo\n" + self.TYR,										# the old parser: the last, tyr
+			"twice in other case": self.TYR + "Conflicts: x\nCONFLICTS: sudo\n",		# the old parser: Conflicts x
+			"filename twice": self.TYR.replace("Filename:", "Filename: pool/licensed/main/s/sudo/sudo_999_all.deb\nFilename:"),
+			"blank line of spaces": self.SUDO + " \n" + self.TYR,
+			"tab line": self.SUDO + "\t\n" + self.TYR,
+			"continuation first": " Package: sudo\n" + self.TYR,
+			"comment": "#" + self.SUDO + self.TYR,
+			"nul": self.TYR + "Description: a\x00b\n",
+			"space before the colon": self.TYR + "Conflicts : sudo\n",
+		}
+		for what, text in crafted.items():
+			self.assertEqual(c("licensed", text), "E-INDEX", what)
+		foo = "Package: foo\nVersion: 1\nArchitecture: ppc64\nFilename: pool/stable/main/f/foo/foo_1_ppc64.deb\n"
+		self.assertIsNone(c("stable", foo))
+		for what, text in (("case", foo + "package: sudo\n"), ("cr", foo.replace("foo", "sudo") + "\r\n" + foo),
+		                   ("junk", "Package: sudo\nVersion: 9\njunk\n" + foo), ("twice", foo + "Provides: x\nprovides: sudo\n")):
+			self.assertEqual(c("stable", text), "E-INDEX", what)
+		src = "Package: tyr\nBinary: tyr\nVersion: 1\nPackage-List:\n tyr deb local/games optional arch=all\nDirectory: pool/licensed/main/t/tyr\nFiles:\n 00 1 tyr_1.dsc\n"
+		self.assertIsNone(self.check_text("licensed", src, sources=True))
+		self.assertEqual(self.check_text("licensed", src + "binary: sudo\n", sources=True), "E-INDEX")
+		self.assertEqual(self.check_text("licensed", src.replace("Files:", "files:"), sources=True), "E-INDEX")
+
+	def test_index_files_come_from_the_checked_stanzas(self):
+		"""the pool file checked for its hash is the checked stanza's: with the \\r line the old regexes took sudo's Filename
+		and SHA256 from the first paragraph while check_index read tyr's; through walnut-watch, each crafted index is E-INDEX"""
+		debs = {"sudo_999_all.deb": b"s"}	# the pool holds sudo's deb only, which the old regexes checked
+		s_sha, t_sha = sha(b"s"), sha(b"t")
+		sudo = self.SUDO + f"SHA256: {s_sha}\n"
+		tyr = self.TYR + f"SHA256: {t_sha}\n"
+		cases = {"cr": sudo + "\r\n" + tyr, "junk": sudo + "junk\n" + tyr,
+		         "filename twice": tyr.replace("Filename:", "Filename: pool/licensed/main/s/sudo/sudo_999_all.deb\nSHA256: " + s_sha + "\nFilename:")}
+		for bid, text in cases.items():
+			self.drop("licensed", bid.replace(" ", "-"), self.apt_bundle(debs, suite="licensed", index_text=text))
+		self.run_watch()
+		for bid in cases:
+			self.assertEqual(self.refused_code("licensed", bid.replace(" ", "-")), "E-INDEX", bid)
+		self.drop("licensed", "good", self.apt_bundle({"tyr_1_all.deb": b"t"}, suite="licensed", index_text=tyr))
+		self.run_watch()
+		self.assertTrue(self.status("licensed", "good").startswith("ok "), self.status("licensed", "good"))
+		self.assertFalse(os.path.exists(f"{self.root}/www/licensed/pool/licensed/main/s"))
 
 	def test_rules_missing_fails_closed(self):
 		shutil.rmtree(f"{self.root}/rules")

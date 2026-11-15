@@ -7,7 +7,8 @@ raise (docs/WALNUT-SERVER.md; round 3 V1, V2, V4). walnut-watch imports this fil
   POLICY          which upload key may post which kind, suites and id shape
   policy_error    why a bundle at this key is not allowed, or None
   load_rules      the server's own rules (rules/: ownership.toml, protected-names.txt, pins.json), fail closed
-  parse_stanzas   the stanzas of a Packages or Sources index
+  parse_stanzas   the stanzas of a Packages or Sources index, refusing whatever apt could read another way
+  stanza_files    the pool files (and their sha256) one parsed stanza names
   check_index     ownership, tiers, relations, pool paths for one index (V2); the licensed suite also takes
                   licensed names no entry owns
   signing_ok      a VALIDSIG status line against the suite's pinned fingerprints (V4)
@@ -193,21 +194,74 @@ LICENSED_SECTION_RE = re.compile(r"(?:local|non-free)/[a-z0-9][a-z0-9+.-]*\Z")	#
 UNOWNED = L.Entry(None, {"dir": "", "source": "", "tier": "licensed", "binaries": []})	# relations of an unowned name: no names of its own
 
 
+# fields whose spelling matters to apt, dpkg or the checks: written exactly so, as apt-repo/walnut-repo.py writes them (apt reads
+# field names case-insensitively, the last of two wins; the checks here look them up as written)
+CANON = {n.lower(): n for n in (
+	"Package", "Version", "Source", "Architecture", "Maintainer", "Description", "Depends", "Pre-Depends",
+	"Recommends", "Suggests", "Enhances", "Provides", "Replaces", "Conflicts", "Breaks", "Essential",
+	"Protected", "Important", "Priority", "Section", "Multi-Arch", "Installed-Size", "Homepage", "Built-Using",
+	"Files", "Checksums-Sha256", "Checksums-Sha1", "Binary", "Format", "Directory", "Filename", "Size",
+	"MD5sum", "SHA1", "SHA256", "SHA512", "Package-List")}
+FIELD_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]*\Z")
+CONTROL_RE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")	# every control character but tab and newline; \r among them
+
+
 def parse_stanzas(text):
-	"""[{field: value}] of an index; continuation lines are joined with newlines."""
-	out = []
-	for para in text.split("\n\n"):
-		d, last = {}, None
-		for line in para.split("\n"):
-			if not line.strip():
-				continue
-			if line[0] in " \t" and last:
-				d[last] += "\n" + line.strip()
-			elif ":" in line:
-				last, _, v = line.partition(":")
-				d[last] = v.strip()
-		if d:
-			out.append(d)
+	"""[{field: value}] of an index; continuation lines are joined with newlines. Stanzas end at an empty line, the
+	one paragraph break apt and this parser agree on. Anything apt could read another way is Refused E-INDEX, never
+	normalised: a \\r or other control character (apt ends a stanza at a line that is only \\r), a line of blanks, a line
+	that is neither a continuation nor Name: value, a continuation with no field before it, a field twice (by name in
+	any case) and a CANON field spelled in another case. walnut-repo.py writes none of them."""
+	if m := CONTROL_RE.search(text):
+		raise Refused(f"an index holds the control character {m.group()!r}", "E-INDEX")
+	out, d, last = [], {}, None
+	for n, line in enumerate(text.split("\n"), 1):
+		if line == "":
+			if d:
+				out.append(d)
+			d, last = {}, None
+		elif not line.strip():
+			raise Refused(f"index line {n} is blank but not empty", "E-INDEX")
+		elif line[0] in " \t":
+			if last is None:
+				raise Refused(f"index line {n} continues no field", "E-INDEX")
+			d[last] += "\n" + line.strip()
+		else:
+			key, sep, v = line.partition(":")
+			if not sep or not FIELD_RE.match(key):
+				raise Refused(f"index line {n} is not a field ({line[:40]!r})", "E-INDEX")
+			low = key.lower()
+			if any(k.lower() == low for k in d):
+				raise Refused(f"index line {n}: field {key!r} twice in one stanza", "E-INDEX")
+			if low in CANON and key != CANON[low]:
+				raise Refused(f"index line {n}: field {key!r} must be written {CANON[low]!r}", "E-INDEX")
+			d[key], last = v.strip(), key
+	if d:
+		out.append(d)
+	return out
+
+
+def _lines(value):
+	return [l.split() for l in value.split("\n") if l.strip()]
+
+
+def stanza_files(st, sources):
+	"""{pool path: sha256 or None} a parsed stanza names: Packages: Filename and SHA256; Sources: Directory + each Files
+	name, with its Checksums-Sha256. The same stanzas check_index reads, so the files checked and the names checked are one
+	stanza's."""
+	if not sources:
+		if "Filename" not in st:
+			return {}
+		h = st.get("SHA256", "")
+		return {st["Filename"]: h if re.fullmatch(r"[0-9a-f]{64}", h) else None}
+	if "Directory" not in st or "Files" not in st:
+		return {}
+	sums = {f[2]: f[0] for f in _lines(st.get("Checksums-Sha256", "")) if len(f) == 3}
+	out = {}
+	for f in _lines(st["Files"]):
+		if len(f) != 3:
+			raise Refused("a Sources index has a malformed Files line", "E-INDEX")
+		out[f"{st['Directory']}/{f[2]}"] = sums.get(f[2])
 	return out
 
 
@@ -271,6 +325,8 @@ def check_index(rules, suite, sources, text, published=lambda st: False):
 				raise Refused(f"{suite}: {name}: Section {st.get('Section')!r} is not local/* or non-free/*", "E-OWNER")
 			if taken := _entry_for_source(lists, src):
 				raise Refused(f"{suite}: {name}: source {src} belongs to package {taken[0].name}", "E-OWNER")
+			if L.is_protected(rules.protected, src):	# as a Sources stanza of that name is refused
+				raise Refused(f"{suite}: {name}: source {src} is a protected name", "E-OWNER")
 			entry = UNOWNED
 		else:
 			if own[1]:
