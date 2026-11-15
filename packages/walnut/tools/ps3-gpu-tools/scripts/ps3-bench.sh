@@ -583,7 +583,7 @@ run_job() {
 	t0=$EPOCHREALTIME
 	# setsid: not a group leader here, so it execs, and bash's $$ is the new process group
 	setsid bash -c 'echo $$ > "$BENCH_DIR/pgid"; exec timeout "$0" "$@"' "${BENCH_TIMEOUT:-600}" "$@" \
-		< /dev/null 2>&1 | while IFS= read -r l; do printf '%s %s\n' "$EPOCHREALTIME" "$l"; done > "$D/out.log" &
+		< "${JOB_IN:-/dev/null}" 2>&1 | while IFS= read -r l; do printf '%s %s\n' "$EPOCHREALTIME" "$l"; done > "$D/out.log" &
 	local pipe=$!
 	for i in 1 2 3 4 5 6 7 8 9 10; do [ -s "$D/pgid" ] && break; sleep 0.1; done
 	start_sampler "$(cat "$D/pgid" 2>/dev/null || echo 0)"
@@ -671,12 +671,19 @@ run|x)
 	mode=$1; label=${2:?label}; shift 2; [ "${1:-}" = -- ] && shift
 	[ $# -gt 0 ] || die "no command"
 	quiet
-	XVT=
+	XVT= JOB_IN=	# JOB_IN: the job's stdin (default /dev/null), never the caller's environment's
 	if [ "$mode" = x ]; then
 		XVT=1	# the detector expects this X server's switch to vt1 and back
+		# ps3-desktop's Xwrapper.config allows console users only: Xorg.wrap starts the server only
+		# if its stdin, stdout or stderr is a VT, and ours come from SSH. As the desktop's startx from
+		# the tty1 login has it, the server's stdin is vt1's tty: ours while getty@tty1 is stopped
+		# (quiet), and the getty takes it back when the desktop starts. No configuration is changed.
+		sudo chown "$(id -u)" /dev/tty1 || die "can't take /dev/tty1 for the X server"
+		JOB_IN=/dev/tty1
 		# xinit runs a client only if its path starts with / (else it starts xterm): /bin/bash,
-		# which also reports the client's own CPU time
-		set -- xinit /bin/bash -c 'TIMEFORMAT="client: real %R s, user %U s, sys %S s"; time "$@"' \
+		# which also reports the client's own CPU time. The client's stdin is /dev/null as before
+		# (ioquake3 and others act differently on a terminal)
+		set -- xinit /bin/bash -c 'exec < /dev/null; TIMEFORMAT="client: real %R s, user %U s, sys %S s"; time "$@"' \
 			client "$@" -- :0 vt1 -nolisten tcp
 	fi
 	run_job "$label" "$@"
@@ -684,7 +691,7 @@ run|x)
 session)
 	label=${2:?label}; shift 2; [ "${1:-}" = -- ] && shift
 	[ $# -gt 0 ] || die "no command"
-	BENCH_VT=0 BENCH_INTF=0 XVT=	# nothing to tell the TV, nothing to detect
+	BENCH_VT=0 BENCH_INTF=0 XVT= JOB_IN=	# nothing to tell the TV, nothing to detect; stdin /dev/null
 	BENCH_TIMEOUT=${BENCH_TIMEOUT:-0}	# timeout 0: no limit, the player ends it
 	run_job "$label" "$@"
 	;;
@@ -692,6 +699,10 @@ desktop)
 	vswap_on
 	resume_timers
 	rm -f $LOCK
+	# vt1's tty back to root if an x run had it: before the switch to vt1 (logind may start its
+	# autologin getty there, and login gives the tty to the user), never under a running getty@tty1
+	# (a live desktop's tty is the user's by right); getty@tty1 resets it as well
+	systemctl is-active -q getty@tty1 || [ "$(stat -c %u /dev/tty1)" != "$(id -u)" ] || sudo chown root /dev/tty1
 	if [ "$BENCH_VT" != 0 ]; then	# off the bench console, which is freed
 		sudo -n timeout 10 chvt 1 2>/dev/null
 		sudo -n deallocvt "$BENCH_VT" 2>/dev/null

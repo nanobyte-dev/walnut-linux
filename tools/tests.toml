@@ -31,6 +31,11 @@ what = "Reboot and Shut down at jgmenu's top level and ps3-session's login copy 
 run = ["sh", "packages/walnut/system/ps3-desktop/tests/power-menu-check.sh"]
 
 [[suite]]
+name = "bench-xwrap"
+what = "ps3-bench.sh's x mode under the console-only X wrapper: vt1's tty as the server's stdin, the client's /dev/null, the tty back to root at desktop (packages/walnut/tools/ps3-gpu-tools/tests/xwrap-stdin-check.sh)"
+run = ["bash", "packages/walnut/tools/ps3-gpu-tools/tests/xwrap-stdin-check.sh"]
+
+[[suite]]
 name = "gpu-recovered"
 what = "ps3-desktop's recovery dialog: its stamp only after the window maps on a live X, a failed recovery's dialog only on the new X"
 run = ["python3", "-I", "packages/walnut/system/ps3-desktop/tests/gpu-recovered-test.py"]
