@@ -82,8 +82,7 @@ gl2. Read the give-back counters, the VRAM peak and the failed-allocation lines.
 of VRAM" row is the same question for one game. And the user's idea of 2026-11-09: size the pool
 dynamically ("some kind of dynamic rebalancing between video and normal memory"), as free VRAM minus a
 headroom, drained to a floor when game mode sees a 3D app. The first test decides whether the second
-is worth building. Both wait on the first measurement; the P4 containment work they were parked
-behind was shelved on 2026-11-11.
+is worth building. Both wait on the first measurement, which can run now.
 
 **To start.** Log `ps3rsx_vswap_shrink` calls and GART fallbacks during an OpenArena gl2min and a
 SuperTuxKart `lean` run (with the kernel counters item this becomes a `ps3rsx_stats` read; until
