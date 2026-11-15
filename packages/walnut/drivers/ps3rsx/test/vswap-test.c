@@ -15,12 +15,18 @@
  * and a request's write of one page must still end with the newer one); a kept job's SPE keeps writing its
  * destinations after the failure; a request's failure stays with its own piece; replays into the same slot and
  * into another; a changed bounce under the PPE's opens; batches of requests (one page written twice, the second
- * write going to the disk); an open from the bounce failing as a whole, retried from VRAM.
+ * write going to the disk); an open from the bounce failing as a whole, retried from VRAM. Frees by the swap
+ * layer (swap_slot_free_notify's marks): the slot and the counts freed, disk, BAD and empty entries, a mark
+ * during an open, a seal and a write-back (no job ever names a free slot), a freed page rewritten (whole, partly,
+ * in the same batch, into the same slot with a fresh counter) reads the new bytes, marks under random runs, and
+ * the mark and apply racing on two threads (no mark lost).
  * Built with VSX_FIXOFF_IGNORE_TAG, VSX_FIXOFF_SAME_CTR, VSX_FIXOFF_AD_NO_PAGE, VSX_FIXOFF_WB_INTO_BOUNCE,
  * VSX_FIXOFF_NO_RETRY, VSX_FIXOFF_DISCARD_BAD, VSX_FIXOFF_NO_DEFER, VSX_FIXOFF_PPE_NO_RETRY,
- * VSX_FIXOFF_PARTIAL_EMPTY, VSX_FIXOFF_MODE_BY_SWITCH, VSX_FIXOFF_BATCH_REORDER or VSX_FIXOFF_R1_FINAL it
- * must fail. */
+ * VSX_FIXOFF_PARTIAL_EMPTY, VSX_FIXOFF_MODE_BY_SWITCH, VSX_FIXOFF_BATCH_REORDER, VSX_FIXOFF_R1_FINAL,
+ * VSX_FIXOFF_NO_FREE, VSX_FIXOFF_FREE_KEEPS_MARK or VSX_FIXOFF_FREE_NOW it must fail. */
 #define VSX_PLAIN
+#include <pthread.h>
+#include <sched.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include "../src/vswap_core.c"
@@ -45,6 +51,7 @@ static vs_u8 scratch[VSX_PAGE] __attribute__((aligned(16)));
 static struct vsx_meta meta[NSL];
 static int used[NSL], slot_page_of[NSL];
 static vs_u32 map[NPG];
+static unsigned long freed_bits[(NPG + 63) / 64], freed_sumw[1];
 static vs_u8 key[32];
 static struct vsx X;
 
@@ -54,6 +61,8 @@ static int gpu_ok = 1, job_fail, job_fail_once, corrupt_bounce, have_key = 1, pi
 static vs_u64 ctr_seen[200000];
 static unsigned int nctr;
 static int live_written, plain_seen, next_free_hint, bounce_plain[VSX_SLOTS];
+static int job_names_free;		/* a job or a GPU copy named a slot that wasn't allocated */
+static void (*job_hook)(void);		/* runs when a job or a GPU copy starts (a notify meanwhile) */
 
 struct req { int failed; };
 
@@ -98,6 +107,10 @@ int vsx_hw_gpu_to_bounce(void *hw, const vs_u32 *slots, unsigned int n)
 {
 	if (!gpu_ok)
 		return -1;
+	if (job_hook)
+		job_hook();
+	for (unsigned int i = 0; i < n; i++)
+		job_names_free += slots[i] >= NSL || !used[slots[i]];
 	for (unsigned int i = 0; i < n; i++) {
 		memcpy(bounce[i], vram[slots[i]], VSX_PAGE);
 		bounce_plain[i] = !!(meta[slots[i]].flags & (VSX_M_PLAIN | VSX_M_COPY));	/* (the test builds' off-switches) */
@@ -208,6 +221,16 @@ int vsx_hw_job(void *hw, unsigned int op, unsigned int n, const struct vseal_pag
 	int bad = 0;
 
 	late_writes();
+	if (job_hook)
+		job_hook();
+	for (unsigned int i = 0; i < n; i++) {	/* every slot the job names is allocated */
+		vs_u32 s;
+
+		if ((op == VSEAL_OP_SEAL || op == VSEAL_OP_TEST_COPY) && is_slot(pg[i].dst, &s))
+			job_names_free += !used[s];
+		if (is_slot(pg[i].src, &s))
+			job_names_free += !used[s];
+	}
 	if (job_fail && job_fail_skip > 0) {
 		job_fail_skip--;
 	} else if (job_fail) {
@@ -368,7 +391,11 @@ static void reset_model(void)
 	memset(map, 0, sizeof(map));
 	memset(truth, 0, sizeof(truth));
 	memset(&X, 0, sizeof(X));
+	memset(freed_bits, 0, sizeof(freed_bits));
+	memset(freed_sumw, 0, sizeof(freed_sumw));
 	X.map = map;
+	X.freed = freed_bits;
+	X.freed_sum = freed_sumw;
 	X.npages = NPG;
 	X.next_ctr = 1;
 	X.mode = VSX_SEAL;
@@ -383,6 +410,7 @@ static void reset_model(void)
 	npins = nscratch = nlate = late_mode = job_fail_skip = 0;
 	ndq = 0;
 	async_disk = 0;
+	job_hook = NULL;
 	for (int i = 0; i < 32; i++)
 		key[i] = rnd();
 }
@@ -397,6 +425,7 @@ static void evict(int c, int gpu)
 	void *pp[VSEAL_PAGES_MAX], *pr[VSEAL_PAGES_MAX];
 	int n = 0;
 
+	vsx_apply_frees(&X);			/* (chunk_evict: before it collects) */
 	if (gpu)
 		for (int s = 0; s < (int)VSX_SLOTS; s++) {
 			memcpy(bounce[s], vram[c * VSX_SLOTS + s], VSX_PAGE);
@@ -435,6 +464,7 @@ static void evict(int c, int gpu)
 				wb_hook(wp, nw);
 			disk_complete(0);	/* the write-back's writes (and others), in any order */
 			X.wb_n = 0;
+			vsx_apply_frees(&X);	/* (chunk_evict: after the window, before the switch) */
 			for (int i = 0; i < n; i++)
 				if (X.op[i].status == VSX_O_OK && map[pages[i]] == slots[i] + 1)
 					vsx_set_disk(&X, pages[i]);
@@ -460,6 +490,95 @@ static void wb_rewrite(const vs_u32 *pages, int n)
 	if (!n)
 		return;
 	wr(&p, 1, 0, VSX_PAGE);
+}
+
+/* --- frees by the swap layer ------------------------------------------------------------------------ */
+static int hook_page = -1, hook_slot_used = -1;
+static void hook_mark(void)		/* a notify while a job or a GPU copy runs */
+{
+	if (hook_page < 0)
+		return;
+	if (vsx_in_vram(map[hook_page]))
+		hook_slot_used = map[hook_page] - 1;	/* the slot the job names */
+	vsx_free_mark(&X, hook_page);
+	hook_page = -1;
+}
+
+/* during a write-back's unlocked window: page 0 of it freed and applied (io_work ran), page 1 freed only
+ * (applied by the write-back itself), page 2 freed and rewritten by a request */
+static int wbf_pages[3] = { -1, -1, -1 };
+static void wb_free(const vs_u32 *pages, int n)
+{
+	if (n < 3)
+		return;
+	for (int i = 0; i < 3; i++)
+		wbf_pages[i] = pages[i];
+	vsx_free_mark(&X, pages[0]);
+	vsx_apply_frees(&X);
+	vsx_free_mark(&X, pages[1]);
+	vsx_free_mark(&X, pages[2]);
+	{
+		int p = pages[2];
+
+		wr(&p, 1, 0, VSX_PAGE);		/* (its vsx_begin applies page 1's mark too) */
+	}
+	vsx_free_mark(&X, pages[1]);		/* again, left for the write-back */
+}
+
+/* the mark and the apply on two threads: io_work's protocol (a run after every kick), no mark lost */
+static int race_kick, race_done;
+static void *race_marker(void *arg)
+{
+	vs_u32 *order = arg;
+
+	for (int i = 0; i < NPG - 100; i++) {
+		if (vsx_free_mark(&X, order[i]))
+			__atomic_store_n(&race_kick, 1, __ATOMIC_SEQ_CST);
+		if (i % 37 == 0)
+			sched_yield();
+	}
+	__atomic_store_n(&race_done, 1, __ATOMIC_SEQ_CST);
+	return NULL;
+}
+
+static int race_round(void)
+{
+	static vs_u32 order[NPG];
+	pthread_t t;
+	int lost = 0;
+
+	reset_model();
+	for (int p = 100; p < NPG; p++) {
+		map[p] = VSX_ON_DISK;
+		order[p - 100] = p;
+	}
+	X.on_disk = NPG - 100;
+	for (int i = NPG - 101; i > 0; i--) {
+		int j = rnd() % (i + 1);
+		vs_u32 t2 = order[i];
+
+		order[i] = order[j];
+		order[j] = t2;
+	}
+	race_kick = race_done = 0;
+	pthread_create(&t, NULL, race_marker, order);
+	for (;;) {			/* io_work: applies after every kick; ends when the marker is done and no kick is left */
+		int d = __atomic_load_n(&race_done, __ATOMIC_SEQ_CST);
+
+		if (__atomic_exchange_n(&race_kick, 0, __ATOMIC_SEQ_CST)) {
+			vsx_apply_frees(&X);
+			continue;
+		}
+		if (d)
+			break;
+	}
+	pthread_join(t, NULL);
+	for (int p = 100; p < NPG; p++)
+		lost += map[p] != 0;
+	CHECK(!lost && X.on_disk == 0 && X.st.freed_disk == NPG - 100 && !vsx_frees_pending(&X),
+	      "marks racing the apply: %d lost, %u on disk, %llu applied", lost, X.on_disk,
+	      (unsigned long long)X.st.freed_disk);
+	return lost;
 }
 
 static int seq(int a, int n, int *p)
@@ -860,6 +979,174 @@ int main(void)
 		CHECK(map[i] == VSX_ON_DISK && !memcmp(disk[i], truth[i], VSX_PAGE), "mixed-mode write-back: page %d", i);
 	X.plain = 0;
 
+	/* --- frees by the swap layer (swap_slot_free_notify) --- */
+	reset_model();
+	wr(p, seq(0, 32, p), 0, VSX_PAGE);
+	{
+		vs_u32 s5 = map[5] - 1;
+
+		CHECK(vsx_free_mark(&X, 5) == 1 && vsx_free_mark(&X, 7) == 0, "the first mark of a group kicks, the next doesn't");
+		CHECK(vsx_in_vram(map[5]) && used[s5] && X.in_vram == 32, "a mark alone frees nothing");
+		CHECK(vsx_apply_frees(&X) == 2, "two marks applied");
+		CHECK(map[5] == 0 && !used[s5] && map[7] == 0 && X.in_vram == 30 && X.st.freed_vram == 2 &&
+		      !vsx_frees_pending(&X), "a freed page's slot and count go");
+		counts("freed");
+		memset(truth[5], 0, VSX_PAGE);
+		memset(truth[7], 0, VSX_PAGE);
+		CHECK(rd_check((p[0] = 5, p[1] = 7, p), 2, 0, VSX_PAGE, "freed") == 0, "a freed page reads zeros");
+		CHECK(vsx_free_mark(&X, 9) == 1, "after the apply, a mark kicks again");
+		CHECK(!wr((p[0] = 40, p), 1, 0, VSX_PAGE) && map[9] == 0 && X.in_vram == 30,
+		      "a batch's vsx_begin applies the marks");
+		/* the slot goes back into use */
+		next_free_hint = s5;
+		CHECK(!wr((p[0] = 41, p), 1, 0, VSX_PAGE) && map[41] - 1 == s5, "a freed slot is reused");
+		CHECK(rd_check(p, 1, 0, VSX_PAGE, "reused slot") == 0, "and reads back");
+	}
+	/* a disk entry, a BAD one, an empty one, one past the end */
+	p[0] = 100;
+	wr(p, 1, 0, 512);
+	corrupt(10, 3);
+	rd_check((p[0] = 10, p), 1, 0, VSX_PAGE, "x");
+	CHECK(map[100] == VSX_ON_DISK && map[10] == VSX_BAD, "a disk and a BAD entry");
+	vsx_free_mark(&X, 100);
+	vsx_free_mark(&X, 10);
+	vsx_free_mark(&X, 300);
+	CHECK(vsx_free_mark(&X, NPG) == 0 && vsx_free_mark(&X, (unsigned long)-1) == 0, "marks past the end ignored");
+	vsx_apply_frees(&X);
+	CHECK(map[100] == 0 && map[10] == 0 && X.on_disk == 0 && X.bad == 0 && X.st.freed_disk == 1 &&
+	      X.st.freed_other == 2 && !slot_free_bad, "a freed disk, BAD and empty entry: empty, counted, no slot freed");
+	counts("freed disk and BAD");
+	memset(truth[100], 0, VSX_PAGE);
+	memset(truth[10], 0, VSX_PAGE);
+	CHECK(rd_check((p[0] = 100, p[1] = 10, p), 2, 0, VSX_PAGE, "freed disk") == 0, "and read zeros");
+
+	/* a mark while an open from VRAM runs: the slot stays the job's; the read gets the old bytes */
+	reset_model();
+	wr(p, seq(0, 8, p), 0, VSX_PAGE);
+	gpu_ok = 0;
+	hook_page = 3;
+	hook_slot_used = -1;
+	job_hook = hook_mark;
+	CHECK(rd_check(p, 8, 0, VSX_PAGE, "mark during an open") == 0, "a mark during an open: every page read whole");
+	job_hook = NULL;
+	gpu_ok = 1;
+	CHECK(hook_slot_used >= 0 && used[hook_slot_used] && vsx_in_vram(map[3]), "the job's slot still allocated after it");
+	vsx_apply_frees(&X);
+	CHECK(map[3] == 0 && !used[hook_slot_used], "applied after the batch");
+	counts("mark during an open");
+	/* the same through the bounce (a mark while the GPU copies) */
+	hook_page = 4;
+	hook_slot_used = -1;
+	job_hook = hook_mark;
+	CHECK(rd_check((seq(4, 4, p), p), 4, 0, VSX_PAGE, "mark during a copy") == 0, "a mark during the GPU copy");
+	job_hook = NULL;
+	CHECK(vsx_in_vram(map[4]) && used[hook_slot_used], "the copied slot still allocated");
+	vsx_apply_frees(&X);
+	CHECK(map[4] == 0, "applied after");
+
+	/* a mark while a seal of the page runs: installed, then freed by the next apply (the swap layer never
+	 * frees an entry under its write; a free that comes late frees the page as it is then) */
+	reset_model();
+	wr(p, seq(0, 4, p), 0, VSX_PAGE);
+	{
+		vs_u32 old = map[2] - 1;
+
+		hook_page = 2;
+		hook_slot_used = -1;
+		job_hook = hook_mark;
+		CHECK(!wr((p[0] = 2, p), 1, 0, VSX_PAGE) && vsx_in_vram(map[2]) && map[2] - 1 != old && !used[old],
+		      "a mark during the page's own seal: the new slot in, the old one freed by the install");
+		job_hook = NULL;
+		vsx_apply_frees(&X);
+		CHECK(map[2] == 0 && X.in_vram == 3 && !slot_free_bad, "and the mark applied after");
+		counts("mark during a seal");
+	}
+
+	/* free, then rewrite: the new bytes; in the same batch too (the write takes the mark) */
+	reset_model();
+	wr(p, seq(0, 8, p), 0, VSX_PAGE);
+	vsx_free_mark(&X, 1);
+	CHECK(!wr((p[0] = 1, p), 1, 0, VSX_PAGE) && rd_check(p, 1, 0, VSX_PAGE, "free then rewrite") == 0,
+	      "freed then rewritten: the new bytes");
+	{
+		struct req rq = { 0 };
+		struct vsx_piece pc = { bio[0], bio[0], 2, 0, 0, 0, VSX_PAGE, 0, -1, &rq };
+
+		vsx_begin(&X);
+		vsx_free_mark(&X, 2);		/* after the batch's apply, before the write */
+		fill(2);
+		memcpy(bio[0], truth[2], VSX_PAGE);
+		vsx_write(&X, &pc);
+		vsx_finish(&X);
+		vsx_apply_frees(&X);		/* (io_work's next run) */
+		CHECK(!rq.failed && vsx_in_vram(map[2]) && rd_check((p[0] = 2, p), 1, 0, VSX_PAGE, "mark in the batch") == 0,
+		      "a mark taken by the write in the same batch: the later apply leaves the new bytes");
+	}
+	{
+		struct req rq = { 0 };
+		struct vsx_piece pc = { bio[0], bio[0], 3, 0, 0, 1024, 512, 0, -1, &rq };
+
+		vsx_begin(&X);
+		vsx_free_mark(&X, 3);		/* a partial write after the free: zeros around it, not the old page */
+		memset(truth[3], 0, VSX_PAGE);
+		for (i = 1024; i < 1536; i++)
+			truth[3][i] = rnd();
+		memcpy(bio[0], truth[3] + 1024, 512);
+		vsx_write(&X, &pc);
+		vsx_finish(&X);
+		disk_complete(1);
+		vsx_apply_frees(&X);
+		CHECK(!rq.failed && rd_check((p[0] = 3, p), 1, 0, VSX_PAGE, "partial after free") == 0,
+		      "a partial write of a freed page: zeros around the piece");
+	}
+	/* freed, then the same slot sealed again: a fresh counter */
+	{
+		vs_u32 s4 = map[4] - 1;
+		vs_u64 c4 = meta[s4].ctr;
+
+		vsx_free_mark(&X, 4);
+		next_free_hint = s4;
+		CHECK(!wr((p[0] = 5, p), 1, 0, VSX_PAGE) && map[5] - 1 == s4 && meta[s4].ctr > c4 && X.next_ctr > meta[s4].ctr,
+		      "the freed slot sealed again under a fresh counter (%llu after %llu)",
+		      (unsigned long long)meta[s4].ctr, (unsigned long long)c4);
+		CHECK(rd_check(p, 1, 0, VSX_PAGE, "same slot fresh counter") == 0, "and reads back");
+		counts("same slot");
+	}
+
+	/* a write-back with frees: before it collects (never written), during its window (empty, not on the disk), a
+	 * freed page rewritten meanwhile (the new bytes) */
+	reset_model();
+	next_free_hint = 0;
+	wr(p, seq(0, 16, p), 0, VSX_PAGE);
+	vsx_free_mark(&X, 15);
+	memset(truth[15], 0, VSX_PAGE);
+	wb_hook = wb_free;
+	evict(0, 1);
+	wb_hook = NULL;
+	disk_complete(1);
+	CHECK(map[15] == 0 && !memcmp(disk[15], (vs_u8[VSX_PAGE]){ 0 }, VSX_PAGE), "freed before the write-back: never written");
+	if (wbf_pages[0] >= 0) {
+		memset(truth[wbf_pages[0]], 0, VSX_PAGE);
+		memset(truth[wbf_pages[1]], 0, VSX_PAGE);
+		CHECK(map[wbf_pages[0]] == 0 && map[wbf_pages[1]] == 0, "freed during the write-back: empty, not on the disk");
+		CHECK(map[wbf_pages[2]] != 0, "freed and rewritten during the write-back: kept");
+		for (i = 0; i < 3; i++)
+			p[i] = wbf_pages[i];
+		CHECK(rd_check(p, 3, 0, VSX_PAGE, "write-back frees") == 0, "and each reads as it should");
+	}
+	CHECK(wbf_pages[0] >= 0, "the write-back's window ran");
+	counts("write-back frees");
+	CHECK(rd_check((seq(0, 15, p), p), 15, 0, VSX_PAGE, "write-back with frees") == 0, "the other pages read back");
+
+	/* the mark and the apply on two threads */
+	{
+		int lost = 0;
+
+		for (i = 0; i < 200; i++)
+			lost += race_round();
+		CHECK(!lost, "200 rounds of marks racing the apply: %d lost", lost);
+	}
+
 	/* --- random sequences, several seeds --- */
 	static const vs_u32 seeds[] = { 0x13579bdf, 0x31415926, 0x27182818, 0x9e3779b9, 0x0badf00d };
 	for (unsigned int sd = 0; sd < sizeof(seeds) / sizeof(seeds[0]); sd++) {
@@ -882,7 +1169,13 @@ int main(void)
 				r = rd_check((seq(a, n, p), p), n, 0, VSX_PAGE, "random");
 				CHECK(r != -2, "round %d: a random read came back wrong", round);
 			} else if (k == 7) {
-				vsx_discard(&X, a);
+				if (rnd() & 1)
+					vsx_discard(&X, a);
+				else	/* a free: applied before anything reads it (vsx_begin, the write-back) */
+					for (i = 0; i < n; i++) {
+						vsx_free_mark(&X, a + i);
+						memset(truth[a + i], 0, VSX_PAGE);
+					}
 				memset(truth[a], 0, VSX_PAGE);
 			} else if (k == 8) {
 				int in = (rnd() % 8) * 512;
@@ -908,6 +1201,7 @@ int main(void)
 	CHECK(!plain_seen, "plaintext seen in VRAM or the bounce %d times", plain_seen);
 	CHECK(!live_written, "a live slot was written %d times", live_written);
 	CHECK(!slot_free_bad, "a slot freed that wasn't allocated (%d)", slot_free_bad);
+	CHECK(!job_names_free, "a job or a GPU copy named a free slot %d times", job_names_free);
 	printf("%s: %d checks, %d failed\n", fails ? "FAIL" : "ok", checks, fails);
 	return fails != 0;
 }

@@ -39,7 +39,20 @@
  * with 2, the SPE copies them through the same paths as the seal, without the cipher (the cipher's own cost).
  * Each slot records how it was written, and is read back that way whatever the switch says now.
  *
- * Locking: the caller holds vs->lock around every vsx_*() call; the SPE client takes its own lock inside.
+ * Frees. The swap layer tells the device when a swap entry is free (swap_slot_free_notify, for every freed
+ * offset: 6.12 discards only whole free 256-page clusters, so without it the pool kept dead pages until a
+ * write-back moved them to the disk). The notify runs under the swap layer's spinlock and may not sleep, so
+ * vsx_free_mark() only sets the page's bit in an atomic bitmap (and its group's bit in a summary); the marks
+ * are applied under vs->lock by vsx_apply_frees(), which vsx_begin() runs before a batch's first piece and the
+ * write-back before it collects or switches a page: each marked page then leaves the map as a discard does
+ * (its slot freed, a disk or BAD entry made empty). A mark never frees a slot by itself, so no slot a job,
+ * a queued piece or a write-back names is freed under it. A write of a marked page takes the mark away
+ * first (applied right there), so a free that is applied late never undoes a newer write; a read of a
+ * marked page before the next apply returns the old bytes. Counters come from next_ctr and nothing a free
+ * touches, so a freed slot's next seal still has a fresh one.
+ *
+ * Locking: the caller holds vs->lock around every vsx_*() call except vsx_free_mark() (none); the SPE client
+ * takes its own lock inside.
  */
 #ifndef PS3RSX_VSWAP_CORE_H
 #define PS3RSX_VSWAP_CORE_H
@@ -53,6 +66,8 @@
 #define VSX_PIECES		64		/* pieces of one request (32 pages, each split at most once) */
 #define VSX_LOCKOUT		8		/* final tag failures a load before the lockout */
 #define VSX_FMT_RAW		0		/* the AD's format byte: a whole page, uncompressed */
+#define VSX_FREE_GROUP		256u		/* device pages one summary bit of the free marks covers */
+#define VSX_LBITS		(8 * (unsigned int)sizeof(unsigned long))
 
 enum vsx_mode { VSX_OFF, VSX_SEAL, VSX_DRAIN };
 
@@ -96,6 +111,7 @@ struct vsx_open {
 struct vsx_stats {
 	vs_u64 seals, seal_jobs, opens_bounce, opens_vram, opens_ppe, plain_writes, plain_reads;
 	vs_u64 retries, resubmits, tag_fails, bad_marked, seal_fails, kept, merges, to_disk_nospe;
+	vs_u64 freed_vram, freed_disk, freed_other;	/* marks applied: a slot freed, a disk entry, BAD or empty */
 };
 
 struct vsx {
@@ -108,6 +124,8 @@ struct vsx {
 	int locked;			/* the lockout: nothing new into VRAM */
 	vs_u32 fails, lockout;
 	vs_u32 in_vram, on_disk, bad;
+	unsigned long *freed;		/* a bit per device page the swap layer freed, not yet applied (or NULL) */
+	unsigned long *freed_sum;	/* a bit per VSX_FREE_GROUP pages that may have a mark */
 	struct vsx_piece wr[VSX_PIECES];
 	unsigned int nwr;
 	struct vsx_piece rd[VSX_PIECES];
@@ -159,6 +177,25 @@ static inline int vsx_in_vram(vs_u32 e)
 	return e && e < VSX_ON_DISK;
 }
 
+/* the free marks' bitmap and its summary, in unsigned longs (both zeroed) */
+static inline unsigned long vsx_free_words(vs_u32 npages)
+{
+	return (npages + VSX_LBITS - 1) / VSX_LBITS;
+}
+static inline unsigned long vsx_free_sum_words(vs_u32 npages)
+{
+	return ((npages + VSX_FREE_GROUP - 1) / VSX_FREE_GROUP + VSX_LBITS - 1) / VSX_LBITS;
+}
+
+/* swap_slot_free_notify: page p's swap entry is free. Any context, no lock: only marks it. Returns 1 when its
+ * group had no mark: the caller then makes sure vsx_apply_frees() runs (queues io_work). */
+int vsx_free_mark(struct vsx *x, unsigned long p);
+/* whether any group may have a mark (a quick look, no lock) */
+int vsx_frees_pending(struct vsx *x);
+/* the marked pages leave the map (as discards). vs->lock held, outside a batch (no queued piece). Returns the
+ * marks applied. */
+unsigned int vsx_apply_frees(struct vsx *x);
+/* applies the marks, then starts a batch */
 void vsx_begin(struct vsx *x);
 void vsx_write(struct vsx *x, struct vsx_piece *pc);
 void vsx_read(struct vsx *x, struct vsx_piece *pc);

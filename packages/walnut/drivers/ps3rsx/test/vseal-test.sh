@@ -11,7 +11,7 @@ mkdir -p "$1" && O=$(cd "$1" && pwd) || exit 2
 cd "$(dirname "$0")" || exit 2
 S=../spu
 CORE="$S/v2_chacha20.c $S/v2_poly1305.c $S/v2_poly1305_x4.c $S/v2_aead.c"
-CF="-O2 -g -Wall -Wextra -Wno-unused-parameter -Wno-unused-function -I. -I../src -I$S"
+CF="-O2 -g -Wall -Wextra -Wno-unused-parameter -Wno-unused-function -pthread -I. -I../src -I$S"
 SAN="-fsanitize=address,undefined -fno-sanitize-recover=all"
 bad=0
 build() {	# build NAME SRC DEFINES...
@@ -38,7 +38,8 @@ for v in "vseal-test VSEAL_FIXOFF_PLAIN_GET" "vseal-test VSEAL_FIXOFF_SPLIT_TAGS
 	"vswap-test VSX_FIXOFF_IGNORE_TAG" "vswap-test VSX_FIXOFF_SAME_CTR" "vswap-test VSX_FIXOFF_AD_NO_PAGE" \
 	"vswap-test VSX_FIXOFF_WB_INTO_BOUNCE" "vswap-test VSX_FIXOFF_NO_RETRY" "vswap-test VSX_FIXOFF_DISCARD_BAD" \
 	"vswap-test VSX_FIXOFF_NO_DEFER" "vswap-test VSX_FIXOFF_PPE_NO_RETRY" "vswap-test VSX_FIXOFF_PARTIAL_EMPTY" \
-	"vswap-test VSX_FIXOFF_MODE_BY_SWITCH" "vswap-test VSX_FIXOFF_BATCH_REORDER" "vswap-test VSX_FIXOFF_R1_FINAL"; do
+	"vswap-test VSX_FIXOFF_MODE_BY_SWITCH" "vswap-test VSX_FIXOFF_BATCH_REORDER" "vswap-test VSX_FIXOFF_R1_FINAL" \
+	"vswap-test VSX_FIXOFF_NO_FREE" "vswap-test VSX_FIXOFF_FREE_KEEPS_MARK" "vswap-test VSX_FIXOFF_FREE_NOW"; do
 	set -- $v
 	n_off=$((n_off + 1))
 	if build "fixoff-$2" "$1.c" -w -DVSEAL_TEST_OPS $([ "$1" = vswap-test ] && echo -DV2_SCALAR_ONLY) -D"$2" && ! timeout 300 "$O/fixoff-$2" > "$O/fixoff-$2.log" 2>&1; then

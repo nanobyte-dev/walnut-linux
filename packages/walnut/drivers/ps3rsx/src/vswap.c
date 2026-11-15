@@ -7,13 +7,17 @@
  * backing partition (the USB disk's swap partition), so the swap layer sees one device:
  *  - writes go to VRAM while the pool has room (1 MiB chunks from the CPU-visible VRAM heap,
  *    taken from its top end, at most vswap_vram_mb), else to the disk;
- *  - discards (swapon --discard=pages) free slots;
+ *  - a page the swap layer frees gives its slot back: swap_slot_free_notify marks it (atomic context:
+ *    a bit, nothing else), and io_work applies the marks under vs->lock before its next batch, the
+ *    write-back before it copies a page; discards (swapon --discard=pages, whole free clusters only)
+ *    free slots too;
  *  - games come first: when a buffer object finds no VRAM, ps3rsx_vswap_shrink() writes the
  *    pages of the emptiest chunks back to the disk and hands the chunks over, each cleared
  *    before a buffer object gets it (vclear.c: the pages written back are still in it);
  *  - the VRAM holds the recently swapped: when the pool is (nearly) full, a background job
  *    moves the pages of its oldest chunk to the disk (pages that sat in swap longest without
- *    being read back are the cold ones; reads free their slots through discards).
+ *    being freed or rewritten are the cold ones; a read keeps its slot: the page stays in swap
+ *    until the swap layer frees the entry).
  * Requests are served by our own work queue, on a fresh stack: blk-mq runs queue_rq inline from
  * a plug flush in direct reclaim, which was already deep in the stack (an IRQ found < 4 KiB left).
  *
@@ -730,7 +734,13 @@ static void vswap_io_work(struct work_struct *work)
 		spin_unlock_irq(&vs->pending_lock);
 		if (!n)
 			break;
-		vswap_do_batch(vs, rqs, n);
+		vswap_do_batch(vs, rqs, n);	/* (vsx_begin applies the free marks first) */
+	}
+	/* marks with no request after them (queued by the notify): every run looks once more after its last batch */
+	if (vsx_frees_pending(&vs->x)) {
+		mutex_lock(&vs->lock);
+		vsx_apply_frees(&vs->x);
+		mutex_unlock(&vs->lock);
 	}
 }
 
@@ -753,8 +763,26 @@ static const struct blk_mq_ops vswap_mq_ops = {
 	.queue_rq = vswap_queue_rq,
 };
 
+/*
+ * The swap layer freed the swap entry at device page `offset` (mm/swapfile.c swap_range_free, called for every
+ * freed offset with si->lock held: atomic, must not sleep). The page is only marked (vswap_core.h "Frees");
+ * io_work applies the marks under vs->lock before its next batch, so the free takes no lock here and never
+ * meets a slot that a job, a queued piece or a write-back still names. The swap layer frees an entry only once
+ * no I/O of it is in flight (it holds SWAP_HAS_CACHE across a read or a write-back), and reuses the offset only
+ * after this call returns, so the reuse's write is a later request: the batch that serves it has applied the
+ * mark first (or the write takes it, vsx_write).
+ */
+static void vswap_slot_free_notify(struct block_device *bdev, unsigned long offset)
+{
+	struct ps3rsx_vswap *vs = bdev->bd_disk->private_data;
+
+	if (vsx_free_mark(&vs->x, offset))
+		queue_work(vs->io_wq, &vs->io_work);
+}
+
 static const struct block_device_operations vswap_fops = {
 	.owner = THIS_MODULE,
+	.swap_slot_free_notify = vswap_slot_free_notify,
 };
 
 /* --- giving VRAM back to games ------------------------------------------------------------ */
@@ -922,6 +950,7 @@ static bool chunk_evict(struct ps3rsx_vswap *vs, unsigned int i, struct evict_bu
 			for (k = 0; k < WB_RESERVE; k++)
 				if (!vs->wb_reserve[k])
 					goto out;	/* (a reserve page lost to a pin) */
+		vsx_apply_frees(&vs->x);		/* freed pages aren't opened or written */
 		for (n = 0; s < SLOTS && n < batch; s++) {
 			u32 p = c->page[s];
 
@@ -959,6 +988,7 @@ static bool chunk_evict(struct ps3rsx_vswap *vs, unsigned int i, struct evict_bu
 		if (evict_write(vs, w, wpages, nw) != BLK_STS_OK)
 			st = BLK_STS_IOERR;
 		mutex_lock(&vs->lock);
+		vsx_apply_frees(&vs->x);		/* a page freed while being written: empty, not on the disk */
 		for (k = 0; k < nw && st == BLK_STS_OK; k++) {
 			u32 p = wpages[k], e = vs->x.map[p];
 
@@ -1028,6 +1058,7 @@ bool ps3rsx_vswap_shrink(struct ps3rsx_device *rsx, u64 bytes)
 		if (!z)
 			break;
 		mutex_lock(&vs->lock);
+		vsx_apply_frees(&vs->x);	/* the emptiest by live pages */
 		for (i = 0; i < vs->nchunks; i++)
 			if (drm_mm_node_allocated(&vs->chunks[i].node) && vs->chunks[i].io &&
 			    (best < 0 || vs->chunks[i].nused < vs->chunks[best].nused))
@@ -1071,8 +1102,10 @@ static void vswap_demote_work(struct work_struct *work)
 	for (n = 0; n < vs->nchunks; n++) {	/* at most one pass over the pool */
 		unsigned int i, before;
 		int oldest = -1;
+		u64 ev0;
 
 		mutex_lock(&vs->lock);
+		vsx_apply_frees(&vs->x);	/* freed pages make room before any write-back */
 		if (vs->nalloc * SLOTS - vs->x.in_vram >= HEADROOM) {
 			mutex_unlock(&vs->lock);
 			break;
@@ -1082,13 +1115,14 @@ static void vswap_demote_work(struct work_struct *work)
 			    (oldest < 0 || vs->chunks[i].born < vs->chunks[oldest].born))
 				oldest = i;
 		before = oldest >= 0 ? vs->chunks[oldest].nused : 0;
+		ev0 = vs->evicted;
 		mutex_unlock(&vs->lock);
 		if (oldest < 0)
 			break;
 		chunk_evict(vs, oldest, &eb, false);
 		mutex_lock(&vs->lock);
-		i = before - vs->chunks[oldest].nused;
-		vs->demoted += i;
+		i = before - vs->chunks[oldest].nused;	/* (written back or freed meanwhile) */
+		vs->demoted += vs->evicted - ev0;	/* (shrink_lock held: only this chunk_evict moved it) */
 		mutex_unlock(&vs->lock);
 		if (!i)
 			break;			/* no progress (no memory for the PPE bounce) */
@@ -1142,6 +1176,7 @@ static ssize_t backing_store(struct device *dev, struct device_attribute *attr, 
 	struct ps3rsx_vswap *vs = dev_vswap(dev);
 	char path[sizeof(vs->backing_path)];
 	struct file *f;
+	unsigned long *freed = NULL;
 	sector_t sectors;
 	u32 *map;
 	int ret = 0;
@@ -1155,15 +1190,21 @@ static ssize_t backing_store(struct device *dev, struct device_attribute *attr, 
 	sectors = min_t(sector_t, bdev_nr_sectors(file_bdev(f)), (sector_t)vswap_size_mb << 11);
 	sectors &= ~(sector_t)((PAGE_SIZE >> 9) - 1);
 	map = kvcalloc(sectors >> (PAGE_SHIFT - 9), sizeof(*map), GFP_KERNEL);
+	if (sectors)	/* the free marks and their summary */
+		freed = kvcalloc(vsx_free_words(sectors >> (PAGE_SHIFT - 9)) +
+				 vsx_free_sum_words(sectors >> (PAGE_SHIFT - 9)), sizeof(*freed), GFP_KERNEL);
 	mutex_lock(&vs->lock);
-	if (vs->backing || !map || !sectors) {
+	if (vs->backing || !map || !freed || !sectors) {
 		ret = vs->backing ? -EBUSY : -ENOMEM;
 		mutex_unlock(&vs->lock);
+		kvfree(freed);
 		kvfree(map);
 		fput(f);
 		return ret;
 	}
 	vs->backing = f;
+	vs->x.freed_sum = freed + vsx_free_words(sectors >> (PAGE_SHIFT - 9));
+	WRITE_ONCE(vs->x.freed, freed);	/* (before the device has a size: no notify can come earlier) */
 	vs->x.map = map;
 	vs->x.npages = sectors >> (PAGE_SHIFT - 9);
 	strscpy(vs->backing_path, path, sizeof(vs->backing_path));
@@ -1192,7 +1233,8 @@ static ssize_t stats_show(struct device *dev, struct device_attribute *attr, cha
 		       "GPU copies: reads %llu, chunk write-backs %llu, fallbacks %llu; batches %llu (requests %llu)\n"
 		       "seals %s: pages %llu (jobs %llu, failed %llu), opens from the bounce %llu, from VRAM %llu, "
 		       "by the PPE %llu, retries %llu, resubmits %llu, check failures %llu (BAD %llu)%s, kept %llu, "
-		       "merges %llu, unsealed writes %llu reads %llu, to disk without an SPE %llu\n",
+		       "merges %llu, unsealed writes %llu reads %llu, to disk without an SPE %llu\n"
+		       "freed by the swap layer: slots %llu, disk entries %llu, failed or empty %llu\n",
 		       vs->x.in_vram, vs->x.on_disk, vs->x.bad, chunks, vs->x.st.seals + vs->x.st.plain_writes,
 		       vs->disk_writes, vs->x.st.opens_bounce + vs->x.st.opens_vram + vs->x.st.opens_ppe +
 		       vs->x.st.plain_reads, vs->disk_reads, vs->evicted, vs->demoted, vs->gpu_reads,
@@ -1201,7 +1243,8 @@ static ssize_t stats_show(struct device *dev, struct device_attribute *attr, cha
 		       vs->x.st.seals, vs->x.st.seal_jobs, vs->x.st.seal_fails, vs->x.st.opens_bounce,
 		       vs->x.st.opens_vram, vs->x.st.opens_ppe, vs->x.st.retries, vs->x.st.resubmits,
 		       vs->x.st.tag_fails, vs->x.st.bad_marked, vs->x.locked ? ", LOCKED OUT" : "", vs->x.st.kept,
-		       vs->x.st.merges, vs->x.st.plain_writes, vs->x.st.plain_reads, vs->x.st.to_disk_nospe);
+		       vs->x.st.merges, vs->x.st.plain_writes, vs->x.st.plain_reads, vs->x.st.to_disk_nospe,
+		       vs->x.st.freed_vram, vs->x.st.freed_disk, vs->x.st.freed_other);
 	mutex_unlock(&vs->lock);
 	return n;
 }
@@ -1488,6 +1531,7 @@ void ps3rsx_vswap_fini(struct ps3rsx_device *rsx)
 	if (vs->backing)
 		fput(vs->backing);
 	vswap_seal_fini(vs);
+	kvfree(vs->x.freed);
 	kvfree(vs->x.map);
 	bioset_exit(&vs->bios);
 	kvfree(vs->chunks);

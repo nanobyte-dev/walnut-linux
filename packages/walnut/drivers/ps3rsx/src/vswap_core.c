@@ -8,9 +8,25 @@
 #include "v2_crypto.h"
 
 #ifdef __KERNEL__
+#include <linux/atomic.h>
+#include <linux/bitops.h>
 #include <linux/string.h>
+/* the free marks: set from any context, taken under vs->lock (vswap_core.h "Frees") */
+#define vsx_mark_bit(n, a)		set_bit(n, a)			/* (unordered) */
+#define vsx_mark_sum(n, a)		test_and_set_bit(n, a)		/* fully ordered */
+#define vsx_take_bit(n, a)		test_and_clear_bit(n, a)	/* fully ordered */
+#define vsx_take_word(a)		xchg(a, 0UL)			/* fully ordered */
+#define vsx_peek(a)			READ_ONCE(*(a))
+#define vsx_peek_ptr(a)			READ_ONCE(a)
 #else
 #include <string.h>
+#define VSX_BM(n)	(1UL << ((n) % VSX_LBITS))
+#define vsx_mark_bit(n, a)		((void)__atomic_fetch_or(&(a)[(n) / VSX_LBITS], VSX_BM(n), __ATOMIC_RELAXED))
+#define vsx_mark_sum(n, a)		(!!(__atomic_fetch_or(&(a)[(n) / VSX_LBITS], VSX_BM(n), __ATOMIC_SEQ_CST) & VSX_BM(n)))
+#define vsx_take_bit(n, a)		(!!(__atomic_fetch_and(&(a)[(n) / VSX_LBITS], ~VSX_BM(n), __ATOMIC_SEQ_CST) & VSX_BM(n)))
+#define vsx_take_word(a)		__atomic_exchange_n(a, 0UL, __ATOMIC_SEQ_CST)
+#define vsx_peek(a)			__atomic_load_n(a, __ATOMIC_RELAXED)
+#define vsx_peek_ptr(a)			__atomic_load_n(&(a), __ATOMIC_ACQUIRE)
 #endif
 
 #define EA(p)	((vs_u64)(unsigned long)(p))
@@ -515,10 +531,103 @@ static void merge(struct vsx *x, struct vsx_piece *pc, vs_u32 e)
 		vsx_set_disk(x, pc->p);
 }
 
+/* --- frees (vswap_core.h "Frees") ------------------------------------------------------------- */
+
+int vsx_free_mark(struct vsx *x, unsigned long p)
+{
+	unsigned long *f = vsx_peek_ptr(x->freed);
+
+	if (!f || p >= x->npages)
+		return 0;
+#ifdef VSX_FIXOFF_FREE_NOW			/* (the fix-off: freed at once, as if no job could name the slot) */
+	vsx_discard(x, p);
+	return 0;
+#endif
+	vsx_mark_bit(p, f);
+	/* (fully ordered: the page's bit is seen by whoever takes the group's bit) */
+	return !vsx_mark_sum(p / VSX_FREE_GROUP, x->freed_sum);
+}
+
+int vsx_frees_pending(struct vsx *x)
+{
+	unsigned long i, n;
+
+	if (!x->freed)
+		return 0;
+	n = vsx_free_sum_words(x->npages);
+	for (i = 0; i < n; i++)
+		if (vsx_peek(&x->freed_sum[i]))
+			return 1;
+	return 0;
+}
+
+/* a marked page leaves the map, as a discard does */
+static void apply_free(struct vsx *x, vs_u32 p)
+{
+	vs_u32 e = x->map[p];
+
+	if (vsx_in_vram(e))
+		x->st.freed_vram++;
+	else if (e == VSX_ON_DISK)
+		x->st.freed_disk++;
+	else
+		x->st.freed_other++;
+#ifndef VSX_FIXOFF_NO_FREE			/* (the fix-off: the marks dropped, the pages kept, as before) */
+	vsx_discard(x, p);
+#endif
+}
+
+/* The groups' bits are taken before their pages' bits: a mark set after its page's word was read sets the group's
+ * bit again after that (vsx_free_mark), so it is seen by the next call; one set before is taken now. */
+unsigned int vsx_apply_frees(struct vsx *x)
+{
+	unsigned long i, k, nsum, nw, w, fw, g;
+	unsigned int n = 0;
+
+	if (!x->freed)
+		return 0;
+	nsum = vsx_free_sum_words(x->npages);
+	nw = vsx_free_words(x->npages);
+	for (i = 0; i < nsum; i++) {
+		if (!vsx_peek(&x->freed_sum[i]))
+			continue;
+		w = vsx_take_word(&x->freed_sum[i]);
+		while (w) {
+			g = i * VSX_LBITS + __builtin_ctzl(w);
+			w &= w - 1;
+			for (k = g * (VSX_FREE_GROUP / VSX_LBITS); k < (g + 1) * (VSX_FREE_GROUP / VSX_LBITS) && k < nw; k++) {
+				if (!vsx_peek(&x->freed[k]))
+					continue;
+				fw = vsx_take_word(&x->freed[k]);
+				while (fw) {
+					unsigned long p = k * VSX_LBITS + __builtin_ctzl(fw);
+
+					fw &= fw - 1;
+					if (p < x->npages) {
+						apply_free(x, p);
+						n++;
+					}
+				}
+			}
+		}
+	}
+	return n;
+}
+
+/* a write takes its page's mark first: the free is applied now, never after the new bytes are in */
+static void take_mark(struct vsx *x, vs_u32 p)
+{
+#ifndef VSX_FIXOFF_FREE_KEEPS_MARK		/* (the fix-off: the mark left for a later apply) */
+	if (x->freed && (vsx_peek(&x->freed[p / VSX_LBITS]) >> (p % VSX_LBITS) & 1) && vsx_take_bit(p, x->freed))
+		apply_free(x, p);
+#endif
+}
+
 void vsx_begin(struct vsx *x)
 {
 	x->nwr = 0;
 	x->nrd = 0;
+	vsx_apply_frees(x);
 }
 
 /* whether page p has a write queued for the batch's seal */
@@ -541,6 +650,7 @@ void vsx_write(struct vsx *x, struct vsx_piece *pc)
 	if (queued(x, pc->p))
 		flush_writes(x);		/* the older write first: the map then holds the newer one */
 #endif
+	take_mark(x, pc->p);
 	e = x->map[pc->p];
 
 	if (pc->len == VSX_PAGE) {
