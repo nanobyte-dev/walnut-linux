@@ -14,6 +14,7 @@ import hashlib
 import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -102,15 +103,51 @@ def update_ps3_boot(target_dir: str, disk_id: str) -> None:
             f.write(root_arg_line + "\n")
 
 
-def write_kboot_conf(target_dir: str, release: str, disk_id: str, kernel_args: str) -> None:
-    """Write /etc/kboot.conf with the single walnut-usb entry."""
+def kboot_lines(release: str, disk_id: str, kernel_args: str, safe_words=()) -> list[str]:
+    """The USB install's Petitboot entries: walnut-usb, then walnut-usb-safe (the same kernel with the
+    safe arguments at its end; none without them). Labels of their own: Petitboot keys its default
+    on the label alone, so they must differ from dev_hdd1's walnut and walnut-safe (the internal
+    install) and from the kernels' labels ps3-update-kboot writes here on the next kernel update."""
     args_part = f" {kernel_args.strip()}" if kernel_args and kernel_args.strip() else ""
-    entry = f"walnut-usb='/boot/vmlinux-{release} root=PARTUUID={disk_id}-02 rootfstype=ext4 ro rootwait{args_part}'\n"
+    entry = f"/boot/vmlinux-{release} root=PARTUUID={disk_id}-02 rootfstype=ext4 ro rootwait{args_part}"
+    lines = [f"walnut-usb='{entry}'"]
+    if safe_words:
+        lines.append(f"walnut-usb-safe='{entry} {' '.join(safe_words)}'")
+    return lines
+
+
+def read_safe_args(target_dir: str, stamp_mod) -> list[str]:
+    """The safe entry's arguments from the unpacked system's /usr/share/ps3-boot/safe.args (the ps3-boot
+    package's, which writes this menu on later kernel updates), parsed by stamp.py's safe_args_words.
+    Read only as a regular file reached without a symbolic link (the tree is the rootfs just unpacked,
+    and this runs as root); else, or missing, no words, with a message."""
+    rel = stamp_mod.SAFE_ARGS_MEMBER
+    path = os.path.join(target_dir, rel)
+    real = os.path.join(os.path.realpath(target_dir), rel)
+    try:
+        if os.path.realpath(path) != real:
+            raise OSError("a symbolic link on the way")
+        fd = os.open(real, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+        with os.fdopen(fd, "rb") as f:
+            if not stat.S_ISREG(os.fstat(f.fileno()).st_mode):
+                raise OSError("not a regular file")
+            data = f.read(65537)
+        if len(data) > 65536:
+            raise OSError("over 64 KiB")
+    except OSError as e:
+        print(f"!! /{rel}: {e}: no walnut-usb-safe entry")
+        return []
+    return stamp_mod.safe_args_words(data.decode("utf-8", errors="replace"))
+
+
+def write_kboot_conf(target_dir: str, release: str, disk_id: str, kernel_args: str, safe_words=()) -> None:
+    """Write /etc/kboot.conf with the walnut-usb entry and, with SAFE_WORDS, walnut-usb-safe."""
     path = os.path.join(target_dir, "etc", "kboot.conf")
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         f.write("# Petitboot boot menu (Walnut USB install)\n")
-        f.write(entry)
+        for line in kboot_lines(release, disk_id, kernel_args, safe_words):
+            f.write(line + "\n")
 
 
 def verify_release_dir(release_dir: str, need_initrd: bool = True) -> dict:
@@ -505,7 +542,7 @@ def cmd_internal(args):
     print(f"    - dev_hdd0{args.image} (stamped image stream)")
     print(f"    - dev_hdd1/linux/install/rootfs.tar.xz (system tarball)")
     print(f"    - dev_hdd1/linux/boot/vmlinux-{files['release']} & initrd-walnut.img")
-    print(f"    - dev_hdd1/kboot.conf (Petitboot 'walnut' entry)")
+    print(f"    - dev_hdd1/kboot.conf (Petitboot's 'walnut' and 'walnut-safe' entries)")
     print(f"    - dev_hdd0/linux/walnut-good/ (known-good boot backup)")
     print(f"    - dev_hdd1/linux/install/install.conf (manifest; uploaded LAST)")
     print("=" * 70 + "\n")
@@ -527,6 +564,7 @@ def cmd_internal(args):
         chunk=stamp_mod.MIB,
         force=args.force,
         skip_image=args.skip_image,
+        safe_args=None,  # from the rootfs's /usr/share/ps3-boot/safe.args
     )
 
     if args.dry_run:
@@ -613,6 +651,7 @@ def cmd_usb(args):
         print(f"\n[dry-run] Write /etc/kboot.conf:")
         args_str = f" {kernel_args}" if kernel_args else ""
         print(f"  walnut-usb='/boot/vmlinux-{files['release']} root=PARTUUID={disk_id}-02 rootfstype=ext4 ro rootwait{args_str}'")
+        print(f"  walnut-usb-safe: the same with the unpacked system's /usr/share/ps3-boot/safe.args at its end")
         print(f"\n[dry-run] Finalize:")
         print(f"  sync && umount <mount_dir> && sync")
         print("=" * 70 + "\n")
@@ -663,7 +702,8 @@ def cmd_usb(args):
         shutil.copy2(files["kernel"], os.path.join(boot_dir, os.path.basename(files["kernel"])))
 
         print(">> Writing /etc/kboot.conf...")
-        write_kboot_conf(mount_dir, files["release"], disk_id, kernel_args)
+        safe_words = read_safe_args(mount_dir, get_stamp_module())
+        write_kboot_conf(mount_dir, files["release"], disk_id, kernel_args, safe_words)
 
         print(">> Syncing and unmounting...")
         subprocess.run(["sync"], check=True)

@@ -125,16 +125,24 @@ If it refuses, the kernel's error path can stop the boot with a BUG or wait for 
 upstream path from before our patches; not seen on this console). The way back:
 
 1. Turn the console off by holding the power button, then boot into Petitboot again as usual.
-2. Pick `walnut-safe`: the same kernel and initramfs as `walnut`, with conservative arguments at the end
-   of its command line, so they win over the kernel's own; today that is `spu_base.enum_shared=0`
-   (ps3-boot's `/usr/share/ps3-boot/safe.args`). Petitboot boots the entry picked last after its
-   countdown, so the console stays on `walnut-safe` until `walnut` is picked again.
-3. A menu written before the ps3-boot that brings `walnut-safe` has no such entry. Then pick
+2. Pick the safe entry: the same kernel and initramfs as the usual one, with conservative arguments
+   at the end of its command line, so they win over the kernel's own; today that is
+   `spu_base.enum_shared=0` (ps3-boot's `/usr/share/ps3-boot/safe.args`, the one list every writer
+   reads). Its label depends on where the menu lives, because Petitboot keys the entry it remembers
+   on the label alone and two disks must not share one: `walnut-safe` on dev_hdd1 (the internal
+   install), `walnut-usb-safe` on a fresh USB install, `<release>-safe` (the default kernel's release)
+   in a root's own `/etc/kboot.conf` once `ps3-update-kboot` has rewritten it. Petitboot boots the
+   entry picked last after its countdown, so the console stays on the safe entry until the usual one
+   is picked again (a `<release>-safe` label goes with the next kernel update; Petitboot then waits in
+   its menu with no countdown).
+3. The installers write the safe entry from the first boot (`stamp.py install` and `prepare`, the release
+   archive's `dev_hdd1/kboot.conf`, and `walnut-install usb`, from the system's own `safe.args`). A menu
+   without one (an install from before that, or a hand-made `kboot.conf` that left it out): pick
    `walnut-prev` while it is a kernel before 6.12.115+ps3.1554, or highlight `walnut`, press `e` and add
    `spu_base.enum_shared=0` at the end of its command line.
 4. To keep the 7th SPE off on every entry: `PS3_SPE_SHARED=0` in `/etc/default/ps3-boot`, then
-   `sudo ps3-update-kboot`. Every entry it writes (the kernels', `/etc/kboot.d`'s, and `walnut`,
-   `walnut-prev` and `walnut-safe` on dev_hdd1) then ends with `spu_base.enum_shared=0`; for a
+   `sudo ps3-update-kboot`. Every entry it writes (the kernels', `/etc/kboot.d`'s, the safe one, and
+   `walnut`, `walnut-prev` and `walnut-safe` on dev_hdd1) then ends with `spu_base.enum_shared=0`; for a
    built-in parameter the kernel takes the last value given. Unset or `1`, each kernel's own args
    decide (`1` doesn't add the argument to kernels that don't ship it); any other value counts as `0`,
    with a warning. Remove the line and run `ps3-update-kboot` again to go back.

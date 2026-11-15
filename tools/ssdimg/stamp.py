@@ -10,15 +10,15 @@ comes from a generator, block by block.
   stamp.py dry-run --mib N [--uuid UUID] [--out FILE|-]     N MiB of the same stream (tests)
   stamp.py check FILE [--uuid UUID]                         check a local stream (tests)
   stamp.py prepare --rootfs ROOTFS.tar.xz --kernel VMLINUX --release REL --initrd INITRD --out DIR
-                  [--args-file ARGS] [--size 16G] [--swap-mib 1024] [--image /linux/walnut.img] [--uuid UUID]
+                  [--args-file ARGS] [--safe-args SAFE] [--size 16G] [--swap-mib 1024] [--image /linux/walnut.img] [--uuid UUID]
         what install uploads, as files laid out like the two disks (the release archive)
-  stamp.py kboot --release REL [--args-file ARGS] [--image /linux/walnut.img]
+  stamp.py kboot --release REL [--args-file ARGS] [--safe-args SAFE] [--image /linux/walnut.img]
         the kboot.conf install writes to dev_hdd1 (without the other entries it keeps), on stdout
   stamp.py install --size 16G --rootfs ROOTFS.tar.xz --kernel VMLINUX --release REL --initrd INITRD
-                  [--args-file ARGS] [--swap-mib 1024] [--image /linux/walnut.img] [--host ...] [--force]
+                  [--args-file ARGS] [--safe-args SAFE] [--swap-mib 1024] [--image /linux/walnut.img] [--host ...] [--force]
         the internal install (docs/GAMEOS-HDD.md "The internal install"): the stamped image to
-        dev_hdd0, the rootfs tarball, kernel, generic initramfs and Petitboot's kboot.conf entry to
-        dev_hdd1, a known-good copy of the boot files to dev_hdd0:/linux/walnut-good/, and the install
+        dev_hdd0, the rootfs tarball, kernel, generic initramfs and Petitboot's kboot.conf entries to
+        dev_hdd1 (walnut, and walnut-safe with the system's usr/share/ps3-boot/safe.args or SAFE at its end), a known-good copy of the boot files to dev_hdd0:/linux/walnut-good/, and the install
         manifest (dev_hdd1:/linux/install/install.conf) LAST: the initramfs installs only when it is
         there, so an interrupted upload never installs. --skip-image reuses an uploaded image (same --uuid).
 
@@ -226,6 +226,12 @@ BOOT_DIR = "/linux/boot"            # on dev_hdd1
 GOOD_DIR = "/dev_hdd0/linux/walnut-good"   # the known-good boot files, written only here
 INITRD_NAME = "initrd-walnut.img"
 GOOD_PATH = re.compile(r"^/[A-Za-z0-9._+/-]+$")
+# the safe entry's arguments: packages/walnut/system/ps3-boot/safe.args, which the system carries at
+# usr/share/ps3-boot/safe.args (install and prepare read it from the rootfs tarball, the ps3-boot version
+# that writes the menu on later kernel updates); a word must match SAFE_WORD (ps3-update-kboot's and
+# ps3-hdd1-boot's allowlist)
+SAFE_ARGS_MEMBER = "usr/share/ps3-boot/safe.args"
+SAFE_WORD = re.compile(r"[A-Za-z0-9_.,:=/+-]+")
 
 
 def manifest(image, uid, size, swap_mib, rootfs, rootfs_size, rootfs_sha, tar_size):
@@ -235,13 +241,50 @@ def manifest(image, uid, size, swap_mib, rootfs, rootfs_size, rootfs_sha, tar_si
     return body + "sha256 %s\n" % hashlib.sha256(body.encode()).hexdigest()
 
 
-def unpacked_size(path):
-    """bytes the tarball takes unpacked on ext4: files rounded up to 4 KiB, plus 4 KiB per entry"""
-    total = 0
+def scan_rootfs(path):
+    """(unpacked size, safe.args text or None) of the rootfs tarball, in one pass: the bytes it takes
+    unpacked on ext4 (files rounded up to 4 KiB, plus 4 KiB per entry) and the system's
+    usr/share/ps3-boot/safe.args (a regular file of at most 64 KiB, else None)"""
+    total, safe = 0, None
     with tarfile.open(path, "r:xz") as t:
         for m in t:
             total += 4096 + ((m.size + 4095) // 4096 * 4096 if m.isfile() else 0)
-    return total
+            if os.path.normpath(m.name).lstrip("/") == SAFE_ARGS_MEMBER:
+                safe = (t.extractfile(m).read().decode("utf-8", errors="replace")
+                        if m.isfile() and m.size <= 65536 else None)
+    return total, safe
+
+
+def unpacked_size(path):
+    """bytes the tarball takes unpacked on ext4: files rounded up to 4 KiB, plus 4 KiB per entry"""
+    return scan_rootfs(path)[0]
+
+
+def safe_args_words(text):
+    """the safe entry's arguments from safe.args's TEXT, parsed as ps3-update-kboot and ps3-hdd1-boot do:
+    words separated by spaces, tabs or lines, # to the line's end a comment; a word with anything but
+    letters, digits and _ . , : = / + - is left out, with a message. None (no file): no words"""
+    words = []
+    for line in (text or "").split("\n"):
+        for w in re.split(r"[ \t]+", line.split("#", 1)[0]):
+            if not w:
+                continue
+            if SAFE_WORD.fullmatch(w):
+                words.append(w)
+            else:
+                print("!! safe.args: %r left out: only letters, digits and _ . , : = / + -" % w, file=sys.stderr)
+    return words
+
+
+def safe_words_for(a, rootfs_safe):
+    """the safe entry's arguments: --safe-args FILE if given, else the rootfs's safe.args (ROOTFS_SAFE);
+    neither: none, with a message (the menu then has no walnut-safe until ps3-hdd1-boot's first run)"""
+    if getattr(a, "safe_args", None):
+        with open(a.safe_args, encoding="utf-8", errors="replace") as f:
+            return safe_args_words(f.read())
+    if rootfs_safe is None:
+        print("!! no %s in the system: no walnut-safe entry in the menu" % SAFE_ARGS_MEMBER, file=sys.stderr)
+    return safe_args_words(rootfs_safe)
 
 
 def file_sha(path):
@@ -290,15 +333,30 @@ def ftp_get(ftp, remote):
     return buf.getvalue()
 
 
-def kboot_entry(release, args_file, image):
-    """Petitboot's 'walnut' line for dev_hdd1:/kboot.conf (the boot files in BOOT_DIR there)"""
-    args = open(args_file).read().split() if args_file else []
-    return ("walnut='%s/vmlinux-%s initrd=%s/%s root=/dev/mapper/ps3root rootfstype=ext4 ro ps3ssd.image=%s %s'"
-            % (BOOT_DIR, release, BOOT_DIR, INITRD_NAME, image, " ".join(args))).replace(" '", "'")
+def kboot_entry(release, args_file, image, label="walnut", extra=()):
+    """Petitboot's 'walnut' line for dev_hdd1:/kboot.conf (the boot files in BOOT_DIR there); LABEL and
+    EXTRA arguments at its end for the safe entry"""
+    args = []
+    if args_file:
+        with open(args_file) as f:
+            args = f.read().split()
+    args += list(extra)
+    return ("%s='%s/vmlinux-%s initrd=%s/%s root=/dev/mapper/ps3root rootfstype=ext4 ro ps3ssd.image=%s %s'"
+            % (label, BOOT_DIR, release, BOOT_DIR, INITRD_NAME, image, " ".join(args))).replace(" '", "'")
+
+
+def kboot_entries(release, args_file, image, safe_words):
+    """dev_hdd1's entries for a new install, as ps3-hdd1-boot writes them on a kernel update: walnut, then
+    walnut-safe (walnut's kernel and initramfs with SAFE_WORDS at its end; none without them). No
+    walnut-prev: there is one kernel"""
+    lines = [kboot_entry(release, args_file, image)]
+    if safe_words:
+        lines.append(kboot_entry(release, args_file, image, "walnut-safe", safe_words))
+    return "\n".join(lines)
 
 
 def install_menu(entry, old):
-    """dev_hdd1:/kboot.conf for a new install: its walnut line, then the old menu's other lines (another
+    """dev_hdd1:/kboot.conf for a new install: its walnut and walnut-safe lines (ENTRY), then the old menu's other lines (another
     install's); the old walnut, walnut-prev and walnut-safe lines go (ps3-hdd1-boot's fixed labels: they
     name the previous install's kernels)"""
     keep = [l for l in (old or b"").decode(errors="replace").splitlines()
@@ -314,7 +372,10 @@ def kboot(a):
     if not re.match(r"^[A-Za-z0-9._+-]+$", a.release):
         sys.exit("!! --release %s: letters, digits, . _ + -" % a.release)
     sys.stdout.write("# Petitboot's menu on dev_hdd1 (the internal install: the boot files in dev_hdd1:%s,\n"
-                     "# the image at dev_hdd0:%s)\n%s\n" % (BOOT_DIR, a.image, kboot_entry(a.release, a.args_file, a.image)))
+                     "# the image at dev_hdd0:%s)\n%s\n" % (BOOT_DIR, a.image, kboot_entries(
+                         a.release, a.args_file, a.image, safe_words_for(a, "") if a.safe_args else [])))
+    if not a.safe_args:
+        print("!! no --safe-args: no walnut-safe line", file=sys.stderr)
 
 
 def prepare(a):
@@ -338,12 +399,13 @@ def prepare(a):
     rootfs = INSTALL_DIR + "/rootfs.tar.xz"
     shutil.copyfile(a.rootfs, hdd1 + rootfs)
     rsize = os.path.getsize(a.rootfs)
-    tsize = unpacked_size(a.rootfs)
+    tsize, rootfs_safe = scan_rootfs(a.rootfs)
     root_bytes = size - HEADER_AREA - a.swap_mib * MIB
     if tsize + tsize // 16 + (256 << 20) > root_bytes:
         sys.exit("!! the system needs %s unpacked, the image's root has %s" % (human(tsize), human(root_bytes)))
     kboot = ("# Petitboot's menu on dev_hdd1 (the internal install). Already have a kboot.conf there?\n"
-             "# Add the walnut line to it instead.\n%s\n" % kboot_entry(a.release, a.args_file, image)).encode()
+             "# Put the walnut and walnut-safe lines in it instead (replacing old walnut, walnut-prev and walnut-safe lines).\n%s\n"
+             % kboot_entries(a.release, a.args_file, image, safe_words_for(a, rootfs_safe))).encode()
     for d in (boot, good):
         shutil.copyfile(a.kernel, "%s/vmlinux-%s" % (d, a.release))
         shutil.copyfile(a.initrd, "%s/%s" % (d, INITRD_NAME))
@@ -376,13 +438,13 @@ def install(a):
     if rsize >= (4 << 30) - 1:
         sys.exit("!! %s: %d bytes, dev_hdd1 is FAT32 (under 4 GiB per file)" % (a.rootfs, rsize))
     print(">> measuring %s (unpacked size, sha256)..." % a.rootfs)
-    tsize = unpacked_size(a.rootfs)
+    tsize, rootfs_safe = scan_rootfs(a.rootfs)
     rsha = file_sha(a.rootfs)
     root_bytes = size - HEADER_AREA - a.swap_mib * MIB
     if tsize + tsize // 16 + (256 << 20) > root_bytes:
         sys.exit("!! the system needs %s unpacked (plus ext4's overhead), the image's root has %s: a bigger "
                  "--size or a smaller --swap-mib" % (human(tsize), human(root_bytes)))
-    entry = kboot_entry(a.release, a.args_file, image)
+    entry = kboot_entries(a.release, a.args_file, image, safe_words_for(a, rootfs_safe))
     if not a.skip_image:
         upload(argparse.Namespace(size=a.size, path="/dev_hdd0" + image, host=a.host, port=a.port, user=a.user,
                                   password=a.password, uuid=str(uid), chunk=a.chunk, force=a.force, hint=False))
@@ -433,6 +495,7 @@ def main(argv=None):
     i.add_argument("--release", required=True, help="the kernel's release, e.g. 6.12.111+ps3.648")
     i.add_argument("--initrd", required=True, help="the generic initramfs (make initrd-walnut)")
     i.add_argument("--args-file", help="the kernel's extra arguments (/usr/lib/ps3/boot/<release>.args)")
+    i.add_argument("--safe-args", help="walnut-safe's arguments (default: the rootfs's /%s)" % SAFE_ARGS_MEMBER)
     i.add_argument("--swap-mib", type=int, default=1024)
     i.add_argument("--image", default="/linux/walnut.img", help="the image's path on dev_hdd0")
     i.add_argument("--host", default=os.environ.get("PS3_IP"), required=not os.environ.get("PS3_IP"))
@@ -450,6 +513,7 @@ def main(argv=None):
     r.add_argument("--release", required=True)
     r.add_argument("--initrd", required=True)
     r.add_argument("--args-file")
+    r.add_argument("--safe-args", help="walnut-safe's arguments (default: the rootfs's /%s)" % SAFE_ARGS_MEMBER)
     r.add_argument("--swap-mib", type=int, default=1024)
     r.add_argument("--image", default="/linux/walnut.img")
     r.add_argument("--uuid")
@@ -457,6 +521,8 @@ def main(argv=None):
     k = sub.add_parser("kboot", help="print the internal install's kboot.conf for dev_hdd1")
     k.add_argument("--release", required=True)
     k.add_argument("--args-file")
+    k.add_argument("--safe-args", help="walnut-safe's arguments (packages/walnut/system/ps3-boot/safe.args); "
+                   "without it, no walnut-safe line")
     k.add_argument("--image", default="/linux/walnut.img")
     c = sub.add_parser("check", help="check a local stream file")
     c.add_argument("file")

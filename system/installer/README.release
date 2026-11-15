@@ -14,7 +14,7 @@ WHAT'S IN HERE
     linux/walnut.img.xz               the 16 GiB disk image Walnut runs from, compressed
     linux/walnut-good/                a spare copy of the boot files (a recovery copy)
   dev_hdd1/                         what goes on the PS3's small cache partition (dev_hdd1)
-    kboot.conf                        Petitboot's menu entry "walnut"
+    kboot.conf                        Petitboot's menu entries "walnut" and "walnut-safe"
     linux/boot/                       the kernel (vmlinux-@RELEASE@), its arguments, the initramfs
     linux/install/rootfs.tar.xz       the system
     linux/install/install.conf        the install manifest: it goes on LAST
@@ -45,8 +45,8 @@ INSTALL ON THE INTERNAL DISK BY HAND (any FTP client, e.g. FileZilla; binary mod
   6. Upload the folder dev_hdd1/linux/boot to /dev_hdd1/linux/boot, and
      dev_hdd1/linux/install/rootfs.tar.xz to /dev_hdd1/linux/install/rootfs.tar.xz.
   7. Petitboot's menu: if /dev_hdd1/kboot.conf doesn't exist, upload dev_hdd1/kboot.conf there. If
-     it does, download it, add the walnut='...' line from ours (replacing an old walnut= line, if any),
-     and upload it back.
+     it does, download it, add the walnut='...' and walnut-safe='...' lines from ours (replacing old
+     walnut=, walnut-prev= and walnut-safe= lines, if any), and upload it back.
   8. Last, upload dev_hdd1/linux/install/install.conf to /dev_hdd1/linux/install/install.conf. The
      first boot installs only when it finds this file, so an upload that stopped halfway never
      installs anything.
@@ -63,6 +63,11 @@ INSTALL ON A USB DISK (a Linux PC; the disk is erased)
     python3 walnut-install usb --disk /dev/sdX
 
   Then plug it into the PS3, boot OtherOS and pick "walnut-usb" in Petitboot.
+
+  If Walnut doesn't start (a hang or a crash early in the boot), the safe entry boots the same system
+  with conservative settings: "walnut-safe" for the internal install, "walnut-usb-safe" for a USB
+  disk (after its first kernel update, the entry named after the kernel with -safe at its end).
+  Petitboot then keeps booting it until you pick the normal entry again.
 
 
 Updates come with apt from walnut.nanobyte.dev (@SUITE@).

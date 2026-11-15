@@ -8,7 +8,8 @@
 # three fixed entries, walnut (DEFAULT), walnut-prev (the other one) and walnut-safe (walnut's kernel and
 # initramfs with /usr/share/ps3-boot/safe.args at its end, the conservative settings, which win as the last
 # ones: the recovery entry after a failed boot; none without that file). Petitboot keys its default on the
-# label, so a kernel update can't strand it on a label that is gone. The generic initramfs comes from
+# label alone, so a kernel update can't strand it on a label that is gone; these labels are dev_hdd1's only
+# (a root's own /etc/kboot.conf names its safe entry <release>-safe, ps3-update-kboot). The generic initramfs comes from
 # /usr/lib/ps3/boot/initrd-walnut.img when the package ships one; the one it replaces stays as
 # initrd-walnut-prev.img for walnut-prev. Other kboot.conf lines (another install's) are kept, older
 # vmlinux-* files of ours removed. Nothing else on dev_hdd1 is touched, and ps3da/ps3db never.
@@ -137,9 +138,20 @@ args_of() {
 	if [ -e "$R/usr/lib/ps3/boot/$1.args" ]; then a=$(cat "$R/usr/lib/ps3/boot/$1.args"); else a=${PS3_LEGACY_ARGS:-}; fi
 	echo "$a $display_args $spe_args"
 }
-# walnut-safe's conservative arguments, the same list as ps3-update-kboot's (# lines are comments)
-safe_args=$(sed '/^[[:space:]]*#/d' "$R/usr/share/ps3-boot/safe.args" 2>/dev/null | tr '\n\t' '  ' | tr -s ' ' | sed 's/^ //; s/ $//')
-[ -n "$safe_args" ] || echo "ps3-hdd1-boot: no /usr/share/ps3-boot/safe.args: no walnut-safe entry" >&2
+# walnut-safe's conservative arguments, /usr/share/ps3-boot/safe.args (the same parser in ps3-update-kboot
+# and stamp.py): words separated by spaces, tabs or lines, # to the line's end a comment; a word with
+# anything but letters, digits and _ . , : = / + - is left out with a message (a quote or a # would end or
+# break the entry's quoted value)
+safe_args=
+set -f
+for w in $(sed 's/#.*//' "$R/usr/share/ps3-boot/safe.args" 2>/dev/null); do
+	case $w in
+	*[!A-Za-z0-9_.,:=/+-]*) echo "ps3-hdd1-boot: safe.args: $w left out: only letters, digits and _ . , : = / + -" >&2 ;;
+	*) safe_args="${safe_args:+$safe_args }$w" ;;
+	esac
+done
+set +f
+[ -n "$safe_args" ] || [ -e "$R/usr/share/ps3-boot/safe.args" ] || echo "ps3-hdd1-boot: no /usr/share/ps3-boot/safe.args: no walnut-safe entry" >&2
 mkdir -p "$M/linux/boot"
 for r in $cur $prev; do
 	cmp -s "$R/boot/vmlinux-$r" "$M/linux/boot/vmlinux-$r" 2>/dev/null || put "$R/boot/vmlinux-$r" "/linux/boot/vmlinux-$r"

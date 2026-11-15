@@ -6,6 +6,7 @@ the "device" is a file in the scratch directory holding the stamped image's bloc
 layout puts them (real O_DIRECT reads), dmsetup and blockdev are recording stubs. What the fake
 can't show (the real kernel's FIBMAP unit on UFS2) is tools/ssdimg/vm-e2e.sh's job.
 Scratch files under build/tmp/ssdimg/unit, removed at the end."""
+import contextlib
 import importlib.machinery
 import importlib.util
 import io
@@ -27,6 +28,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent.parent
 SCRATCH = ROOT / "build" / "tmp" / "ssdimg" / "unit"
+SAFE = ROOT / "packages/walnut/system/ps3-boot/safe.args"
 sys.path.insert(0, str(HERE))
 import stamp  # noqa: E402
 
@@ -613,15 +615,17 @@ class InstallManifest(unittest.TestCase):
 
     def test_prepare(self):
         """stamp.py prepare (the release archive): its install.conf passes the initramfs's reader, its
-        image unpacks to stamped blocks of that uuid, the boot files are where kboot.conf says"""
+        image unpacks to stamped blocks of that uuid, the boot files are where kboot.conf says, and the
+        menu has walnut-safe from the system's safe.args (the package's file, as the image has it)"""
         import tarfile
         d = SCRATCH / "prepare"
         shutil.rmtree(d, ignore_errors=True)
         (d / "in").mkdir(parents=True)
         with tarfile.open(d / "in/rootfs.tar.xz", "w:xz") as tf:
-            info = tarfile.TarInfo("etc/hostname")
-            info.size = 7
-            tf.addfile(info, io.BytesIO(b"walnut\n"))
+            for name, data in (("./etc/hostname", b"walnut\n"), ("./usr/share/ps3-boot/safe.args", SAFE.read_bytes())):
+                info = tarfile.TarInfo(name)
+                info.size = len(data)
+                tf.addfile(info, io.BytesIO(data))
         for n in ("vmlinux", "initrd"):
             (d / "in" / n).write_bytes(n.encode())
         (d / "in/r.args").write_text("quiet\n")
@@ -644,10 +648,59 @@ class InstallManifest(unittest.TestCase):
         self.assertEqual(c.returncode, 0, c.stdout)
         kboot = (d / "out/dev_hdd1/kboot.conf").read_text()
         self.assertIn("walnut='/linux/boot/vmlinux-6.12.1+ps3.1 initrd=/linux/boot/initrd-walnut.img ", kboot)
+        walnut = [l for l in kboot.splitlines() if l.startswith("walnut=")]
+        self.assertEqual(len(walnut), 1, kboot)
+        self.assertEqual([l.split("=", 1)[0] for l in kboot.splitlines() if "='" in l], ["walnut", "walnut-safe"])
+        self.assertIn("walnut-safe=" + walnut[0][len("walnut="):-1] + " spu_base.enum_shared=0'", kboot.splitlines())
+        self.assertEqual((d / "out/dev_hdd0/linux/walnut-good/kboot.conf").read_text(), kboot)
         for f in ("dev_hdd1/linux/boot/vmlinux-6.12.1+ps3.1", "dev_hdd1/linux/boot/initrd-walnut.img",
                   "dev_hdd0/linux/walnut-good/vmlinux-6.12.1+ps3.1", "dev_hdd0/linux/walnut-good/kboot.conf"):
             self.assertTrue((d / "out" / f).is_file(), f)
         shutil.rmtree(d)
+
+    def test_safe_args_parser(self):
+        """stamp.py's safe.args parser keeps the words ps3-update-kboot and ps3-hdd1-boot keep (the same
+        input as test_kboot.py's), and the shipped file's words all pass"""
+        bad = ("# a comment\n  spu_base.enum_shared=0   # an inline comment\nquiet\t'x\nfoo\"bar a=1,b:2/c+d-e\n"
+               "#x=1\nok=1#y=2\n*\n")
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            self.assertEqual(" ".join(stamp.safe_args_words(bad)), "spu_base.enum_shared=0 quiet a=1,b:2/c+d-e ok=1")
+        for w in ("'x", 'foo"bar', "*"):
+            self.assertIn(repr(w) + " left out", err.getvalue())
+        self.assertEqual(stamp.safe_args_words(None), [])
+        self.assertIn("spu_base.enum_shared=0", stamp.safe_args_words(SAFE.read_text()))
+
+    def test_install_menu_has_walnut_safe(self):
+        """a new install's dev_hdd1 menu: walnut, then walnut-safe (walnut's line with the safe words at its
+        end), then another install's lines; without safe words, walnut alone"""
+        entry = stamp.kboot_entries("6.12.1+ps3.1", None, "/linux/walnut.img", ["spu_base.enum_shared=0"])
+        menu = stamp.install_menu(entry, b"other='/x/vmlinux root=/dev/sda2'\nwalnut-safe='old'\n").decode().splitlines()
+        self.assertEqual([l.split("=", 1)[0] for l in menu if "='" in l], ["walnut", "walnut-safe", "other"])
+        walnut = menu[1]
+        self.assertEqual(walnut, "walnut='/linux/boot/vmlinux-6.12.1+ps3.1 initrd=/linux/boot/initrd-walnut.img "
+                                 "root=/dev/mapper/ps3root rootfstype=ext4 ro ps3ssd.image=/linux/walnut.img'")
+        self.assertEqual(menu[2], "walnut-safe=" + walnut[len("walnut="):-1] + " spu_base.enum_shared=0'")
+        self.assertEqual(stamp.kboot_entries("6.12.1+ps3.1", None, "/linux/walnut.img", []).splitlines(), [walnut])
+
+    def test_scan_rootfs_finds_safe_args(self):
+        """the rootfs scan: its size as unpacked_size counts it, and the system's safe.args (a regular file
+        only, by any spelling of its path); none: None"""
+        import tarfile
+        t = SCRATCH / "s.tar.xz"
+        for name, kind, want in (("./usr/share/ps3-boot/safe.args", tarfile.REGTYPE, "a=1\n"),
+                                 ("usr/share/ps3-boot/safe.args", tarfile.REGTYPE, "a=1\n"),
+                                 ("./usr/share/ps3-boot/safe.args", tarfile.SYMTYPE, None),
+                                 ("./usr/share/ps3-boot/other", tarfile.REGTYPE, None)):
+            with tarfile.open(t, "w:xz") as tf:
+                info = tarfile.TarInfo(name)
+                info.type = kind
+                data = b"a=1\n" if kind == tarfile.REGTYPE else b""
+                if kind == tarfile.SYMTYPE:
+                    info.linkname = "/etc/shadow"
+                info.size = len(data)
+                tf.addfile(info, io.BytesIO(data))
+            self.assertEqual(stamp.scan_rootfs(t), (stamp.unpacked_size(t), want), (name, kind))
 
     def test_install_menu_drops_the_old_installs_entries(self):
         """stamp.py install's dev_hdd1 menu: the new walnut line; the old walnut, walnut-prev and walnut-safe

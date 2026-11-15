@@ -807,7 +807,8 @@ shows up. Booting any other entry stores its hash as the new default (`ps3_kexec
 alone: the same label on two disks matches on both. So the `default=` line `ps3-update-kboot`
 writes is ignored by this Petitboot: what boots after the countdown is the entry last picked by
 hand, if its label still exists. Entry labels must differ between roots, which is why the SSD
-root's entries are `ssd-<release>`.
+root's entries are `ssd-<release>` and a root's own safe entry is `<release>-safe` (`walnut-install usb`'s
+first menu: `walnut-usb-safe`), never dev_hdd1's `walnut-safe`.
 
 **Tools in the shell, and what writes by itself.**
 - **[fact]** BusyBox applets: ash/sh, the usual file and text tools, dd, df, du, find, grep, sed,
@@ -901,8 +902,9 @@ made per console. The PC uploads over webMAN's FTP (`tools/ssdimg/stamp.py insta
 
 1. the stamped image to `/dev_hdd0/linux/walnut.img` (whole MiB, default 16 GiB, swap at its end);
 2. `rootfs.tar.xz` to `dev_hdd1:/linux/install/`, the kernel and the generic initramfs
-   (`make initrd-walnut`) to `dev_hdd1:/linux/boot/`, Petitboot's `walnut` entry in `dev_hdd1:/kboot.conf`
-   (other lines kept);
+   (`make initrd-walnut`) to `dev_hdd1:/linux/boot/`, Petitboot's `walnut` and `walnut-safe` entries in
+   `dev_hdd1:/kboot.conf` (walnut-safe with the rootfs's `/usr/share/ps3-boot/safe.args` at its end; other
+   lines kept);
 3. the known-good copies of those boot files to `/dev_hdd0/linux/walnut-good/` (written only by the PC);
 4. last, the install manifest `dev_hdd1:/linux/install/install.conf` (sizes, the image's UUID, the
    tarball's sha256, a closing sha256 line). Without it the initramfs never installs, so an

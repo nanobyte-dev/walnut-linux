@@ -18,6 +18,7 @@ from unittest.mock import patch
 # Import walnut-install by path
 INSTALLER_DIR = Path(__file__).resolve().parent
 INSTALLER_PATH = INSTALLER_DIR / "walnut-install"
+SAFE = INSTALLER_DIR.parent.parent / "packages/walnut/system/ps3-boot/safe.args"
 loader = SourceFileLoader("walnut_install", str(INSTALLER_PATH))
 spec = importlib.util.spec_from_loader("walnut_install", loader)
 walnut_install = importlib.util.module_from_spec(spec)
@@ -34,10 +35,10 @@ def make_tar_xz(path: str, filenames_and_contents: dict[str, bytes]) -> None:
             tf.addfile(ti, io.BytesIO(data))
 
 
-def create_release_fixtures(release_dir: str, release: str = "6.12.111+ps3.648") -> dict[str, str]:
+def create_release_fixtures(release_dir: str, release: str = "6.12.111+ps3.648", rootfs_files=None) -> dict[str, str]:
     """Populate release_dir with valid release files and matching SHA256SUMS."""
     rootfs_path = os.path.join(release_dir, "rootfs.tar.xz")
-    make_tar_xz(rootfs_path, {"test.txt": b"walnut alpha rootfs dummy\n"})
+    make_tar_xz(rootfs_path, rootfs_files or {"test.txt": b"walnut alpha rootfs dummy\n"})
 
     kernel_path = os.path.join(release_dir, f"vmlinux-{release}")
     with open(kernel_path, "wb") as f:
@@ -380,6 +381,52 @@ class TestRootConfigurationFiles(unittest.TestCase):
         expected = "walnut-usb='/boot/vmlinux-6.12.111+ps3.648 root=PARTUUID=a1b2c3d4-02 rootfstype=ext4 ro rootwait quiet splash'\n"
         self.assertIn(expected, content)
 
+    def test_write_kboot_conf_safe_entry(self):
+        """walnut-usb-safe: walnut-usb's line with the safe words at its end, a label of its own (not dev_hdd1's
+        walnut or walnut-safe); none without words"""
+        walnut_install.write_kboot_conf(self.root_dir, "6.12.111+ps3.648", "a1b2c3d4", "quiet splash",
+                                        ["spu_base.enum_shared=0"])
+        with open(os.path.join(self.root_dir, "etc", "kboot.conf"), encoding="utf-8") as f:
+            lines = f.read().splitlines()
+        entry = "/boot/vmlinux-6.12.111+ps3.648 root=PARTUUID=a1b2c3d4-02 rootfstype=ext4 ro rootwait quiet splash"
+        self.assertEqual(lines[1:], [f"walnut-usb='{entry}'", f"walnut-usb-safe='{entry} spu_base.enum_shared=0'"])
+
+    def test_safe_args_read_from_the_unpacked_system(self):
+        """the USB install reads the unpacked system's /usr/share/ps3-boot/safe.args with stamp.py's parser
+        (the shipped file gives spu_base.enum_shared=0; a bad word is left out); a symbolic link on the way,
+        a non-regular file or no file: no words"""
+        stamp_mod = walnut_install.get_stamp_module()
+        d = os.path.join(self.root_dir, "usr", "share", "ps3-boot")
+        os.makedirs(d)
+        with patch("sys.stdout", new=io.StringIO()) as out:
+            self.assertEqual(walnut_install.read_safe_args(self.root_dir, stamp_mod), [])
+            self.assertIn("no walnut-usb-safe entry", out.getvalue())
+        with open(os.path.join(d, "safe.args"), "wb") as f:
+            f.write(SAFE.read_bytes() + b"\nbad'word ok=1\n")
+        with patch("sys.stderr", new=io.StringIO()):
+            words = walnut_install.read_safe_args(self.root_dir, stamp_mod)
+        self.assertIn("spu_base.enum_shared=0", words)
+        self.assertEqual(words[-1], "ok=1")
+        self.assertNotIn("bad'word", words)
+        # the file a symbolic link, or a directory on the way one: refused
+        outside = os.path.join(self.root_dir, "outside")
+        with open(outside, "w") as f:
+            f.write("init=/bin/sh\n")
+        os.replace(os.path.join(d, "safe.args"), os.path.join(self.root_dir, "kept"))
+        os.symlink(outside, os.path.join(d, "safe.args"))
+        with patch("sys.stdout", new=io.StringIO()):
+            self.assertEqual(walnut_install.read_safe_args(self.root_dir, stamp_mod), [])
+        os.unlink(os.path.join(d, "safe.args"))
+        os.rename(d, d + ".real")
+        os.symlink(d + ".real", d)
+        os.replace(os.path.join(self.root_dir, "kept"), os.path.join(d + ".real", "safe.args"))
+        with patch("sys.stdout", new=io.StringIO()):
+            self.assertEqual(walnut_install.read_safe_args(self.root_dir, stamp_mod), [])
+        os.unlink(d)
+        os.makedirs(os.path.join(d, "safe.args"))
+        with patch("sys.stdout", new=io.StringIO()):
+            self.assertEqual(walnut_install.read_safe_args(self.root_dir, stamp_mod), [])
+
     def test_write_kboot_conf_no_args(self):
         walnut_install.write_kboot_conf(self.root_dir, "6.12.111+ps3.648", "a1b2c3d4", "")
         kboot_path = os.path.join(self.root_dir, "etc", "kboot.conf")
@@ -443,6 +490,38 @@ class TestInternalDryRun(unittest.TestCase):
         self.assertIn("What to do next on your PS3", output)
         self.assertIn("set the boot flag to OtherOS", output)
         self.assertIn("select 'walnut'", output)
+
+    def test_internal_menu_has_walnut_safe_from_the_rootfs(self):
+        """the internal install's dev_hdd1 menu (and its walnut-good copy): walnut, then walnut-safe with the
+        rootfs's /usr/share/ps3-boot/safe.args at its end; a rootfs without it: walnut alone"""
+        stamp_mod = self.stamp_mod
+        for files, want in (({"./usr/share/ps3-boot/safe.args": SAFE.read_bytes()}, True),
+                            ({"test.txt": b"x\n"}, False)):
+            with tempfile.TemporaryDirectory() as rd:
+                create_release_fixtures(rd, rootfs_files=files)
+                put = {}
+                real_put = stamp_mod.ftp_put
+
+                def capture(ftp, data, remote):
+                    if isinstance(data, bytes):
+                        put[remote] = data
+                    return real_put(ftp, data, remote)
+                with patch.object(stamp_mod, "ftp_put", capture), patch("sys.stdout", new=io.StringIO()), \
+                        patch("sys.stderr", new=io.StringIO()) as err:
+                    rc = walnut_install.main(["internal", "--release-dir", rd, "--size", "16G", "--host", "192.0.2.1",
+                                              "--dry-run"])
+                self.assertEqual(rc, 0)
+                menu = put["/dev_hdd1/kboot.conf"].decode().splitlines()
+                self.assertEqual(put[stamp_mod.GOOD_DIR + "/kboot.conf"], put["/dev_hdd1/kboot.conf"])
+                labels = [l.split("=", 1)[0] for l in menu if "='" in l]
+                if want:
+                    self.assertEqual(labels, ["walnut", "walnut-safe"])
+                    walnut = [l for l in menu if l.startswith("walnut=")][0]
+                    self.assertTrue(walnut.endswith(" quiet splash'"), walnut)
+                    self.assertIn("walnut-safe=" + walnut[len("walnut="):-1] + " spu_base.enum_shared=0'", menu)
+                else:
+                    self.assertEqual(labels, ["walnut"])
+                    self.assertIn("no walnut-safe entry", err.getvalue())
 
 
 

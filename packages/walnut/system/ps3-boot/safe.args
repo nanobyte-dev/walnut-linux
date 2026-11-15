@@ -1,7 +1,10 @@
-# The walnut-safe Petitboot entry's arguments (ps3-boot: ps3-update-kboot and ps3-hdd1-boot add them at
-# the end of that entry, after the kernel's own, so they win): conservative settings for a boot that
-# fails with the defaults. walnut-safe boots the same kernel and initramfs as walnut. Arguments are
-# separated by spaces or lines; a line starting with # is a comment.
+# The safe Petitboot entry's arguments: walnut-safe on dev_hdd1 (ps3-hdd1-boot), <release>-safe in a root's
+# /etc/kboot.conf (ps3-update-kboot), and the installers' first menus (tools/ssdimg/stamp.py, walnut-install
+# usb as walnut-usb-safe), all from this one file. They go at the end of that entry, after the kernel's own,
+# so they win: conservative settings for a boot that fails with the defaults. The safe entry boots the same
+# kernel and initramfs as the default one. Arguments are separated by spaces or lines; # starts a comment
+# that runs to the line's end. Only letters, digits and _ . , : = / + - are allowed in an argument; a word
+# with anything else is left out by every writer, with a message.
 #
 # lv1's shared SPE (the 7th) off: our kernels' args turn it on (docs/SPU.md)
 spu_base.enum_shared=0

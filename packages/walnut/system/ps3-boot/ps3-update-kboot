@@ -27,9 +27,12 @@
 # entry whose image or initrd= is missing on this disk (paths without "device:" are looked up here).
 # With PS3_UNDERSCAN=1 an extra entry gets ps3fb.fullscreen=0 at its end too, unless it sets
 # ps3fb.fullscreen= itself; with PS3_SPE_SHARED=0 it gets spu_base.enum_shared=0 there, always.
-# walnut-safe: the default kernel's entry again with /usr/share/ps3-boot/safe.args at its end (the
-# conservative settings, which win as the last ones), the recovery entry after a failed boot; its label
-# stays across kernel changes, and a /etc/kboot.d entry can't take it. Without that file, no walnut-safe.
+# <default release>-safe: the default kernel's entry again with /usr/share/ps3-boot/safe.args at its end
+# (the conservative settings, which win as the last ones), the recovery entry after a failed boot; a
+# /etc/kboot.d entry can't take its label. Not walnut-safe, the internal install's fixed label on dev_hdd1
+# (ps3-hdd1-boot): Petitboot keys its default on the label alone, so the same label in two menus (a USB
+# root and dev_hdd1) could boot the other disk's root after one pick. Like the kernels' labels, it
+# changes with the default release. Without that file, no safe entry.
 # Petitboot ignores the default= line (docs/GAMEOS-HDD.md "Petitboot's behaviour"); it is kept for
 # the record. PS3_BOOT_ROOT: a prefix for every file (host tests only).
 set -e
@@ -75,9 +78,19 @@ case $(printf '%s' "${PS3_SPE_SHARED:-1}" | tr '[:upper:]' '[:lower:]') in
 	*) echo "ps3-update-kboot: PS3_SPE_SHARED=$PS3_SPE_SHARED is not 0 or 1: 0, no shared SPE" >&2; spe_args=spu_base.enum_shared=0 ;;
 esac
 
-# walnut-safe, the recovery entry: the default kernel with the conservative arguments of
-# /usr/share/ps3-boot/safe.args at its end (# lines are comments), the same list in both writers
-safe_args=$(sed '/^[[:space:]]*#/d' "$R/usr/share/ps3-boot/safe.args" 2>/dev/null | tr '\n\t' '  ' | tr -s ' ' | sed 's/^ //; s/ $//')
+# the recovery entry's conservative arguments, /usr/share/ps3-boot/safe.args (the same parser in
+# ps3-hdd1-boot and stamp.py): words separated by spaces, tabs or lines, # to the line's end a comment;
+# a word with anything but letters, digits and _ . , : = / + - is left out with a message (a quote or a
+# # would end or break the entry's quoted value)
+safe_args=
+set -f
+for w in $(sed 's/#.*//' "$R/usr/share/ps3-boot/safe.args" 2>/dev/null); do
+	case $w in
+	*[!A-Za-z0-9_.,:=/+-]*) echo "ps3-update-kboot: safe.args: $w left out: only letters, digits and _ . , : = / + -" >&2 ;;
+	*) safe_args="${safe_args:+$safe_args }$w" ;;
+	esac
+done
+set +f
 
 # newest first, in Debian's kernel version order (linux-base), which knows about ~ and +
 # dpkg's temporary names during an upgrade (vmlinux-<release>.dpkg-tmp, .dpkg-new, ...) are not kernels
@@ -123,7 +136,35 @@ for k in $kernels; do
 	echo "$release='$(cmdline "$k" "$(args_of "$release")")'" >> "$tmp"
 	labels="$labels$release "
 done
-[ -z "$safe_args" ] || labels="${labels}walnut-safe "
+# PS3_DEFAULT_FLAVOUR (release or debug): the newest kernel of that flavour, if one is installed;
+# PS3_DEFAULT (a release) wins over it
+flavour=${PS3_DEFAULT_FLAVOUR:-}
+case "$flavour" in
+	ps3) flavour=debug ;;
+	ps3-release) flavour=release ;;
+	release|debug|'') ;;
+	*) echo "ps3-update-kboot: unknown PS3_DEFAULT_FLAVOUR=$flavour (release or debug), ignored" >&2; flavour= ;;
+esac
+if [ -n "$flavour" ]; then
+	for k in $kernels; do
+		case "${k#/boot/vmlinux-}" in
+			*-debug*) [ "$flavour" = debug ] || continue ;;
+			*) [ "$flavour" = release ] || continue ;;
+		esac
+		default=${k#/boot/vmlinux-}; break
+	done
+fi
+if [ -n "${PS3_DEFAULT:-}" ] && [ -e "$R/boot/vmlinux-$PS3_DEFAULT" ]; then
+	default=$PS3_DEFAULT
+fi
+# the safe entry's label: the default release's, so it differs from dev_hdd1's walnut-safe and from
+# another root's menu as the kernels' labels do
+safe_label=$default-safe
+case $labels in *" $safe_label "*)
+	[ -z "$safe_args" ] || echo "ps3-update-kboot: $safe_label is a kernel's label: no safe entry" >&2
+	safe_args= ;;
+esac
+[ -z "$safe_args" ] || labels="$labels$safe_label "
 
 # the extra entries from /etc/kboot.d
 extras=0
@@ -160,31 +201,10 @@ for f in "$R"/etc/kboot.d/*.conf; do
 	done < "$f"
 done
 
-# PS3_DEFAULT_FLAVOUR (release or debug): the newest kernel of that flavour, if one is installed;
-# PS3_DEFAULT (a release) wins over it
-flavour=${PS3_DEFAULT_FLAVOUR:-}
-case "$flavour" in
-	ps3) flavour=debug ;;
-	ps3-release) flavour=release ;;
-	release|debug|'') ;;
-	*) echo "ps3-update-kboot: unknown PS3_DEFAULT_FLAVOUR=$flavour (release or debug), ignored" >&2; flavour= ;;
-esac
-if [ -n "$flavour" ]; then
-	for k in $kernels; do
-		case "${k#/boot/vmlinux-}" in
-			*-debug*) [ "$flavour" = debug ] || continue ;;
-			*) [ "$flavour" = release ] || continue ;;
-		esac
-		default=${k#/boot/vmlinux-}; break
-	done
-fi
-if [ -n "${PS3_DEFAULT:-}" ] && [ -e "$R/boot/vmlinux-$PS3_DEFAULT" ]; then
-	default=$PS3_DEFAULT
-fi
 if [ -n "$safe_args" ]; then
-	echo "walnut-safe='$(cmdline "/boot/vmlinux-$default" "$(args_of "$default")") $safe_args'" >> "$tmp"
-else
-	echo "ps3-update-kboot: no /usr/share/ps3-boot/safe.args: no walnut-safe entry" >&2
+	echo "$safe_label='$(cmdline "/boot/vmlinux-$default" "$(args_of "$default")") $safe_args'" >> "$tmp"
+elif [ ! -e "$R/usr/share/ps3-boot/safe.args" ]; then
+	echo "ps3-update-kboot: no /usr/share/ps3-boot/safe.args: no safe entry" >&2
 fi
 echo "default=$default" >> "$tmp"
 chmod 644 "$tmp"

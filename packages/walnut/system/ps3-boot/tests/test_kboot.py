@@ -417,37 +417,81 @@ class Kboot(unittest.TestCase):
             self.assertEqual("PS3_SPE_SHARED=1 init=/bin/sh is not 0 or 1" in out, warn, (value, out))
 
     def test_shipped_safe_args(self):
-        """walnut-safe's list: spu_base.enum_shared=0 only for now, plain words (no quote breaks the entry),
-        installed where both writers read it"""
-        words = " ".join(l for l in SAFE.read_text().splitlines() if not l.lstrip().startswith("#")).split()
-        self.assertEqual(words, ["spu_base.enum_shared=0"])
+        """the safe entries' list: spu_base.enum_shared=0 among them, every word plain (letters, digits and
+        _ . , : = / + -: no quote or # can end up in a kboot line), installed where both writers read it"""
+        words = " ".join(l.split("#", 1)[0] for l in SAFE.read_text().splitlines()).split()
+        self.assertIn("spu_base.enum_shared=0", words)
+        for w in words:
+            self.assertRegex(w, r"^[A-Za-z0-9_.,:=/+-]+$")
         install = (HERE.parent / "debian/install").read_text().splitlines()
         self.assertIn("safe.args usr/share/ps3-boot", install)
 
-    def test_walnut_safe_entry(self):
-        """/etc/kboot.conf: walnut-safe is the default kernel's entry with safe.args at its end; it follows the
-        default (PS3_DEFAULT too), its label can't be taken by /etc/kboot.d, and the default stays the kernel's;
-        without safe.args no walnut-safe"""
+    # safe.args with comments and words no kboot line may carry, and the words both writers keep from it
+    # (tools/ssdimg/test_ssdimg.py checks stamp.py's parser against the same pair)
+    BAD_SAFE = ("# a comment\n  spu_base.enum_shared=0   # an inline comment\nquiet\t'x\nfoo\"bar a=1,b:2/c+d-e\n"
+                "#x=1\nok=1#y=2\n*\n")
+    BAD_SAFE_WORDS = "spu_base.enum_shared=0 quiet a=1,b:2/c+d-e ok=1"
+
+    def test_safe_args_words_are_checked(self):
+        """both writers: # starts a comment anywhere on a line; a word with a quote or anything off the
+        allowlist is left out with a message (also a glob: no file name gets in); the rest in order"""
+        (self.r / "usr/share/ps3-boot").mkdir(parents=True)
+        (self.r / "usr/share/ps3-boot/safe.args").write_text(self.BAD_SAFE)
+        (self.r / "boot" / "x.args").write_text("")   # a file for a * to match
         lines, out = self.run_it()
-        self.assertNotIn("walnut-safe", "\n".join(lines))
-        self.assertIn("no walnut-safe entry", out)
+        safe = [x for x in lines if x.startswith(REL + "-safe=")]
+        self.assertEqual(len(safe), 1, lines)
+        self.assertTrue(safe[0].endswith(" ip=dhcp %s %s'" % (RARGS, self.BAD_SAFE_WORDS)), safe)
+        for w in ("'x", 'foo"bar', "*"):
+            self.assertIn("safe.args: %s left out" % w, out)
+        (self.r / "usr/share/ps3-boot/safe.args").write_text(self.BAD_SAFE)
+        (self.r / "usr/lib/ps3/boot/initrd-walnut.img").write_bytes(b"i")
+        p, h = self.hdd1()
+        self.assertEqual(p.returncode, 0, p.stderr)
+        safe = [x for x in (h / "kboot.conf").read_text().splitlines() if x.startswith("walnut-safe=")]
+        self.assertEqual(len(safe), 1)
+        self.assertTrue(safe[0].endswith(" %s %s'" % (RARGS, self.BAD_SAFE_WORDS)), safe)
+        self.assertIn("ps3-hdd1-boot: safe.args: 'x left out", p.stderr)
+
+    def test_safe_entry(self):
+        """/etc/kboot.conf: <default release>-safe is the default kernel's entry with safe.args at its end; it
+        follows the default (PS3_DEFAULT too: the label with it), its label can't be taken by /etc/kboot.d, the
+        default stays the kernel's, and it is never walnut-safe (dev_hdd1's label); without safe.args none"""
+        lines, out = self.run_it()
+        self.assertNotIn("-safe", "\n".join(lines))
+        self.assertIn("no safe entry", out)
         self.safe()
-        (self.r / "etc/kboot.d/10-x.conf").write_text("walnut-safe='/boot/vmlinux-%s root=/dev/sda2'\n" % OLD)
+        (self.r / "etc/kboot.d/10-x.conf").write_text("%s-safe='/boot/vmlinux-%s root=/dev/sda2'\n" % (REL, OLD))
         lines, out = self.run_it()
-        self.assertEqual(self.entries(lines), [DBG, REL, OLD, "walnut-safe"])
+        self.assertEqual(self.entries(lines), [DBG, REL, OLD, REL + "-safe"])
         rel = [x for x in lines if x.startswith(REL + "=")][0]
-        self.assertIn("walnut-safe=" + rel[len(REL) + 1:-1] + " spu_base.enum_shared=0'", lines)
-        self.assertIn("label walnut-safe is already taken", "\n".join(lines))
+        self.assertIn(REL + "-safe=" + rel[len(REL) + 1:-1] + " spu_base.enum_shared=0'", lines)
+        self.assertIn("label %s-safe is already taken" % REL, "\n".join(lines))
+        self.assertNotIn("walnut-safe", "\n".join(lines))
         self.assertEqual(lines[-1], "default=" + REL)
         (self.r / "etc/default/ps3-boot").write_text((self.r / "etc/default/ps3-boot").read_text()
                                                     + "PS3_DEFAULT=%s\nPS3_UNDERSCAN=1\n" % OLD)
         lines, out = self.run_it()
-        safe = [x for x in lines if x.startswith("walnut-safe=")]
+        safe = [x for x in lines if x.startswith(OLD + "-safe=")]
         self.assertEqual(len(safe), 1, lines)
-        self.assertTrue(safe[0].startswith("walnut-safe='/boot/vmlinux-%s " % OLD), safe)
+        self.assertTrue(safe[0].startswith("%s-safe='/boot/vmlinux-%s " % (OLD, OLD)), safe)
+        self.assertIn(REL + "-safe", self.entries(lines))   # the kboot.d entry: that label is free now
         self.assertTrue(safe[0].endswith(" ps3fb.fullscreen=0 spu_base.enum_shared=0'"), safe)
         self.assertNotIn("  ", safe[0])
         self.assertEqual(lines[-1], "default=" + OLD)
+
+    def test_safe_label_differs_between_the_root_and_dev_hdd1(self):
+        """Petitboot keys its stored default on the label alone: the internal install's run writes the root's
+        menu and dev_hdd1's, and no entry label is in both (dev_hdd1 walnut-safe, the root <release>-safe)"""
+        (self.r / "usr/lib/ps3/boot/initrd-walnut.img").write_bytes(b"i")
+        self.safe()
+        p, h = self.hdd1()
+        self.assertEqual(p.returncode, 0, p.stderr)
+        root = set(self.entries((self.r / "etc/kboot.conf").read_text().splitlines()))
+        hdd1 = set(self.entries((h / "kboot.conf").read_text().splitlines()))
+        self.assertIn(REL + "-safe", root)
+        self.assertIn("walnut-safe", hdd1)
+        self.assertEqual(root & hdd1, set())
 
     def test_first_run_legacy_args_have_no_video_mode(self):
         """an installation from before ps3-boot: the defaults come from /proc/cmdline, and the legacy
