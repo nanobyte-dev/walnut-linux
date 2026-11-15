@@ -19,7 +19,7 @@ done
 [ "$(wc -l <"$S/submits.tsv")" = 4 ] || fail "submits.tsv: $(wc -l <"$S/submits.tsv") lines"
 [ "$(wc -l <"$S/bos.tsv")" = 8 ] || fail "bos.tsv"
 [ "$(wc -l <"$S/set.tsv")" = 3 ] || fail "set.tsv"
-grep -q $'^0x2\t2\t102\t5\t4321\tsample\trejected\t0\t1\t2$' "$S/submits.tsv" || fail "the rejected submit's line"
+grep -q $'^0x2\t2\t102\t5\t4321\tsample\trejected\t0\t3\t2$' "$S/submits.tsv" || fail "the rejected submit's line"
 grep -q $'^close\t0x4\t5\t4321\tgart\tgart\t0x200000\t0x1000$' "$S/set.tsv" || fail "the close event"
 grep -q $'\tfp\tgart\t0x100000\t0x1000\tread\t0x40\tcontents/' "$S/contents.tsv" || fail "the program's content line"
 grep -q $'\tindex\tvram\t0x200000\t0x16\tunreadable\t0x0\t-$' "$S/contents.tsv" || fail "the index line"
@@ -30,6 +30,10 @@ grep -q '^fp     length to END: 1 read, median 48, longest 48 bytes; no END in t
 grep -q '^index  vram-gpu         1 (0.5 per frame)  22 bytes (11.0 per frame)$' "$T/stats.txt" ||
 	fail "stats, the index range: $(cat "$T/stats.txt")"
 grep -q '^gaps 1, records dropped 7$' "$S/summary.txt" || fail "the gap"
+# after the gap: channel 2's third push kept (its second lost), channel 1's push whose submit the
+# gap took skipped (not in channel 1's file: its counts below)
+grep -q '^pushes without their submit 1, submits missing a push 1$' "$S/summary.txt" ||
+	fail "the gap's pushes: $(grep without "$S/summary.txt")"
 grep -q '^version 1, vram reserved 0x900000' "$S/summary.txt" || fail "the start record"
 # channel 1's pushes pass as Mesa's would, but for its copy after it closed the destination's
 # buffer (the file's set, from the dump's events); channel 2's refused END is refused again
@@ -38,6 +42,7 @@ grep -q '3 submits, 4 pushes, .* 1 refused$' "$T/v1.log" || fail "channel 1: $(c
 grep -q 'submit 3 push 0 .*M2MF destination outside' "$T/v1.log" || fail "channel 1's late copy: $(cat "$T/v1.log")"
 if "$O/validate-capture" "$S/chan2-s102.push" >"$T/v2.log"; then fail "channel 2 passed"; fi
 grep -q 'END with no primitive open' "$T/v2.log" || fail "chan2's reason"
+grep -q '1 submits, 2 pushes, .* 2 refused$' "$T/v2.log" || fail "channel 2: $(cat "$T/v2.log")"
 # what reached the GPU from channel 1, ps3rsx's END included, is one valid stream with one draw
 "$O/validate-capture" --gpu "$S/chan1-s101.gpu" >"$T/g1.log" || { cat "$T/g1.log"; fail "channel 1 GPU stream refused"; }
 grep -q '1 draws: every word passes' "$T/g1.log" || fail "channel 1's GPU stream: $(cat "$T/g1.log")"

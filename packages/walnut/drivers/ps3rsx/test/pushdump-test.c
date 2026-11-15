@@ -277,11 +277,15 @@ static void write_sample(const char *path)
 	}
 	pd_rec_content(r, 1, 1, PD_INDEX, PD_DOM_VRAM, 0x200000, 0x16, PD_UNREADABLE, 0);
 	put(r, PD_CONTENT_BYTES);
-	/* channel 2: a rejected submit; records lost; ps3rsx ends channel 1's open primitive */
-	sample_submit(2, 2, PD_REJECTED, 0, 1);
+	/* channel 2: a rejected submit of three pushes; records lost (its second push, then a
+	 * submit of channel 1 whose push is left: the split skips it); ps3rsx ends channel 1's
+	 * open primitive */
+	sample_submit(2, 2, PD_REJECTED, 0, 3);
 	sample_push(2, 2, 0, bad, ARRAY_SIZE(bad));
 	pd_rec_gap(r, 3, 7);
 	put(r, PD_GAP_BYTES);
+	sample_push(2, 2, 2, bad, ARRAY_SIZE(bad));
+	sample_push(3, 1, 0, copy, ARRAY_SIZE(copy));
 	pd_rec_end(r, 3, 1, H(1, SC, 0x1808));
 	put(r, PD_END_BYTES);
 	/* channel 1 copies between its two buffers; closes the second; copies again (which the

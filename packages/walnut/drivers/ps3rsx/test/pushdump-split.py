@@ -19,6 +19,11 @@ format is src/pushdump_scan.h) into the host tools' inputs:
   contents/        the bytes, one file each
   summary.txt      counts, gaps (records the kernel dropped) and the address-space facts
 
+A gap (records the kernel dropped when the dump's buffer was full) may take a SUBMIT and leave its
+pushes: those are skipped and counted (pushes without their submit), as are submits a gap took a
+push of (submits missing a push: the push index skips; the rest are kept, but the channel's state
+may differ from what the kernel saw).
+
 Run with python3 -I: pushdump-split.py DUMP OUTDIR
 """
 import os
@@ -78,6 +83,8 @@ def main(argv):
         f.write(struct.pack(">%dI" % len(ws), *ws))
 
     cur = None              # (channel, verdict, seq) of the last SUBMIT, its pushes follow
+    cur_seq = cur_next = None   # that SUBMIT's record sequence number, its next push index
+    orphans = lost = 0      # pushes after a gap whose SUBMIT was lost; submits missing a push
     off = 0
     while off + 16 <= len(data):
         magic, typ, n, seq = words(data, off, 4)
@@ -108,6 +115,7 @@ def main(argv):
             owner_of[key] = owner
             serial_of[ch] = serial
             cur = (key, verdict, nsub[key])
+            cur_seq, cur_next = seq, 0
             tsv["submits"].write("%#x\t%d\t%d\t%d\t%d\t%s\t%s\t%s\t%d\t%d\n" % (
                 seq, ch, serial, owner, tgid, comm, VERDICT.get(verdict, verdict),
                 "-" if bad == 0xffffffff else bad, npush, nbuf))
@@ -118,9 +126,16 @@ def main(argv):
         elif name == "PUSH":
             ch, idx, k = words(data, body, 3)
             ws = words(data, body + 12, k)
-            if cur is None or cur[0][0] != ch:
+            if cur is None or cur[0][0] != ch or seq != cur_seq:
+                if gaps:        # its SUBMIT among the records the kernel dropped
+                    orphans += 1
+                    off += 4 * n
+                    continue
                 sys.stderr.write("push without its submit at byte %d\n" % off)
                 return 1
+            if idx != cur_next:
+                lost += 1       # one of its pushes dropped: the channel's state may differ
+            cur_next = idx + 1
             put(stream(push_files, "push", cur[0]), cur[2], idx, ws)
             if cur[1] == 0:
                 put(stream(gpu_files, "gpu", cur[0]), cur[2], idx, ws)
@@ -143,7 +158,8 @@ def main(argv):
             hi, lo = words(data, body, 2)
             gaps += 1
             dropped += hi << 32 | lo
-            cur = None      # a submit's pushes may be among the lost
+            # the submit's pushes go on after it (the same sequence number) unless one is
+            # among the lost, which the push index shows
         off += 4 * n
     if off != len(data):
         sys.stderr.write("%d trailing bytes (a cut record)\n" % (len(data) - off))
@@ -156,6 +172,7 @@ def main(argv):
         for t, c in counts.items():
             f.write("%s %d\n" % (t.lower(), c))
         f.write("gaps %d, records dropped %d\n" % (gaps, dropped))
+        f.write("pushes without their submit %d, submits missing a push %d\n" % (orphans, lost))
         f.write("channels %s\n" % " ".join("%d-s%d" % k for k in sorted(push_files)))
     return 0
 

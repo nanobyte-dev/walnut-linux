@@ -2,7 +2,7 @@
 # corpus-replay.sh O CORPUS_DIR: every captured case under CORPUS_DIR (<case>/dump.bin.zst, from the
 # push dump build) split by pushdump-split.py and each channel's pushes replayed through this tree's
 # validator (validate-capture, with the dump's buffer events as the set): exits 1 if any push is
-# refused. The corpus is game-derived and stays private (never in the tree); nothing to replay
+# refused. Pushes whose submit a gap in the dump took are skipped (the counts follow each case). The corpus is game-derived and stays private (never in the tree); nothing to replay
 # without it.
 set -euo pipefail
 O=$1 C=${2:-}
@@ -23,7 +23,8 @@ for d in "$C"/*/; do
 			grep REFUSED "$f.log" | sed 's/.*REFUSED: //' | sort | uniq -c | head -5
 		fi
 	done
-	echo "corpus-replay: $case: $(cat "$w"/split/chan*.push.log | grep -c REFUSED || true) refused"
+	echo "corpus-replay: $case: $(cat "$w"/split/chan*.push.log | grep -c REFUSED || true) refused" \
+		"($(grep -h '^gaps\|^pushes without' "$w/split/summary.txt" | paste -sd ';' - | sed 's/;/; /'))"
 	rm -rf "$w"
 done
 exit $bad
