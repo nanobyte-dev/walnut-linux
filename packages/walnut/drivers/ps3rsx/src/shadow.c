@@ -128,9 +128,16 @@ static bool side_effect_3d_slow(u32 m)
 	return false;
 }
 
-/* What a 3D method write does to the shadow, one byte per method (built at module load) */
+/*
+ * What a 3D method write does to the shadow, one byte per method (built at module load). Past
+ * 0x1ffc every entry is K_NONE, up to where the longest burst from the last method ends: the
+ * words come back from the ring, which the GPU can write after the validator checked them, so an
+ * incrementing burst (method at most 0x1ffc, count at most 0x7ff) may run past 0x1ffc, and its
+ * words there do nothing, without a check per burst.
+ */
 enum { K_STATE, K_NONE, K_VP_PTR, K_VP, K_CST_PTR, K_CST };
-static u8 kind3d[NREG];
+#define KIND3D_N	(NREG + 0x800)
+static u8 kind3d[KIND3D_N];
 /* For the fast replay: kind << 12 | how many methods from this one on have the same kind */
 static u16 run3d[NREG];
 #define RUN_KIND(t)	((t) >> 12)
@@ -140,6 +147,9 @@ void ps3rsx_shadow_init(void)
 {
 	u32 m;
 
+	BUILD_BUG_ON((0x1ffc + 4 * (0x7ff - 1)) / 4 >= KIND3D_N);
+	for (m = 0x2000; m < 4 * KIND3D_N; m += 4)
+		kind3d[m / 4] = K_NONE;		/* past the methods: nothing (see kind3d) */
 	for (m = 0; m < 0x2000; m += 4) {
 		u8 k = K_STATE;
 
@@ -251,8 +261,8 @@ void ps3rsx_shadow_write(struct ps3rsx_shadow *sh, u32 subch, u32 m, u32 v)
 		return;
 	if (obj != OBJ_3D)
 		write2d(sh, obj, m, v);
-	else
-		write3d(sh, m, v);
+	else if (m < 0x2000)
+		write3d(sh, m, v);		/* kind3d and reg3d end at 0x1ffc */
 }
 
 /* --- fast replay ----------------------------------------------------------------------- */
@@ -461,7 +471,7 @@ static __always_inline void burst_fast(struct ps3rsx_shadow *sh, u32 subch, u32 
 			return;
 		}
 	}
-	end = min(r + n, (u32)NREG);		/* the validator keeps bursts below 0x2000 */
+	end = min(r + n, (u32)NREG);		/* stop at 0x1ffc whatever the ring says */
 	while (r < end) {
 		u16 t = run3d[r];
 		u32 len = min((u32)RUN_LEN(t), end - r);
@@ -476,9 +486,12 @@ static __always_inline void burst_fast(struct ps3rsx_shadow *sh, u32 subch, u32 
 }
 
 /*
- * One burst of n accepted words into the shadow, the same as ps3rsx_shadow_write() word by word
- * (methods at most 0x1ffc: the validator checked them). Non-incrementing bursts to a command
- * (inline vertex and index data) cost nothing, to a state method only their last word.
+ * One burst of n accepted words into the shadow, the same as ps3rsx_shadow_write() word by word.
+ * Non-incrementing bursts to a command (inline vertex and index data) cost nothing, to a state
+ * method only their last word. The validator keeps bursts below 0x2000, but the words come back
+ * from the ring, which the GPU can write after the check: an incrementing burst's words past
+ * 0x1ffc go nowhere (kind3d's K_NONE tail here, burst_fast()'s end), so none lands past the
+ * method arrays. A header gives at most 0x1ffc and 0x7ff (callers mask them).
  */
 void ps3rsx_shadow_burst(struct ps3rsx_shadow *sh, u32 subch, u32 mthd, bool noninc,
 			 const u32 *v, u32 n)
@@ -486,6 +499,8 @@ void ps3rsx_shadow_burst(struct ps3rsx_shadow *sh, u32 subch, u32 mthd, bool non
 	u32 k;
 	int obj;
 
+	if (mthd > 0x1ffc || n > 0x7ff)
+		return;				/* not from a header: kind3d ends there */
 	if (READ_ONCE(shadow_fast)) {
 		burst_fast(sh, subch, mthd, noninc, v, n);
 		return;
@@ -520,17 +535,21 @@ void ps3rsx_shadow_burst(struct ps3rsx_shadow *sh, u32 subch, u32 mthd, bool non
 		}
 	}
 	for (k = 0; k < n; k++)
-		write3d(sh, mthd + 4 * k, v[k]);
+		write3d(sh, mthd + 4 * k, v[k]);	/* past 0x1ffc: K_NONE (kind3d) */
 }
 
-/* A validated push, as the GPU ran it: every burst into the shadow */
+/*
+ * A validated push, as the GPU ran it: every burst into the shadow. w is in the ring, which the
+ * GPU can write, so the words may no longer be the ones the validator passed: each header is
+ * read once, and a burst never takes more words than the push has left.
+ */
 void ps3rsx_shadow_push(struct ps3rsx_shadow *sh, const u32 *w, u32 nwords)
 {
 	u32 i = 0;
 
 	if (READ_ONCE(shadow_fast)) {
 		while (i < nwords) {
-			u32 h = w[i], n = (h >> 18) & 0x7ff;
+			u32 h = READ_ONCE(w[i]), n = min((h >> 18) & 0x7ff, nwords - i - 1);
 
 			if (h)
 				burst_fast(sh, (h >> 13) & 7, h & 0x1ffc, h & 0x40000000,
@@ -540,7 +559,7 @@ void ps3rsx_shadow_push(struct ps3rsx_shadow *sh, const u32 *w, u32 nwords)
 		return;
 	}
 	while (i < nwords) {
-		u32 h = w[i], n = (h >> 18) & 0x7ff;
+		u32 h = READ_ONCE(w[i]), n = min((h >> 18) & 0x7ff, nwords - i - 1);
 
 		if (h)
 			ps3rsx_shadow_burst(sh, (h >> 13) & 7, h & 0x1ffc, h & 0x40000000,

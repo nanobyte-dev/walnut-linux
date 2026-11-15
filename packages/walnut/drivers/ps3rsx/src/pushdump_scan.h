@@ -296,7 +296,7 @@ static inline void pd_scan_push(struct pd_scan *s, const u32 *w, u32 nwords)
 	u32 i = 0, k;
 
 	while (i < nwords) {
-		u32 h = w[i], count, subch, mthd;
+		u32 h = READ_ONCE(w[i]), count, subch, mthd;	/* once: the words are in the ring */
 		bool noninc;
 
 		if (h == 0) {

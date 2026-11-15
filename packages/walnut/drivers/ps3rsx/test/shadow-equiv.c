@@ -2,7 +2,8 @@
 /*
  * Equivalence fuzz for shadow.c's fast replay (shadow_fast=1) against the word-by-word one:
  * the whole struct ps3rsx_shadow after every burst, push, restore and take, and the restore
- * streams, must be byte-identical. Built in userspace with inc/ (kernel stand-ins).
+ * streams, must be byte-identical; so must pushes changed after the validator passed them (part
+ * 3). Built in userspace with inc/ (kernel stand-ins).
  *
  *   shadow-equiv [bursts] [submits] [seed]	fuzz (defaults 4000000 400000 1)
  *   shadow-equiv bench [pushes]		time both paths on Mesa-like pushes
@@ -243,6 +244,65 @@ static void fuzz_bursts(u64 cases)
 			ps3rsx_shadow_push(b, w, n);
 		}
 		check(a, b, "burst", it);
+	}
+	ps3rsx_shadow_free(a);
+	ps3rsx_shadow_free(b);
+}
+
+/*
+ * Part 3: pushes whose words changed after the validator passed them (the replay reads them back
+ * from the ring, which the GPU can write): headers with any count, subchannel, method and
+ * increment, counts past the push, bursts past 0x1ffc. Each push from an exactly sized heap copy
+ * (ASan: nothing read past it; UBSan: no index past the method arrays); both replays must agree.
+ */
+static void fuzz_hostile(u64 cases)
+{
+	struct ps3rsx_shadow *a = ps3rsx_shadow_new(), *b = ps3rsx_shadow_new();
+	static u32 w[MAXPUSH + 4096], hdr[MAXPUSH];
+	u64 it;
+
+	for (it = 0; it < cases; it++) {
+		u32 n = gen_push(w, chance(30) ? 16 + below(64) : MAXPUSH), nh = 0, i, k, *copy;
+
+		if (!n)
+			continue;
+		for (i = 0; i < n; i += 1 + ((w[i] >> 18) & 0x7ff))
+			hdr[nh++] = i;
+		for (k = 1 + below(4); k--; ) {
+			u32 at = chance(80) ? hdr[below(nh)] : below(n), h = w[at];
+
+			switch (below(5)) {
+			case 0:		/* a count past the push, or past 0x1ffc from its method */
+				h = (h & ~(0x7ffu << 18)) | (0x7c0 + below(64)) << 18;
+				break;
+			case 1:		/* a method near the top */
+				h = (h & ~0x1ffcu) | (0x1f00 + 4 * below(64));
+				break;
+			case 2:		/* the increment flipped */
+				h ^= 0x40000000;
+				break;
+			case 3:		/* any header */
+				h = (chance(50) ? 0x40000000 : 0) | below(0x800) << 18 | below(8) << 13 |
+				    4 * below(0x800);
+				break;
+			default:	/* any word */
+				h = rnd();
+				break;
+			}
+			w[at] = h;
+		}
+		copy = malloc(n * 4);
+		memcpy(copy, w, n * 4);
+		if (chance(1)) {
+			ps3rsx_shadow_clear(a);
+			ps3rsx_shadow_clear(b);
+		}
+		set_fast(false);
+		ps3rsx_shadow_push(a, copy, n);
+		set_fast(true);
+		ps3rsx_shadow_push(b, copy, n);
+		free(copy);
+		check(a, b, "hostile", it);
 	}
 	ps3rsx_shadow_free(a);
 	ps3rsx_shadow_free(b);
@@ -558,9 +618,11 @@ int main(int argc, char **argv)
 	if (!rng_state)
 		rng_state = 1;
 	fuzz_bursts(bursts);
+	fuzz_hostile(bursts / 10);
 	fuzz_submits(submits);
-	printf("%llu bursts/pushes, %llu submits (%llu restores, %llu words, %llu overflowed): "
-	       "%s\n", (unsigned long long)bursts, (unsigned long long)submits,
+	printf("%llu bursts/pushes, %llu changed after validation, %llu submits (%llu restores, "
+	       "%llu words, %llu overflowed): %s\n", (unsigned long long)bursts,
+	       (unsigned long long)bursts / 10, (unsigned long long)submits,
 	       (unsigned long long)restores, (unsigned long long)restore_words,
 	       (unsigned long long)overflows, nfail ? "MISMATCH" : "identical");
 	return nfail ? 1 : 0;
