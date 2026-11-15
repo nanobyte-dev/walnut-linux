@@ -514,7 +514,8 @@ public-push:
 # publishes them (testing on every push, stable by hand). DRY_RUN=1 makes the bundle only.
 DEBS ?=
 publish:
-	DRY_RUN=$(DRY_RUN) apt-repo/licensed-publish.sh $(DEBS)
+	DRY_RUN=$(DRY_RUN) DEBIAN_INDEX_URL=$(DEBIAN_MIRROR)/dists/$(DEBIAN_SUITE) BUILDER_TAG=$(BUILDER_TAG) \
+		apt-repo/licensed-publish.sh $(DEBS)
 
 # Disk use of build/ (on /home, nearly full) and what may be deleted (CLAUDE.md: everything but
 # patch work trees with unexported commits)

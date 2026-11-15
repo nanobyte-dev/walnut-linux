@@ -7,9 +7,11 @@
 #   build/src/<dir>/ next to them. A package is licensed when tools/leak-check.py says so, which asks
 #   tools/licensed.py (its Section non-free/* or local/*, or a licensed name); licensed.py check runs
 #   first, and declarations that disagree or can't be read stop the publish.
-#   Refused: a free package (CI publishes those), a ~dev version (commit, rebuild), and a version
+#   Refused: a free package (CI publishes those), a ~dev version (commit, rebuild), a version
 #   already published with other bytes (the suite keeps every file forever: a new file needs a new
-#   version; apt-repo/walnut-repo.py --strict).
+#   version; apt-repo/walnut-repo.py --strict), and a new package whose name, or a name in its
+#   Provides/Replaces/Conflicts/Breaks, is Debian's at the pinned snapshot or one of ours
+#   (apt-repo/licensed-names.py; the server has no Debian index to check this against).
 # The suite is signed with the archive key (pass Projects/Walnut/ArchiveKey, imported into a
 # throwaway GNUPGHOME; GNUPGHOME + WALNUT_SIGN_KEY_FPR use a keyring of yours instead). Its passphrase:
 # the file WALNUT_SIGN_PASSPHRASE_FILE names, or asked on the terminal. The suite's login:
@@ -17,6 +19,8 @@
 # the deploy key ~/.ssh/walnut-deploy); walnut-watch's verdict is waited for, and a stale bundle
 # (another publish landed first) is made again on the new state.
 # Env: DRY_RUN=1 makes and checks the bundle (build/tmp/licensed-bundle) without uploading it.
+# DEBIAN_INDEX_URL (the pinned snapshot's dists/<suite>) and BUILDER_TAG (the builder image, whose
+# debian-ports keyring checks that index's InRelease) come from make publish.
 set -euo pipefail
 # One block, parsed whole before it runs: editing this file during a run can't make bash
 # execute a shifted fragment.
@@ -60,6 +64,14 @@ echo ">> ${#files[@]} files for the licensed suite:"; printf '   %s\n' "${files[
 
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
+# Debian's index at the pinned snapshot, for the name check (kept in build/downloads/debian-index, checked every run)
+[ -n "${DEBIAN_INDEX_URL:-}" ] && [ -n "${BUILDER_TAG:-}" ] ||
+	{ echo "!! DEBIAN_INDEX_URL and BUILDER_TAG are unset: run it as make publish" >&2; exit 1; }
+docker image inspect "$BUILDER_TAG" >/dev/null 2>&1 ||
+	{ echo "!! no builder image $BUILDER_TAG (make builder): its debian-ports keyring checks Debian's index" >&2; exit 1; }
+docker run --rm --network=none "$BUILDER_TAG" cat /usr/share/keyrings/debian-ports-archive-keyring.gpg > "$tmp/debian-ports.gpg"
+debian_index=$(python3 -I apt-repo/licensed-names.py debian --url "$DEBIAN_INDEX_URL" --keyring "$tmp/debian-ports.gpg" \
+	--cache build/downloads/debian-index)
 apt-repo/licensed-auth.sh "$tmp/auth"
 export WALNUT_APT_AUTH_FILE=$tmp/auth
 if [ -n "${WALNUT_SIGN_KEY_FPR:-}" ]; then
@@ -87,6 +99,9 @@ for attempt in 1 2 3 4 5; do
 	apt-repo/walnut-repo.py --url "$URL" add --suite licensed --keyring "$RING" --sign-key "$fpr!" --strict \
 		--out "$b" "${files[@]}"
 	[ ! -d "$b/dists/licensed-debug" ] || { echo "!! debug symbols have no place in the licensed suite" >&2; exit 1; }
+	# what the bundle adds may take no name of Debian's or ours (walnut-watch can't tell a Debian name from a new one)
+	python3 -I apt-repo/licensed-names.py check --bundle "$b" --debian "$debian_index" --lists github-ci/packages.toml \
+		--allow apt-repo/licensed-names-allow.txt --ours-suite stable="$RING" --ours-suite testing=apt-repo/keyrings/testing-keyring.gpg
 	if [ "${DRY_RUN:-0}" = 1 ]; then echo ">> DRY_RUN: the bundle is in $b, not uploaded"; exit 0; fi
 	id=$(date -u +%Y%m%d-%H%M%S)-licensed-$attempt
 	servers/walnut.nanobyte.dev/walnut-upload.sh licensed "$id" "$b"

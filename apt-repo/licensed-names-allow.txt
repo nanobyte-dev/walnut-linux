@@ -1,0 +1,6 @@
+# apt-repo/licensed-names-allow.txt: names a licensed package may share with Debian's index or our suites on purpose
+# (apt-repo/licensed-names.py, run by licensed-publish.sh). One pair a line, the reason required:
+#   <licensed package> <name>  # why
+# A licensed package with its own github-ci/packages.toml entry needs no line for the names that entry owns or lists
+# in its relations. None today: tyrian-data and the game-data-packager names (quake-shareware, quake2-demo-data,
+# roller-coaster-tycoon2-data) are in neither Debian's index at the pinned snapshot nor ours.

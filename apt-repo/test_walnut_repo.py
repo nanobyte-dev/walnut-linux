@@ -516,5 +516,157 @@ class Repo(unittest.TestCase):
 			self.assertEqual(r.returncode, 1, (why, r.stdout, r.stderr))
 			self.assertNotIn("Traceback", r.stderr, why)
 
+	# --- licensed-names.py: the PC's name check for the licensed suite ---
+
+	NAMES = f"{HERE}/licensed-names.py"
+	LISTS = """version = 1
+[reserved]
+"ps3rsx-modules-" = "ps3rsx"
+
+[package.ps3rsx]
+dir = "packages/x/ps3rsx"
+source = "ps3rsx"
+tier = "trusted"
+binaries = ["ps3rsx-modules-@RELEASE@"]
+relations = ["ps3rsx-modules", "ps3-mesa"]
+
+[package.engine]
+dir = "packages/x/engine"
+source = "engine"
+tier = "external"
+binaries = ["engine"]
+
+[package.engine-data]
+dir = "packages/x/engine-data"
+source = "engine-data"
+tier = "licensed"
+binaries = ["engine-data"]
+relations = ["engine", "libdebian1"]
+"""
+
+	def names_case(self, debs, ours_suite=(), allow="", debian=None):
+		"""licensed-names.py check on a bundle of debs [(name, control_extra, in the bundle)] (a deb not in the bundle is
+		one the suite already publishes); (exit code, stderr)"""
+		import importlib.machinery, importlib.util
+		spec = importlib.util.spec_from_loader("wr", importlib.machinery.SourceFileLoader("wr", REPO))
+		wr = importlib.util.module_from_spec(spec)
+		spec.loader.exec_module(wr)
+		b = tempfile.mkdtemp(dir=self.root)
+		d = tempfile.mkdtemp(dir=self.root)
+		text = ""
+		for name, extra, new in debs:
+			deb = make_deb(f"{d}/{name}_1_all.deb", name, "1", arch="all", control_extra="Section: local/games\n" + extra)
+			st = wr.deb_stanza(deb, "licensed")
+			text += wr.format_stanza(st) + "\n"
+			if new:
+				os.makedirs(os.path.dirname(f"{b}/{st['Filename']}"), exist_ok=True)
+				shutil.copy(deb, f"{b}/{st['Filename']}")
+		os.makedirs(f"{b}/dists/licensed/main/binary-ppc64")
+		with open(f"{b}/dists/licensed/main/binary-ppc64/Packages", "w") as f:
+			f.write(text)
+		deb_idx = f"{self.root}/debian-Packages.xz"
+		if debian is None:	# Debian's index: 1200 names, a virtual one, one with an arch qualifier in Provides
+			debian = "".join(f"Package: deb{i}\nVersion: 1\n\n" for i in range(1200)) + \
+				"Package: libdebian1\nProvides: debian-virtual (= 1), other-virtual:any\n\nPackage: python3\n\n"
+		with open(deb_idx, "wb") as f:
+			f.write(lzma.compress(debian.encode()))
+		ours = f"{self.root}/stable-Packages"
+		with open(ours, "w") as f:
+			f.write("Package: walnut-thing\nProvides: glx-diversions\n\nPackage: engine\n\n")
+		lists, allow_f = f"{self.root}/packages.toml", f"{self.root}/allow.txt"
+		with open(lists, "w") as f:
+			f.write(self.LISTS)
+		with open(allow_f, "w") as f:
+			f.write("# allow\n" + allow)
+		r = subprocess.run([sys.executable, "-I", self.NAMES, "check", "--bundle", b, "--debian", deb_idx, "--lists", lists,
+		                    "--allow", allow_f, "--ours", ours, *[a for s in ours_suite for a in ("--ours-suite", s)],
+		                    "--apt-url", self.url], capture_output=True, text=True, env=dict(os.environ, WALNUT_APT_AUTH_FILE="/nonexistent"))
+		return r.returncode, r.stderr
+
+	def test_licensed_names(self):
+		"""review licensed-open-names-20261115 M1: a new licensed package takes no name of Debian's or ours"""
+		def ok(*debs, **kw):
+			code, err = self.names_case(list(debs), **kw)
+			self.assertEqual(code, 0, (debs, kw, err))
+
+		def bad(*debs, **kw):
+			code, err = self.names_case(list(debs), **kw)
+			self.assertEqual(code, 1, (debs, kw, err))
+			self.assertNotIn("Traceback", err)
+		ok(("tyr", "", True))
+		ok(("tyr", "Depends: python3, engine\nSuggests: libdebian1\n", True))		# Depends, Suggests are free
+		ok(("tyr-music", "Replaces: tyr\nBreaks: tyr (<< 1)\n", True), ("tyr", "", True))	# a sibling licensed name
+		bad(("python3", "", True))												# a Debian package
+		bad(("debian-virtual", "", True))										# a Debian Provides
+		bad(("other-virtual", "", True))
+		bad(("tyr", "Replaces: python3\n", True))
+		bad(("tyr", "Conflicts: libdebian1 (<< 2)\n", True))
+		bad(("tyr", "Provides: debian-virtual\n", True))
+		bad(("walnut-thing", "", True))										# ours, from a published index
+		bad(("glx-diversions", "", True))										# a Provides of ours
+		bad(("tyr", "Breaks: engine (<< 2)\n", True))							# another entry's binary
+		bad(("ps3rsx-modules", "", True))										# a name in our entries' relations
+		bad(("ps3-mesa", "", True))
+		bad(("ps3rsx-modules-6.12.1", "", True))								# a reserved prefix
+		ok(("python3", "", False), ("tyr", "", True))							# already published: not this publish's
+		ok(("engine-data", "Breaks: engine (<< 2)\nReplaces: engine (<< 2), libdebian1\n", True))	# listed in its own entry
+		bad(("engine-data", "Conflicts: python3\n", True))						# not listed there
+		ok(("python3", "", True), allow="python3 python3  # a deliberate reuse, for the test\n")
+		ok(("tyr", "Replaces: python3\n", True), allow="tyr python3  # why\n")
+		bad(("tyr", "Replaces: python3\n", True), allow="tyr python3\n")		# no reason: the list is refused
+		code, err = self.names_case([("tyr", "", True)], debian="Package: python3\n")
+		self.assertEqual(code, 1)
+		self.assertIn("not the archive's index", err)						# an index far too small to be Debian's
+		# a suite of ours, read and checked by walnut-repo.py
+		self.assertTrue(self.publish(self.add([make_deb(f"{self.debs}/foo_1_ppc64.deb", "foo", "1",
+		                                                control_extra="Provides: foo-virtual\n")])).startswith("ok"))
+		ring = self.keys["ci"][2]
+		ok(("tyr", "", True), ours_suite=[f"testing={ring}"])
+		bad(("foo", "", True), ours_suite=[f"testing={ring}"])
+		bad(("tyr", "Provides: foo-virtual\n", True), ours_suite=[f"testing={ring}"])
+		code, err = self.names_case([("tyr", "", True)], ours_suite=[f"testing={self.keys['archive'][2]}"])
+		self.assertEqual(code, 1)
+		self.assertIn("not signed by", err)
+
+	def test_licensed_names_debian_index(self):
+		"""licensed-names.py debian: the snapshot's Packages.xz, checked against its InRelease (gpgv), cached"""
+		home, fpr, ring = self.keys["archive"]	# Debian's key, for the test
+		dists = f"{self.root}/www/apt/debian/dists/unstable"
+		os.makedirs(f"{dists}/main/binary-ppc64")
+		xz = lzma.compress(b"Package: python3\n")
+
+		def serve(index, who="archive"):
+			with open(f"{dists}/main/binary-ppc64/Packages.xz", "wb") as f:
+				f.write(index)
+			rel = f"Origin: Debian Ports\nSuite: unstable\nSHA256:\n {hashlib.sha256(xz).hexdigest()} {len(xz)} main/binary-ppc64/Packages.xz\n"
+			with open(f"{dists}/InRelease", "wb") as f:
+				f.write(subprocess.run(["gpg", "--homedir", self.keys[who][0], "--batch", "--clearsign"], input=rel.encode(),
+				                       capture_output=True, check=True).stdout)
+		cache = f"{self.root}/cache"
+		run = lambda: subprocess.run([sys.executable, "-I", self.NAMES, "debian", "--url", f"{self.url}/debian/dists/unstable",
+		                              "--keyring", ring, "--cache", cache], capture_output=True, text=True)
+		serve(xz, who="ci")	# signed by another key: refused, nothing cached
+		r = run()
+		self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+		self.assertFalse(os.path.exists(cache) and any(fs for _, _, fs in os.walk(cache)))
+		serve(xz)
+		r = run()
+		self.assertEqual(r.returncode, 0, r.stderr)
+		path = r.stdout.strip()
+		with open(path, "rb") as f:
+			self.assertEqual(f.read(), xz)
+		os.unlink(f"{dists}/main/binary-ppc64/Packages.xz")	# from the cache, offline
+		self.assertEqual(run().stdout.strip(), path)
+		with open(path, "wb") as f:
+			f.write(lzma.compress(b"Package: x\n"))		# a cached copy that isn't the signed one is fetched again
+		r = run()
+		self.assertEqual(r.returncode, 1)
+		self.assertIn("not the signed index", r.stderr)
+		serve(lzma.compress(b"Package: other\n"))		# the server's copy isn't the signed one either
+		self.assertEqual(run().returncode, 1)
+		serve(xz)
+		self.assertEqual(run().returncode, 0)
+
+
 if __name__ == "__main__":
 	unittest.main()
