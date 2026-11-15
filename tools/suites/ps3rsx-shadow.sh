@@ -9,7 +9,7 @@ T=packages/walnut/drivers/ps3rsx/test
 need gcc
 make -C $T O="$O" "$O/shadow-equiv" "$O/shadow-equiv-fast" "$O/zero-test" "$O/validate-test" \
 	"$O/blame-test" "$O/pushbuf-test" "$O/vclear-test" "$O/validate-capture" "$O/pushdump-test" \
-	"$O/p4-test" "$O/p4-test-count" "$O/p4-test-dump" "$O/p4-fuzz" || exit 1
+	"$O/p4-test" "$O/p4-test-count" "$O/p4-test-dump" "$O/p4-fuzz" "$O/busy-test" || exit 1
 "$O/shadow-equiv" 200000 20000 1 || exit 1
 "$O/shadow-equiv-fast" 1000000 100000 2 || exit 1
 "$O/zero-test" 20000 1 || exit 1
@@ -17,6 +17,7 @@ make -C $T O="$O" "$O/shadow-equiv" "$O/shadow-equiv-fast" "$O/zero-test" "$O/va
 "$O/blame-test" || exit 1
 "$O/pushbuf-test" || exit 1
 "$O/vclear-test" || exit 1
+"$O/busy-test" || exit 1
 # the VRAM swap's init unwinds every failure (the GART bounce out of rsx->gart before vs is freed), and its fix-off
 bash $T/vswap-init-test.sh "$O/vswap-init" || exit 1
 # the address checks: their rules (as released, and in the count-only build), the fuzz
