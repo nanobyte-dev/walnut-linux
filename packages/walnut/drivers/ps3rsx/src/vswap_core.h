@@ -49,7 +49,8 @@
  * before they choose, and the write-back before it collects, writes or switches a page. A batch with room
  * applies nothing, so the frees of a game's play cost the notify's two bit sets and a count, and the pool
  * keeps its size as before the notify (a dead page holds its slot until the room is wanted). Each applied
- * page leaves the map as a discard does (its slot freed, a disk or BAD entry made empty). A mark never frees
+ * page leaves the map as a discard does (its slot freed, a disk or BAD entry made empty), and a discard takes
+ * the page's mark with it (swapon --discard after a swapoff's frees leaves none waiting). A mark never frees
  * a slot by itself, and an apply frees only a map entry's slot under vs->lock: never one a running job or GPU
  * copy or a queued read names (a queued write names a fresh slot no entry points at); one a write-back opened
  * isn't handed out before the write-back ends (its chunk is evicting), which drops that page (c->dirty,
@@ -126,7 +127,7 @@ struct vsx_stats {
 	vs_u64 seals, seal_jobs, opens_bounce, opens_vram, opens_ppe, plain_writes, plain_reads;
 	vs_u64 retries, resubmits, tag_fails, bad_marked, seal_fails, kept, merges, to_disk_nospe;
 	vs_u64 freed_vram, freed_disk, freed_other;	/* marks applied: a slot freed, a disk entry, BAD or empty */
-	vs_u64 short_applies;		/* applies by a write that found the pool short (fresh_slot) */
+	vs_u64 short_applies;		/* a short pool's apply that gave the write a slot (fresh_slot) */
 };
 
 struct vsx {

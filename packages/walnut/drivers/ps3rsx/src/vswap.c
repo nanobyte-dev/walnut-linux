@@ -1244,7 +1244,7 @@ static ssize_t stats_show(struct device *dev, struct device_attribute *attr, cha
 		       "by the PPE %llu, retries %llu, resubmits %llu, check failures %llu (BAD %llu)%s, kept %llu, "
 		       "merges %llu, unsealed writes %llu reads %llu, to disk without an SPE %llu\n"
 		       "freed by the swap layer: slots %llu, disk entries %llu, failed or empty %llu; "
-		       "waiting %ld, applied when the pool was short %llu times\n",
+		       "waiting %ld, a short pool's apply gave a write its slot %llu times\n",
 		       vs->x.in_vram, vs->x.on_disk, vs->x.bad, chunks, vs->x.st.seals + vs->x.st.plain_writes,
 		       vs->disk_writes, vs->x.st.opens_bounce + vs->x.st.opens_vram + vs->x.st.opens_ppe +
 		       vs->x.st.plain_reads, vs->disk_reads, vs->evicted, vs->demoted, vs->gpu_reads,

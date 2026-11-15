@@ -627,11 +627,17 @@ unsigned int vsx_apply_frees(struct vsx *x)
 	return n;
 }
 
+/* page p's mark taken, if it has one (the caller counts it) */
+static int take_bit(struct vsx *x, vs_u32 p)
+{
+	return x->freed && (vsx_peek(&x->freed[p / VSX_LBITS]) >> (p % VSX_LBITS) & 1) && vsx_take_bit(p, x->freed);
+}
+
 /* a write takes its page's mark first: the free is applied now, never after the new bytes are in */
 static void take_mark(struct vsx *x, vs_u32 p)
 {
 #ifndef VSX_FIXOFF_FREE_KEEPS_MARK		/* (the fix-off: the mark left for a later apply) */
-	if (x->freed && (vsx_peek(&x->freed[p / VSX_LBITS]) >> (p % VSX_LBITS) & 1) && vsx_take_bit(p, x->freed)) {
+	if (take_bit(x, p)) {
 #ifndef VSX_FIXOFF_PEND_UNCOUNTED		/* (the fix-off: the count kept up after a write took the mark) */
 		vsx_pend_add(x, -1);
 #endif
@@ -641,11 +647,16 @@ static void take_mark(struct vsx *x, vs_u32 p)
 }
 
 /* A fresh slot for a write: a free one or a new chunk; when the pool is short (neither), the free marks applied
- * and once more, before the page goes to the disk and vswap.c asks for a demotion (vswap_core.h "Frees"). Only
+ * and once more, before the page goes to the disk and vswap.c asks for a demotion (vswap_core.h "Frees"); counted
+ * in short_applies only when the apply freed a VRAM slot and the write got one. Only
  * in a write batch (no read queued): the queued writes name fresh slots no map entry points at, which no apply
  * frees. */
 static int fresh_slot(struct vsx *x)
 {
+	vs_u64 v0 = x->st.freed_vram;
+#ifdef VSX_FIXOFF_SHORT_COUNT_ANY		/* (the fix-off: counted whatever the apply gave) */
+	vs_u64 a0 = v0 + x->st.freed_disk + x->st.freed_other;
+#endif
 	int s;
 
 	if (x->nrd || !vsx_frees_pending(x))
@@ -654,10 +665,16 @@ static int fresh_slot(struct vsx *x)
 	if (s >= 0)
 		return s;
 #ifndef VSX_FIXOFF_SHORT_NO_APPLY		/* (the fix-off: the pool short, the marks left: the disk) */
-	if (vsx_apply_frees(x))
-		x->st.short_applies++;
+	vsx_apply_frees(x);
 #endif
-	return vsx_hw_slot_alloc(x->hw, 1);
+	s = vsx_hw_slot_alloc(x->hw, 1);
+#ifdef VSX_FIXOFF_SHORT_COUNT_ANY
+	if (x->st.freed_vram + x->st.freed_disk + x->st.freed_other > a0)
+#else
+	if (x->st.freed_vram > v0 && s >= 0)	/* counted only when it freed a slot and the write got one */
+#endif
+		x->st.short_applies++;
+	return s;
 }
 
 void vsx_begin(struct vsx *x)
@@ -796,8 +813,15 @@ void vsx_read(struct vsx *x, struct vsx_piece *pc)
 
 void vsx_discard(struct vsx *x, vs_u32 p)
 {
-	vs_u32 e = x->map[p];
+	vs_u32 e;
 
+#ifndef VSX_FIXOFF_DISCARD_KEEPS_MARK		/* (the fix-off: a discarded page's mark left waiting) */
+	/* a discard ends the free too (swapon --discard after a swapoff's frees); an apply's or a write's
+	 * vsx_discard finds the bit taken already */
+	if (take_bit(x, p))
+		vsx_pend_add(x, -1);
+#endif
+	e = x->map[p];
 	if (e == VSX_ON_DISK)
 		x->on_disk--;
 #ifdef VSX_FIXOFF_DISCARD_BAD			/* (the fix-off: BAD taken as a slot, as an earlier draft did) */
@@ -838,7 +862,9 @@ unsigned int vsx_writeback_keep(struct vsx *x, vs_u32 *pages, vs_u32 *slots, voi
 #ifdef VSX_FIXOFF_WB_KEEP_ALL			/* (the fix-off: every opened page written, as before) */
 	return n;
 #endif
+#ifndef VSX_FIXOFF_KEEP_NO_APPLY		/* (the fix-off: a mark set during the last batch's open not applied) */
 	vsx_apply_frees(x);
+#endif
 	for (i = 0; i < n; i++)
 		if (x->map[pages[i]] == slots[i] + 1) {
 			pages[k] = pages[i];

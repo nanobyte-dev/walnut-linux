@@ -16,22 +16,24 @@
  * destinations after the failure; a request's failure stays with its own piece; replays into the same slot and
  * into another; a changed bounce under the PPE's opens; batches of requests (one page written twice, the second
  * write going to the disk); an open from the bounce failing as a whole, retried from VRAM. Frees by the swap
- * layer (swap_slot_free_notify's marks): the slot and the counts freed, disk, BAD and empty entries, a mark
- * during an open, a seal and a write-back (no job ever names a free slot), a freed page rewritten (whole, partly,
+ * layer (swap_slot_free_notify's marks): the slot and the counts freed, disk, BAD and empty entries, a discard
+ * taking the marks (none left waiting), a mark during an open, a seal and a write-back (no job ever names a free
+ * slot; one during the write-back's own open never reaches the disk), a freed page rewritten (whole, partly,
  * in the same batch, into the same slot with a fresh counter) reads the new bytes, marks under random runs (a
  * marked page reads its old bytes or zeros, never another's), and the mark and apply racing on two threads (no
  * mark lost, the count exact at rest). The marks applied lazily: a batch with room applies none; a write that
  * finds the pool short applies them before its page would go to the disk (mid-batch, with writes queued; a
- * merge too), and asks for a demotion only when they gave no room; a burst of marks during a batch's job or
- * with the lock held never waits. A write-back with its own pages, the lock dropped
- * between its batches: pages opened before a gap rewritten to the disk there (whole, partly, after a free; the pool
+ * merge too), counted only when they gave it a slot, and asks for a demotion only when they gave no room; a
+ * burst of marks during a batch's job or with the lock held never waits. A write-back with its own pages, the
+ * lock dropped between its batches: pages opened before a gap rewritten to the disk there (whole, partly, after a free; the pool
  * full or the SPE gone), freed or discarded there, also under the random runs: the newer bytes stay on the disk,
- * a dead page never reaches it.
+ * a page freed before its write starts never reaches it.
  * Built with VSX_FIXOFF_IGNORE_TAG, VSX_FIXOFF_SAME_CTR, VSX_FIXOFF_AD_NO_PAGE, VSX_FIXOFF_WB_INTO_BOUNCE,
  * VSX_FIXOFF_NO_RETRY, VSX_FIXOFF_DISCARD_BAD, VSX_FIXOFF_NO_DEFER, VSX_FIXOFF_PPE_NO_RETRY,
  * VSX_FIXOFF_PARTIAL_EMPTY, VSX_FIXOFF_MODE_BY_SWITCH, VSX_FIXOFF_BATCH_REORDER, VSX_FIXOFF_R1_FINAL,
  * VSX_FIXOFF_NO_FREE, VSX_FIXOFF_FREE_KEEPS_MARK, VSX_FIXOFF_FREE_NOW, VSX_FIXOFF_WB_KEEP_ALL,
- * VSX_FIXOFF_SHORT_NO_APPLY, VSX_FIXOFF_EAGER_APPLY or VSX_FIXOFF_PEND_UNCOUNTED it must fail. */
+ * VSX_FIXOFF_SHORT_NO_APPLY, VSX_FIXOFF_EAGER_APPLY, VSX_FIXOFF_PEND_UNCOUNTED, VSX_FIXOFF_DISCARD_KEEPS_MARK,
+ * VSX_FIXOFF_SHORT_COUNT_ANY or VSX_FIXOFF_KEEP_NO_APPLY it must fail. */
 #define VSX_PLAIN
 #include <pthread.h>
 #include <sched.h>
@@ -1175,6 +1177,31 @@ int main(void)
 	memset(truth[10], 0, VSX_PAGE);
 	CHECK(rd_check((p[0] = 100, p[1] = 10, p), 2, 0, VSX_PAGE, "freed disk") == 0, "and read zeros");
 
+	/* a discard takes the marks with the entries (a swapoff's frees, then swapon --discard): none left waiting,
+	 * none for a later apply to count */
+	reset_model();
+	wr(p, seq(0, 32, p), 0, VSX_PAGE);
+	p[0] = 40;
+	wr(p, 1, 0, 512);
+	for (i = 0; i < 32; i++)
+		free_page(i);
+	free_page(40);
+	free_page(41);
+	CHECK(vsx_frees_count(&X) == 34, "34 marks waiting before the discard");
+	for (i = 0; i < NPG; i++) {
+		vsx_discard(&X, i);
+		dead[i] = 0;
+	}
+	CHECK(vsx_frees_count(&X) == 0 && !vsx_frees_pending(&X) && X.in_vram == 0 && X.on_disk == 0,
+	      "a discard of marked pages: none waiting (%ld), the area empty", vsx_frees_count(&X));
+	CHECK(vsx_apply_frees(&X) == 0 && X.st.freed_vram == 0 && X.st.freed_disk == 0 && X.st.freed_other == 0,
+	      "and no later apply finds one (freed %llu/%llu/%llu)", (unsigned long long)X.st.freed_vram,
+	      (unsigned long long)X.st.freed_disk, (unsigned long long)X.st.freed_other);
+	counts("discard of marked pages");
+	CHECK(vsx_free_mark(&X, 3) == 1 && vsx_frees_count(&X) == 1, "a new mark after the discard counts");
+	vsx_discard(&X, 3);
+	CHECK(!vsx_frees_pending(&X), "and a discard takes it too");
+
 	/* a mark while an open from VRAM runs: the slot stays the job's; the read gets the old bytes */
 	reset_model();
 	wr(p, seq(0, 8, p), 0, VSX_PAGE);
@@ -1300,6 +1327,28 @@ int main(void)
 	counts("write-back frees");
 	CHECK(rd_check((seq(0, 15, p), p), 15, 0, VSX_PAGE, "write-back with frees") == 0, "the other pages read back");
 
+	/* a mark during the open of a write-back's batch (its job's hook): after the batch's top apply, so only
+	 * vsx_writeback_keep's apply keeps the dead page off the disk; from VRAM and from the bounce */
+	for (int g = 0; g < 2; g++) {
+		reset_model();
+		next_free_hint = 0;
+		wr(p, seq(0, 8, p), 0, VSX_PAGE);
+		hook_page = 5;
+		hook_slot_used = -1;
+		job_hook = hook_mark;
+		evict(0, g);
+		job_hook = NULL;
+		disk_complete(1);
+		CHECK(hook_page < 0 && hook_slot_used >= 0, "mark in the write-back's open %d: the hook ran", g);
+		CHECK(map[5] == 0 && !memcmp(disk[5], (vs_u8[VSX_PAGE]){ 0 }, VSX_PAGE) && X.st.freed_vram == 1 &&
+		      !vsx_frees_pending(&X), "a mark during the write-back's open (%s): applied by the keep, never "
+		      "written to the disk", g ? "bounce" : "VRAM");
+		memset(truth[5], 0, VSX_PAGE);
+		CHECK(rd_check((seq(0, 8, p), p), 8, 0, VSX_PAGE, "mark in the write-back's open") == 0 && X.on_disk == 7,
+		      "the other seven from the disk, the freed one zeros");
+		counts("mark in the write-back's open");
+	}
+
 	/* --- a write-back with its own pages: the lock dropped between its batches, and pages opened before a gap
 	 * changed in it (gap_change); written back from VRAM with the pool full, and from the bounce with the SPE
 	 * gone in the gap (the drain); each with the disk in order and out of order. A request's newer bytes on the
@@ -1376,6 +1425,8 @@ int main(void)
 	free_page(200);
 	CHECK(!wr((p[0] = 201, p), 1, 0, VSX_PAGE) && map[201] == VSX_ON_DISK && map[200] == 0 && X.st.freed_disk == 1 &&
 	      fails_first == 2 && fails_last == 2, "short, only a disk mark: applied, the page to the disk, demotion asked");
+	CHECK(X.st.short_applies == 1, "and that apply, which gave no slot, isn't counted (%llu)",
+	      (unsigned long long)X.st.short_applies);
 	/* a merge that finds the pool short: the mark applied, the merged page sealed into the freed slot */
 	{
 		vs_u32 s10 = map[10] - 1;
@@ -1384,7 +1435,7 @@ int main(void)
 		next_free_hint = s10;
 		p[0] = 11;
 		CHECK(!wr(p, 1, 512, 1024) && vsx_in_vram(map[11]) && map[11] - 1 == s10 && map[10] == 0 &&
-		      X.st.short_applies == 3, "a merge on a short pool: the mark applied, sealed into the freed slot");
+		      X.st.short_applies == 2, "a merge on a short pool: the mark applied, sealed into the freed slot");
 		CHECK(rd_check(p, 1, 0, VSX_PAGE, "short merge") == 0, "and reads back whole");
 	}
 	/* a write takes its own mark: the count follows */
