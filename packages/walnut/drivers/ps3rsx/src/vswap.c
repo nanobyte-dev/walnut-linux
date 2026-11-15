@@ -811,7 +811,8 @@ static void wb_end_io(struct bio *bio)
  */
 struct evict_buf {
 	u32 *pages;			/* the device pages written, in the order of w */
-	struct page **w;		/* the opened pages to write */
+	u32 *slots;			/* the slots they were opened from */
+	void **w;			/* the opened pages to write (struct page *) */
 	struct page **own;
 	unsigned int nown;		/* 256 own pages, or 0: the reserve */
 	gfp_t gfp;
@@ -823,8 +824,9 @@ static bool evict_buf_init(struct evict_buf *eb, gfp_t gfp)
 	eb->own = NULL;
 	eb->nown = 0;
 	eb->pages = kcalloc(SLOTS, sizeof(*eb->pages), gfp);
+	eb->slots = kcalloc(SLOTS, sizeof(*eb->slots), gfp);
 	eb->w = kcalloc(SLOTS, sizeof(*eb->w), gfp);
-	return eb->pages && eb->w;
+	return eb->pages && eb->slots && eb->w;
 }
 
 /* the private pages: before vs->lock is taken, never under it */
@@ -863,11 +865,12 @@ static void evict_buf_free(struct evict_buf *eb)
 {
 	evict_buf_free_own(eb);
 	kfree(eb->w);
+	kfree(eb->slots);
 	kfree(eb->pages);
 }
 
 /* the disk writes of the opened pages w[0..n), waited for */
-static blk_status_t evict_write(struct ps3rsx_vswap *vs, struct page **w, const u32 *pages, unsigned int n)
+static blk_status_t evict_write(struct ps3rsx_vswap *vs, void **w, const u32 *pages, unsigned int n)
 {
 	struct wb_batch b;
 	unsigned int k, noio;
@@ -896,10 +899,13 @@ static blk_status_t evict_write(struct ps3rsx_vswap *vs, struct page **w, const 
  * Write chunk i's pages to the disk. With the GPU, the whole chunk is copied into the bounce first; then,
  * a batch of up to VSEAL_PAGES_MAX at a time under vs->lock, the slots are opened into private pages
  * (vsx_writeback_open: from the bounce, a failure retried from VRAM; or from VRAM; or by the PPE once the
- * SPE is gone). A page whose slot fails its check becomes BAD and isn't written. The disk is written from
- * the private pages without the lock, and a page switches to the disk only if nothing rewrote or discarded
- * it meanwhile (c->dirty). release: take the emptied chunk out of the pool (its node then goes back to the
- * heap, by the caller under mm_lock); else it stays, empty, as the pool's newest chunk.
+ * SPE is gone). A page whose slot fails its check becomes BAD and isn't written. With its own pages it
+ * opens the whole chunk first, dropping the lock between batches; just before the disk writes, under the
+ * lock that sets wb_pages, a page changed since its open is dropped (vsx_writeback_keep). The disk is
+ * written from the private pages without the lock, and a page switches to the disk only if nothing
+ * rewrote or discarded it meanwhile (c->dirty). release: take the emptied chunk out of the pool (its node
+ * then goes back to the heap, by the caller under mm_lock); else it stays, empty, as the pool's newest
+ * chunk.
  * Returns true if the chunk was emptied. Under vs->shrink_lock.
  */
 static bool chunk_evict(struct ps3rsx_vswap *vs, unsigned int i, struct evict_buf *eb,
@@ -907,8 +913,8 @@ static bool chunk_evict(struct ps3rsx_vswap *vs, unsigned int i, struct evict_bu
 {
 	struct ps3rsx_device *rsx = vs->rsx;
 	struct vchunk *c = &vs->chunks[i];
-	struct page **w = eb->w;
-	u32 slots[VSEAL_PAGES_MAX], pg[VSEAL_PAGES_MAX], *wpages = eb->pages;
+	void **w = eb->w;
+	u32 slots[VSEAL_PAGES_MAX], pg[VSEAL_PAGES_MAX], *wpages = eb->pages, *wslots = eb->slots;
 	void *priv[VSEAL_PAGES_MAX], *ref[VSEAL_PAGES_MAX];
 	unsigned int s = 0, nw = 0, k, n, batch, pins0;
 	blk_status_t st = BLK_STS_OK;
@@ -966,6 +972,7 @@ static bool chunk_evict(struct ps3rsx_vswap *vs, unsigned int i, struct evict_bu
 			for (k = 0; k < n; k++)
 				if (vs->x.op[k].status == VSX_O_OK) {
 					w[nw] = ref[k];
+					wslots[nw] = slots[k];
 					wpages[nw++] = pg[k];
 				}
 		}
@@ -975,6 +982,10 @@ static bool chunk_evict(struct ps3rsx_vswap *vs, unsigned int i, struct evict_bu
 			mutex_lock(&vs->lock);
 			continue;
 		}
+		/* only what is still the page opened: with own pages the lock was dropped between the batches, with
+		 * no write-back's pages set, so a request may have written a page opened earlier to the disk already
+		 * (the pool full, the drain, a merge's disk copy); every request from here on is deferred (wb_pages) */
+		nw = vsx_writeback_keep(&vs->x, wpages, wslots, w, nw);
 		if (!nw)
 			continue;
 		/* written now (the reserve's pages are reused by the next batch) */
@@ -1204,9 +1215,11 @@ static ssize_t backing_store(struct device *dev, struct device_attribute *attr, 
 	}
 	vs->backing = f;
 	vs->x.freed_sum = freed + vsx_free_words(sectors >> (PAGE_SHIFT - 9));
-	WRITE_ONCE(vs->x.freed, freed);	/* (before the device has a size: no notify can come earlier) */
 	vs->x.map = map;
 	vs->x.npages = sectors >> (PAGE_SHIFT - 9);
+	/* published last, with the summary and npages before it (the notify's acquire, vsx_free_mark); and
+	 * before the device has a size: no notify can come earlier anyway */
+	smp_store_release(&vs->x.freed, freed);
 	strscpy(vs->backing_path, path, sizeof(vs->backing_path));
 	mutex_unlock(&vs->lock);
 	set_capacity_and_notify(vs->disk, sectors);

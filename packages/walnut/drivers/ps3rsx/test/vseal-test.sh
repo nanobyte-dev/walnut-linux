@@ -39,7 +39,8 @@ for v in "vseal-test VSEAL_FIXOFF_PLAIN_GET" "vseal-test VSEAL_FIXOFF_SPLIT_TAGS
 	"vswap-test VSX_FIXOFF_WB_INTO_BOUNCE" "vswap-test VSX_FIXOFF_NO_RETRY" "vswap-test VSX_FIXOFF_DISCARD_BAD" \
 	"vswap-test VSX_FIXOFF_NO_DEFER" "vswap-test VSX_FIXOFF_PPE_NO_RETRY" "vswap-test VSX_FIXOFF_PARTIAL_EMPTY" \
 	"vswap-test VSX_FIXOFF_MODE_BY_SWITCH" "vswap-test VSX_FIXOFF_BATCH_REORDER" "vswap-test VSX_FIXOFF_R1_FINAL" \
-	"vswap-test VSX_FIXOFF_NO_FREE" "vswap-test VSX_FIXOFF_FREE_KEEPS_MARK" "vswap-test VSX_FIXOFF_FREE_NOW"; do
+	"vswap-test VSX_FIXOFF_NO_FREE" "vswap-test VSX_FIXOFF_FREE_KEEPS_MARK" "vswap-test VSX_FIXOFF_FREE_NOW" \
+	"vswap-test VSX_FIXOFF_WB_KEEP_ALL"; do
 	set -- $v
 	n_off=$((n_off + 1))
 	if build "fixoff-$2" "$1.c" -w -DVSEAL_TEST_OPS $([ "$1" = vswap-test ] && echo -DV2_SCALAR_ONLY) -D"$2" && ! timeout 300 "$O/fixoff-$2" > "$O/fixoff-$2.log" 2>&1; then
@@ -53,6 +54,16 @@ if awk '/^static int slot_alloc\(/,/^}/' ../src/vswap.c | grep -q 'mutex_lock(&r
 	echo "!! vswap.c slot_alloc waits for mm_lock"; bad=1
 else
 	echo "vswap.c: slot_alloc only trylocks mm_lock"
+fi
+# chunk_evict drops what changed since its open (vsx_writeback_keep, the model's rule) right before it sets
+# wb_pages, the only place it does, with no unlock between the two
+if awk '/^static bool chunk_evict\(/,/^}/' ../src/vswap.c | awk '
+	/vsx_writeback_keep\(/ { keep = NR } /mutex_unlock\(/ { unlock = NR }
+	/x\.wb_pages = / { n++; if (!keep || unlock > keep) bad = 1 }
+	END { exit !(n == 1 && !bad) }'; then
+	echo "vswap.c: chunk_evict keeps only unchanged pages before wb_pages"
+else
+	echo "!! vswap.c chunk_evict: no vsx_writeback_keep under the lock before wb_pages"; bad=1
 fi
 # the embedded images
 for h in vseal_spu vseal_spu_test; do

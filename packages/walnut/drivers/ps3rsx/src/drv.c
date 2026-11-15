@@ -215,6 +215,7 @@ static struct platform_driver ps3rsx_platform_driver = {
 	.remove = ps3rsx_remove,
 	.driver = {
 		.name = "ps3rsx",
+		.suppress_bind_attrs = true,	/* no sysfs unbind: the swap's notify may run until swapoff (vswap.c) */
 	},
 };
 

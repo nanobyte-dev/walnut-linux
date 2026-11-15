@@ -8,6 +8,7 @@
 #include "v2_crypto.h"
 
 #ifdef __KERNEL__
+#include <asm/barrier.h>
 #include <linux/atomic.h>
 #include <linux/bitops.h>
 #include <linux/string.h>
@@ -17,7 +18,7 @@
 #define vsx_take_bit(n, a)		test_and_clear_bit(n, a)	/* fully ordered */
 #define vsx_take_word(a)		xchg(a, 0UL)			/* fully ordered */
 #define vsx_peek(a)			READ_ONCE(*(a))
-#define vsx_peek_ptr(a)			READ_ONCE(a)
+#define vsx_peek_ptr(a)			smp_load_acquire(&(a))	/* (backing_store's release) */
 #else
 #include <string.h>
 #define VSX_BM(n)	(1UL << ((n) % VSX_LBITS))
@@ -790,6 +791,23 @@ void vsx_writeback_open(struct vsx *x, const vs_u32 *slots, const vs_u32 *pages,
 					      bounce_copied ? (vs_s16)(slots[i] % VSX_SLOTS) : (vs_s16)-1, 0 };
 	}
 	vsx_open(x, x->op, n);
+}
+
+unsigned int vsx_writeback_keep(struct vsx *x, vs_u32 *pages, vs_u32 *slots, void **w, unsigned int n)
+{
+	unsigned int i, k = 0;
+
+#ifdef VSX_FIXOFF_WB_KEEP_ALL			/* (the fix-off: every opened page written, as before) */
+	return n;
+#endif
+	vsx_apply_frees(x);
+	for (i = 0; i < n; i++)
+		if (x->map[pages[i]] == slots[i] + 1) {
+			pages[k] = pages[i];
+			slots[k] = slots[i];
+			w[k++] = w[i];
+		}
+	return k;
 }
 
 void vsx_finish(struct vsx *x)

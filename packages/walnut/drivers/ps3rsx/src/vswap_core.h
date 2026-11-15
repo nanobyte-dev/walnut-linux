@@ -210,6 +210,14 @@ void vsx_set_disk(struct vsx *x, vs_u32 p);
  * bounce (slot % VSX_SLOTS) when the chunk was copied there. Results in x->op[i].status. */
 void vsx_writeback_open(struct vsx *x, const vs_u32 *slots, const vs_u32 *pages, unsigned int n, void **priv,
 			void **priv_ref, int bounce_copied);
+/* write-back: right before its disk writes, under the same hold of vs->lock as it sets x->wb_pages to what is
+ * kept: the marks applied, then of the n opened pages (pages[i] from slots[i] into w[i]) only those whose map
+ * entry still points at the slot opened are kept, packed to the front; returns how many. A page that changed
+ * since its open (rewritten, partly written, discarded, freed) may already have its newer bytes on the disk
+ * (a request in an unlocked gap between the open and wb_pages, not deferred), which the old bytes must not
+ * follow; a freed one's dead bytes don't go to the disk either. The slots of a chunk being written back are
+ * never handed out again meanwhile, so an entry that still points there is the page opened. */
+unsigned int vsx_writeback_keep(struct vsx *x, vs_u32 *pages, vs_u32 *slots, void **w, unsigned int n);
 /* the AD and nonce layout (spu/v2_crypto.h's v2_ad_make, v2_nonce_from_counter) */
 void vsx_ad(vs_u32 p, vs_u32 slot, vs_u8 fmt, vs_u8 ad[16]);
 
