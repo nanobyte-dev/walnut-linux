@@ -580,12 +580,23 @@ static void hyp_bitmap(const struct pcase *c, const struct hyp *h, uint64_t *bm)
 	}
 }
 
+/* bits set in v: no __builtin_popcountll, which calls libgcc's __popcountdi2, built for POWER7 and later in
+ * the cross toolchain (popcntd: an illegal instruction on the Cell) */
+static unsigned popcount64(uint64_t v)
+{
+	unsigned n = 0;
+
+	for (; v; v &= v - 1)
+		n++;
+	return n;
+}
+
 static __attribute__((unused)) uint64_t bm_count(const uint64_t *bm)
 {
 	uint64_t n = 0;
 
 	for (unsigned i = 0; i < NBW; i++)
-		n += __builtin_popcountll(bm[i]);
+		n += popcount64(bm[i]);
 	return n;
 }
 
@@ -755,7 +766,7 @@ static const char *analyse(const struct pcase *c, const uint32_t *cm, const uint
 		uint64_t out = 0;
 
 		for (unsigned i = 0; i < NBW; i++)
-			out += __builtin_popcountll(bm_obs[i] & ~bm_uni[i]);
+			out += popcount64(bm_obs[i] & ~bm_uni[i]);
 		if (!n) {
 			res = "nothing";
 		} else if (out) {

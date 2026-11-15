@@ -32,10 +32,16 @@ if command -v powerpc64-linux-gnu-gcc >/dev/null && command -v qemu-ppc64-static
 	powerpc64-linux-gnu-gcc "${PPC[@]}" -static -o "$O/clip-probe-check-ppc64" \
 		"$O/check-ppc64.o" "$O/validator-ppc64.o" || exit 1
 	qemu-ppc64-static "$O/clip-probe-check-ppc64" || exit 1
-	# the probe as the package builds it (Makefile: -O2 -Wall -Wextra -mcpu=cell), warnings fatal
-	powerpc64-linux-gnu-gcc -O2 -Wall -Wextra -Werror -mcpu=cell "${PPC[@]}" -static \
+	# the probe as the package builds it (Makefile: -O2 -Wall -Wextra -mcpu=cell, linked against the PS3's own
+	# libc), warnings fatal. Never -static: this toolchain's libgcc is built for POWER7 and later, and the
+	# static glibc's malloc setup calls its __popcountdi2 (popcntd: an illegal instruction on the Cell)
+	powerpc64-linux-gnu-gcc -O2 -Wall -Wextra -Werror -mcpu=cell "${PPC[@]}" \
 		-o "$O/rsx-clip-probe" "$here/../src/rsx-clip-probe.c" -lm || exit 1
-	qemu-ppc64-static "$O/rsx-clip-probe" --list > "$O/list-ppc64.txt" || exit 1
+	# no instruction the Cell lacks (POWER7 and later) anywhere in the probe
+	bad=$(powerpc64-linux-gnu-objdump -d "$O/rsx-clip-probe" | grep -E $'\t(popcntd|popcntw|cmpb|ldbrx|stdbrx|isel|lxvd2x|stxvd2x)[ \t]' | head -3)
+	[ -z "$bad" ] || { echo "FAIL: an instruction the Cell lacks in the PS3 probe: $bad"; exit 1; }
+	echo "ok: no POWER7+ instruction in the PS3 probe"
+	qemu-ppc64-static -L "$SYSROOT" "$O/rsx-clip-probe" --list > "$O/list-ppc64.txt" || exit 1
 	grep -c ' ok$' "$O/list-ppc64.txt" | grep -qx 20 || { echo "FAIL: ppc64 --list"; exit 1; }
 	echo "ok: ppc64 (big-endian) check and the cross-compiled probe's --list"
 else
