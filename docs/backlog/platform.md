@@ -92,7 +92,8 @@ the next batch of games, not during one.
 - **Payoff:** room for the games on the list. **Effort:** M. **Risk:** medium: the image is the
   root, so a bad grow is a boot failure (back up the image first; the guard keeps GameOS's disk safe).
 - **Needs:** host for the tools and the VM test, then the user for the GameOS reboot.
-- **Status:** not started; the priority is the user's to give.
+- **Status:** deferred (the user, 2026-11-16): no grow mode for now. Room comes from removing games;
+  the bigger image comes with the fresh image the user builds and tests before the release.
 
 ### ps3disk multi-region (packages/patched/kernel/linux/patches/ps3/0010): two bugs
 
