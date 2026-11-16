@@ -159,6 +159,22 @@ off p4-fb-tall "FAIL: clear: a 4096-tall target with COORD 0x1000 refused" "${P4
 	'rows = (vs->f[P4F_COORD] & 0xf000) && rows > (vs->f[P4F_COORD] & 0xfff) ? 1ULL << 40 : max_t(u64, rows, vs->f[P4F_COORD] & 0xfff);'
 off p4-fb-linrow "FAIL: clear: a 1x1 linear row 8 bytes before A's end refused" "${P4[@]}" \
 	'*colsp = max_t(u64, LO16(h) + HI16(h),' '*colsp = max_t(u64, LO16(h) + HI16(h) + LO16(wo),'
+# the surface state's field rules (Mesa's ranges, the clip probe's shape): the surface clip origin
+# 0 (back to the old bound of 4096), COORD's height, inverted origin and integer centre only (back
+# to bits 0-19), the scissor's and the viewport rectangle's origins below 0x8000 (the check, and
+# the fast path's check of them); the extent counting a clip origin a failed rule let through
+off p4-clip-origin "FAIL: clear: surface clip x origin 1 accepted" "${P4[@]}" \
+	'if (LO16(v))' 'if (LO16(v) > 4096)'
+off p4-coord-bits "FAIL: coord: COORD 00002200 accepted" "${P4[@]}" \
+	'return v & ~0x11fffu ?' 'return v >> 20 ?'
+off p4-origins "FAIL: origin: method 8c0 data 00008000 accepted" "${P4[@]}" \
+	'if (LO16(data) >= 0x8000) {' 'if (0) {'
+off p4-origins-fast "FAIL: origin: method 8c0 data 00008000 accepted" "${P4[@]}" \
+	'(f == F_ORIGIN && !(data & 0x8000))' '(f == F_ORIGIN)'
+off p4-fb-cx "FAIL: clear: a surface clip x origin let through not in the extent" "${P4[@]}" \
+	'*colsp = max_t(u64, LO16(h) + HI16(h),' '*colsp = max_t(u64, HI16(h),'
+off p4-fb-cy "FAIL: clear: a surface clip y origin let through not in the extent" "${P4[@]}" \
+	'rows = max_t(u64, LO16(v) + HI16(v),' 'rows = max_t(u64, HI16(v),'
 off p4-pitch "FAIL: clear: pitch 0x10040 accepted" "${P4[@]}" \
 	'if (pitch > 0x10000 || pitch % 64) {' 'if (pitch % 64) {'
 off p4-pitch-64 "FAIL: clear: pitch 2080 accepted" "${P4[@]}" \
@@ -221,6 +237,12 @@ off fuzz-sifm-src ": scaled image source" "${F[@]}" \
 	'!in_set(vs, vs->f[P4F_F_DMA], vs->f[P4F_F_OFF], len)) {' '0) {'
 off fuzz-clear-window " colour target" "${F[@]}" \
 	'rows = max_t(u64, LO16(v) + HI16(v), HI16(wo) + HI16(vs->f[P4F_WIN_V]) + 1);' 'rows = LO16(v) + HI16(v);'
+off fuzz-clip-origin "with a surface clip origin the RSX's behaviour isn't known for" "${F[@]}" \
+	'if (LO16(v))' 'if (LO16(v) > 4096)'
+off fuzz-coord-bits "with coordinate convention bits the RSX's behaviour isn't known for" "${F[@]}" \
+	'return v & ~0x11fffu ?' 'return v >> 20 ?'
+off fuzz-origins "with a scissor or viewport origin the RSX's behaviour isn't known for" "${F[@]}" \
+	'if (LO16(data) >= 0x8000) {' 'if (0) {'
 off fuzz-pitch "with a pitch the RSX's behaviour isn't known for" "${F[@]}" \
 	'if (pitch > 0x10000 || pitch % 64) {' 'if (0) {'
 off fuzz-draw ": draw colour target" "${F[@]}" \

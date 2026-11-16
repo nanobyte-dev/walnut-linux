@@ -2,15 +2,16 @@
 /*
  * Property fuzz of the address checks, slices a and b: random streams of the methods that carry
  * addresses (context DMAs, M2MF copies, scaled images into both surface kinds, clears, draws and
- * their vertex data, surface changes inside a primitive, fences, reports, render enable), with
- * values drawn near the edges of a random buffer set that loses and regains buffers between
- * streams, go through
- * the validator one push at a time on one channel. For every push it accepts, an independent
- * model of the GPU (written from the design, not from validate.c) replays the words and checks
- * each memory access they make: inside one of the file's buffers in the right domain, or in the
- * channel's own fence label or query slice, and computed only from words this channel wrote
- * (fields start out holding "the kernel's" values, and a lost channel puts them back). Any
- * access outside fails. Fixed seeds: p4-fuzz SEED STREAMS (make test runs a few).
+ * their vertex data, surface changes inside a primitive, the surface clip's, scissor's and
+ * viewport rectangle's origins and the coordinate conventions, fences, reports, render enable),
+ * with values drawn near the edges of a random buffer set that loses and regains buffers between
+ * streams, go through the validator one push at a time on one channel. For every push it
+ * accepts, an independent model of the GPU (written from the design, not from validate.c)
+ * replays the words and checks each memory access they make: inside one of the file's buffers in
+ * the right domain, or in the channel's own fence label or query slice, and computed only from
+ * words this channel wrote (fields start out holding "the kernel's" values, and a lost channel
+ * puts them back). Any access outside fails. Fixed seeds: p4-fuzz SEED STREAMS (make test runs a
+ * few).
  */
 #include "shim.h"
 #define PS3RSX_H
@@ -294,8 +295,21 @@ static void fb_write(u32 bits, const char *what_op)
 		violation_op("with a surface value this channel never wrote");
 		return;
 	}
-	/* the union of the surface clip, the window rectangle and the y flip's height (the RSX's
-	 * order of the clip, the window offset and the flip is unprobed: validate.c's fb_extent) */
+	/* the surface state the clip probe measured, in Mesa's ranges: the surface clip from 0,
+	 * COORD only the height, the inverted origin (bit 12) and the integer centre (bit 16), the
+	 * scissor's and the viewport rectangle's origins (as this channel wrote them) below 0x8000 */
+	if ((hz & 0xffff) || (vt & 0xffff))
+		violation_op("with a surface clip origin the RSX's behaviour isn't known for");
+	if (G(M3D, 0x1d88) & ~0x11fffu)
+		violation_op("with coordinate convention bits the RSX's behaviour isn't known for");
+	for (int i = 0; i < 4; i++) {
+		static const u16 org[4] = { 0x8c0, 0x8c4, 0xa00, 0xa04 };
+
+		if (MINE(M3D, org[i]) && (G(M3D, org[i]) & 0xffff) >= 0x8000)
+			violation_op("with a scissor or viewport origin the RSX's behaviour isn't known for");
+	}
+	/* the union of the surface clip, the window rectangle and the y flip's height (as
+	 * validate.c's fb_extent: the clip probe measured linear colour targets only) */
 	cols = (hz & 0xffff) + (hz >> 16);
 	if ((wo & 0xffff) + (G(M3D, 0x2c0) >> 16) + 1 > cols)
 		cols = (wo & 0xffff) + (G(M3D, 0x2c0) >> 16) + 1;
@@ -544,6 +558,15 @@ static void gen_sifm(void)
 	}
 }
 
+/* A scissor or viewport rectangle word: mostly Mesa's (origin at most 4096), now and then an
+ * origin at the 0x8000 edge or anything */
+static u32 clip_rect(void)
+{
+	u32 x = rn(8) ? rn(4097) : rn(2) ? 0x7fff + rn(2) : rnd() & 0xffff;
+
+	return rn(4097) << 16 | x;
+}
+
 static void gen_surface(void)
 {
 	u32 w = small(512), h = small(512), slot = handle();
@@ -570,7 +593,13 @@ static void gen_surface(void)
 	if (rn(4))
 		put1(M3D, 0x220, rn(4) ? 1 : rn(32));
 	if (rn(4))
-		put1(M3D, 0x1d88, rn(4) ? (rn(3) ? h : rn(2) ? 0x1000 | h : 0x1000) : rnd() & 0x1fff);
+		put1(M3D, 0x1d88, rn(4) ? (rn(3) ? h : rn(2) ? 0x1000 | h : 0x1000) :
+				  (rnd() & 0x11fff) | (rn(4) ? 0 : 1u << (13 + rn(7))));
+	if (!rn(4)) {
+		u32 r[2] = { clip_rect(), clip_rect() };
+
+		put(M3D, rn(2) ? 0x8c0 : 0xa00, r, 2);
+	}
 }
 
 static void gen_clear(void)
@@ -585,7 +614,9 @@ static void gen_clear(void)
  * rows down with the clips d rows lower and the y flip the buffer's height (both accepted while
  * those orders are uncovered: validate.c's fb_extent), or a window clip d rows taller than the
  * surface clip; the origin at the top or the bottom, also COORD 0x1000 alone (the inverted bit
- * with height 0, as Mesa writes a 4096-tall target's) */
+ * with height 0, as Mesa writes a 4096-tall target's), and the integer centre; Mesa's scissor
+ * and viewport rectangle; a few percent of the time a surface clip origin, a COORD bit or a
+ * scissor or viewport origin other than Mesa's (refused) */
 static void gen_good_surface(void)
 {
 	int i = rn(NBO), j = rn(NBO);
@@ -598,7 +629,8 @@ static void gen_good_surface(void)
 	{
 		u32 a[] = { bo[i].dom == P4_VRAM ? 0xfeed0000 : 0xfeed0001 };
 		u32 b[] = { bo[j].dom == P4_VRAM ? 0xfeed0000 : 0xfeed0001 };
-		u32 surf[3] = { w << 16, h << 16, 0x148 };
+		u32 surf[3] = { w << 16 | (rn(32) ? 0 : 1 + rn(4)), h << 16 | (rn(32) ? 0 : 1 + rn(4)),
+				0x148 };
 		u32 win[4] = { 0, 0, (w - 1) << 16, (h - 1) << 16 };
 		u32 c[3] = { pitch, (u32)bo[i].lo, (u32)bo[j].lo };
 		u32 d = 1 + rn(3);
@@ -627,8 +659,19 @@ static void gen_good_surface(void)
 		put1(M3D, 0x22c, pitch);
 		put(M3D, 0x20c, c, 3);
 		put1(M3D, 0x220, 1);
-		/* origin at the top or the bottom, or COORD 0x1000 alone (height 0) */
-		put1(M3D, 0x1d88, rn(2) ? h : rn(2) ? 0x1000 | h : 0x1000);
+		/* origin at the top or the bottom, or COORD 0x1000 alone (height 0); now and then
+		 * the integer centre; Mesa's scissor (off: 4096 from 0) and viewport rectangle */
+		put1(M3D, 0x1d88, (rn(2) ? h : rn(2) ? 0x1000 | h : 0x1000) | (rn(4) ? 0 : 0x10000) |
+				  (rn(32) ? 0 : 1u << (13 + rn(7))));
+		if (!rn(4)) {
+			u32 sc[2] = { rn(2) ? 0x10000000 : w << 16 | rn(w), rn(2) ? 0x10000000 :
+				      h << 16 | rn(h) };
+
+			if (!rn(16))		/* an origin at or above 0x8000 (refused) */
+				sc[rn(2)] |= 0x8000 | (rnd() & 0x7fff);
+
+			put(M3D, rn(2) ? 0x8c0 : 0xa00, sc, 2);
+		}
 	}
 }
 

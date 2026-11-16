@@ -19,7 +19,9 @@
  * M2MF and scaled-image copies and clears stay inside buffers the submitting file holds handles
  * to (the set, p4.h), with every field they use set by the channel itself; so do a draw's render
  * targets and zeta (draw_check()), checked again only when a surface field or the set changed,
- * and no surface field changes inside an open primitive. Not checked: what draws read
+ * and no surface field changes inside an open primitive. The surface clip's origin, the
+ * coordinate conventions and the scissor's and viewport rectangle's origins take only values in
+ * the ranges Mesa writes (field_check(), p4_method()). Not checked: what draws read
  * (textures, programs, vertex and index fetch).
  *
  * Every check reads only the push's own words and the channel's validator state, which only
@@ -349,9 +351,12 @@ static const char *field_check(int f, u32 v)
 {
 	switch (f) {
 	case P4F_RT_HORIZ:
-	case P4F_RT_VERT:	/* x or y, width or height: at most 4096, a size of at least 1 */
-		return LO16(v) > 4096 || HI16(v) > 4096 || !HI16(v) ?
-			"surface clip coordinate or size out of range" : NULL;
+	case P4F_RT_VERT:
+		/* the origin (x or y) 0, as Mesa writes it and the clip probe measured it (another
+		 * origin is unmeasured); the width or height 1 to 4096 */
+		if (LO16(v))
+			return "surface clip origin other than 0";
+		return HI16(v) > 4096 || !HI16(v) ? "surface clip size out of range" : NULL;
 	case P4F_RT_FORMAT: {
 		u32 type = (v >> 8) & 0xf, aa = (v >> 12) & 0xf;
 
@@ -372,8 +377,13 @@ static const char *field_check(int f, u32 v)
 	case P4F_WIN_H:
 	case P4F_WIN_V:
 		return LO16(v) > 4095 || HI16(v) > 4095 ? "window clip out of range" : NULL;
-	case P4F_COORD:		/* height 0-11, origin 12-15, centre 16-19 */
-		return v >> 20 ? "coordinate conventions: unknown bits" : NULL;
+	case P4F_COORD:
+		/* only the height (bits 0-11), the inverted origin (bit 12: the clip probe measured
+		 * that it moves no write) and the integer centre (bit 16: inferred to move only
+		 * gl_FragCoord), Mesa's values; the other origin and centre bits (13-15, 17-19) are
+		 * unmeasured */
+		return v & ~0x11fffu ? "coordinate conventions: bits other than the height, the "
+				       "inverted origin and the integer centre" : NULL;
 	case P4F_M_PITCH_IN:
 	case P4F_M_PITCH_OUT:
 		return v >= 0x80000000u ? "M2MF pitch at or above 2^31" : NULL;
@@ -447,12 +457,12 @@ static bool rt_ok(const struct ps3rsx_vstate *vs, u32 handle, u32 off, u32 pitch
 
 /*
  * The surface's extent in pixels, for clears and draws: the union of the surface clip, the
- * window rectangle and the y flip's height. This bounds the writes only if the RSX stops at the
- * surface clip or the window clip, applies the surface clip and the flip after the window
- * offset, and with the origin at the bottom (COORD bits 12-15) doesn't flip rows to before the
- * target: none of it probed (docs/DRIVER.md, the validator). Rules for those orders refused
- * streams current Mesa sends (a 4096-tall target's COORD 0x1000, 0013's 1-high linear rows at
- * their buffer's end); they return after the clip probe and the Mesa fixes for both.
+ * window rectangle and the y flip's height. The clip probe (docs/RSX.md, rsx-clip-probe) measured
+ * on linear colour targets that the surface clip bounds draws and clears, in surface coordinates
+ * after the window offset, and that the inverted origin moves no write; zeta, swizzled, multiple
+ * and antialiased targets are assumed to follow the same clip, not yet measured. The clip's
+ * origin is counted (x + width, y + height) although field_check() refuses one other than 0, so
+ * the extent doesn't rely on that rule (the count-only build lets a failed rule's value through).
  */
 static void fb_extent(const struct ps3rsx_vstate *vs, u64 *colsp, u64 *rowsp)
 {
@@ -789,6 +799,18 @@ static int p4_method(struct ps3rsx_vstate *vs, int c, u32 m, u32 data, const cha
 				rule = P4R_FIELD;
 			}
 			break;
+		case 0x8c0:
+		case 0x8c4:
+		case 0xa00:
+		case 0xa04:
+			/* the scissor's and the viewport rectangle's x or y (the low half) below
+			 * 0x8000: Mesa's are at most 4096 and the clip probe's 0; the upper half of
+			 * the 16-bit range is never sent and unmeasured */
+			if (LO16(data) >= 0x8000) {
+				bad = "scissor or viewport rectangle origin at or above 0x8000";
+				rule = P4R_FIELD;
+			}
+			break;
 		}
 	} else if (c == VC_M2MF && m == 0x328) {
 		rule = m2mf_check(vs, data, &bad);
@@ -876,13 +898,14 @@ static unsigned long allowed[VC_N][BITS_TO_LONGS(0x2000 / 4)];
  * method on that class whatever the data, and changes nothing (allowed, not a bind or host
  * method, not data-checked: fast_kind()); F_VTXFMT, F_TEXOFS and F_TEXFMT when its only check is
  * the vertex format (vtxfmt_ok()), the texture offset alignment or the texture format
- * (texfmt_ok()). F_PRIM: vertex data, allowed only inside a primitive (prim_method()); a
- * non-incrementing burst of it inside one is taken as F_OK. Such words, nearly all of a push, cost
- * a table lookup; a non-incrementing burst to an F_OK method (inline vertex and index data) costs
- * one for all its words. Everything else goes through check_method(), so the fast path accepts
- * nothing it wouldn't.
+ * (texfmt_ok()); F_ORIGIN when it is the scissor's or the viewport rectangle's origin below
+ * 0x8000 (the rest goes to p4_method(), which refuses it). F_PRIM: vertex data, allowed only
+ * inside a primitive (prim_method()); a non-incrementing burst of it inside one is taken as F_OK.
+ * Such words, nearly all of a push, cost a table lookup; a non-incrementing burst to an F_OK
+ * method (inline vertex and index data) costs one for all its words. Everything else goes
+ * through check_method(), so the fast path accepts nothing it wouldn't.
  */
-enum { F_SLOW, F_OK, F_VTXFMT, F_TEXOFS, F_TEXFMT, F_PRIM };
+enum { F_SLOW, F_OK, F_VTXFMT, F_TEXOFS, F_TEXFMT, F_PRIM, F_ORIGIN };
 static u8 fast[VC_N][0x2000 / 4];
 
 /*
@@ -1026,7 +1049,7 @@ bad:
 static __always_inline bool fast_ok(u8 f, u32 data)
 {
 	return f == F_OK || (f == F_VTXFMT && vtxfmt_ok(data)) || (f == F_TEXOFS && !(data & 127)) ||
-	       (f == F_TEXFMT && texfmt_ok(data));
+	       (f == F_TEXFMT && texfmt_ok(data)) || (f == F_ORIGIN && !(data & 0x8000));
 }
 
 static void allow(int c, const struct mrange *r, int n)
@@ -1141,6 +1164,8 @@ static u8 fast_kind(int c, u32 m)
 		return F_OK;
 	if (m == 0x1808 || m == 0x208 || m == 0x220)
 		return F_SLOW;			/* BEGIN_END state, RT_FORMAT, RT_ENABLE */
+	if (m == 0x8c0 || m == 0x8c4 || m == 0xa00 || m == 0xa04)
+		return F_ORIGIN;		/* scissor and viewport origins: p4_method() */
 	if (prim_method(m))
 		return F_PRIM;			/* vertex data: inside a primitive only */
 	if (m >= VTXTEX_LO && m <= VTXTEX_HI)

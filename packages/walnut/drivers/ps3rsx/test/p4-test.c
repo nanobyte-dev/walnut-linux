@@ -924,6 +924,105 @@ static void test_draw(void)
 	set_init();
 }
 
+/*
+ * The surface state's field rules, as Mesa writes the fields and the clip probe measured them:
+ * the surface clip's origin 0 (RT_HORIZ and RT_VERT's low halves), COORD_CONVENTIONS only the
+ * height, the inverted origin (bit 12) and the integer centre (bit 16), the scissor's and the
+ * viewport rectangle's origins below 0x8000. The extent counts the clip's origin even when a
+ * rule lets one through (as the count-only build does): poked into the state here. cw's words
+ * 7 and 8 are RT_HORIZ and RT_VERT.
+ */
+static void test_rt_fields(void)
+{
+	static const u32 coord_bad[] = { 0x2000, 0x4000, 0x8000, 0x20000, 0x40000, 0x80000 };
+	static const u32 coord_ok[] = { 0x1000, 0x10000, 0x11000 };
+	static const u16 origin_m[] = { 0x8c0, 0x8c4, 0xa00, 0xa04 };
+	struct ps3rsx_vstate vs;
+	u32 n, i;
+
+	/* the surface clip origin */
+	n = surface(512, 512, LIN, 2048, A_LO, C_LO, 1, 512, 0);
+	cw[7] |= 1;
+	CHECK(run(cw, n) != 0 && strstr(last_warn, "surface clip origin"),
+	      "clear: surface clip x origin 1 accepted");
+	n = surface(512, 512, LIN, 2048, A_LO, C_LO, 1, 512, 0);
+	cw[8] |= 4;
+	CHECK(run(cw, n) != 0 && strstr(last_warn, "surface clip origin"),
+	      "clear: surface clip y origin 4 accepted");
+	n = surface(512, 512, LIN, 2048, A_LO, C_LO, 1, 512, 0);
+	cw[7] |= 4096;		/* the old rule's largest origin */
+	CHECK(run(cw, n) != 0 && strstr(last_warn, "surface clip origin"),
+	      "clear: surface clip x origin 4096 accepted");
+	CHECK(clear(surface(4096, 1, LIN, 0x4000, A_LO, C_LO, 1, 1, 0), 0xf3) == 0 &&
+	      draw(surface(1, 4096, LIN, 64, A_LO, C_LO, 1, 0x1000, 0)) == 0,
+	      "clear: surface clips 4096 wide or tall from 0 refused");
+
+	/* COORD_CONVENTIONS */
+	for (i = 0; i < ARRAY_SIZE(coord_bad); i++)
+		CHECK(run(cw, surface(512, 512, LIN, 2048, A_LO, C_LO, 1, coord_bad[i] | 512, 0)) != 0 &&
+		      strstr(last_warn, "coordinate conventions"), "coord: COORD %08x accepted",
+		      coord_bad[i] | 512);
+	for (i = 0; i < ARRAY_SIZE(coord_ok); i++) {
+		CHECK(clear(surface(512, 512, LIN, 2048, A_LO, C_LO, 1, coord_ok[i] | 512, 0), 0xf3) == 0,
+		      "coord: a clear with COORD %08x refused", coord_ok[i] | 512);
+		CHECK(draw(surface(512, 512, LIN, 2048, A_LO, C_LO, 1, coord_ok[i] | 512, 0)) == 0,
+		      "coord: a draw with COORD %08x refused", coord_ok[i] | 512);
+	}
+
+	/* the scissor's and the viewport rectangle's origins, alone, in a burst, and Mesa's */
+	for (i = 0; i < ARRAY_SIZE(origin_m); i++) {
+		u32 m = origin_m[i];
+		u32 w[] = { H(1, S3D, 0), 0x31337000, H(1, S3D, m), 0 };
+
+		w[3] = 0x8000;
+		CHECK(run(w, 4) != 0 && strstr(last_warn, "origin at or above 0x8000"),
+		      "origin: method %x data %08x accepted", m, w[3]);
+		w[3] = 0x0100ffff;
+		CHECK(run(w, 4) != 0, "origin: method %x data %08x accepted", m, w[3]);
+		w[3] = 0x10007fff;
+		CHECK(run(w, 4) == 0, "origin: method %x data %08x refused", m, w[3]);
+		w[3] = 0x10000000;	/* Mesa's scissor off, 4096 from 0 */
+		CHECK(run(w, 4) == 0, "origin: method %x data %08x refused", m, w[3]);
+		w[3] = 0x00011000;	/* Mesa's largest origin, 4096 */
+		CHECK(run(w, 4) == 0, "origin: method %x data %08x refused", m, w[3]);
+	}
+	{
+		u32 inc[] = { H(1, S3D, 0), 0x31337000, H(2, S3D, 0xa00), 1920 << 16, 0x8000 | 1080 << 16 };
+		u32 ni[] = { H(1, S3D, 0), 0x31337000, NI | H(2, S3D, 0x8c0), 0x10000000, 0x9000 };
+
+		CHECK(run(inc, ARRAY_SIZE(inc)) != 0, "origin: viewport y 0x8000 in a burst accepted");
+		CHECK(run(ni, ARRAY_SIZE(ni)) != 0,
+		      "origin: scissor x 0x9000 in a non-incrementing burst accepted");
+	}
+
+	/* the extent counts the clip's origin: a 16x1 row filling A's last 64 bytes, its x or y
+	 * origin poked past the field rule */
+	for (i = 0; i < 2; i++) {
+		int (*trigger)(u32 n) = i ? draw : clear_bits;
+		const char *what = i ? "draw" : "clear";
+		u32 k = surface(16, 1, LIN, 64, A_LO + A_SZ - 64, C_LO, 1, 1, 0);
+
+		CHECK(trigger(k) == 0, "%s: a 16x1 row at A's end refused", what);
+		vs_init(&vs, 2);
+		CHECK(ps3rsx_validate(&vs, cw, k) == 0, "%s: the poked case's surface refused", what);
+		fset(&vs, P4F_RT_HORIZ, 16 << 16 | 1);
+		memcpy(cw, (u32[]){ H(1, S3D, 0x1d94), 0xf3 }, 8);
+		k = i ? draw_words(0) : 2;
+		last_warn[0] = 0;
+		CHECK(ps3rsx_validate(&vs, cw, k) != 0 && strstr(last_warn, "render target outside"),
+		      "%s: a surface clip x origin let through not in the extent", what);
+		k = surface(16, 1, LIN, 64, A_LO + A_SZ - 64, C_LO, 1, 1, 0);
+		vs_init(&vs, 2);
+		CHECK(ps3rsx_validate(&vs, cw, k) == 0, "%s: the poked case's surface refused", what);
+		fset(&vs, P4F_RT_VERT, 1 << 16 | 1);
+		memcpy(cw, (u32[]){ H(1, S3D, 0x1d94), 0xf3 }, 8);
+		k = i ? draw_words(0) : 2;
+		last_warn[0] = 0;
+		CHECK(ps3rsx_validate(&vs, cw, k) != 0 && strstr(last_warn, "render target outside"),
+		      "%s: a surface clip y origin let through not in the extent", what);
+	}
+}
+
 /* --- coverage (H2): every field is state the shadow restores ------------------------------ */
 
 static const u32 class_obj[VC_N] = { 0, 0x31337000, 0x31337303, 0x313371c3, 0x31337a73,
@@ -979,17 +1078,19 @@ static void test_coverage(void)
 
 struct rng { u16 lo, hi; };
 
-/* 3D methods slice c1 checks (textures, programs, arrays, the index buffer, draws), and those
- * with no memory effect: state that neither names memory nor feeds an extent */
+/* 3D methods slice c1 checks (textures, programs, arrays, the index buffer, draws), those with
+ * a value rule but no field (the scissor's and viewport rectangle's origins: test_rt_fields), and
+ * those with no memory effect: state that neither names memory nor feeds an extent */
 static const struct rng c1_3d[] = {
 	{ 0x08e4, 0x08e4 }, { 0x0900, 0x097c }, { 0x1680, 0x16bc }, { 0x173c, 0x177c },
 	{ 0x1808, 0x1824 }, { 0x1840, 0x187c }, { 0x1a00, 0x1bfc }, { 0x1da4, 0x1da4 },
 	{ 0x1dac, 0x1db0 },
 };
+static const struct rng value_3d[] = { { 0x08c0, 0x08c4 }, { 0x0a00, 0x0a04 } };
 static const struct rng none_3d[] = {
-	{ 0x0100, 0x0100 }, { 0x0110, 0x0110 }, { 0x0300, 0x03bc }, { 0x08c0, 0x08c4 },
-	{ 0x0a00, 0x0a7c }, { 0x0b00, 0x0bfc }, { 0x142c, 0x142c }, { 0x1450, 0x1454 },
-	{ 0x1478, 0x14fc }, { 0x1500, 0x15fc }, { 0x1710, 0x1718 }, { 0x17c8, 0x17cc },
+	{ 0x0100, 0x0100 }, { 0x0110, 0x0110 }, { 0x0300, 0x03bc }, { 0x0a08, 0x0a7c },
+	{ 0x0b00, 0x0bfc }, { 0x142c, 0x142c }, { 0x1450, 0x1454 }, { 0x1478, 0x14fc },
+	{ 0x1500, 0x15fc }, { 0x1710, 0x1718 }, { 0x17c8, 0x17cc },
 	{ 0x1804, 0x1804 }, { 0x1828, 0x183c }, { 0x1880, 0x19fc }, { 0x1c00, 0x1cfc },
 	{ 0x1d60, 0x1d64 }, { 0x1d78, 0x1d7c }, { 0x1d8c, 0x1d90 }, { 0x1db4, 0x1db8 },
 	{ 0x1e40, 0x1e7c }, { 0x1e94, 0x1e94 }, { 0x1e9c, 0x1eac }, { 0x1ee0, 0x1ee8 },
@@ -1016,6 +1117,7 @@ static void test_classification(void)
 				continue;
 			known = field_of[c][m / 4] || p4_trigger(c, m) ||
 				(c == VC_3D && (in_rng(c1_3d, ARRAY_SIZE(c1_3d), m) ||
+						in_rng(value_3d, ARRAY_SIZE(value_3d), m) ||
 						in_rng(none_3d, ARRAY_SIZE(none_3d), m))) ||
 				(c == VC_M2MF && in_rng(none_m2mf, ARRAY_SIZE(none_m2mf), m)) ||
 				(c == VC_SIFM && in_rng(none_sifm, ARRAY_SIZE(none_sifm), m));
@@ -1107,6 +1209,18 @@ static void test_count(void)
 		CHECK(run(q, ARRAY_SIZE(q)) != 0, "p7: a bind inside a primitive accepted");
 		CHECK(run(ok, ARRAY_SIZE(ok)) == 0, "p7: vertex data, attributes and NOP refused");
 	}
+	/* the surface state's field rules count under slice b, the scissor's origin included */
+	{
+		u64 bf = p4_hits[P4R_FIELD];
+		u32 f[] = { H(1, S3D, 0), 0x31337000, H(1, S3D, 0x8c0), 0x8000, H(1, S3D, 0x200),
+			    16 << 16 | 1, H(1, S3D, 0x1d88), 0x2000 };
+
+		test_p4_enforce = 0;
+		CHECK(run(f, ARRAY_SIZE(f)) == 0 && p4_hits[P4R_FIELD] == bf + 3,
+		      "count: a scissor origin, a surface clip origin and a COORD bit not counted");
+		test_p4_enforce = P4S_B;
+		CHECK(run(f, 4) != 0, "count: slice b enforcing let a scissor origin 0x8000 through");
+	}
 }
 #endif
 #ifndef PS3RSX_P4_COUNT
@@ -1143,6 +1257,7 @@ int main(void)
 	test_sifm();
 	test_clear();
 	test_draw();
+	test_rt_fields();
 	test_coverage();
 	test_classification();
 #if defined(PS3RSX_P4_COUNT) && !defined(PS3RSX_P4_NO_ENFORCE)
