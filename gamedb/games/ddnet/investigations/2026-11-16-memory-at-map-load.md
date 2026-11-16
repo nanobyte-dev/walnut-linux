@@ -2,7 +2,7 @@
 id = "memory-at-map-load"
 games = ["ddnet"]
 driver_patches = []
-game_patches = []
+game_patches = ["ddnet/0002"]
 sessions = []
 batches = []
 +++
@@ -49,13 +49,26 @@ runs (`s1114b-batch` DDN, DDN2, DDN3, DDM) and one heaptrack run in the harness'
   the CMA GART (64 MB), about 25 MB of slab and 13 MB free; DDNet itself had about 5 MB resident. With
   zram the only swap, a peak this size doesn't fit, whatever malloc does with the freed blocks.
 
+## Patch 0002
+
+`packages/ddnet/patches/0002`: `LoadTextureRaw` and `LoadTextureRawMove` count the pixel bytes they
+queue and run the command buffer once 16 MB wait (`AddCmd` kicks it the same way when a buffer is full;
+the threaded backend waits for the previous buffer first, so about two batches at most are in RAM).
+Tested on the PS3 the same afternoon (ps3.1485~dev, a local build, against the installed ps3.874):
+
+- heaptrack, the same 50 s: peak heap 147 MB against 209 MB.
+- VRAM swap off: still OOM-killed, 2 of 2 (the fonts, the map data and zram's own RAM are still too much).
+- VRAM swap on, same boot, U P P U: stalls in the window 22.1 and 31.7 s against 34.8 and 36.6; longest
+  frame 16.3 and 24.7 s against 27.9 and 27.3; 1% low 34.4 and 31.9 against 26.2 and 31.0; steady 95 and
+  86 fps against 87 and 84; load 63.8 and 82.2 s against 86.2 and 88.0. Out-of-VRAM lines 87 and 21
+  against 21 and 25. The pictures alike; the white rectangle is the map's keyboard tutorial image, drawn
+  in one run of each arm and white in the other (a texture that didn't get VRAM: not the patch).
+
 ## Next
 
-- A ddnet patch so the map's images don't all wait for the first frame: run the command buffer after
-  each image (or every few MB) in `OnMapLoadImpl`, and hand the embedded images' data over without the
-  `ConvertToRgbaAlloc` copy when it is already RGBA. Measured by the same heaptrack run (the peak) and
-  the swap-on smoke (stalls, out-of-VRAM lines).
+- The embedded images are copied once more (`ConvertToRgbaAlloc` on data already RGBA): handing the map's
+  buffer over would save that copy too.
 - The fonts: 31 MB read whole (`LoadFonts`); which four files, and whether FreeType could open them from
   the file instead.
-- The white rectangle and the out-of-VRAM lines with the swap on: VRAM, not RAM (about 190 MB held by the
-  client); which textures fail to allocate.
+- The out-of-VRAM lines and the white keyboard image with the swap on: VRAM, not RAM (about 190 MB held by
+  the client); which textures fail to allocate.

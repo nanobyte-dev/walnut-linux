@@ -1,0 +1,85 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Mon, 16 Nov 2026 14:30:00 +0200
+Subject: Upload textures every 16 MB of pixel data instead of all at the next frame
+
+A texture-create command carries a pointer to its pixel data, which the render thread uploads and
+frees only when the command buffer runs, normally at the next frame. CMapImages::OnMapLoadImpl
+creates all of the map's textures before any frame, so every image of the map stayed in RAM at
+once: on the PS3 (256 MB of RAM) heaptrack counted 74 MB of RGBA copies (ConvertToRgbaAlloc in
+LoadTextureRaw, the embedded images) and 27 MB of decoded mapres PNGs (LoadTextureRawMove) for the
+default map, and with zram as the only swap the client was OOM-killed at every connect.
+
+LoadTextureRaw and LoadTextureRawMove now count the bytes they queue and run the command buffer
+once 16 MB are waiting. AddCmd already kicks the buffer between commands when it is full, so a kick
+there is safe; the threaded backend waits for the previous buffer before taking the next, so at
+most about two such batches are in RAM.
+
+diff --git a/src/engine/client/graphics_threaded.cpp b/src/engine/client/graphics_threaded.cpp
+--- a/src/engine/client/graphics_threaded.cpp
++++ b/src/engine/client/graphics_threaded.cpp
+@@ -426,7 +426,7 @@
+ 	}
+ 	Cmd.m_pData = pTmpData;
+ 
+-	AddCmd(Cmd);
++	QueueTextureCreate(Cmd, (size_t)Image.m_Width * Image.m_Height * CImageInfo::PixelSize(CImageInfo::FORMAT_RGBA));
+ 
+ 	return TextureHandle;
+ }
+@@ -448,10 +448,11 @@
+ 
+ 	IGraphics::CTextureHandle TextureHandle = FindFreeTextureIndex();
+ 	CCommandBuffer::SCommand_Texture_Create Cmd = LoadTextureCreateCommand(TextureHandle.Id(), Image.m_Width, Image.m_Height, Flags);
++	const size_t Bytes = Image.DataSize();
+ 	Cmd.m_pData = Image.m_pData;
+ 	Image.m_pData = nullptr;
+ 	Image.Free();
+-	AddCmd(Cmd);
++	QueueTextureCreate(Cmd, Bytes);
+ 
+ 	return TextureHandle;
+ }
+@@ -643,8 +644,22 @@
+ 	return true;
+ }
+ 
++// A texture-create command carries a pointer to its pixel data, which the render thread uploads and
++// frees only when the command buffer runs, normally at the next frame. A map load creates all of the
++// map's textures before any frame, so every image stayed in RAM at once (about 100 MB for the default
++// map on a 256 MB console, where DDNet was OOM-killed). Running the buffer every 16 MB of queued pixels
++// bounds that; AddCmd kicks the same way when a buffer is full, so a kick between commands is safe.
++void CGraphics_Threaded::QueueTextureCreate(CCommandBuffer::SCommand_Texture_Create &Cmd, size_t Bytes)
++{
++	AddCmd(Cmd);
++	m_QueuedTextureBytes += Bytes;
++	if(m_QueuedTextureBytes >= (size_t)16 * 1024 * 1024)
++		KickCommandBuffer();
++}
++
+ void CGraphics_Threaded::KickCommandBuffer()
+ {
++	m_QueuedTextureBytes = 0;
+ 	m_pBackend->RunBuffer(m_pCommandBuffer);
+ 
+ 	std::vector<std::string> WarningStrings;
+diff --git a/src/engine/client/graphics_threaded.h b/src/engine/client/graphics_threaded.h
+--- a/src/engine/client/graphics_threaded.h
++++ b/src/engine/client/graphics_threaded.h
+@@ -769,6 +769,8 @@
+ 	CCommandBuffer *m_apCommandBuffers[2];
+ 	CCommandBuffer *m_pCommandBuffer;
+ 	unsigned m_CurrentCommandBuffer;
++	// pixel data of the texture-create commands queued since the last kick (QueueTextureCreate)
++	size_t m_QueuedTextureBytes = 0;
+ 
+ 	//
+ 	class IStorage *m_pStorage;
+@@ -890,6 +892,7 @@
+ 	}
+ 
+ 	void KickCommandBuffer();
++	void QueueTextureCreate(CCommandBuffer::SCommand_Texture_Create &Cmd, size_t Bytes);
+ 
+ 	void AddBackEndWarningIfExists();
+ 

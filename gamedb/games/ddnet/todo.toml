@@ -19,4 +19,4 @@ NOVSWAP=0 lived). The callers \
 (heaptrack, 2026-11-16): the map's images queued for upload all at once before the first frame (an RGBA copy of \
 each, 74 MB, plus 27 MB of decoded mapres PNGs), the fonts read whole (31 MB); with zram the only swap the peak \
 doesn't fit, malloc presets or not; with the VRAM swap on it lives (investigations/2026-11-16-memory-at-map-load.md, \
-with the patch to try next)."""
+patch 0002 since: peak heap 147 MB instead of 209, fewer stalls with the swap on; still OOM-killed with the swap off)."""
