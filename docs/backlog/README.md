@@ -93,7 +93,7 @@ game's backlog, `gamedb/games/<id>/todo.toml`, where its details are.
 | 62 | [Kernel config: the last few hundred KB](memory.md#kernel-config-the-last-few-hundred-kb) | under 1 MB | S | host, a reboot | - | - |
 | 63 | [Kernel patches surveyed, not ported](platform.md#kernel-patches-surveyed-not-ported) | small fixes | S | host, a reboot | - | - |
 | 64 | [libspeq leftovers and SPU work after E16](spu.md#libspeq-leftovers-and-spu-work-after-e16) | depends on E16 | M-L | host, PS3 | - | - |
-| 65 | [Release image session and the stable publish](platform.md#release-image-session-and-the-stable-publish) | the games reachable from the stable suite | M | user, host | 5.1, 5.4 | - |
+| 65 | [Release checklist](platform.md#release-checklist) | a stable suite that matches what was tested | M | user, host, PS3 | 5.1, 5.4 | - |
 | 66 | [Upstream submissions](platform.md#upstream-submissions) | fixes for others, less for us to carry | S each | user (D10) | 5.8 | - |
 | 67 | [The GameOS installer](platform.md#the-gameos-installer) | an install without a PC shell | L | host, PS3 | 5.3 | - |
 | 68 | [A repository for others](platform.md#a-repository-for-others) | others can install | M | host, user | 5.2 | - |

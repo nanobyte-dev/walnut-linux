@@ -380,32 +380,28 @@ Rank 63. OTHEROS-PATCHES.md's SAFE candidates left out, and one test never made.
 
 ## Release work (last, the user's order of 2026-10-18)
 
-### Release image session and the stable publish
+### Release checklist
 
-Rank 65. Boot the fresh image, check it, then publish the stable suite.
+Rank 65. What happens right before a public release, in this order. The owner triggers each publish.
 
-**Why.** The stable `ps3` suite still holds the 2026-10-16 morning builds; everything since is only
-in ps3-dev. On 2026-10-18 the user decided "test first, then publish": every package rebuilt as an
-official version (kernel `6.12.111+ps3.472` with ps3rsx 0.443, Mesa .476, ps3-system 0.489, ...),
-and a fresh image built from them (2.9 GiB, sha256 `65dae499d6bcab5effcf5233320b2f8f3124a8b7bb9fc8cbe0d403db67c8aa71`, a copy in
-`/mnt/data_linux/Temp/ps3/release-20261018/`). The image session's checks: the kernel (dmesg clean,
-`ps3_idle_prep` Y, temperatures, fan on SYSCON automatic, local/0044's "writes to the OS area in flash
-disabled" line and no "Could not update FLASH ROM" 12 minutes after an NTP sync, `shadow_fast` N,
-`rsx-suite.sh all`), networkd and ssh enabled with a DHCP renewal, both GameOS disks mounting
-read-only with no NLS retry, the splash from Petitboot to the desktop, local/0041's power paths;
-game mode with the user; a smoke run of every recipe; a 5-game bench against row 68 (a regression
-check, not an A/B). The NEEDS-CHECK packages each need their one check (xmoto, classicube and its
-data split on an upgrade, supertuxkart, teeworlds, ps3-system and ps3-desktop, ps3-boot's
-`kboot.conf`, plymouth's cold boot).
+1. **Stable gets what testing has proven.** The kernel 6.12.115+ps3.1554 with its ps3rsx-modules
+   (0.1589), ps3-spu and libspeq (0.1516), ps3-system, ps3-boot (0.1557), ps3-desktop (0.1576),
+   walnut-games and ps3-gpu-tools: all in testing and smoked on the PS3 in November. The kernel and
+   ps3rsx go together (a module is built for one kernel).
+2. **The privacy guards switch from warning to refusing:** the publisher's name and pattern refusal,
+   the public export scan (`WALNUT_EXPORT_SCAN=enforce`) and the snapshot allowlist. A hand-made
+   image upload (a nightly) gets the same check first.
+3. **The licensed upload path:** one dry run through its own key, then the shared upload path goes.
+4. **The first-boot preseed prompt** checked from a USB stick (a preseed on `dev_hdd1`).
+5. **`make public-push`** checked to export main only.
+6. **The release image:** built from stable, booted, a smoke of every game, then published to
+   `download/` with the apt release notice.
 
-- **Payoff:** the games reachable from stable. **Effort:** M.
-- **Risk:** the publish is forever (official versions are kept): an
-  explicit `DEBS=` list, no `~dev` version, the user's OK.
-- **Needs:** the user (the session and the OK), then host.
-- **Status:** superseded: the LAN `ps3` suite this publish was for was retired on 2026-10-26;
-  stable is walnut.nanobyte.dev's, published by CI with the owner's approval (docs/PACKAGING.md).
-  The image session itself is still open (decisions D1, D14).
-- **Source:** PLAN 5.1, 5.4; [archive/RELEASE-CANDIDATES.md, "Release 2026-10-18"](../archive/RELEASE-CANDIDATES.md#release-2026-10-18-test-first-then-publish).
+- **Payoff:** a release whose stable suite matches what was tested. **Effort:** M.
+- **Risk:** stable versions are kept once there are outside users: an explicit list and the owner's OK
+  for every publish.
+- **Needs:** the owner (the publishes, the USB boot, the licensed key), host, PS3.
+- **Status:** not started; the list is from the end of the security round (2026-11-16).
 
 ### Updates that don't thrash
 
