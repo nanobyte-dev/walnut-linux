@@ -2,7 +2,7 @@
 id = "memory-at-map-load"
 games = ["ddnet"]
 driver_patches = []
-game_patches = ["ddnet/0002"]
+game_patches = ["ddnet/0002", "ddnet/0003"]
 sessions = []
 batches = []
 +++
@@ -68,6 +68,19 @@ Tested on the PS3 the same afternoon (ps3.1485~dev, a local build, against the i
   out-of-VRAM lines 20 and 21. Over the four runs of the patched binary the stall gain against ps3.874 is smaller
   than the first pair showed (22.1-33.4 s against 34.8 and 36.6) and the longest frame mostly the same; no run
   is worse. The reliable win is the peak heap.
+
+## Patch 0003
+
+`packages/ddnet/patches/0003`: `LoadFonts` finds each font through the storage and opens it with `FT_New_Face`, so
+FreeType maps the file instead of the 31 MB sitting in the heap; reading into memory stays as the fallback. Tested the
+same afternoon (a local build with 0002, against ps3.1595):
+
+- heaptrack: peak heap 120 MB.
+- VRAM swap off: alive in both runs (first time), but 50 and 2 fps steady and 146/176 s loads: not playable.
+- VRAM swap on, 4 v 4 (U P P U, P U U P): stalls 28.7 s mean against 27.5, longest frame 21.6-24.6 s against
+  20.8-24.6, load 64-69 s against 69-78, disk stalls equal; no measure worse in every run. The text draws right.
+
+Further DDNet work is parked (the user, 2026-11-16: no per-game fixing for now).
 
 ## Next
 

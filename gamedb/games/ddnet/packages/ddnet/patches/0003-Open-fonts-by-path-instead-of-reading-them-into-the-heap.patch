@@ -1,0 +1,79 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Mon, 16 Nov 2026 16:40:00 +0200
+Subject: Open fonts by path instead of reading them into the heap
+
+CTextRender::LoadFonts read every font file whole into a malloc'd buffer and kept it for the
+session, since FT_New_Memory_Face needs the data to outlive the faces. With the CJK fallbacks
+(SourceHanSans.ttc, 20 MB, and GlowSansJ, 9 MB) that is about 31 MB of heap on a 256 MB PS3,
+which the kernel can only swap out, never just drop.
+
+LoadFonts now finds the file through the storage (the same search ReadFile does) and hands its
+path to FT_New_Face. FreeType maps the file read-only, so the glyph data it touches is page cache
+that can be dropped and read back. If the path can't be opened or FreeType refuses it, the font is
+read into memory as before.
+
+--- a/src/engine/client/text.cpp
++++ b/src/engine/client/text.cpp
+@@ -1,6 +1,7 @@
+ /* (c) Magnus Auvinen. See licence.txt in the root of the distribution for more information. */
+ /* If you are missing that file, acquire a complete release at teeworlds.com.                */
+ #include <base/dbg.h>
++#include <base/io.h>
+ #include <base/log.h>
+ #include <base/math.h>
+ #include <base/mem.h>
+@@ -1039,10 +1040,19 @@
+ 		}
+ 	}
+ 
+-	bool LoadFontCollection(const char *pFontName, const FT_Byte *pFontData, FT_Long FontDataSize)
++	// pFontPath set: FreeType reads the file itself (mapped, so its pages are the page cache's, not the heap's);
++	// otherwise the faces use pFontData, which must outlive them.
++	FT_Error NewFace(const char *pFontPath, const FT_Byte *pFontData, FT_Long FontDataSize, FT_Long FaceIndex, FT_Face *pFtFace)
++	{
++		if(pFontPath)
++			return FT_New_Face(m_FTLibrary, pFontPath, FaceIndex, pFtFace);
++		return FT_New_Memory_Face(m_FTLibrary, pFontData, FontDataSize, FaceIndex, pFtFace);
++	}
++
++	bool LoadFontCollection(const char *pFontName, const char *pFontPath, const FT_Byte *pFontData, FT_Long FontDataSize)
+ 	{
+ 		FT_Face FtFace;
+-		FT_Error CollectionLoadError = FT_New_Memory_Face(m_FTLibrary, pFontData, FontDataSize, -1, &FtFace);
++		FT_Error CollectionLoadError = NewFace(pFontPath, pFontData, FontDataSize, -1, &FtFace);
+ 		if(CollectionLoadError)
+ 		{
+ 			log_error("textrender", "Failed to load font file '%s': %s", pFontName, FT_Error_String(CollectionLoadError));
+@@ -1055,7 +1065,7 @@
+ 		bool LoadedAny = false;
+ 		for(FT_Long FaceIndex = 0; FaceIndex < NumFaces; ++FaceIndex)
+ 		{
+-			FT_Error FaceLoadError = FT_New_Memory_Face(m_FTLibrary, pFontData, FontDataSize, FaceIndex, &FtFace);
++			FT_Error FaceLoadError = NewFace(pFontPath, pFontData, FontDataSize, FaceIndex, &FtFace);
+ 			if(FaceLoadError)
+ 			{
+ 				log_error("textrender", "Failed to load font face %ld from font file '%s': %s", FaceIndex, pFontName, FT_Error_String(FaceLoadError));
+@@ -1220,11 +1230,21 @@
+ 
+ 				char aFontName[IO_MAX_PATH_LENGTH];
+ 				str_format(aFontName, sizeof(aFontName), "fonts/%s", FontFiles[FontFileIndex].u.string.ptr);
++				// Open the font by its path first, so the font files (about 31 MB with the CJK fallbacks) don't sit
++				// in the heap for the whole session; read it into memory only if that fails.
++				char aFontPath[IO_MAX_PATH_LENGTH];
++				IOHANDLE FontFile = Storage()->OpenFile(aFontName, IOFLAG_READ, IStorage::TYPE_ALL, aFontPath, sizeof(aFontPath));
++				if(FontFile)
++				{
++					io_close(FontFile);
++					if(LoadFontCollection(aFontName, aFontPath, nullptr, 0))
++						continue;
++				}
+ 				void *pFontData;
+ 				unsigned FontDataSize;
+ 				if(Storage()->ReadFile(aFontName, IStorage::TYPE_ALL, &pFontData, &FontDataSize))
+ 				{
+-					if(LoadFontCollection(aFontName, static_cast<FT_Byte *>(pFontData), (FT_Long)FontDataSize))
++					if(LoadFontCollection(aFontName, nullptr, static_cast<FT_Byte *>(pFontData), (FT_Long)FontDataSize))
+ 					{
+ 						m_vpFontData.push_back(pFontData);
+ 					}

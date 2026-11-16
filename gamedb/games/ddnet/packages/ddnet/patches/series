@@ -1,2 +1,3 @@
 0001-Sockets-non-blocking-on-big-endian-64-bit-too-FIONBI.patch
 0002-Upload-map-textures-every-16-MB-instead-of-all-at-the-first-frame.patch
+0003-Open-fonts-by-path-instead-of-reading-them-into-the-heap.patch
