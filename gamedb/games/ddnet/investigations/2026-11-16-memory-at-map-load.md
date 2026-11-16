@@ -63,6 +63,11 @@ Tested on the PS3 the same afternoon (ps3.1485~dev, a local build, against the i
   86 fps against 87 and 84; load 63.8 and 82.2 s against 86.2 and 88.0. Out-of-VRAM lines 87 and 21
   against 21 and 25. The pictures alike; the white rectangle is the map's keyboard tutorial image, drawn
   in one run of each arm and white in the other (a texture that didn't get VRAM: not the patch).
+- The CI build, ps3.1595 (byte-identical to ps3.1485~dev), installed from walnut-testing and run twice more the
+  same afternoon with the swap on: stalls 33.4 and 30.4 s, longest frame 27.9 and 24.8 s, load 84.6 and 78.4 s,
+  out-of-VRAM lines 20 and 21. Over the four runs of the patched binary the stall gain against ps3.874 is smaller
+  than the first pair showed (22.1-33.4 s against 34.8 and 36.6) and the longest frame mostly the same; no run
+  is worse. The reliable win is the peak heap.
 
 ## Next
 
