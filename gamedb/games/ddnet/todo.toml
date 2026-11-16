@@ -9,4 +9,11 @@ text = """\
 VRAM pressure: the client takes 184 MB of VRAM, 26 `ps3rsx: out of VRAM` lines (buffers up to 10.9 MB), a 25.7 s \
 longest frame and 35.9 s of stalls in the window, and a white rectangle in the sky (probably a texture whose \
 allocation failed). Find which allocations are the 10.9 MB ones (the map's textures?) and whether the smoke \
-runs with the VRAM swap off (the default) are OOM-killed because of them (384 MB disk swap full at 58 s)."""
+runs with the VRAM swap off (the default) are OOM-killed because of them (384 MB disk swap full at 58 s). \
+2026-11-16 (ps3rsx 0.1589, the VRAM swap on with slot reuse, kernel .1554): OOM-killed in both of two smokes \
+(at about 60 s), 12 `out of VRAM` lines (656 KiB to 6.1 MiB). A memory sampler beside the second run: DDNet's \
+main heap ([heap], brk) grew to 147 MB and its thread arenas to about 70 MB within a minute, nearly all of it \
+pushed to swap, while the 64 MB CMA GART was full (CmaFree 332 kB) and the client held about 190 MB of VRAM; \
+swap free fell from 287 MB to 0.6 MB. So the OOM is the process's own malloc'd memory, not GPU buffers. Next: a \
+malloc trace (which callers: DDNet's image loads or Mesa's texture copies), and whether the 11-14 runs that \
+lived (200 fps steady) loaded a smaller map."""
