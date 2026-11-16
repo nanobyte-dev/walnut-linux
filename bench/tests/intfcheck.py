@@ -243,10 +243,18 @@ def live_checks(exe, tmp):
     with kmsg.open("a") as f:
         f.write("6,2,2,-;usb 3-2: new full-speed USB device number 4 using ehci-pci\n"
                 "6,3,3,-;input: Sony PLAYSTATION(R)3 Controller as /devices/ps3_system/sb_08/usb3/3-2/input/input9\n")
-    tmpf = d / "sess" / ".#77abc"
+    # logind updating a session's state (2026-11-16: the bench X server taking vt1's tty): a #NNNN
+    # file written and closed, and a known session rewritten through a temporary file: no new login
+    st = d / "sess" / "#1594"
+    st.write_text("")
+    st.unlink()
+    rew = d / "sess" / ".#5def"
+    rew.write_text("USER=tibi\nSERVICE=sshd\n")
+    rew.rename(d / "sess" / "5")
+    tmpf = d / "sess" / ".#c77abc"
     tmpf.write_text("USER=walnut\nSERVICE=sshd\nREMOTE_HOST=192.0.2.45\nCLASS=user\n")
-    tmpf.rename(d / "sess" / "77")
-    (d / "sess" / "77.ref").write_text("")
+    tmpf.rename(d / "sess" / "c77")
+    (d / "sess" / "c77.ref").write_text("")
     game.kill()
     game.wait()
     time.sleep(0.3)
@@ -282,8 +290,8 @@ def live_checks(exe, tmp):
     check("intfwatch live: the USB connect line counted, the input line recorded",
           "usb connect" in sm.get("interference", "") and "kernel input/HID/Bluetooth" in sm.get("info", ""), sm)
     check("intfwatch live: the old kernel line (before the start) not counted", "usb disconnect" not in sm.get("interference", ""), sm)
-    check("intfwatch live: the new session 77 counted (its .ref and temp file not)",
-          "1 login(s): session 77 (walnut, sshd from 192.0.2.45, user)" in sm.get("interference", ""), sm.get("interference"))
+    check("intfwatch live: the new session c77 counted (its .ref and temp file not)",
+          "1 login(s): session c77 (walnut, sshd from 192.0.2.45, user)" in sm.get("interference", ""), sm.get("interference"))
     login_check("intfwatch live: the busy older process counted", any("BUSY" in line and "python" in line for line in flagged), flagged)
     check("intfwatch live: own CPU reported", "# self cpu=" in t, t[-200:])
     login_check("intfwatch live: the summary has the command and the session",

@@ -890,8 +890,14 @@ static void sess_new(const char *name, int startup)
 {
 	char path[300], b[4096], *l, user[64] = "?", svc[64] = "?", host[96] = "", cls[32] = "";
 	int i;
-	if (name[0] == '.' || strchr(name, '.'))	/* temporary files, .ref fifos */
-		return;
+	/* only logind's session names count: digits, or c and digits (c19). Temporary files (.#c19...),
+	 * .ref fifos and #NNNN (the kernel's name for logind's O_TMPFILE state file before it is linked in, made whenever a session's state changes, e.g. when
+	 * the bench X server takes vt1's tty: 2026-11-16) are not new logins */
+	{
+		const char *p = name[0] == 'c' ? name + 1 : name;
+		if (!*p || strspn(p, "0123456789") != strlen(p))
+			return;
+	}
 	for (i = 0; i < n_known_sess; i++)
 		if (!strcmp(known_sess[i], name))
 			return;
